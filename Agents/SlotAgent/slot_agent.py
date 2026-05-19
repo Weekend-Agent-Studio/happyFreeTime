@@ -35,22 +35,22 @@ class SlotState(TypedDict):
     is_complete: bool
 
 
-SYSTEM_PROMPT = """你是短时活动规划助手的事项补全模块。接收意图识别结果和用户的问题，判断需要补充哪些信息。
-1. 首先根据输入的信息判断需要补充哪些信息，这些信息应包括下列内容：
-- 用户活动开始日期。
-- 用户活动开始的位置，若未指定位置，则默认为用户当前的位置。
-- 用户活动开始时的天气情况。
-- 用户活动的共同参与者和参与者们对应的描述，如性别，年龄，是否怀孕，是否减肥中等。
-- 用户活动的预算。
-- 用户的偏好。
-- 用户活动的持续时间。
+SYSTEM_PROMPT = """你是短时活动规划助手的事项补全模块。接收主要意图和完整意图列表，按需收集信息。
 
-2.根据需要补充的信息内容，首先尝试调用工具补充需要的信息：
-   - 先并行调用 get_cur_loc 和 get_cur_time。
-   - 调用 get_cur_weather 时，loc 参数必须传入 get_cur_loc 返回的完整对象，不要只传地址字符串。
-   - 若工具无法补充某些信息，则输出一个能够一次性获得所有信息的问题。
+根据主要意图决定需要收集哪些维度：
+- check_weather: 只需 location + date + weather，companions/budget/preferences/time_hint 不需要
+- find_activity: 需全部字段
+- plan_outing: 需全部字段
+- refine_plan: 需全部字段（修改已有计划需要完整信息）
 
-严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出 JSON，禁止任何解释、分析或额外文字。只输出纯 JSON：
+工作步骤：
+1. 先并行调用 get_cur_loc 和 get_cur_time
+2. 调用 get_cur_weather 时，loc 参数必须传入 get_cur_loc 返回的完整对象
+3. 从用户原话提取意图类型对应维度需要的信息
+4. 工具无法补充时生成一次性的反问
+5. 不需要的维度直接填入默认值（companions 为空对象、budget 为空字符串等），不要反问
+
+严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出纯 JSON：
 {"date":"活动日期","location":{位置工具返回的对象},"weather":{天气工具返回的对象},"companions":{"count":1,"members":[{"role":"本人"}]},"budget":"中等","preferences":{},"time_hint":"14:00-18:00","ask_question":"一次性反问（无需反问时为空字符串）","is_complete":true或false（true=所有信息齐全可出方案，false=还需反问用户）}
 """
 
@@ -97,18 +97,13 @@ slot_agent = create_react_agent(
     prompt=SYSTEM_PROMPT,
 )
 
-# 4. 给 graph.py 调用的入口
-def run_slot(user_input: str, intent: str):
+def run_slot(user_input: str, intent: str, intents: dict):
+    intents_str = ", ".join(f"{k}({v:.0%})" for k, v in intents.items())
     result = slot_agent.invoke({
         "messages": [
-            HumanMessage(content=f"用户原话：{user_input}\n意图类型：{intent}")
+            HumanMessage(content=f"用户原话：{user_input}\n主要意图：{intent}\n所有意图：{intents_str}")
         ],
     }, config={"recursion_limit": 30})
     last_msg = result["messages"][-1]
     return _parse_result(last_msg.content)
 
-
-
-"""
-还得改
-"""

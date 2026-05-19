@@ -6,22 +6,19 @@ from Agents.slot_agent import run_slot
 from langgraph.types import interrupt
 
 class State(TypedDict):
-    # 用户输入
     user_input: str
-
-    # 意图识别结果
     intent: str
-    # 事项补全返回的结果
+    intents: dict
     slot: dict
 
 
 def intent_node(state: State):
     result = classify_intent(state["user_input"])
-    return {"intent": result["intent"]}
+    return {"intent": result["primary"], "intents": result["intents"]}
 
 
 def slot_node(state: State):
-    slot = run_slot(state['user_input'], state['intent'])
+    slot = run_slot(state['user_input'], state['intent'], state['intents'])
     # 把 slot 结果写回 state
     if not slot['is_complete']:
         user_answer = interrupt({"question": slot["ask_question"]})
