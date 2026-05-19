@@ -24,8 +24,7 @@ def get_cur_time():
         "day": now.day,
         "weekday": week_list[now.weekday()],
         "hour": now.hour,
-        "minute": now.minute,
-        "second": now.second
+        "minute": now.minute
     }
 
 @tool
@@ -42,15 +41,16 @@ def get_cur_loc():
     }
 
 @tool
-def get_cur_weather(loc, date):
+def get_cur_weather(loc: dict, date):
     '''
-    根据传入的位置和日期获取天气情况。当前为 Demo 版本，返回默认内容。
+    根据传入的位置和日期获取天气情况。loc 为 get_cur_loc 返回的字典，包含 address 和 district。
     '''
     return {
-        "address": loc["address"],
-        "district": loc["district"],
+        "address": loc.get("address", ""),
+        "district": loc.get("district", ""),
         "date": date,
         "weather": "晴朗",
+
         "temperature": "12摄氏度",
         "broadcast": "未来24小时会有降水"
     }

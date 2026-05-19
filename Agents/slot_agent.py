@@ -15,121 +15,100 @@ from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from Tools import get_cur_loc, get_cur_time, get_cur_weather
+from langgraph.prebuilt import create_react_agent
 
 load_dotenv()
-
-
-SYSTEM_PROMPT = """你是短时活动规划助手的信息补全模块。接收用户原话和意图类型，补全生成出行方案所需的全部信息。
-
-可用工具：get_cur_loc（获取位置）、get_cur_time（获取时间）、get_cur_weather（查天气）。
-
-工作步骤：
-1. 调用 get_cur_loc 和 get_cur_time
-2. 用位置和今天日期调用 get_cur_weather
-3. 从用户原话提取同行人信息（人数/性别/年龄/忌口）、预算、活动偏好
-4. 可推断的按默认值：没说位置→用当前位置，"离家近"→5km，"下午"→14:00、4小时，没提预算→"中等"
-5. 无法推断的填入 missing_fields 并生成一句自然的中文反问
-
-严格按以下 JSON 格式输出（勿输出 markdown 代码块）：
-{"location":{工具返回},"time":{工具返回},"weather":{工具返回},"enriched_slots":{"time_start":"14:00","duration_hours":4,"radius_km":5,"party":{"count":1,"members":[{"role":"本人"}]},"budget":"中等","activity_preference":""},"missing_fields":["字段名"],"ask_question":"一次性反问","is_complete":true/false,"reasoning":"简短理由"}
-"""
 
 
 class SlotState(TypedDict):
     user_input: str
     intent: str
-    enriched_slots: Dict[str, Any]
-    missing_fields: List[str]
+
+    date: str
+    location: Dict[str, Any]
+    weather: Dict[str, Any]
+    companions: Dict[str, Any]
+    budget: str
+    preferences: Dict[str, Any]
+    time_hint: str
     ask_question: str
     is_complete: bool
-    reasoning: str
 
 
-TOOLS = [get_cur_loc, get_cur_time, get_cur_weather]
-TOOL_BY_NAME = {t.name: t for t in TOOLS}
+SYSTEM_PROMPT = """你是短时活动规划助手的事项补全模块。接收意图识别结果和用户的问题，判断需要补充哪些信息。
+1. 首先根据输入的信息判断需要补充哪些信息，这些信息应包括下列内容：
+- 用户活动开始日期。
+- 用户活动开始的位置，若未指定位置，则默认为用户当前的位置。
+- 用户活动开始时的天气情况。
+- 用户活动的共同参与者和参与者们对应的描述，如性别，年龄，是否怀孕，是否减肥中等。
+- 用户活动的预算。
+- 用户的偏好。
+- 用户活动的持续时间。
+
+2.根据需要补充的信息内容，首先尝试调用工具补充需要的信息：
+   - 先并行调用 get_cur_loc 和 get_cur_time。
+   - 调用 get_cur_weather 时，loc 参数必须传入 get_cur_loc 返回的完整对象，不要只传地址字符串。
+   - 若工具无法补充某些信息，则输出一个能够一次性获得所有信息的问题。
+
+严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出 JSON，禁止任何解释、分析或额外文字。只输出纯 JSON：
+{"date":"活动日期","location":{位置工具返回的对象},"weather":{天气工具返回的对象},"companions":{"count":1,"members":[{"role":"本人"}]},"budget":"中等","preferences":{},"time_hint":"14:00-18:00","ask_question":"一次性反问（无需反问时为空字符串）","is_complete":true或false（true=所有信息齐全可出方案，false=还需反问用户）}
+"""
 
 
-def _get_llm():
+def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
-        model=os.getenv("MODEL_NAME", "deepseek-chat"),
+        model=os.getenv("MODEL_NAME", "deepseek-v4-pro"),
         api_key=os.getenv("LLM_API"),
         base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
     )
 
-
 def _parse_result(raw: str) -> dict:
     text = raw.strip()
+    # 去掉 markdown 代码块
     if text.startswith("```"):
         lines = text.split("\n")
         text = "\n".join(lines[1:]) if lines[0].startswith("```") else text
         if text.endswith("```"):
             text = text[:-3]
+    # 从混杂文本中提取 JSON
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         return {
-            "enriched_slots": {},
-            "missing_fields": ["全部信息"],
-            "ask_question": "信息不完整，请重新描述一下出行需求？",
+            "date": "",
+            "location": {},
+            "weather": {},
+            "companions": {},
+            "budget": "",
+            "preferences": {},
+            "time_hint": "",
+            "ask_question": "解析失败，请重新描述需求",
             "is_complete": False,
-            "reasoning": "JSON 解析失败",
         }
 
+slot_agent = create_react_agent(
+    model=_get_llm(),
+    tools=[get_cur_loc, get_cur_time, get_cur_weather],
+    prompt=SYSTEM_PROMPT,
+)
 
-def _slot_node(state: SlotState) -> SlotState:
-    llm = _get_llm()
-    llm_with_tools = llm.bind_tools(TOOLS)
-
-    messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=f"用户原话：{state['user_input']}\n意图类型：{state['intent']}"),
-    ]
-
-    for _ in range(5):
-        response = llm_with_tools.invoke(messages)
-        messages.append(response)
-
-        if response.tool_calls:
-            for tc in response.tool_calls:
-                tool = TOOL_BY_NAME.get(tc["name"])
-                if tool:
-                    result = tool.invoke(tc["args"])
-                    messages.append(ToolMessage(
-                        content=json.dumps(result, ensure_ascii=False),
-                        tool_call_id=tc["id"],
-                    ))
-        else:
-            parsed = _parse_result(response.content)
-            state["enriched_slots"] = parsed.get("enriched_slots", {})
-            state["missing_fields"] = parsed.get("missing_fields", [])
-            state["ask_question"] = parsed.get("ask_question", "")
-            state["is_complete"] = parsed.get("is_complete", False)
-            state["reasoning"] = parsed.get("reasoning", "")
-            return state
-
-    state["is_complete"] = False
-    state["ask_question"] = "处理超时，请重新描述需求"
-    return state
+# 4. 给 graph.py 调用的入口
+def run_slot(user_input: str, intent: str):
+    result = slot_agent.invoke({
+        "messages": [
+            HumanMessage(content=f"用户原话：{user_input}\n意图类型：{intent}")
+        ],
+    }, config={"recursion_limit": 30})
+    last_msg = result["messages"][-1]
+    return _parse_result(last_msg.content)
 
 
-def build_slot_agent():
-    graph = StateGraph(SlotState)
-    graph.add_node("slot", _slot_node)
-    graph.set_entry_point("slot")
-    graph.add_edge("slot", END)
-    return graph.compile()
 
-
-def run_slot(user_input: str, intent: str) -> SlotState:
-    agent = build_slot_agent()
-    initial: SlotState = {
-        "user_input": user_input,
-        "intent": intent,
-        "enriched_slots": {},
-        "missing_fields": [],
-        "ask_question": "",
-        "is_complete": False,
-        "reasoning": "",
-    }
-    return agent.invoke(initial)
+"""
+还得改
+"""
