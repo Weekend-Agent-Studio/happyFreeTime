@@ -1,0 +1,144 @@
+[
+  {
+    "id": "rest_001",
+    "name": "青禾轻食餐厅",
+    "type": "restaurant",
+    "category": ["轻食", "西餐", "健康餐"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区建国路88号商场5层",
+    "lat": 39.9090,
+    "lng": 116.4718,
+    "avg_price": 72,
+    "rating": 4.7,
+    "review_count": 860,
+    "duration_minutes": 60,
+    "open_hours": {
+      "sat": "10:30-21:30",
+      "sun": "10:30-21:30"
+    },
+    "diet_tags": ["低卡", "高蛋白", "儿童餐", "少油"],
+    "scene_tags": ["家庭", "安静", "健康"],
+    "party_size_supported": [2, 3, 4, 5, 6],
+    "has_private_room": false,
+    "has_child_chair": true,
+    "reservation_required": true,
+    "queue_risk": "low",
+    "queue_minutes_estimate": 5,
+    "available_tables": [
+      {"date": "2026-05-23", "time": "16:30", "party_size": 3, "status": "available"},
+      {"date": "2026-05-23", "time": "17:00", "party_size": 3, "status": "available"},
+      {"date": "2026-05-23", "time": "17:30", "party_size": 3, "status": "few_left", "remaining": 1},
+      {"date": "2026-05-23", "time": "18:00", "party_size": 4, "status": "available"},
+      {"date": "2026-05-24", "time": "12:00", "party_size": 2, "status": "available"}
+    ],
+    "signature_items": ["鸡胸肉能量碗", "儿童番茄意面", "低脂酸奶杯"],
+    "review_summary": {
+      "pros": ["沙拉选择多", "有儿童餐", "距离商场活动区近"],
+      "cons": ["饭点出餐慢"]
+    }
+  },
+  {
+    "id": "rest_002",
+    "name": "西贝莜面村（双井店）",
+    "type": "restaurant",
+    "category": ["西北菜", "中式", "家庭"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区双井桥东200米",
+    "lat": 39.9015,
+    "lng": 116.4680,
+    "avg_price": 95,
+    "rating": 4.6,
+    "review_count": 2100,
+    "duration_minutes": 70,
+    "open_hours": {
+      "sat": "09:30-21:30",
+      "sun": "09:30-21:30"
+    },
+    "diet_tags": ["西北风味", "儿童餐", "牛羊肉"],
+    "scene_tags": ["家庭", "朋友聚餐", "热闹"],
+    "party_size_supported": [2, 3, 4, 5, 6, 8],
+    "has_private_room": true,
+    "has_child_chair": true,
+    "reservation_required": false,
+    "queue_risk": "high",
+    "queue_minutes_estimate": 30,
+    "available_tables": [],
+    "signature_items": ["烤羊排", "莜面鱼鱼", "黄米凉糕"],
+    "review_summary": {
+      "pros": ["口味稳定", "儿童友好", "有包间适合家庭"],
+      "cons": ["周末饭点排队严重", "部分菜品偏油腻"]
+    }
+  },
+  {
+    "id": "rest_003",
+    "name": "井格重庆火锅（国贸店）",
+    "type": "restaurant",
+    "category": ["火锅", "川菜", "聚餐"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区光华路15号",
+    "lat": 39.9160,
+    "lng": 116.4690,
+    "avg_price": 120,
+    "rating": 4.5,
+    "review_count": 1780,
+    "duration_minutes": 90,
+    "open_hours": {
+      "sat": "11:00-23:00",
+      "sun": "11:00-22:00"
+    },
+    "diet_tags": ["火锅", "麻辣", "聚餐", "肉食"],
+    "scene_tags": ["朋友聚餐", "热闹", "夜生活"],
+    "party_size_supported": [2, 4, 6, 8],
+    "has_private_room": false,
+    "has_child_chair": false,
+    "reservation_required": true,
+    "queue_risk": "high",
+    "queue_minutes_estimate": 45,
+    "available_tables": [
+      {"date": "2026-05-23", "time": "17:00", "party_size": 4, "status": "few_left", "remaining": 1},
+      {"date": "2026-05-23", "time": "18:00", "party_size": 4, "status": "sold_out"},
+      {"date": "2026-05-23", "time": "19:00", "party_size": 4, "status": "available"}
+    ],
+    "signature_items": ["毛肚", "虾滑", "九宫格锅底"],
+    "review_summary": {
+      "pros": ["菜品新鲜", "适合朋友聚会", "营业时间晚"],
+      "cons": ["无儿童椅", "高峰期排队严重", "不适合安静约会"]
+    }
+  },
+  {
+    "id": "rest_004",
+    "name": "花园西餐厅·La Maison",
+    "type": "restaurant",
+    "category": ["西餐", "法餐", "约会"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区三里屯路19号",
+    "lat": 39.9325,
+    "lng": 116.4565,
+    "avg_price": 180,
+    "rating": 4.8,
+    "review_count": 670,
+    "duration_minutes": 90,
+    "open_hours": {
+      "sat": "11:00-22:00",
+      "sun": "11:00-22:00"
+    },
+    "diet_tags": ["西餐", "精致", "甜点", "红酒"],
+    "scene_tags": ["约会", "安静", "浪漫"],
+    "party_size_supported": [2, 3, 4],
+    "has_private_room": false,
+    "has_child_chair": false,
+    "reservation_required": true,
+    "queue_risk": "medium",
+    "queue_minutes_estimate": 20,
+    "available_tables": [
+      {"date": "2026-05-23", "time": "18:00", "party_size": 2, "status": "available"},
+      {"date": "2026-05-23", "time": "19:00", "party_size": 2, "status": "few_left", "remaining": 1},
+      {"date": "2026-05-24", "time": "12:00", "party_size": 2, "status": "available"}
+    ],
+    "signature_items": ["安格斯牛排", "黑松露烩饭", "提拉米苏"],
+    "review_summary": {
+      "pros": ["环境优雅", "适合约会", "甜品出色"],
+      "cons": ["价格偏高", "不适合带儿童", "4人以上不方便"]
+    }
+  }
+]
