@@ -1,0 +1,149 @@
+[
+  {
+    "id": "act_001",
+    "name": "星河亲子探索馆",
+    "type": "activity",
+    "category": ["亲子", "室内", "科普"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区建国路88号",
+    "lat": 39.9087,
+    "lng": 116.4713,
+    "avg_price": 88,
+    "rating": 4.6,
+    "review_count": 1240,
+    "duration_minutes": 90,
+    "open_hours": {
+      "sat": "10:00-20:00",
+      "sun": "10:00-20:00"
+    },
+    "suitable_for": ["family", "children_3_8", "rainy_day"],
+    "not_suitable_for": ["quiet_date"],
+    "tags": ["亲子友好", "室内", "低体力消耗", "可预约"],
+    "weather_sensitive": false,
+    "queue_risk": "medium",
+    "queue_minutes_estimate": 20,
+    "booking_required": true,
+    "availability": [
+      {"date": "2026-05-23", "time": "14:00", "status": "available", "slots": 8},
+      {"date": "2026-05-23", "time": "14:30", "status": "available", "slots": 12},
+      {"date": "2026-05-23", "time": "15:00", "status": "available", "slots": 5},
+      {"date": "2026-05-24", "time": "10:00", "status": "available", "slots": 15},
+      {"date": "2026-05-24", "time": "14:00", "status": "available", "slots": 10}
+    ],
+    "packages": [
+      {"id": "pkg_act_001_adult", "name": "成人票", "price": 88},
+      {"id": "pkg_act_001_family", "name": "亲子双人票（1成人+1儿童）", "price": 158},
+      {"id": "pkg_act_001_child", "name": "儿童票", "price": 58}
+    ],
+    "review_summary": {
+      "pros": ["互动项目多", "适合5岁左右孩子", "室内不受天气影响"],
+      "cons": ["周末下午人较多", "停车紧张"]
+    }
+  },
+  {
+    "id": "act_002",
+    "name": "奥林匹克森林公园骑行",
+    "type": "activity",
+    "category": ["户外", "运动", "自然"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区科荟路33号",
+    "lat": 40.0215,
+    "lng": 116.3958,
+    "avg_price": 0,
+    "rating": 4.7,
+    "review_count": 3200,
+    "duration_minutes": 120,
+    "open_hours": {
+      "sat": "06:00-21:00",
+      "sun": "06:00-21:00"
+    },
+    "suitable_for": ["family", "friends", "outdoor_lover"],
+    "not_suitable_for": ["quiet_date", "rainy_day"],
+    "tags": ["免费", "户外", "运动", "可租车"],
+    "weather_sensitive": true,
+    "queue_risk": "low",
+    "queue_minutes_estimate": 0,
+    "booking_required": false,
+    "availability": [],
+    "packages": [],
+    "review_summary": {
+      "pros": ["免费开放", "环境好", "适合亲子骑行"],
+      "cons": ["受天气影响大", "周末人多但不拥挤"]
+    }
+  },
+  {
+    "id": "act_003",
+    "name": "今日美术馆·当代艺术展",
+    "type": "activity",
+    "category": ["室内", "展览", "文艺"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区百子湾路32号",
+    "lat": 39.8994,
+    "lng": 116.4792,
+    "avg_price": 68,
+    "rating": 4.5,
+    "review_count": 890,
+    "duration_minutes": 90,
+    "open_hours": {
+      "sat": "10:00-18:00",
+      "sun": "10:00-18:00"
+    },
+    "suitable_for": ["couple", "quiet_date", "rainy_day"],
+    "not_suitable_for": ["children_3_8", "friends_party"],
+    "tags": ["安静", "文艺", "室内", "拍照友好"],
+    "weather_sensitive": false,
+    "queue_risk": "low",
+    "queue_minutes_estimate": 5,
+    "booking_required": true,
+    "availability": [
+      {"date": "2026-05-23", "time": "14:00", "status": "available", "slots": 20},
+      {"date": "2026-05-24", "time": "10:00", "status": "available", "slots": 25}
+    ],
+    "packages": [
+      {"id": "pkg_act_003_adult", "name": "成人票", "price": 68},
+      {"id": "pkg_act_003_student", "name": "学生票", "price": 40}
+    ],
+    "review_summary": {
+      "pros": ["展品质量高", "安静适合约会", "拍照出片"],
+      "cons": ["不适合带小孩", "闭馆较早"]
+    }
+  },
+  {
+    "id": "act_004",
+    "name": "谜局密室逃脱（国贸店）",
+    "type": "activity",
+    "category": ["室内", "娱乐", "团队"],
+    "district": "朝阳区",
+    "address": "北京市朝阳区光华路9号",
+    "lat": 39.9138,
+    "lng": 116.4651,
+    "avg_price": 128,
+    "rating": 4.4,
+    "review_count": 1560,
+    "duration_minutes": 120,
+    "open_hours": {
+      "sat": "10:00-23:00",
+      "sun": "10:00-22:00"
+    },
+    "suitable_for": ["friends", "friends_party"],
+    "not_suitable_for": ["family", "children_3_8", "quiet_date"],
+    "tags": ["团队协作", "室内", "刺激", "需预约"],
+    "weather_sensitive": false,
+    "queue_risk": "high",
+    "queue_minutes_estimate": 40,
+    "booking_required": true,
+    "availability": [
+      {"date": "2026-05-23", "time": "15:00", "status": "available", "slots": 4},
+      {"date": "2026-05-23", "time": "16:00", "status": "sold_out", "slots": 0},
+      {"date": "2026-05-23", "time": "17:00", "status": "available", "slots": 2}
+    ],
+    "packages": [
+      {"id": "pkg_act_004_student", "name": "学生票", "price": 128},
+      {"id": "pkg_act_004_group4", "name": "四人团购票", "price": 448}
+    ],
+    "review_summary": {
+      "pros": ["主题新颖", "适合4人团队", "难度适中"],
+      "cons": ["热门时段需提前预约", "周末排队时间长"]
+    }
+  }
+]
