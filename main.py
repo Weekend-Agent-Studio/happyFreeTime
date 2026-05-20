@@ -3,7 +3,8 @@ from langgraph.types import Command
 
 from Agents.graph import app
 
-TEST_INPUT = "今天下午是空的，想和老婆孩子出去玩几个小时，别离家太远，帮我安排一下。"
+# TEST_INPUT = "今天下午是空的，想和老婆孩子出去玩几个小时，别离家太远，帮我安排一下。"
+TEST_INPUT = "今天天气怎么样？"
 
 # 模拟用户回复（非交互模式下用）
 TEST_ANSWER = "孩子5岁男孩，玩到6点，预算500以内，喜欢户外活动"

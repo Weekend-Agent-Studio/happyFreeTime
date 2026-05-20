@@ -13,17 +13,22 @@ from langchain_openai import ChatOpenAI
 load_dotenv()
 
 
-SYSTEM_PROMPT = """你是短时活动规划助手的意图识别模块。只做一件事：判断用户意图。
+SYSTEM_PROMPT = """你是短时活动规划助手的意图识别模块。判断用户可能包含的所有意图，一句用户输入可能同时涉及多个意图。
 
 意图类型：
 - plan_outing: 用户想规划短时外出活动安排
-- find_activity: 用户想查找特定类型的活动
+- find_activity: 用户想查找特定类型的活动/餐厅/场所
 - check_weather: 用户想查询天气
 - refine_plan: 用户想调整已有计划
-- chitchat: 闲聊或其他无关话题
+- chitchat: 闲聊或与上述无关的话题
+
+规则：
+- intents 中为每个意图给出 0.0-1.0 的置信度，仅列出置信度 > 0.3 的意图
+- primary 是最主要的意图（置信度最高的那个）
+- 纯闲聊时 intents 只包含 chitchat
 
 严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出纯 JSON：
-{"intent":"意图类型","confidence":0.0-1.0,"reasoning":"简短理由"}
+{"intents":{"plan_outing":0.9,"check_weather":0.4},"primary":"plan_outing","reasoning":"简短理由"}
 """
 
 
@@ -50,7 +55,7 @@ def _parse_result(raw: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {"intent": "chitchat", "confidence": 0.0, "reasoning": "JSON 解析失败"}
+        return {"intents": {"chitchat": 1.0}, "primary": "chitchat", "reasoning": "JSON 解析失败"}
 
 
 def classify_intent(user_input: str) -> dict:
