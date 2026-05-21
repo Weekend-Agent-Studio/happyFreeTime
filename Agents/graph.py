@@ -2,7 +2,8 @@ from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, List, Dict, Any
 
 from Agents.IntentAgent.intent_agent import classify_intent
-from Agents.slot_agent import run_slot
+from Agents.SlotAgent.slot_agent import run_slot
+from Agents.PlannerAgent.planner_agent import run_planner
 from langgraph.types import interrupt
 
 class State(TypedDict):
@@ -10,6 +11,7 @@ class State(TypedDict):
     intent: str
     intents: dict
     slot: dict
+    plans: dict
 
 
 def intent_node(state: State):
@@ -29,28 +31,35 @@ def slot_node(state: State):
 
     return {"slot": slot}
 
+def planner_node(state: State):
+    plans = run_planner(state['user_input'], state['intent'], state['intents'], state['slot'])
+    return {"plans": plans}
    
 graph = StateGraph(State)
 graph.add_node("intent", intent_node)
 graph.add_node("slot", slot_node)
+graph.add_node("planner", planner_node)
 graph.set_entry_point("intent")
 
 
 def route_after_intent(state: State):
     if state["intent"] == "chitchat":
         return END
+    elif state["intent"] == "refine_plan" and state["slot"].get("is_complete"):
+        return "planner"
     return "slot"
 
 
 def route_after_slot(state: State):
     slot = state.get("slot", {})
     if slot.get("is_complete"):
-        return END
+        return "planner"
     return "slot"
 
 
-graph.add_conditional_edges("intent", route_after_intent, {END: END, "slot": "slot"})
-graph.add_conditional_edges("slot", route_after_slot, {END: END, "slot": "slot"})
+graph.add_conditional_edges("intent", route_after_intent, {END: END, "slot": "slot", "planner": "planner"})
+graph.add_conditional_edges("slot", route_after_slot, {"planner": "planner", "slot": "slot"})
+graph.add_edge("planner", END)
 
 
 from langgraph.checkpoint.memory import MemorySaver

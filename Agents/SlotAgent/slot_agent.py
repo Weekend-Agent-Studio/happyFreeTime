@@ -52,7 +52,8 @@ SYSTEM_PROMPT = """你是短时活动规划助手的事项补全模块。接收�
 
 严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出纯 JSON：
 {"date":"活动日期","location":{位置工具返回的对象},"weather":{天气工具返回的对象},"companions":{"count":1,"members":[{"role":"本人"}]},"budget":"中等","preferences":{},"time_hint":"14:00-18:00","ask_question":"一次性反问（无需反问时为空字符串）","is_complete":true或false（true=所有信息齐全可出方案，false=还需反问用户）}
-"""
+
+重要：调用完工具后，你的最终回复必须且仅包含上述 JSON 对象，不要加任何解释、分析或对话文字。一个字都别多说，直接输出 JSON。"""
 
 
 def _get_llm() -> ChatOpenAI:
