@@ -118,6 +118,20 @@ def book_tickets(
         return {"success": False, "action_type": "book_tickets",
                 "error_code": "NOT_FOUND", "message": "活动不存在"}
 
+    # 免费 / 无需预定的活动直接返回
+    if not item.get("booking_required", True) or item.get("avg_price", 0) == 0:
+        return {
+            "success": True,
+            "action_type": "book_tickets",
+            "confirmation_id": f"FREE-{activity_id}",
+            "target_id": activity_id,
+            "target_name": item["name"],
+            "scheduled_time": f"{date} {time}",
+            "count": count,
+            "total_price": 0,
+            "message": f"{item['name']} 免费开放无需预定，直接前往即可。",
+        }
+
     # 库存检查
     avail = _get_inventory(activity_id, date, time)
     if avail <= 0:

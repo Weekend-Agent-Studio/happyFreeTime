@@ -4,6 +4,7 @@ import json
 from langgraph.types import Command
 
 from Agents.graph import app
+from time import time
 
 # TEST_INPUT = "今天下午是空的，想和朋友出去玩几个小时，别离家太远，帮我安排一下。"
 # TEST_ANSWER = "孩子5岁男孩，玩到6点，预算500以内，喜欢户外活动"
@@ -29,7 +30,6 @@ def main():
                 user_answer = input("你的回答: ")
             except (EOFError, OSError):
                 break
-                print(f"你的回答: {user_answer}")
 
             result = app.invoke(Command(resume=user_answer), config=config)
 
@@ -54,6 +54,16 @@ def main():
                     print(f"  亮点: {', '.join(plan['highlights'])}")
             print(f"\n规划理由: {plans.get('reasoning', 'N/A')}")
 
+        execution = result.get("execution", {})
+        if execution:
+            print(f"\n{'=' * 50}")
+            print("执行结果:")
+            print(f"  {execution.get('summary', 'N/A')}")
+
 
 if __name__ == "__main__":
+    start_time = time()
     main()
+    end_time = time()
+
+    print("使用的时间：", end_time - start_time)
