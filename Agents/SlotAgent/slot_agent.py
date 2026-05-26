@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
-from Tools import get_cur_loc, get_cur_time, get_cur_weather
+from Tools import get_cur_loc, get_cur_time, get_weather
 from langgraph.prebuilt import create_react_agent
 
 load_dotenv()
@@ -45,7 +45,7 @@ SYSTEM_PROMPT = """你是短时活动规划助手的事项补全模块。接收�
 
 工作步骤：
 1. 先并行调用 get_cur_loc 和 get_cur_time
-2. 调用 get_cur_weather 时，loc 参数必须传入 get_cur_loc 返回的完整对象
+2. 调用 get_weather 时，从 get_cur_loc 返回的对象中取 lat 作为 latitude、lng 作为 longitude
 3. 从用户原话提取意图类型对应维度需要的信息
 4. 工具无法补充时生成一次性的反问
 5. 不需要的维度直接填入默认值（companions 为空对象、budget 为空字符串等），不要反问
@@ -58,11 +58,28 @@ SYSTEM_PROMPT = """你是短时活动规划助手的事项补全模块。接收�
 
 def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
-        model=os.getenv("MODEL_NAME", "deepseek-v4-pro"),
+        model=os.getenv("MODEL_NAME", "deepseek-v4-flash"),
         api_key=os.getenv("LLM_API"),
         base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
+        extra_body={"thinking": {"type": "disabled"}},
     )
+
+def _repair_json(raw: str) -> dict:
+    """LLM 修复格式不正确的 JSON 输出。"""
+    llm = _get_llm()
+    response = llm.invoke([
+        SystemMessage(content="把下面文本转为合法JSON对象，只输出JSON，不要其他内容。"),
+        HumanMessage(content=raw[:2000]),
+    ])
+    # 再走一次提取+解析
+    text = response.content.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
+    return json.loads(text)
+
 
 def _parse_result(raw: str) -> dict:
     text = raw.strip()
@@ -80,31 +97,39 @@ def _parse_result(raw: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {
-            "date": "",
-            "location": {},
-            "weather": {},
-            "companions": {},
-            "budget": "",
-            "preferences": {},
-            "time_hint": "",
-            "ask_question": "解析失败，请重新描述需求",
-            "is_complete": False,
-        }
+        try:
+            return _repair_json(raw)
+        except (json.JSONDecodeError, Exception):
+            return {
+                "date": "",
+                "location": {},
+                "weather": {},
+                "companions": {},
+                "budget": "",
+                "preferences": {},
+                "time_hint": "",
+                "ask_question": "解析失败，请重新描述需求",
+                "is_complete": False,
+            }
 
 slot_agent = create_react_agent(
     model=_get_llm(),
-    tools=[get_cur_loc, get_cur_time, get_cur_weather],
+    tools=[get_cur_loc, get_cur_time, get_weather],
     prompt=SYSTEM_PROMPT,
 )
 
+
 def run_slot(user_input: str, intent: str, intents: dict):
+    import time
+    t0 = time.perf_counter()
     intents_str = ", ".join(f"{k}({v:.0%})" for k, v in intents.items())
     result = slot_agent.invoke({
         "messages": [
             HumanMessage(content=f"用户原话：{user_input}\n主要意图：{intent}\n所有意图：{intents_str}")
         ],
     }, config={"recursion_limit": 30})
+    llm_calls = sum(1 for m in result["messages"] if m.__class__.__name__ == "AIMessage")
+    print(f"[slot_agent] {time.perf_counter() - t0:.2f}s ({llm_calls} LLM calls)")
     last_msg = result["messages"][-1]
     return _parse_result(last_msg.content)
 

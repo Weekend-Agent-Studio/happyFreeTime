@@ -13,6 +13,8 @@ import json
 from datetime import datetime
 from typing import Optional
 
+import asyncio
+
 from langchain_core.tools import tool
 
 # ---- 基础信息工具 ----
@@ -46,22 +48,26 @@ def get_cur_loc() -> dict:
 
 
 @tool
-def get_cur_weather(loc: dict, date: str) -> dict:
-    """
-    根据位置和日期查询天气。
+def get_weather(latitude: str, longitude: str) -> str:
+    """查询指定经纬度的实时天气。latitude是纬度如39.9087，longitude是经度如116.4713。"""
+    from mcp.client.stdio import stdio_client, StdioServerParameters
+    from mcp import ClientSession
 
-    参数：
-        loc: get_cur_loc 返回的位置字典，包含 address 和 district
-        date: 日期字符串，格式 "2026-05-23"
-    """
-    return {
-        "address": loc.get("address", ""),
-        "district": loc.get("district", ""),
-        "date": date,
-        "weather": "晴朗",
-        "temperature": "24摄氏度",
-        "broadcast": "未来24小时无降水，适合出行",
-    }
+    async def _call():
+        server_params = StdioServerParameters(
+            command="python",
+            args=["MCP/mcp_server.py"],
+        )
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("get_weather", {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                })
+                return result.content[0].text
+
+    return asyncio.run(_call())
 
 
 # ---- 资源搜索工具 ----
