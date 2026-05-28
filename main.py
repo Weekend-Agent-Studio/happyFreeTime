@@ -11,10 +11,10 @@ from time import time
 
 
 def main():
+    print("有什么可以帮到你？\n")
     while True:
         config = {"configurable": {"thread_id": "1"}}
-        TEST_INPUT = input("有什么可以帮到你？\n")
-        print(f"用户: {TEST_INPUT}\n")
+        TEST_INPUT = input("输入：")
 
         result = app.invoke({"user_input": TEST_INPUT}, config=config)
 
@@ -33,14 +33,12 @@ def main():
 
             result = app.invoke(Command(resume=user_answer), config=config)
 
-        print(f"\n意图: {result.get('intent')}")
-        slot = result.get("slot", {})
-        print(f"位置: {slot.get('location', {}).get('address', 'N/A')}")
-        print(f"天气: {slot.get('weather', {}).get('weather', 'N/A')}")
-        print(f"参与者: {slot.get('companions', {})}")
-        print(f"预算: {slot.get('budget', 'N/A')}")
-        print(f"时间窗口: {slot.get('time_hint', 'N/A')}")
+        reply = result.get("reply", "")
+        if reply:
+            print(f"\nAgent: {reply}\n")
+            continue
 
+        slot = result.get("slot", {})
         plans = result.get("plans", {})
         if plans:
             print(f"\n{'=' * 50}")

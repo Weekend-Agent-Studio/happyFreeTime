@@ -30,9 +30,12 @@ SYSTEM_PROMPT = """你是短时活动规划助手的意图识别模块。判断�
 - 用户选择、确认、拒绝方案时 primary 应为 confirm_execution，同时输出 selected_index 字段
 - selected_index: 方案A/第一个→0，方案B/第二个→1，方案C/第三个→2，"最后一个""倒数第一个""选最后的"→-3，"不想订了""算了"→-1
 - 非 confirm_execution 意图时 selected_index 填 -2 即可
+- 当上下文提示"已有方案"时，用户表达价格/时间/偏好上的不满或调整诉求（如"太贵了""预算降到""换成室内的""改到下午"），primary 应判为 refine_plan
+
+闲聊时 reply 字段给一句简短友好的回复（1-2句），非闲聊时 reply 留空字符串即可。
 
 严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出纯 JSON：
-{"intents":{"plan_outing":0.9,"check_weather":0.4},"primary":"plan_outing","selected_index":-2,"reasoning":"简短理由"}
+{"intents":{"plan_outing":0.9,"check_weather":0.4},"primary":"plan_outing","selected_index":-2,"reasoning":"简短理由","reply":""}
 """
 
 
@@ -60,16 +63,25 @@ def _parse_result(raw: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {"intents": {"chitchat": 1.0}, "primary": "chitchat", "selected_index": -2, "reasoning": "JSON 解析失败"}
+        return {"intents": {"chitchat": 1.0}, "primary": "chitchat", "selected_index": -2, "reasoning": "JSON 解析失败", "reply": "嗯嗯~"}
 
 
-def classify_intent(user_input: str) -> dict:
+def classify_intent(user_input: str, prev_intents: dict = None, prev_reply: str = "",
+                    has_plans: bool = False) -> dict:
     import time
     t0 = time.perf_counter()
     llm = _get_llm()
+    context = user_input
+    if prev_reply:
+        context = f"上一轮助手回复：{prev_reply}\n用户本轮：{user_input}"
+    if prev_intents:
+        prev_intents_str = ", ".join(f"{k}({v:.0%})" for k, v in prev_intents.items())
+        context += f"\n上一轮意图：{prev_intents_str}"
+    if has_plans:
+        context += "\n（上下文：已有规划方案，用户如有不满或调整诉求，应判为 refine_plan）"
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=user_input),
+        HumanMessage(content=context),
     ]
     response = llm.invoke(messages)
     result = _parse_result(response.content)
