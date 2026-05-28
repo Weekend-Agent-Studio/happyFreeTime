@@ -11,6 +11,7 @@ class State(TypedDict):
     user_input: str
     intent: str
     intents: dict
+    reply: str
     slot: dict
     plans: dict
     execution: dict
@@ -18,10 +19,12 @@ class State(TypedDict):
 
 
 def intent_node(state: State):
-    result = classify_intent(state["user_input"])
+    has_plans = bool(state.get("plans", {}).get("plans"))
+    result = classify_intent(state["user_input"], state.get("intents", {}), state.get("reply", ""), has_plans=has_plans)
     return {
         "intent": result["primary"],
         "intents": result["intents"],
+        "reply": result.get("reply", ""),
         "selected_index": result.get("selected_index", -2),
     }
 
@@ -43,8 +46,12 @@ def slot_node(state: State):
     return {"slot": slot}
 
 def planner_node(state: State):
-    plans = run_planner(state['user_input'], state['intent'], state['intents'], state['slot'])
-    return {"plans": plans}
+    plans = run_planner(
+        state['user_input'], state['intent'], state['intents'], state['slot'],
+        prev_plans=state.get('plans'),
+        prev_execution=state.get('execution'),
+    )
+    return {"plans": plans, "execution": {}}
 
 
 def executor_node(state: State):

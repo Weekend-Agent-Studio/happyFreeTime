@@ -1,31 +1,39 @@
 """
 规划agent —— 短时活动规划系统的规划器
-利用意图识别结果和补全的信息给给用户规划活动等。
+两步式：LLM 决定调哪些工具 → Python 并行执行 → LLM 出方案。
 """
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
 from Tools import search_activities, search_restaurants, search_products, estimate_route
 
 load_dotenv()
 
+# 可用工具注册表
+TOOL_MAP = {
+    "search_activities": search_activities,
+    "search_restaurants": search_restaurants,
+    "search_products": search_products,
+    "estimate_route": estimate_route,
+}
 
-SYSTEM_PROMPT = """你是短时活动规划助手的规划编排模块。接收用户需求和已补全的信息，生成完整的出行方案。
+PLANNER_SYSTEM_PROMPT = """你是短时活动规划助手的规划编排模块。根据用户需求和已补全信息，先决定需要调用哪些搜索工具，一次性并行调用完。收到搜索结果后生成2-3条出行方案。
 
-规划规则：
-1. 第一轮同时并行调用 search_activities、search_restaurants、search_products（三者互不依赖，必须一次同时调用）
-2. 收到全部搜索结果后如需确认距离，可调 estimate_route，但不必须
-3. 将活动-餐厅-增量拼成一条时间连续的路线，确保地点不跳远
-4. 输出 2-3 条不同风格的方案供用户选择
-5. timeline 中每个项的 name、address、price 必须来自工具返回的真实数据，禁止自行编造活动名或餐厅名
-6. 同一活动/餐厅/商品在 timeline 中只能出现一次，将时间合并为一段，禁止拆分成多条
-7. 搜索工具返回的结果已包含营业时间、评分、价格、库存等全部信息，直接使用，无需额外调用查询工具
-8. 总计调用工具控制在 4-5 次以内：第一轮 3 个 search 同时调用 + estimate_route 0-1 次
+调用工具规则：
+1. 必须一次同时调用所需的所有工具（search_activities、search_restaurants、search_products），不要分多轮
+2. 保持地点一致——所有搜索的 loc 都使用已补全信息中的 location
+3. estimate_route 按需调用，用于确认关键点位间距离
+
+方案生成规则：
+1. 方案必须严格使用搜索结果中的真实数据（name、address、price），禁止编造
+2. 活动-餐厅-增量拼成时间连续的路线，地点不跳远
+3. 2-3条不同风格的方案，时间+活动+餐厅+增量形成连续timeline
+4. refine_plan时参考上一轮方案和执行结果，保留成功项、替换失败项
 
 严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出纯 JSON：
 {
@@ -44,8 +52,8 @@ SYSTEM_PROMPT = """你是短时活动规划助手的规划编排模块。接收�
   ],
   "reasoning": "简短理由"
 }
+重要：最终回复必须且仅包含上述 JSON 对象，不要加任何解释。"""
 
-重要：调用完工具后，你的最终回复必须且仅包含上述 JSON 对象，不要加任何解释、分析或对话文字。一个字都别多说，直接输出 JSON。"""
 
 def _get_llm() -> ChatOpenAI:
     return ChatOpenAI(
@@ -56,8 +64,8 @@ def _get_llm() -> ChatOpenAI:
         extra_body={"thinking": {"type": "disabled"}},
     )
 
+
 def _repair_json(raw: str) -> dict:
-    """LLM 修复格式不正确的 JSON 输出。"""
     llm = _get_llm()
     response = llm.invoke([
         SystemMessage(content="把下面文本转为合法JSON对象，只输出JSON，不要其他内容。"),
@@ -73,13 +81,11 @@ def _repair_json(raw: str) -> dict:
 
 def _parse_result(raw: str) -> dict:
     text = raw.strip()
-    # 去掉 markdown 代码块
     if text.startswith("```"):
         lines = text.split("\n")
         text = "\n".join(lines[1:]) if lines[0].startswith("```") else text
         if text.endswith("```"):
             text = text[:-3]
-    # 从混杂文本中提取 JSON
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -92,38 +98,88 @@ def _parse_result(raw: str) -> dict:
         except (json.JSONDecodeError, Exception):
             return {
                 "plans": [
-                {
-                    "title": "方案A标题",
-                    "style": "风格",
-                    "timeline": [
-                        {"time": "14:00-16:30", "step": "活动", "name": "xx", "address": "xx", "price": 120, "note": ""},
-                        {"time": "17:00-18:30", "step": "餐厅", "name": "xx", "address": "xx", "price": 90, "note": ""},
-                        {"time": "18:30-19:00", "step": "增量", "name": "xx", "address": "xx", "price": 40, "note": ""}
-                    ],
-                    "total_price": 250,
-                    "highlights": ["亮点1", "亮点2"]
-                }
+                    {
+                        "title": "方案A标题", "style": "风格",
+                        "timeline": [
+                            {"time": "14:00-16:30", "step": "活动", "name": "xx", "address": "xx", "price": 120, "note": ""},
+                            {"time": "17:00-18:30", "step": "餐厅", "name": "xx", "address": "xx", "price": 90, "note": ""},
+                            {"time": "18:30-19:00", "step": "增量", "name": "xx", "address": "xx", "price": 40, "note": ""}
+                        ],
+                        "total_price": 250, "highlights": ["亮点1", "亮点2"]
+                    }
                 ],
                 "reasoning": "简短理由"
             }
 
-planner_agent = create_react_agent(
-    model=_get_llm(),
-    tools=[search_activities, search_restaurants, search_products, estimate_route],
-    prompt=SYSTEM_PROMPT,
-)
+
+def _execute_tool_calls(tool_calls: list) -> list:
+    """并行执行 LLM 决定的工具调用，直接调用原始函数（不用 .invoke）。"""
+    if not tool_calls:
+        return []
+
+    def _run(tc):
+        name = tc["name"]
+        args = tc["args"]
+        func = TOOL_MAP.get(name)
+        if func is None:
+            print(f"  [tool] {name} -> 未找到工具")
+            return {"id": tc["id"], "name": name, "error": f"Unknown tool: {name}"}
+        try:
+            # @tool 调用：把整个 dict 作为输入传入
+            result = func.invoke(args)
+            print(f"  [tool] {name}({args}) -> {len(result) if isinstance(result, list) else 'ok'}")
+            return {"id": tc["id"], "name": name, "result": result}
+        except Exception as e:
+            print(f"  [tool] {name}({args}) -> ERROR: {e}")
+            return {"id": tc["id"], "name": name, "error": str(e)}
+
+    with ThreadPoolExecutor(max_workers=len(tool_calls)) as pool:
+        return list(pool.map(_run, tool_calls))
 
 
-def run_planner(user_input, intent: str, intents: dict, slots: dict):
+def run_planner(user_input, intent: str, intents: dict, slots: dict,
+                prev_plans: dict = None, prev_execution: dict = None):
     import time
     t0 = time.perf_counter()
+
     intents_str = ", ".join(f"{k}({v:.0%})" for k, v in intents.items())
-    result = planner_agent.invoke({
-        "messages": [
-            HumanMessage(content=f"用户原话：{user_input}\n主要意图：{intent}\n所有意图：{intents_str}\n补全的信息：{slots}")
-        ],
-    }, config={"recursion_limit": 50})
-    llm_calls = sum(1 for m in result["messages"] if m.__class__.__name__ == "AIMessage")
-    print(f"[planner_agent] {time.perf_counter() - t0:.2f}s ({llm_calls} LLM calls)")
-    last_msg = result["messages"][-1]
-    return _parse_result(last_msg.content)
+    context = f"用户原话：{user_input}\n主要意图：{intent}\n所有意图：{intents_str}\n补全的信息：{slots}"
+    if prev_plans and prev_plans.get("plans"):
+        context += f"\n上一轮方案：{json.dumps(prev_plans, ensure_ascii=False)}"
+    if prev_execution and prev_execution.get("results"):
+        context += f"\n上一轮执行结果：{json.dumps(prev_execution['results'], ensure_ascii=False)}"
+
+    llm = _get_llm()
+    llm_with_tools = llm.bind_tools(list(TOOL_MAP.values()))
+
+    messages = [
+        SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+        HumanMessage(content=context),
+    ]
+
+    total_tool_calls = 0
+    max_rounds = 3
+
+    for round_num in range(max_rounds):
+        response = llm_with_tools.invoke(messages)
+        tool_calls = response.tool_calls
+
+        if not tool_calls:
+            # 没有工具调用 → LLM 认为可以出方案了
+            elapsed = time.perf_counter() - t0
+            print(f"[planner_agent] {elapsed:.2f}s ({round_num + 1} LLM rounds, {total_tool_calls} tool calls)")
+            return _parse_result(response.content)
+
+        # 有工具调用 → 并行执行
+        total_tool_calls += len(tool_calls)
+        print(f"  [round{round_num}] {[(tc['name'], tc['args']) for tc in tool_calls]}")
+        tool_results = _execute_tool_calls(tool_calls)
+        messages.append(response)
+        for tr in tool_results:
+            content = json.dumps(tr.get("result") or tr.get("error"), ensure_ascii=False)
+            messages.append(ToolMessage(content=content, tool_call_id=tr["id"]))
+
+    # 兜底：达到最大轮次，强制最后一次输出
+    elapsed = time.perf_counter() - t0
+    print(f"[planner_agent] {elapsed:.2f}s (max rounds reached, {total_tool_calls} tool calls)")
+    return _parse_result(messages[-1].content)
