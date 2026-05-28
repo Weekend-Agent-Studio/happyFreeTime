@@ -1,4 +1,5 @@
 .env
+.env.example
 .idea/
 __pycache__/
 *.pyc
@@ -6,3 +7,4 @@ __pycache__/
 venv/
 .venv/
 docs/
+test/

@@ -13,16 +13,21 @@ from time import time
 def main():
     print("有什么可以帮到你？\n")
     while True:
+        # LangGraph 的会话 ID，每次对话共享同一个 ID，状态就会在多轮之间保持（靠 MemorySaver
         config = {"configurable": {"thread_id": "1"}}
         TEST_INPUT = input("输入：")
 
+        # 把用户输入推进 Graph，图从头跑到尾（或被中断）
         result = app.invoke({"user_input": TEST_INPUT}, config=config)
 
         while True:
+            # 查看这个 thread 的图当前停在哪
             snapshot = app.get_state(config)
+            # 如果为 None/空，说明图已经跑到 END 了，结束
             if not snapshot.next:
                 break
-
+            
+            # 如果图被 interrupt() 暂停了，这里就是挂起的原因（即 Slot 的反问）
             interrupt_data = snapshot.interrupts[0].value
             print(f"Agent 反问: {interrupt_data['question']}")
 

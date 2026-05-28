@@ -54,8 +54,9 @@ def get_weather(latitude: str, longitude: str) -> str:
     from mcp import ClientSession
 
     async def _call():
+        import sys
         server_params = StdioServerParameters(
-            command="python",
+            command=sys.executable,
             args=["MCP/mcp_server.py"],
         )
         async with stdio_client(server_params) as (read, write):
