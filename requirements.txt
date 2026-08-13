@@ -1,4 +1,11 @@
-langgraph>=0.2.0
-langchain-openai>=0.2.0
-langchain-core>=0.3.0
+langgraph>=1.0.0,<2.0.0
+langchain-openai>=1.0.0,<2.0.0
+langchain-core>=1.0.0,<2.0.0
 python-dotenv>=1.0.0
+pydantic>=2.10.0,<3.0.0
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.30.0,<1.0.0
+sqlalchemy>=2.0.0,<3.0.0
+alembic>=1.13.0,<2.0.0
+langgraph-checkpoint-sqlite>=3.0.0,<4.0.0
+pydantic-settings>=2.0.0,<3.0.0

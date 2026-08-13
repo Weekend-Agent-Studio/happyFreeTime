@@ -1,0 +1,53 @@
+[
+  {
+    "case_id": "default_weekend_plan",
+    "intent": "plan_outing",
+    "raw_constraints": {},
+    "expected_outcome": "plan",
+    "tags": ["defaults", "offline"]
+  },
+  {
+    "case_id": "strict_budget_missing_amount",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "budget_text": "千万别超预算",
+      "strict_budget": true
+    },
+    "expected_outcome": "question",
+    "expected_question_field": "budget_per_person",
+    "tags": ["gate", "budget"]
+  },
+  {
+    "case_id": "ambiguous_explicit_date",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "date_text": "等我忙完那天"
+    },
+    "expected_outcome": "question",
+    "expected_question_field": "date",
+    "tags": ["gate", "date"]
+  },
+  {
+    "case_id": "unresolved_explicit_location",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "location_text": "我公司附近"
+    },
+    "expected_outcome": "question",
+    "expected_question_field": "location",
+    "tags": ["gate", "location"]
+  },
+  {
+    "case_id": "strict_low_budget_conflict",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "budget_text": "人均10元以内",
+      "budget_per_person": 10,
+      "strict_budget": true
+    },
+    "expected_outcome": "conflict",
+    "expected_conflict_code": "NO_PLAN_WITHIN_STRICT_BUDGET",
+    "tags": ["planning", "conflict"]
+  }
+]
+
