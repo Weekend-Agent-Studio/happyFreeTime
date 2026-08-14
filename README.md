@@ -2,6 +2,21 @@
 
 HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 将自然语言入口、确定性约束补全、必要反问、候选方案生成和会话持久化组织在一条可检查的 LangGraph 工作流中，并提供 React 规划工作台。
 
+## 项目状态与文档入口
+
+本 README 维护当前代码已经实现的能力、运行方法、验收场景和测试命令。它回答的是“项目现在能做什么”，不是个人已经掌握到什么程度。
+
+| 入口 | 用途 |
+| --- | --- |
+| [`docs/README.md`](docs/README.md) | 文档总索引、权威层级和新会话阅读顺序 |
+| [`docs/canonical/`](docs/canonical/) | 已确认的 V2 架构基线和开发路线图 |
+| [`docs/learning/progress.md`](docs/learning/progress.md) | 学习进度；与代码完成度分开维护 |
+| [`docs/learning/milestones/m1_entry_loop.md`](docs/learning/milestones/m1_entry_loop.md) | M1 项目链路、关键设计、测试证据与面试表达 |
+| [`docs/product/product_idea_inbox.md`](docs/product/product_idea_inbox.md) | 尚未批准实现的临时想法 |
+| [`docs/collaboration/session_bootstrap.md`](docs/collaboration/session_bootstrap.md) | 新开 Codex 会话时的协作启动说明 |
+
+> 学习进度有独立价值：代码里程碑完成只说明功能存在，学习里程碑完成还要求能够解释设计、验证行为、回答追问并完成小实验。
+
 ## 前端现在可以做什么
 
 | 操作                      | 当前状态           | 说明                                                     |
