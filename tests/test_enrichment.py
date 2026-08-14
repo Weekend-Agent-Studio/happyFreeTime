@@ -2,6 +2,8 @@ import unittest
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
+
 from app.domain.constraints import (
     ActorContext,
     ConstraintSource,
@@ -49,35 +51,15 @@ class EnrichmentServiceTest(unittest.TestCase):
         self.assertEqual(result.constraints.party.confidence, 0.85)
         self.assertNotIn("party", {item.field for item in result.assumptions})
 
-    def test_party_without_an_extracted_count_remains_a_default_assumption(self) -> None:
-        interpretation = Interpretation(
-            primary_intent=Intent.PLAN_OUTING,
-            intent_scores={Intent.PLAN_OUTING: 1.0},
-            evidence_map={"party": "约会"},
-            extraction_confidence={"party": 0.85},
-            inferred_fields={"party"},
-        )
-        actor = ActorContext(
-            user_id="demo-user",
-            session_id="session-missing-party-count",
-            identity_type=IdentityType.DEMO,
-        )
-        environment = EnvironmentContext(
-            now=datetime(2026, 8, 13, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
-            default_location=GeoLocation(
-                city="北京市",
-                district="朝阳区",
-                address="北京市朝阳区",
-                latitude=39.9219,
-                longitude=116.4436,
-            ),
-        )
-
-        result = EnrichmentService().enrich(interpretation, actor, environment)
-
-        self.assertEqual(result.constraints.party.value.adults, 1)
-        self.assertEqual(result.constraints.party.source, ConstraintSource.DEFAULT_RULE)
-        self.assertIn("party", {item.field for item in result.assumptions})
+    def test_inferred_party_requires_an_extracted_party_value(self) -> None:
+        with self.assertRaises(ValidationError):
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                evidence_map={"party": "约会"},
+                extraction_confidence={"party": 0.85},
+                inferred_fields={"party"},
+            )
 
     def test_normalizes_weekday_expressions_without_an_llm_or_tool(self) -> None:
         current_date = date(2026, 8, 12)

@@ -12,7 +12,7 @@ from datetime import date as Date
 from enum import Enum
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Intent(str, Enum):
@@ -119,6 +119,32 @@ class Interpretation(BaseModel):
     inferred_fields: set[str] = Field(default_factory=set)
     reply: str = ""
     requires_clarification: bool = False
+
+    @model_validator(mode="after")
+    def validate_inferred_fields(self) -> "Interpretation":
+        """推断标记必须同时拥有实际值、证据和置信度。"""
+        for field in self.inferred_fields:
+            if field == "party":
+                raw_value_exists = any(
+                    value is not None
+                    for value in (
+                        self.raw_constraints.adults,
+                        self.raw_constraints.children,
+                        self.raw_constraints.child_age,
+                    )
+                )
+            elif hasattr(self.raw_constraints, field):
+                value = getattr(self.raw_constraints, field)
+                raw_value_exists = value not in (None, "", [], {})
+            else:
+                raw_value_exists = False
+            if not raw_value_exists:
+                raise ValueError(f"inferred field {field!r} has no extracted value")
+            if not self.evidence_map.get(field):
+                raise ValueError(f"inferred field {field!r} has no evidence")
+            if field not in self.extraction_confidence:
+                raise ValueError(f"inferred field {field!r} has no confidence")
+        return self
 
 
 T = TypeVar("T")
