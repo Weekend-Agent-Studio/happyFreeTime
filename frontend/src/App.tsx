@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 import { createSession, sendMessage } from "./api";
-import type { AgentResponse, Assumption, ChatMessage, Plan } from "./types";
+import type { AgentResponse, Assumption, ChatMessage, ConstraintSummaryItem, Plan } from "./types";
 
 const SUGGESTIONS = [
   "今天下午出去玩，别太远",
@@ -44,6 +44,36 @@ function displayAssumption(assumption: Assumption): string {
   }
   if (assumption.field === "party") return "1 位成人";
   return String(assumption.value);
+}
+
+function displayConstraint(item: ConstraintSummaryItem): string {
+  if (item.field === "party" && typeof item.value === "object") {
+    const value = item.value as { adults?: number; children?: number };
+    const total = (value.adults ?? 0) + (value.children ?? 0);
+    return `${total} 人`;
+  }
+  if (item.field === "location" && typeof item.value === "object") {
+    const value = item.value as { district?: string; address?: string; city?: string };
+    return value.district || value.address || value.city || "未解析地点";
+  }
+  if (item.field === "duration_minutes") return `${item.value} 分钟`;
+  return displayAssumption({
+    field: item.field,
+    value: item.value,
+    reason: "",
+    rule_id: item.rule_id ?? "",
+  });
+}
+
+function constraintSourceLabel(item: ConstraintSummaryItem): string {
+  if (item.source === "user_inferred") {
+    return item.evidence ? `根据“${item.evidence}”推断` : "根据需求推断";
+  }
+  if (item.source === "default_rule") return "系统默认";
+  if (item.source === "user_explicit") return "来自你的需求";
+  if (item.source === "system_context") return "本次会话信息";
+  if (item.source === "real_tool") return "外部服务确认";
+  return "已确认信息";
 }
 
 function strategyLabel(strategy: string): string {
@@ -165,13 +195,13 @@ function App() {
           <div className="location-chip"><MapPin size={15} aria-hidden="true" />北京 · 朝阳区</div>
         </header>
 
-        {response?.assumptions.length ? (
-          <section className="assumption-strip" aria-label="当前规划假设">
-            <span className="strip-title"><Sparkles size={15} aria-hidden="true" />本次假设</span>
-            {response.assumptions.map((assumption) => (
-              <span className="assumption-chip" key={assumption.field} title={assumption.reason}>
-                <strong>{ASSUMPTION_LABELS[assumption.field] ?? assumption.field}</strong>
-                {displayAssumption(assumption)}
+        {response?.constraint_summary.length ? (
+          <section className="assumption-strip" aria-label="当前规划约束">
+            <span className="strip-title"><Sparkles size={15} aria-hidden="true" />当前约束</span>
+            {response.constraint_summary.map((item) => (
+              <span className="assumption-chip" key={item.field} title={constraintSourceLabel(item)}>
+                <strong>{ASSUMPTION_LABELS[item.field] ?? item.field}</strong>
+                {displayConstraint(item)} · {constraintSourceLabel(item)}{item.user_editable ? " · 可修改" : ""}
               </span>
             ))}
           </section>

@@ -39,7 +39,8 @@ class DemoRouter:
             (phrase for phrase in ("上午", "中午", "下午", "晚上") if phrase in text),
             None,
         )
-        party_size = 2 if any(word in text for word in ("朋友", "约会", "对象")) else None
+        party_evidence = "约会" if "约会" in text else None
+        party_size = 2 if party_evidence else None
         preferences = [
             label
             for keyword, label in (
@@ -72,6 +73,7 @@ class DemoRouter:
                 "time_text": time_text,
                 "budget_per_person": budget_match.group(0) if budget_match else None,
                 "max_distance_text": distance_text,
+                "party": party_evidence,
             }.items()
             if value is not None
         }
@@ -79,6 +81,10 @@ class DemoRouter:
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
             raw_constraints=raw,
-            extraction_confidence={field: 1.0 for field in evidence},
+            extraction_confidence={
+                field: 0.85 if field == "party" else 1.0
+                for field in evidence
+            },
             evidence_map=evidence,
+            inferred_fields={"party"} if party_evidence else set(),
         )

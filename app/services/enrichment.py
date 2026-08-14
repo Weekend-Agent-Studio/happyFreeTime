@@ -155,9 +155,16 @@ class EnrichmentService:
         party_value = ConstraintValue[PartyProfile](
             value=party,
             source=(
-                ConstraintSource.USER_EXPLICIT
+                ConstraintSource.USER_INFERRED
+                if has_party and "party" in interpretation.inferred_fields
+                else ConstraintSource.USER_EXPLICIT
                 if has_party
                 else ConstraintSource.DEFAULT_RULE
+            ),
+            raw_text=(
+                interpretation.evidence_map.get("party")
+                if has_party
+                else None
             ),
             confidence=self._confidence(interpretation, "party") if has_party else None,
             rule_id=None if has_party else "party.default.solo.v1",

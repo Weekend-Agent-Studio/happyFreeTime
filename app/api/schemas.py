@@ -4,6 +4,8 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.constraints import ConstraintSource
+
 
 T = TypeVar("T")
 
@@ -20,6 +22,19 @@ class MessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
+class ConstraintSummaryItem(BaseModel):
+    """前端约束摘要；由规范化约束派生，不是独立事实来源。"""
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    value: Any
+    source: ConstraintSource
+    evidence: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    rule_id: str | None = None
+    user_editable: bool = True
+
+
 class AgentResponse(BaseModel):
     """一次 Agent 调用的统一响应。
 
@@ -32,5 +47,6 @@ class AgentResponse(BaseModel):
     reply: str = ""
     question: dict[str, Any] | None = None
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    constraint_summary: list[ConstraintSummaryItem] = Field(default_factory=list)
     plans: list[dict[str, Any]] = Field(default_factory=list)
     conflict: dict[str, Any] | None = None

@@ -11,10 +11,74 @@ from app.domain.constraints import (
     Interpretation,
     RawConstraints,
 )
+from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext, EnrichmentService
+from app.services.router_extractor import RouterContext
 
 
 class EnrichmentServiceTest(unittest.TestCase):
+    def test_date_party_is_inferred_from_the_user_phrase_not_marked_explicit(self) -> None:
+        interpretation = DemoRouter().interpret(
+            "安排一个轻松的约会，想吃甜品",
+            RouterContext(current_date=date(2026, 8, 13)),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-date-party",
+            identity_type=IdentityType.DEMO,
+        )
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 13, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.party.value.adults, 2)
+        self.assertEqual(
+            result.constraints.party.source,
+            ConstraintSource.USER_INFERRED,
+        )
+        self.assertEqual(result.constraints.party.raw_text, "约会")
+        self.assertEqual(result.constraints.party.confidence, 0.85)
+        self.assertNotIn("party", {item.field for item in result.assumptions})
+
+    def test_party_without_an_extracted_count_remains_a_default_assumption(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            evidence_map={"party": "约会"},
+            extraction_confidence={"party": 0.85},
+            inferred_fields={"party"},
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-missing-party-count",
+            identity_type=IdentityType.DEMO,
+        )
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 13, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.party.value.adults, 1)
+        self.assertEqual(result.constraints.party.source, ConstraintSource.DEFAULT_RULE)
+        self.assertIn("party", {item.field for item in result.assumptions})
+
     def test_normalizes_weekday_expressions_without_an_llm_or_tool(self) -> None:
         current_date = date(2026, 8, 12)
 

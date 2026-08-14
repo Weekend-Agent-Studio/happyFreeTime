@@ -6,6 +6,16 @@ export type Assumption = {
   rule_id: string;
 };
 
+export type ConstraintSummaryItem = {
+  field: string;
+  value: unknown;
+  source: "user_explicit" | "user_inferred" | "session_confirmed" | "memory" | "system_context" | "real_tool" | "default_rule";
+  evidence: string | null;
+  confidence: number | null;
+  rule_id: string | null;
+  user_editable: boolean;
+};
+
 export type Stop = {
   resource_id: string;
   type: "activity" | "restaurant" | "cafe" | "dessert";
@@ -47,6 +57,7 @@ export type AgentResponse = {
   reply: string;
   question: { field: string; question: string; severity: string } | null;
   assumptions: Assumption[];
+  constraint_summary: ConstraintSummaryItem[];
   plans: Plan[];
   conflict: {
     code: string;

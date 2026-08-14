@@ -14,6 +14,21 @@ from app.services.router_extractor import RouterContext
 
 class RuleRouter:
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        if "约会" in user_input:
+            return Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(
+                    date_text="今天",
+                    time_text="下午",
+                    adults=2,
+                    preferences=["轻松", "甜品"],
+                    scene_tags=["约会"],
+                ),
+                evidence_map={"party": "约会"},
+                extraction_confidence={"party": 0.85},
+                inferred_fields={"party"},
+            )
         if "人均200" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
@@ -92,6 +107,24 @@ class ApiTest(unittest.TestCase):
             f"/api/sessions/{session_id}", headers=self.headers
         )
         self.assertEqual(len(session_response.json()["data"]["plans"]), len(body["plans"]))
+
+    def test_message_exposes_inferred_party_as_an_editable_constraint(self) -> None:
+        session_id = self._create_session()
+
+        response = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={"content": "安排一个轻松的约会，想吃甜品"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        summary = response.json()["data"]["constraint_summary"]
+        party = next(item for item in summary if item["field"] == "party")
+        self.assertEqual(party["value"]["adults"], 2)
+        self.assertEqual(party["source"], "user_inferred")
+        self.assertEqual(party["evidence"], "约会")
+        self.assertEqual(party["confidence"], 0.85)
+        self.assertTrue(party["user_editable"])
 
     def test_blocking_question_resumes_on_the_next_message(self) -> None:
         session_id = self._create_session()

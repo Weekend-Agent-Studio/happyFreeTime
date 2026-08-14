@@ -116,6 +116,7 @@ class Interpretation(BaseModel):
     target_reference: str | None = None
     extraction_confidence: dict[str, float] = Field(default_factory=dict)
     evidence_map: dict[str, str] = Field(default_factory=dict)
+    inferred_fields: set[str] = Field(default_factory=set)
     reply: str = ""
     requires_clarification: bool = False
 
@@ -154,7 +155,7 @@ class TimeWindow(BaseModel):
 
 
 class NormalizedConstraints(BaseModel):
-    """Enrichment 输出给 Gate 和 Planner 的统一规划约束。"""
+    """Enrichment 输出给 Gate 和 Planner 的统一规划约束。包含来自各个来源的约束"""
     model_config = ConfigDict(extra="forbid")
 
     date: ConstraintValue[Date] | None = None

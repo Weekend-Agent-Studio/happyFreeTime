@@ -50,6 +50,7 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 - 不调用工具，不生成地点、价格、库存、路线等事实。
 - “严格控制预算”“千万别超预算”等表达令 strict_budget=true；只有明确金额才填写 budget_per_person。
 - 有儿童时尽量提取 children 和 child_age；不能确定时保持为空。
+- 由用户原话间接推断、而非直接陈述的字段写入 inferred_fields；例如从“约会”推断同行人数时写入 party。
 - 只有真正闲聊才输出 chitchat。解析不确定不等于闲聊。
 """
 

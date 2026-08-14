@@ -18,7 +18,7 @@ class DemoRouterTest(unittest.TestCase):
         )
 
         self.assertEqual(result.primary_intent, Intent.PLAN_OUTING)
-        self.assertEqual(result.raw_constraints.adults, 2)
+        self.assertIsNone(result.raw_constraints.adults)
         self.assertEqual(result.raw_constraints.budget_per_person, 150)
         self.assertEqual(result.raw_constraints.max_distance_text, "别太远")
 

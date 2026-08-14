@@ -10,7 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
-from app.api.schemas import AgentResponse, MessageRequest, ResponseEnvelope
+from app.api.schemas import (
+    AgentResponse,
+    ConstraintSummaryItem,
+    MessageRequest,
+    ResponseEnvelope,
+)
 from app.domain.constraints import ActorContext, IdentityType
 from app.orchestration.entry_graph import (
     EnvironmentProvider,
@@ -160,6 +165,7 @@ def create_app(
                     status="needs_input",
                     question=question,
                     assumptions=_dump_assumptions(result),
+                    constraint_summary=_dump_constraint_summary(result),
                 )
             )
 
@@ -192,6 +198,7 @@ def create_app(
                 status="completed",
                 reply=reply,
                 assumptions=_dump_assumptions(result),
+                constraint_summary=_dump_constraint_summary(result),
                 plans=[plan.model_dump(mode="json") for plan in plans],
                 conflict=conflict.model_dump(mode="json") if conflict else None,
             )
@@ -205,3 +212,34 @@ def _dump_assumptions(result: dict) -> list[dict]:
     if enrichment is None:
         return []
     return [item.model_dump(mode="json") for item in enrichment.assumptions]
+
+
+def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
+    """把规划实际使用的约束转换成稳定的前端摘要。"""
+    enrichment = result.get("enrichment")
+    if enrichment is None:
+        return []
+    summary = []
+    for field in (
+        "date",
+        "time_window",
+        "duration_minutes",
+        "location",
+        "party",
+        "budget_per_person",
+        "max_distance_km",
+    ):
+        constraint = getattr(enrichment.constraints, field)
+        if constraint is None:
+            continue
+        summary.append(
+            ConstraintSummaryItem(
+                field=field,
+                value=constraint.model_dump(mode="json")["value"],
+                source=constraint.source,
+                evidence=constraint.raw_text,
+                confidence=constraint.confidence,
+                rule_id=constraint.rule_id,
+            )
+        )
+    return summary
