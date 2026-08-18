@@ -1,53 +1,80 @@
 # HappyFreeTime Domain Glossary
 
-## Actor
+This glossary defines the project language used in requirements, code, tests, and interviews. It describes domain meaning rather than implementation details.
 
-The person or system identity acting in a session. An Actor may be a demo, anonymous, or registered identity.
+## Language
 
-## Session
+**Actor**:
+The person or system identity acting in a Session. An Actor may be a demo, anonymous, or registered identity.
 
-A continuous planning conversation owned by one Actor. A Session is also the recovery scope used by the orchestration graph.
+**Session**:
+A continuous planning conversation owned by one Actor. It is also the recovery boundary for an interrupted planning flow.
 
-## Run
-
+**Run**:
 One processing cycle triggered by a user turn within a Session.
 
-## Interpretation
+**Interpretation**:
+The validated semantic reading of one user turn. It may contain intent, commands, Raw Constraints, evidence, and confidence, but does not add environment facts or product defaults.
 
-The validated semantic reading of one user turn. It contains intent, commands, raw constraints, evidence, and confidence, but no environment facts or defaults.
-
-## Raw Constraint
-
+**Raw Constraint**:
 A planning-related expression preserved from the user's language. It may be precise, fuzzy, or unresolved and is not yet safe for planning calculations.
 
-## Normalized Constraint
+**Normalized Constraint**:
+A planning value with a stable type and explicit provenance. It is the constraint form consumed by planning.
 
-A planning value with a stable type and an explicit source. It is the only form of constraint consumed by planning.
+**Constraint Source**:
+The provenance of a Normalized Constraint, such as explicit user language, an evidence-based inference, system context, or a default rule. Source answers “where did this value come from?” and is independent of Constraint Strength.
 
-## Assumption
+**Constraint Strength**:
+Whether planning must satisfy a constraint or may trade it off. A constraint can be a Hard Constraint or a Planning Preference regardless of its source.
 
-A system-selected, user-editable value used when a non-blocking constraint is absent. Assumptions must be visible to the user.
+**Hard Constraint**:
+A condition that a feasible Plan must satisfy. A candidate with a Constraint Violation is removed rather than merely ranked lower.
 
-## Blocking Constraint
+**Planning Preference**:
+A desired but relaxable condition that influences retrieval, scoring, ranking, or a reported Tradeoff. Avoid treating every user-explicit expression as automatically hard.
 
+**Assumption**:
+A system-selected, user-editable value used when a non-blocking constraint is absent. Assumptions must be visible to the user and are distinct from evidence-based user inference.
+
+**Blocking Constraint**:
 Missing or ambiguous information that prevents the current action from proceeding safely or feasibly. It requires a user question instead of an Assumption.
 
-## Plan
+**Stop Candidate**:
+A single activity, restaurant, or other place-based resource eligible for inclusion in a Plan after retrieval and initial checks.
 
+**Plan**:
 A feasible itinerary composed of ordered Stops and Route Legs, with costs, evidence, scores, and execution actions.
 
-## Stop
+**Plan Strategy**:
+The named optimization emphasis of a Plan, such as lower cost or shorter travel. It is not a substitute for the Plan's structured Stops, Route Legs, timeline, and totals.
 
+**Stop**:
 A place-based activity in a Plan, such as an attraction, restaurant, cafe, or dessert venue.
 
-## Route Leg
-
+**Route Leg**:
 Travel between two adjacent Stops, including mode, distance, duration, source, and degradation status.
 
-## Order
+**Plan Verification**:
+The evaluation of an assembled Plan against whole-itinerary constraints, including its actual sequence, arrival times, totals, and route effects.
 
-The durable business record of executing one selected Plan. Graph recovery state is not the source of truth for an Order.
+**Constraint Violation**:
+A candidate-level failure to satisfy one Hard Constraint. The violation explains why that candidate is infeasible.
 
-## Provider
+**Constraint Conflict**:
+The aggregate no-solution result produced when every candidate is eliminated by one or more Constraint Violations. It should explain the blocking constraints and possible relaxation directions.
 
+**Tradeoff**:
+An acceptable sacrifice against a Planning Preference in an otherwise feasible Plan. It must not be used to excuse a Hard Constraint violation.
+
+**Warning**:
+Non-blocking information about uncertainty, stale data, degraded capability, or execution risk. A Warning does not make a Plan infeasible by itself.
+
+**Candidate Set**:
+The result of planning: either one or more feasible Plans or a Constraint Conflict. These outcomes should be mutually exclusive.
+
+**Order**:
+The durable business record of executing one selected Plan. Recovery state is not the source of truth for an Order.
+
+**Provider**:
 An implementation that supplies external or simulated facts through a stable domain interface. Providers may operate in live, record, replay, or mock mode.

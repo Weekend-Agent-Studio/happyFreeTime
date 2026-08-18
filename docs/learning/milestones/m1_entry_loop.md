@@ -1,10 +1,10 @@
 # M1 核心入口闭环学习复盘
 
-_持续更新中的学习文档；代码已完成，学习尚未完成 · 最后更新：2026-08-14_
+_持续更新中的学习文档；代码已完成，学习尚未完成 · 最后更新：2026-08-18_
 
 ---
 
-> **当前状态：** 已学习约束来源与 interrupt/resume，正在进入 Planning。本文中的面试表达仍是草稿，只有完成闭卷复述和实验后才算掌握。
+> **当前状态：** 已学习约束来源、interrupt/resume 与 Planning，下一片进入 API/持久化。本文中的面试表达仍是草稿，只有完成闭卷复述和实验后才算掌握。
 
 ## 🎯 M1 解决的问题
 
@@ -16,9 +16,6 @@ M1 明确不包含真实天气、真实 POI、真实路线、可编辑约束和�
 
 ```mermaid
 flowchart LR
-    accTitle: M1 Planning Request Flow
-    accDescr: A user request flows through FastAPI and the LangGraph entry pipeline, either pausing for a blocking answer or producing plans or a structured conflict before persistence and UI rendering.
-
     user([用户输入]) --> api[FastAPI 会话接口]
 
     subgraph graph ["LangGraph 入口闭环"]
@@ -86,6 +83,60 @@ Router 只产出事实性的结构化解释；Gate 根据产品规则检查严�
 
 用户的回答可能只是一个数字，也可能纠正时间、取消需求或开始新计划。Graph checkpoint 保存暂停状态；恢复时把原请求与补充回答组合，再经过 Router 和后续确定性节点，而不是假设回答一定等于某个字段值。
 
+### Enrichment 与 Gate 共同决定是否可规划，但不是同一步
+
+Enrichment 产出规范化约束和可见假设；Gate 再检查其中是否仍有阻断当前动作的缺失或歧义。因此，更准确的说法是“得到规范化且当前可用于规划的约束”，而不是假定 `NormalizedConstraints` 在任何情况下都包含所有字段。
+
+### 当前 Planning 数据流
+
+```text
+NormalizedConstraints
+  -> 转为旧 Planner 接受的字典
+  -> 从 Mock Catalog 召回活动与餐厅
+  -> 组合双站点候选并计算时间、费用与评分
+  -> 对完整候选执行有限的可行性复检
+  -> 把旧字典方案转回 V2 Plan
+  -> CandidateSet(plans 或 conflict)
+```
+
+V2/V1 adapter 的本质是**数据契约兼容层**：输入侧把强类型 `NormalizedConstraints` 转成旧 Planner 的字典，输出侧把旧方案字典转成 V2 `Plan`。它不表示“V1 由 LLM 直接规划、V2 改为代码规划”，也不等同于新旧多 Agent 架构的分界；当前被复用的旧 Planner 本身就是确定性代码。
+
+当前最终复检只覆盖双站点、结束时间、严格预算和总评分大于零。它能拦住部分组合级问题，但还不能证明候选在真实世界可执行。
+
+### 来源与强度是两条正交轴
+
+| 维度 | 回答的问题 | 示例 |
+| --- | --- | --- |
+| `source` | 这个值从哪里来 | 用户明确说“最晚 18:00 到家”；系统默认 `14:00–20:00` |
+| `strength` | 规划是否允许违反 | “必须 18:00 到家”是硬约束；默认结束时间通常是软偏好 |
+
+当前约束已经记录 `source`，但还没有统一记录独立的 `strength`。因此当前实现会把某些时间上限一律当作硬过滤，无法完整表达“用户明确的截止时间”和“系统默认的期望时段”之间的差别。
+
+### 可行性术语不能混用
+
+| 术语 | 作用范围 | 含义 |
+| --- | --- | --- |
+| `violation` | 单个候选 | 某个硬约束不满足，因此该候选被淘汰 |
+| `conflict` | 整个候选集 | 所有候选都因 violation 被淘汰，系统需要解释无解和放宽方向 |
+| `tradeoff` | 可行候选 | 仍然可行，但牺牲了某个软偏好，例如预算略高于偏好值 |
+| `warning` | 可行候选或系统能力 | 数据不确定、能力降级或执行风险；它本身不使方案不可行 |
+
+餐厅到达时已经打烊属于 `violation`，无需再参与偏好评分；只有所有候选都因此或因其他硬约束淘汰时，才汇总为 `conflict`。
+
+### M2 目标链路与 LLM 边界
+
+Catalog 召回不只是匹配自然语言关键词。合理的输入包括活动/用餐等结构需求、地点与半径、人数和儿童年龄、日期与可用性等硬条件，以及轻松、甜品、少赶路等偏好标签。以后可以引入语义检索或让 LLM 做查询扩展，但预算、营业、库存和时间线等硬校验仍应由结构化数据与确定性规则负责。
+
+M2 的目标可以概括为：Provider 提供天气、POI、路线与库存事实；Catalog 先召回并做单资源剪枝；Planner 组合候选；Verifier 使用实际到达时间、完整预算、路线与库存做整计划复检；最后才对可行候选评分排序。LLM 可以辅助模糊偏好理解和把结构化结果翻译成自然语言，但不能覆盖或修改硬约束判断。
+
+当前值得保留的缺口如下：
+
+- 没有按实际到达时间后验验证营业状态
+- 没有真实库存、天气和路线事实
+- 时间约束有来源，但没有统一的硬/软强度
+- “下午、晚上吃饭、必须几点结束”等组合时段语义尚不完整
+- `CandidateSet` 在语义上应为 plans 与 conflict 互斥，但当前类型还未强制该不变量
+
 ## 🧪 已完成的参与证据
 
 | 证据 | 用户参与的判断 | 自动验证 |
@@ -119,8 +170,8 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 | LangGraph State | 在节点间携带解释、约束、问题和候选 | `L2` |
 | interrupt 与 checkpoint | 暂停并恢复有状态工作流 | `L2` |
 | 确定性节点与 Agent | 根据决策自主性分配 LLM 和普通代码 | `L2` |
-| Adapter | 用稳定 V2 接口包住仍在复用的 V1 Planner | 待学习 |
-| 硬约束与评分 | 区分可行性和偏好排序 | 待学习 |
+| Adapter | 在 V2 强类型契约与旧 Planner 字典之间双向转换 | `L2` |
+| 硬约束与评分 | 区分可行性、偏好排序、tradeoff 与 conflict | `L2` |
 | API 状态机与持久化 | 区分新请求、恢复请求和业务记录 | 待学习 |
 
 ## ✅ M1 学习完成标准
@@ -137,4 +188,4 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 
 ## 📍 下一学习切片
 
-Planning：理解 `NormalizedConstraints -> CandidateSet`，以及 V2/V1 适配、候选生成、评分排序、硬约束复检和结构化冲突之间的职责边界。
+FastAPI 与 SQLite：从一条 `POST /sessions/{session_id}/messages` 请求开始，追踪新规划与 interrupt 恢复如何分流，以及 checkpoint、消息、方案记录分别承担什么职责。
