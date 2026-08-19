@@ -10,8 +10,17 @@ The person or system identity acting in a Session. An Actor may be a demo, anony
 **Session**:
 A continuous planning conversation owned by one Actor. It is also the recovery boundary for an interrupted planning flow.
 
-**Run**:
-One processing cycle triggered by a user turn within a Session.
+**Planning Run**:
+The processing lifecycle created for one logical planning submission within a Session. Retries that share a Request ID belong to the same Planning Run rather than creating duplicate work.
+
+**Request ID**:
+A client-generated identifier for one logical message submission. Retries reuse it, while a genuinely new user action receives a new value.
+
+**Session Status**:
+The user-facing lifecycle state of a Session, such as waiting for input, completed, or abandoned. It is independent of the orchestration engine's current node.
+
+**Session View**:
+A stable read model that restores the planning workspace from relevant session records and workflow state. It exposes product concepts rather than internal checkpoint structures.
 
 **Interpretation**:
 The validated semantic reading of one user turn. It may contain intent, commands, Raw Constraints, evidence, and confidence, but does not add environment facts or product defaults.

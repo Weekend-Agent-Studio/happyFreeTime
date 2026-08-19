@@ -1,10 +1,10 @@
 # M1 核心入口闭环学习复盘
 
-_持续更新中的学习文档；代码已完成，学习尚未完成 · 最后更新：2026-08-18_
+_持续更新中的学习文档；主要链路已完成，学习与缺口复盘尚未完成 · 最后更新：2026-08-19_
 
 ---
 
-> **当前状态：** 已学习约束来源、interrupt/resume 与 Planning，下一片进入 API/持久化。本文中的面试表达仍是草稿，只有完成闭卷复述和实验后才算掌握。
+> **当前状态：** 已学习约束来源、interrupt/resume、Planning 与 API/持久化，下一片进入 React。浏览器刷新恢复已确认是 M1 缺口，不能再把后端可恢复等同于端到端可恢复。
 
 ## 🎯 M1 解决的问题
 
@@ -137,6 +137,41 @@ M2 的目标可以概括为：Provider 提供天气、POI、路线与库存事�
 - “下午、晚上吃饭、必须几点结束”等组合时段语义尚不完整
 - `CandidateSet` 在语义上应为 plans 与 conflict 互斥，但当前类型还未强制该不变量
 
+### 业务持久化与 checkpoint 保存不同事实
+
+| 数据 | 当前保存位置 | 回答的问题 |
+| --- | --- | --- |
+| 用户、会话、消息、最新方案 | 业务表 | 用户拥有什么、前端可以查询什么 |
+| Graph 状态、暂停位置、interrupt | checkpoint 表 | 工作流运行到哪里、如何继续 |
+| 规范化约束与假设 | 主要在 checkpoint | 当前运行使用了什么；尚未形成稳定业务快照 |
+
+两类表当前可以位于同一个 SQLite 文件，但不能互相替代。`GET session` 只组装业务消息和最新方案，不会自动读取 checkpoint 并恢复约束条、待回答问题或 Graph 内部状态。
+
+### Session、Planning Run 与消息不是同一粒度
+
+`Session` 表示一段长期规划对话；一条逻辑提交应创建一个 `PlanningRun`；一个 Run 可以关联输入消息、约束快照、结果和错误。当前业务模型没有持久化 `run_id`，因此无法可靠表达消息、方案版本和失败属于哪一轮。
+
+客户端生成的 `request_id` 用于标识一次逻辑提交。浏览器超时后的重试应复用原 ID，服务端才能返回原 Run 或结果，而不是重复插入消息、调用模型并生成方案。服务端仍可生成独立的内部 `run_id`。
+
+### Session Status 与 Graph 位置不能混用
+
+| 状态 | 所属层 | 示例用途 |
+| --- | --- | --- |
+| `session_status=needs_input` | 业务层 | 恢复页面、显示待补充会话、构建历史列表 |
+| `graph_pending_node=ask_question` | 执行层 | `Command(resume)` 从正确节点继续 |
+
+checkpoint 中的 `interrupts` 已经携带待回答字段、问题和严重级别，因此 M1 不必再发明重复的“中断类型”字段。业务层仍需要稳定状态和 `SessionView`，避免前端理解节点名、checkpoint 版本或序列化结构。
+
+### 已验证的刷新恢复缺口
+
+实际浏览器复现表明，方案生成后 URL 仍为 `/`，刷新会清空消息、约束和方案。与此同时，SQLite 中对应业务记录仍存在，后端 `GET session` 能读回消息和方案。根因是前端只用 React 内存保存 `sessionId`，没有 URL 定位、历史列表、启动恢复或 `getSession()` 调用。
+
+这意味着：后端“知道 session ID 时可从 checkpoint 恢复”已经具备，但路线图要求的“浏览器刷新后继续被 interrupt 的会话”尚未端到端完成。完整历史会话中心可以后置，恢复当前活跃会话不能再标记为已完成。
+
+### 数据库失败会造成跨存储不一致
+
+当前用户消息、Graph checkpoint、方案替换和助手回复不是同一个事务。若 Graph 完成后 `replace_plans()` 失败，checkpoint 可能已经包含新候选，而业务表仍保留旧方案或没有方案，助手回复也不会写入。再次提交还可能产生重复消息，因为当前没有 `request_id` 幂等保护。
+
 ## 🧪 已完成的参与证据
 
 | 证据 | 用户参与的判断 | 自动验证 |
@@ -145,6 +180,7 @@ M2 的目标可以概括为：Provider 提供天气、POI、路线与库存事�
 | `b27817a` | 推断字段必须同时有值、证据和 confidence | Pydantic 跨字段失败测试与全量回归 |
 | Gate 场景推演 | 严格预算缺金额必须反问 | `tests/test_question_gate.py` |
 | interrupt/resume 复述 | 回答需要结合原请求重新抽取 | `tests/test_entry_graph.py`、`tests/test_api.py` |
+| API/持久化推演 | 区分业务表、checkpoint、SessionView、请求幂等和跨事务失败 | 浏览器刷新复现、SQLite 只读检查与 `GET session` 验证 |
 
 ## 🎤 当前面试表达草稿
 
@@ -160,6 +196,9 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 - 为什么 Gate 是普通 Service，而不是另一个 Agent
 - checkpoint 保存什么，SQLite 业务数据又保存什么
 - 为什么恢复后重新抽取，而不是直接把回答写入待补字段
+- 为什么 `request_id` 由客户端生成，而 `run_id` 可以由服务端生成
+- 为什么 Session Status 不能直接使用 Graph 节点名
+- Graph 完成而方案落库失败时，系统会产生什么不一致
 
 ## 📖 相关基础知识
 
@@ -172,7 +211,7 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 | 确定性节点与 Agent | 根据决策自主性分配 LLM 和普通代码 | `L2` |
 | Adapter | 在 V2 强类型契约与旧 Planner 字典之间双向转换 | `L2` |
 | 硬约束与评分 | 区分可行性、偏好排序、tradeoff 与 conflict | `L2` |
-| API 状态机与持久化 | 区分新请求、恢复请求和业务记录 | 待学习 |
+| API 状态机与持久化 | 区分业务状态、执行状态、SessionView、事务与幂等 | `L2` |
 
 ## ✅ M1 学习完成标准
 
@@ -188,4 +227,4 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 
 ## 📍 下一学习切片
 
-FastAPI 与 SQLite：从一条 `POST /sessions/{session_id}/messages` 请求开始，追踪新规划与 interrupt 恢复如何分流，以及 checkpoint、消息、方案记录分别承担什么职责。
+React 状态消费：追踪 `AgentResponse` 如何变成消息、约束条、反问、冲突、候选卡片和详情面板，并区分短暂组件状态与刷新后必须恢复的会话状态。
