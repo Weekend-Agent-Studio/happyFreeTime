@@ -4,7 +4,7 @@ _持续更新中的学习文档；主要链路已完成，学习与缺口复盘�
 
 ---
 
-> **当前状态：** 已学习约束来源、interrupt/resume、Planning、API/持久化与 React，下一片进入测试和评测。浏览器刷新恢复已确认是 M1 缺口，不能再把后端可恢复等同于端到端可恢复。
+> **当前状态：** 已学习约束来源、interrupt/resume、Planning、API/持久化、React 与测试评测六个切片。下一步通过一个小型测试实验提升到 `L3`，再进行闭卷链路图和完整答辩。浏览器刷新恢复已确认是 M1 缺口，不能再把后端可恢复等同于端到端可恢复。
 
 ## 🎯 M1 解决的问题
 
@@ -197,6 +197,28 @@ checkpoint 中的 `interrupts` 已经携带待回答字段、问题和严重级�
 
 新 Run 成功后，新 Plan Version 成为 current，旧版本可标记为 superseded；新 Run 失败后，旧版本仍可展示，但必须标明“更新失败，当前仍是上一版本”，并允许使用同一 `request_id` 重试。仅用颜色或标签而没有底层状态数据，刷新后无法还原，也不利于无障碍展示。
 
+### 测试证据必须说明边界
+
+`python -m unittest discover -s tests -v` 从 `tests` 目录发现默认匹配 `test*.py` 的模块，并运行可发现的 `TestCase.test*` 方法。2026-08-19 实测后端 **30/30** 通过，前端 `pnpm run build` 也通过。
+
+这些证据的边界如下：
+
+| 结论 | 当前证据 |
+| --- | --- |
+| 严格预算缺金额会反问 | Gate、Graph 和 API 测试均覆盖 |
+| Mock 条件下生成结构化方案或冲突 | Planning、API 和 smoke 覆盖 |
+| `user_id` 会话隔离 | Repository 与 API 测试覆盖 |
+| 真实 LLM 抽取准确率 | 未覆盖；Fake 输出只验证结构化契约、重试和降级 |
+| 真实商家营业与推荐质量 | 未覆盖；当前使用 Mock Catalog，且无质量指标 |
+| 页面刷新恢复 | 未实现完整闭环，也无浏览器 E2E |
+| 前端类型检查和生产打包 | `pnpm run build` 覆盖，但不验证交互 |
+
+5 条 smoke case 位于 `evals/smoke_cases.json`。运行器直接构造 `Interpretation`，只经过 Enrichment、Gate 和 Planning，绕过 Router、Graph、HTTP、SQLite 与 React。因此准确名称是“离线行为 smoke”，不是端到端测试。它主要检查是否返回方案、反问字段或冲突代码，不评估真实抽取和主观推荐质量。
+
+真实 Router 应通过人工标注数据集评测 schema 合法率、意图准确率、字段 Precision/Recall/F1、关键字段错误率、稳定性、延迟与成本。推荐质量还需单独评价硬约束满足率、无解识别、排序相关性和用户反馈。
+
+刷新恢复跨越 URL、React 启动、API、业务表和浏览器刷新。React 组件测试适合作为快速回归，API 测试验证 `SessionView`，但最终必须有一条 Playwright 浏览器主路径才能证明完整用户旅程。详细基础与面试问答见 [`../../interview/04_测试与评测基础.md`](../../interview/04_测试与评测基础.md)。
+
 ## 🧪 已完成的参与证据
 
 | 证据 | 用户参与的判断 | 自动验证 |
@@ -207,6 +229,7 @@ checkpoint 中的 `interrupts` 已经携带待回答字段、问题和严重级�
 | interrupt/resume 复述 | 回答需要结合原请求重新抽取 | `tests/test_entry_graph.py`、`tests/test_api.py` |
 | API/持久化推演 | 区分业务表、checkpoint、SessionView、请求幂等和跨事务失败 | 浏览器刷新复现、SQLite 只读检查与 `GET session` 验证 |
 | React 状态推演 | 区分查看与正式选择、临时与可恢复状态，并要求后端拒绝 plans/conflict 非法组合 | `App.tsx` 状态流与刷新行为对照 |
+| 测试证据推演 | 区分测试层次，识别 Fake Router、离线 smoke、前端 build 和刷新 E2E 的证明边界 | 2026-08-19 后端 30/30、前端 build 通过 |
 
 ## 🎤 当前面试表达草稿
 
@@ -242,6 +265,7 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 | 硬约束与评分 | 区分可行性、偏好排序、tradeoff 与 conflict | `L2` |
 | API 状态机与持久化 | 区分业务状态、执行状态、SessionView、事务与幂等 | `L2` |
 | React 状态机 | 区分瞬时 UI 状态、可恢复会话状态和互斥响应 | `L2` |
+| 测试与评测 | 区分单元、集成、API、组件、E2E、smoke 与 LLM eval | `L2` |
 
 ## ✅ M1 学习完成标准
 
@@ -257,4 +281,4 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 
 ## 📍 下一学习切片
 
-测试与 smoke eval：理解单元、Graph、API、浏览器 E2E 和离线评测的证据边界，并为刷新恢复、Router 准确率和方案质量选择正确的测试层。
+先为刷新恢复独立设计 API 与 Playwright 两层断言，完成一个小型测试实验；随后闭卷画出 M1 全链路，并进行 2 分钟项目讲解和变体追问。

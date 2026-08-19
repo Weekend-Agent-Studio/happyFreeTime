@@ -137,7 +137,7 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 # 离线 Demo Router
 & $PYTHON -m unittest tests.test_demo_router -v
 
-# 5 条端到端 smoke eval
+# 5 条离线行为 smoke eval（绕过 Router、Graph、HTTP、SQLite 和 React）
 & $PYTHON -m evals.run_smoke
 
 # 全部后端测试
