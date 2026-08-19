@@ -55,6 +55,12 @@ A single activity, restaurant, or other place-based resource eligible for inclus
 **Plan**:
 A feasible itinerary composed of ordered Stops and Route Legs, with costs, evidence, scores, and execution actions.
 
+**Plan Version**:
+An immutable planning outcome produced by one Planning Run under one constraint snapshot. A later successful run may supersede it without rewriting its history.
+
+**Selected Plan**:
+A candidate explicitly confirmed by an Actor for downstream execution. The Plan currently open in the interface is not selected merely because it is being viewed.
+
 **Plan Strategy**:
 The named optimization emphasis of a Plan, such as lower cost or shorter travel. It is not a substitute for the Plan's structured Stops, Route Legs, timeline, and totals.
 

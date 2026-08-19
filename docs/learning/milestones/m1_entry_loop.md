@@ -4,7 +4,7 @@ _持续更新中的学习文档；主要链路已完成，学习与缺口复盘�
 
 ---
 
-> **当前状态：** 已学习约束来源、interrupt/resume、Planning 与 API/持久化，下一片进入 React。浏览器刷新恢复已确认是 M1 缺口，不能再把后端可恢复等同于端到端可恢复。
+> **当前状态：** 已学习约束来源、interrupt/resume、Planning、API/持久化与 React，下一片进入测试和评测。浏览器刷新恢复已确认是 M1 缺口，不能再把后端可恢复等同于端到端可恢复。
 
 ## 🎯 M1 解决的问题
 
@@ -172,6 +172,31 @@ checkpoint 中的 `interrupts` 已经携带待回答字段、问题和严重级�
 
 当前用户消息、Graph checkpoint、方案替换和助手回复不是同一个事务。若 Graph 完成后 `replace_plans()` 失败，checkpoint 可能已经包含新候选，而业务表仍保留旧方案或没有方案，助手回复也不会写入。再次提交还可能产生重复消息，因为当前没有 `request_id` 幂等保护。
 
+### React 内存状态不等于会话状态
+
+| 前端状态 | 当前含义 | 刷新策略 |
+| --- | --- | --- |
+| `sessionId` | 当前会话定位 | 放入 URL 或通过最近会话恢复 |
+| `messages` | 页面消息数组 | 从业务消息表重新读取 |
+| `response` | 最近一次聚合响应 | 不原样持久化，由 SessionView 重建页面所需数据 |
+| `input` | 未发送草稿 | 可选保存到浏览器本地 |
+| `loading`、`error`、`rightTab` | 短暂交互状态 | 通常刷新后重置 |
+| `selectedPlanId` | 当前查看的候选 | 可重置；不等于正式选择 |
+
+正式选择方案是业务动作，应该形成稳定的 `Selected Plan` 并写入后端；当前点击方案卡只改变详情面板。`sessionId` 本身也不能恢复一切，它只是查询钥匙，后端必须实际保存并返回消息、约束、问题、方案和选择状态。
+
+### AgentResponse 应是互斥状态机
+
+当前 `status="completed"` 同时承载普通回复、方案和冲突，而多个字段可以独立存在。若后端错误地同时返回 `plans` 与 `conflict`，现有 React 条件渲染可能把两者同时展示。
+
+目标契约应使用可判别的互斥结果：`needs_input` 必须有 question，`planned` 必须有非空 plans，`conflict` 必须有冲突对象，普通 `replied` 必须有回复。后端在 Pydantic 边界拒绝非法组合，前端 TypeScript 再用同一 `status` 穷尽分支，而不是决定优先信任哪个字段。
+
+### 更新状态属于 Planning Run，不属于每个旧 Plan
+
+用户修改条件时，可以保留上一版方案并显示“正在根据新条件更新”。这个 `updating` 状态描述当前 Planning Run；无需给每个旧候选分别写一份更新状态。
+
+新 Run 成功后，新 Plan Version 成为 current，旧版本可标记为 superseded；新 Run 失败后，旧版本仍可展示，但必须标明“更新失败，当前仍是上一版本”，并允许使用同一 `request_id` 重试。仅用颜色或标签而没有底层状态数据，刷新后无法还原，也不利于无障碍展示。
+
 ## 🧪 已完成的参与证据
 
 | 证据 | 用户参与的判断 | 自动验证 |
@@ -181,6 +206,7 @@ checkpoint 中的 `interrupts` 已经携带待回答字段、问题和严重级�
 | Gate 场景推演 | 严格预算缺金额必须反问 | `tests/test_question_gate.py` |
 | interrupt/resume 复述 | 回答需要结合原请求重新抽取 | `tests/test_entry_graph.py`、`tests/test_api.py` |
 | API/持久化推演 | 区分业务表、checkpoint、SessionView、请求幂等和跨事务失败 | 浏览器刷新复现、SQLite 只读检查与 `GET session` 验证 |
+| React 状态推演 | 区分查看与正式选择、临时与可恢复状态，并要求后端拒绝 plans/conflict 非法组合 | `App.tsx` 状态流与刷新行为对照 |
 
 ## 🎤 当前面试表达草稿
 
@@ -199,6 +225,9 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 - 为什么 `request_id` 由客户端生成，而 `run_id` 可以由服务端生成
 - 为什么 Session Status 不能直接使用 Graph 节点名
 - Graph 完成而方案落库失败时，系统会产生什么不一致
+- 为什么 response 互斥首先是后端契约责任，前端仍需要判别联合
+- 为什么 `updating` 属于 Planning Run，而 `superseded` 属于 Plan Version
+- 为什么当前查看的方案不等于用户正式选择的方案
 
 ## 📖 相关基础知识
 
@@ -212,6 +241,7 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 | Adapter | 在 V2 强类型契约与旧 Planner 字典之间双向转换 | `L2` |
 | 硬约束与评分 | 区分可行性、偏好排序、tradeoff 与 conflict | `L2` |
 | API 状态机与持久化 | 区分业务状态、执行状态、SessionView、事务与幂等 | `L2` |
+| React 状态机 | 区分瞬时 UI 状态、可恢复会话状态和互斥响应 | `L2` |
 
 ## ✅ M1 学习完成标准
 
@@ -227,4 +257,4 @@ M1 把自然语言入口拆成 LLM 语义抽取和确定性业务决策两层。
 
 ## 📍 下一学习切片
 
-React 状态消费：追踪 `AgentResponse` 如何变成消息、约束条、反问、冲突、候选卡片和详情面板，并区分短暂组件状态与刷新后必须恢复的会话状态。
+测试与 smoke eval：理解单元、Graph、API、浏览器 E2E 和离线评测的证据边界，并为刷新恢复、Router 准确率和方案质量选择正确的测试层。
