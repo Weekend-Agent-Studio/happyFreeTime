@@ -90,23 +90,38 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()["data"]["session_id"]
 
-    def test_message_returns_structured_plans_and_persists_them(self) -> None:
+    def test_get_session_restores_stable_conversation_and_plan_snapshot(self) -> None:
         session_id = self._create_session()
+        content = "今天下午出去玩"
 
         response = self.client.post(
             f"/api/sessions/{session_id}/messages",
             headers=self.headers,
-            json={"content": "今天下午出去玩"},
+            json={"content": content},
         )
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()["data"]
         self.assertEqual(body["status"], "completed")
         self.assertGreaterEqual(len(body["plans"]), 1)
-        session_response = self.client.get(
+
+        first_read = self.client.get(
             f"/api/sessions/{session_id}", headers=self.headers
         )
-        self.assertEqual(len(session_response.json()["data"]["plans"]), len(body["plans"]))
+        second_read = self.client.get(
+            f"/api/sessions/{session_id}", headers=self.headers
+        )
+
+        self.assertEqual(first_read.status_code, 200, first_read.text)
+        self.assertEqual(second_read.status_code, 200, second_read.text)
+        restored = first_read.json()["data"]
+        self.assertEqual(restored["session_id"], session_id)
+        self.assertEqual(
+            [(message["role"], message["content"]) for message in restored["messages"]],
+            [("user", content), ("assistant", body["reply"])],
+        )
+        self.assertEqual(restored["plans"], body["plans"])
+        self.assertEqual(second_read.json()["data"], restored)
 
     def test_message_exposes_inferred_party_as_an_editable_constraint(self) -> None:
         session_id = self._create_session()
