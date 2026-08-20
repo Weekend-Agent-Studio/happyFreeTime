@@ -10,6 +10,8 @@ M2 不一次重写 Planner，而是让每片都增加一条用户可观察、可
 
 ## A. 天气 Provider 与雨天可行性
 
+**实现状态：** 已完成并提交；M2 整体未完成。
+
 **用户故事：** 北京雨天亲子半日规划仍能离线重复运行；户外敏感活动不进入结果，室内候选保留，用户能看到天气事实来自哪里以及是否降级。
 
 **接口与契约：** `WeatherProvider.get_weather(WeatherRequest) -> WeatherFact`。`WeatherFact` 公开 `source`、`mode`、`observed_at`、`verified_at`、`cache_age_seconds`、`degraded` 和 `degraded_reason`；运行模式与事实来源正交。`CandidateSet.provider_facts` 把规划实际消费的天气事实带到 HTTP/UI。
@@ -21,6 +23,8 @@ M2 不一次重写 Planner，而是让每片都增加一条用户可观察、可
 **不做：** 不声明已用真实 Key 验证；不实现路线、完整多站 Verifier、POI 元数据迁移或时间强度；不把 Mock 天气称为真实天气。
 
 ## B. Route Provider 与完整双站时间线
+
+**实现状态：** 已完成本切片；finalist 路线复核支持超时与单段超距淘汰。全程累计距离属于 D 的完整 Verifier，尚未实现。
 
 **用户故事：** 用户看到的到达时间、停留时间和结束时间包含每一段路线；路线服务失败时仍能规划，但每段明确标为估算及原因。
 

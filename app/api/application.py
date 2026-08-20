@@ -18,6 +18,7 @@ from app.api.schemas import (
 )
 from app.domain.constraints import ActorContext, IdentityType
 from app.providers.weather import WeatherProvider
+from app.providers.route import RouteProvider
 from app.orchestration.entry_graph import (
     EnvironmentProvider,
     Router,
@@ -34,6 +35,7 @@ def create_app(
     router: Router,
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
+    route_provider: RouteProvider | None = None,
 ) -> FastAPI:
     """创建可注入依赖的应用实例。
 
@@ -54,6 +56,7 @@ def create_app(
         router=router,
         environment_provider=environment_provider,
         weather_provider=weather_provider,
+        route_provider=route_provider,
         checkpointer=checkpointer,
     )
 

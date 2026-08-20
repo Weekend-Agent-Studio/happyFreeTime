@@ -9,6 +9,7 @@ from app.api.application import create_app
 from app.domain.providers import ProviderMode
 from app.orchestration.entry_graph import default_environment_provider
 from app.providers.weather import build_weather_provider
+from app.providers.route import build_route_provider
 from app.services.demo_router import DemoRouter
 from app.services.router_extractor import build_default_router_extractor
 
@@ -56,9 +57,34 @@ def build_default_weather_provider():
 
 weather_provider = build_default_weather_provider()
 
+
+def build_default_route_provider():
+    mode_value = os.getenv(
+        "HFT_ROUTE_PROVIDER_MODE",
+        os.getenv("HFT_PROVIDER_MODE", ProviderMode.MOCK.value),
+    )
+    try:
+        mode = ProviderMode(mode_value)
+    except ValueError as error:
+        allowed = ", ".join(item.value for item in ProviderMode)
+        raise RuntimeError(
+            f"HFT_ROUTE_PROVIDER_MODE must be one of: {allowed}"
+        ) from error
+    return build_route_provider(
+        mode=mode,
+        replay_path=Path(
+            os.getenv("HFT_ROUTE_REPLAY_PATH", "data/replays/routes.json")
+        ),
+        api_key=os.getenv("AMAP_WEB_SERVICE_KEY"),
+    )
+
+
+route_provider = build_default_route_provider()
+
 app = create_app(
     database_path=Path("data/happy_free_time_v2.db"),
     router=router,
     environment_provider=default_environment_provider,
     weather_provider=weather_provider,
+    route_provider=route_provider,
 )

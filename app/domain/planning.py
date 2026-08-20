@@ -5,11 +5,18 @@
 API 和 UI 就不需要跟着重写。
 """
 
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.providers import WeatherFact
+from app.domain.providers import (
+    GeoPoint,
+    ProviderMode,
+    RouteMode,
+    RouteSource,
+    WeatherFact,
+)
 
 
 class StopType(str, Enum):
@@ -18,22 +25,6 @@ class StopType(str, Enum):
     RESTAURANT = "restaurant"
     CAFE = "cafe"
     DESSERT = "dessert"
-
-
-class RouteMode(str, Enum):
-    """两个地点之间采用的交通方式。"""
-    WALK = "walk"
-    BIKE = "bike"
-    TAXI = "taxi"
-    TRANSIT = "transit"
-
-
-class RouteSource(str, Enum):
-    """路线数据来源，用来区分真实结果、缓存、回放和本地降级估算。"""
-    LOCAL_ESTIMATE = "local_estimate"
-    REAL_PROVIDER = "real_provider"
-    CACHE = "cache"
-    REPLAY = "replay"
 
 
 class Stop(BaseModel):
@@ -61,8 +52,12 @@ class RouteLeg(BaseModel):
     distance_km: float = Field(ge=0)
     duration_minutes: int = Field(ge=0)
     source: RouteSource
+    provider_mode: ProviderMode = ProviderMode.MOCK
     degraded: bool = True
     degraded_reason: str | None = None
+    verified_at: datetime | None = None
+    cache_age_seconds: int | None = Field(default=None, ge=0)
+    geometry: list[GeoPoint] = Field(default_factory=list)
 
 
 class Plan(BaseModel):

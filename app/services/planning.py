@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
+
 from app.domain.constraints import NormalizedConstraints
 from app.domain.planning import (
     CandidateSet,
@@ -13,9 +16,16 @@ from app.domain.planning import (
     Stop,
     StopType,
 )
-from app.domain.providers import WeatherRequest
+from app.domain.providers import (
+    GeoPoint,
+    ProviderSource,
+    RouteFact,
+    RouteRequest,
+    WeatherRequest,
+)
+from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
-from services.catalog_service import search_activities
+from services.catalog_service import get_resource_detail, search_activities
 from services.planning_service import generate_candidate_plans
 from services.scoring_service import compare_plans
 
@@ -27,8 +37,13 @@ class PlanningService:
     或真实 POI 检索时，调用方仍只依赖 ``plan(constraints) -> CandidateSet``。
     """
 
-    def __init__(self, weather_provider: WeatherProvider | None = None) -> None:
+    def __init__(
+        self,
+        weather_provider: WeatherProvider | None = None,
+        route_provider: RouteProvider | None = None,
+    ) -> None:
         self._weather_provider = weather_provider or clear_mock_weather()
+        self._route_provider = route_provider or LocalEstimateRouteProvider()
 
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         # 先把 V2 约束转换成冻结的 V1 字典输入，再将 V1 输出转回 V2 模型。
@@ -62,14 +77,47 @@ class PlanningService:
             product_candidates=[],
         )
         scored_plans = compare_plans(legacy_plans, legacy_constraints)
-        plans = [
+        local_finalists = [
             self._to_plan(plan)
             for plan in scored_plans
             if self._is_feasible(plan, constraints)
         ][:3]
+        plans = []
+        route_failure_fields: set[str] = set()
+        for plan in local_finalists:
+            verified = self._rebuild_route_timeline(plan, constraints)
+            if verified.stops[-1].end > constraints.time_window.value.end:
+                route_failure_fields.add("time_window")
+                continue
+            if any(
+                leg.distance_km > constraints.max_distance_km.value
+                for leg in verified.route_legs
+            ):
+                route_failure_fields.add("max_distance_km")
+                continue
+            plans.append(verified)
 
         if plans:
             return CandidateSet(plans=plans, provider_facts=[weather])
+
+        if local_finalists:
+            return CandidateSet(
+                provider_facts=[weather],
+                conflict=ConstraintConflict(
+                    code="NO_PLAN_AFTER_ROUTE_VERIFICATION",
+                    message="路线复核后，候选方案均违反时间或单段距离限制。",
+                    fields=[
+                        field
+                        for field in ("time_window", "max_distance_km")
+                        if field in route_failure_fields
+                    ],
+                    relaxation_options=[
+                        "延长可用时间",
+                        "缩短停留时长",
+                        "选择路程更短的地点",
+                    ],
+                ),
+            )
 
         # 严格预算是硬约束：没有满足条件的结果时返回结构化冲突，不能偷偷放宽
         # 后仍告诉用户“已满足预算”。普通不可行则返回更通用的冲突类型。
@@ -97,6 +145,84 @@ class PlanningService:
                 fields=["time_window", "max_distance_km", "party"],
                 relaxation_options=["扩大距离范围", "延长可用时间", "调整活动偏好"],
             )
+        )
+
+    def _rebuild_route_timeline(
+        self,
+        plan: Plan,
+        constraints: NormalizedConstraints,
+    ) -> Plan:
+        location = constraints.location.value
+        current_point = GeoPoint(
+            latitude=location.latitude,
+            longitude=location.longitude,
+        )
+        current_name = "出发地"
+        start_minutes = _time_to_minutes(constraints.time_window.value.start)
+        current_minutes = start_minutes
+        rebuilt_stops: list[Stop] = []
+        rebuilt_legs: list[RouteLeg] = []
+
+        for stop in plan.stops:
+            resource = get_resource_detail(stop.resource_id)
+            if resource is None:
+                raise ValueError(f"route verification requires resource {stop.resource_id}")
+            destination = GeoPoint(
+                latitude=resource["lat"],
+                longitude=resource["lng"],
+            )
+            route = self._route_provider.route(
+                RouteRequest(
+                    origin=current_point,
+                    destination=destination,
+                    mode=RouteMode.TAXI,
+                    departure_at=datetime.combine(
+                        constraints.date.value,
+                        time(hour=current_minutes // 60, minute=current_minutes % 60),
+                        tzinfo=ZoneInfo("Asia/Shanghai"),
+                    ),
+                )
+            )
+            leg_start = _minutes_to_time(current_minutes)
+            current_minutes += route.duration_minutes
+            leg_end = _minutes_to_time(current_minutes)
+            rebuilt_legs.append(
+                RouteLeg(
+                    origin_name=current_name,
+                    destination_name=stop.name,
+                    start=leg_start,
+                    end=leg_end,
+                    mode=route.mode,
+                    distance_km=route.distance_km,
+                    duration_minutes=route.duration_minutes,
+                    source=_route_source(route),
+                    provider_mode=route.provider_mode,
+                    degraded=route.degraded,
+                    degraded_reason=route.degraded_reason,
+                    verified_at=route.verified_at,
+                    cache_age_seconds=route.cache_age_seconds,
+                    geometry=route.geometry,
+                )
+            )
+            stop_start = _minutes_to_time(current_minutes)
+            current_minutes += stop.duration_minutes
+            rebuilt_stops.append(
+                stop.model_copy(
+                    update={
+                        "start": stop_start,
+                        "end": _minutes_to_time(current_minutes),
+                    }
+                )
+            )
+            current_point = destination
+            current_name = stop.name
+
+        return plan.model_copy(
+            update={
+                "stops": rebuilt_stops,
+                "route_legs": rebuilt_legs,
+                "total_duration_minutes": current_minutes - start_minutes,
+            }
         )
 
     @staticmethod
@@ -224,3 +350,24 @@ def _beijing_weather_adcode(district: str) -> str:
         "海淀区": "110108",
     }
     return adcodes.get(district, "110000")
+
+
+def _route_source(fact: RouteFact) -> RouteSource:
+    sources = {
+        ProviderSource.AMAP_LIVE: RouteSource.REAL_PROVIDER,
+        ProviderSource.CACHE: RouteSource.CACHE,
+        ProviderSource.REPLAY: RouteSource.REPLAY,
+        ProviderSource.MOCK: RouteSource.LOCAL_ESTIMATE,
+        ProviderSource.LOCAL_ESTIMATE: RouteSource.LOCAL_ESTIMATE,
+    }
+    return sources[fact.source]
+
+
+def _time_to_minutes(value: str) -> int:
+    hour, minute = (int(part) for part in value.split(":"))
+    return hour * 60 + minute
+
+
+def _minutes_to_time(value: int) -> str:
+    hour, minute = divmod(value, 60)
+    return f"{hour:02d}:{minute:02d}"

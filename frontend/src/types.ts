@@ -29,13 +29,19 @@ export type Stop = {
 export type RouteLeg = {
   origin_name: string;
   destination_name: string;
+  start: string;
+  end: string;
   mode: string;
   distance_km: number;
   duration_minutes: number;
   source: string;
+  provider_mode: "live" | "record" | "replay" | "mock";
+  verified_at: string | null;
+  cache_age_seconds: number | null;
+  geometry: Array<{ latitude: number; longitude: number }>;
   /** true 表示当前使用本地估算或其他降级来源，而不是真实路线服务。 */
   degraded: boolean;
-  degraded_reason?: string;
+  degraded_reason: string | null;
 };
 
 export type Plan = {
@@ -60,7 +66,7 @@ export type ProviderFact = {
   temperature_c: number | null;
   precipitation_mm: number;
   is_adverse: boolean;
-  source: "amap_live" | "cache" | "replay" | "mock";
+  source: "amap_live" | "cache" | "replay" | "mock" | "local_estimate";
   mode: "live" | "record" | "replay" | "mock";
   observed_at: string;
   verified_at: string;

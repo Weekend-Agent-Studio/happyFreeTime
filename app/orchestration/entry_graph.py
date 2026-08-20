@@ -25,7 +25,16 @@ from app.domain.constraints import (
     QuestionDecision,
 )
 from app.domain.planning import CandidateSet
-from app.domain.providers import ProviderMode, ProviderSource, WeatherFact
+from app.domain.providers import (
+    GeoPoint,
+    ProviderMode,
+    ProviderSource,
+    RouteFact,
+    RouteMode,
+    RouteSource,
+    WeatherFact,
+)
+from app.providers.route import RouteProvider
 from app.providers.weather import WeatherProvider
 from app.services.enrichment import EnvironmentContext, EnrichmentService
 from app.services.planning import PlanningService
@@ -63,6 +72,7 @@ def build_entry_graph(
     router: Router,
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
+    route_provider: RouteProvider | None = None,
     checkpointer: object | None = None,
 ):
     """组装 M1 控制流，并允许注入 Router、环境提供器和 checkpointer。
@@ -72,7 +82,10 @@ def build_entry_graph(
     """
     enrichment_service = EnrichmentService()
     question_gate = NeedQuestionGate()
-    planning_service = PlanningService(weather_provider=weather_provider)
+    planning_service = PlanningService(
+        weather_provider=weather_provider,
+        route_provider=route_provider,
+    )
 
     def router_node(state: EntryState) -> dict[str, object]:
         actor = state["actor"]
@@ -210,6 +223,10 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             QuestionDecision,
             ProviderMode,
             ProviderSource,
+            GeoPoint,
+            RouteFact,
+            RouteMode,
+            RouteSource,
             WeatherFact,
         ],
     )

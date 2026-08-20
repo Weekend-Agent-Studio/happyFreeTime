@@ -11,13 +11,41 @@ from app.domain.constraints import (
 )
 from app.domain.planning import RouteSource, StopType
 from app.domain.providers import (
+    GeoPoint,
     ProviderMode,
     ProviderSource,
+    RouteFact,
+    RouteRequest,
     WeatherFact,
     WeatherRequest,
 )
 from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
 from app.services.planning import PlanningService
+
+
+class FixedReplayRouteProvider:
+    def __init__(
+        self,
+        duration_minutes: int = 20,
+        distance_km: float = 4.2,
+    ) -> None:
+        self.requests: list[RouteRequest] = []
+        self.duration_minutes = duration_minutes
+        self.distance_km = distance_km
+
+    def route(self, request: RouteRequest) -> RouteFact:
+        self.requests.append(request)
+        return RouteFact(
+            origin=request.origin,
+            destination=request.destination,
+            mode=request.mode,
+            distance_km=self.distance_km,
+            duration_minutes=self.duration_minutes,
+            geometry=[request.origin, request.destination],
+            source=ProviderSource.REPLAY,
+            provider_mode=ProviderMode.REPLAY,
+            verified_at=datetime(2026, 8, 15, 8, 5, tzinfo=timezone.utc),
+        )
 
 
 def planning_constraints(*, budget: int = 120, strict_budget: bool = False) -> NormalizedConstraints:
@@ -57,6 +85,58 @@ def planning_constraints(*, budget: int = 120, strict_budget: bool = False) -> N
 
 
 class PlanningServiceTest(unittest.TestCase):
+    def test_finalist_routes_rebuild_stop_times_from_provider_durations(self) -> None:
+        route_provider = FixedReplayRouteProvider()
+
+        result = PlanningService(route_provider=route_provider).plan(
+            planning_constraints()
+        )
+
+        self.assertGreaterEqual(len(result.plans), 1)
+        self.assertEqual(len(route_provider.requests), len(result.plans) * 2)
+        first = result.plans[0]
+        self.assertEqual(first.route_legs[0].start, "14:00")
+        self.assertEqual(first.route_legs[0].end, "14:20")
+        self.assertEqual(first.stops[0].start, "14:20")
+        self.assertEqual(first.route_legs[1].start, "15:50")
+        self.assertEqual(first.route_legs[1].end, "16:10")
+        self.assertEqual(first.stops[1].start, "16:10")
+        self.assertEqual(first.stops[1].end, "17:40")
+        self.assertEqual(first.total_duration_minutes, 220)
+        self.assertTrue(
+            all(leg.source == RouteSource.REPLAY for leg in first.route_legs)
+        )
+        self.assertEqual(len(first.route_legs[0].geometry), 2)
+        self.assertEqual(
+            first.route_legs[0].geometry[0],
+            GeoPoint(latitude=39.9219, longitude=116.4436),
+        )
+
+    def test_route_verification_eliminates_finalists_that_overrun_time_window(self) -> None:
+        route_provider = FixedReplayRouteProvider(duration_minutes=60)
+
+        result = PlanningService(route_provider=route_provider).plan(
+            planning_constraints()
+        )
+
+        self.assertEqual(result.plans, [])
+        self.assertIsNotNone(result.conflict)
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
+        self.assertEqual(result.conflict.fields, ["time_window"])
+        self.assertGreater(len(route_provider.requests), 0)
+
+    def test_route_verification_eliminates_finalists_with_an_overlong_leg(self) -> None:
+        route_provider = FixedReplayRouteProvider(distance_km=12.0)
+
+        result = PlanningService(route_provider=route_provider).plan(
+            planning_constraints()
+        )
+
+        self.assertEqual(result.plans, [])
+        self.assertIsNotNone(result.conflict)
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
+        self.assertEqual(result.conflict.fields, ["max_distance_km"])
+
     def test_builds_structured_two_stop_plans_from_the_mock_catalog(self) -> None:
         result = PlanningService().plan(planning_constraints())
 

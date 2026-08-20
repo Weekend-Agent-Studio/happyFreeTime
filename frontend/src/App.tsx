@@ -92,8 +92,19 @@ function providerSourceLabel(fact: ProviderFact): string {
     cache: "缓存",
     replay: "固定回放",
     mock: "本地模拟",
+    local_estimate: "本地估算",
   };
   return labels[fact.source];
+}
+
+function routeSourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    real_provider: "高德路线",
+    cache: "路线缓存",
+    replay: "固定回放",
+    local_estimate: "本地估算",
+  };
+  return labels[source] ?? source;
 }
 
 function App() {
@@ -363,6 +374,8 @@ function TripPanel({ plan }: { plan?: Plan }) {
 }
 
 function MapPanel({ plan }: { plan?: Plan }) {
+  const sources = plan ? [...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))] : [];
+  const sourceSummary = sources.length === 1 ? sources[0] : sources.length > 1 ? "多来源路线" : "路线摘要";
   return (
     <div className="map-detail">
       <div className="map-canvas" aria-label="M1 本地路线示意图">
@@ -370,8 +383,8 @@ function MapPanel({ plan }: { plan?: Plan }) {
         <div className="route-line" />
         <span className="map-marker start">起</span><span className="map-marker stop-one">1</span><span className="map-marker stop-two">2</span>
       </div>
-      <div className="detail-title"><span className="eyebrow">路线来源</span><h2>本地估算</h2><p>{plan ? `${plan.route_legs.reduce((sum, leg) => sum + leg.distance_km, 0).toFixed(1)} km · 高德将在 M2 接入` : "生成方案后显示路线摘要"}</p></div>
-      {plan?.route_legs.map((leg, index) => <div className="route-row" key={`${leg.destination_name}-${index}`}><Route size={17} /><span><strong>{leg.destination_name}</strong><small>{leg.distance_km}km · {leg.duration_minutes} 分钟 · 估算</small></span></div>)}
+      <div className="detail-title"><span className="eyebrow">路线来源</span><h2>{sourceSummary}</h2><p>{plan ? `${plan.route_legs.reduce((sum, leg) => sum + leg.distance_km, 0).toFixed(1)} km · 已按路线耗时重建时间线` : "生成方案后显示路线摘要"}</p></div>
+      {plan?.route_legs.map((leg, index) => <div className="route-row" key={`${leg.destination_name}-${index}`}><Route size={17} /><span><strong>{leg.destination_name}</strong><small>{leg.start}–{leg.end} · {leg.distance_km}km · {leg.duration_minutes} 分钟 · {routeSourceLabel(leg.source)}{leg.degraded ? ` · 已降级：${leg.degraded_reason}` : ""}</small></span></div>)}
     </div>
   );
 }

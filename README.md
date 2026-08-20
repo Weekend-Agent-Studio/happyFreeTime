@@ -12,7 +12,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | [`docs/canonical/`](docs/canonical/) | 已确认的 V2 架构基线和开发路线图 |
 | [`docs/learning/progress.md`](docs/learning/progress.md) | 学习进度；与代码完成度分开维护 |
 | [`docs/learning/milestones/m1_entry_loop.md`](docs/learning/milestones/m1_entry_loop.md) | M1 项目链路、关键设计、测试证据与面试表达 |
-| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气切片的领域契约、证据与已知限制 |
+| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气与路线切片的领域契约、证据与已知限制 |
 | [`docs/product/product_idea_inbox.md`](docs/product/product_idea_inbox.md) | 尚未批准实现的临时想法 |
 | [`docs/collaboration/session_bootstrap.md`](docs/collaboration/session_bootstrap.md) | 新开 Codex 会话时的协作启动说明 |
 
@@ -28,14 +28,15 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | 生成并比较候选方案        | 已完成             | 当前主场景是“活动 + 餐厅”的双站方案，最多显示 3 个       |
 | 选择候选方案              | 已完成             | 点击方案卡后，右侧详情随选择更新                         |
 | 查看行程时间线            | 已完成             | 显示开始/结束时间、价格、站点和站间耗时                  |
-| 查看地图页签              | M1 估算版          | 显示本地路线示意、距离、耗时和降级来源，不是真实高德地图 |
+| 查看地图页签              | M2 路线摘要        | 显示路线来源、复核后的距离/耗时和降级原因；仍不是可交互真实地图 |
 | 查看约束冲突              | 已完成             | 无可行方案时显示原因与可放宽方向，不伪造推荐结果         |
 | 新建规划                  | 已完成             | 清空当前前端状态，下一次发送时创建新会话                 |
 | 移动端使用                | 已完成             | 375 px 起可用，方案卡可横向滑动，详情下沉展示            |
 | 最近会话列表              | 后端已存、前端未接 | 左栏目前只展示当前会话，尚不能加载历史会话               |
 | 修改假设值                | 未完成             | 当前只能查看假设，还没有点击编辑控件                     |
 | 天气事实与雨天可行性      | M2 切片 A 已完成   | 支持 mock/replay、live/record Adapter、缓存降级与来源展示；真实 Key 尚未验证 |
-| 真实 POI、路线与打车      | 未完成             | 路线、POI 来源元数据和动态业务数据仍是后续 M2 切片       |
+| 路线复核与完整双站时间线  | M2 切片 B 已完成   | finalist 才复核路线并重建时间线；支持缓存、replay、本地估算降级；真实 Key 尚未验证 |
+| 真实 POI 与打车执行       | 未完成             | POI 来源元数据、动态库存/价格和真实叫车仍是后续里程碑     |
 | 订单/预订执行             | 占位               | “订单”页签是 M4 产品闭环的入口，目前不能下单             |
 
 ## 推荐的前端验收场景
@@ -67,7 +68,7 @@ LLM_API=your-api-key
 BASE_URL=https://api.deepseek.com
 ```
 
-API Key 只用于 RouterExtractor 的结构化语义抽取。当前活动、餐厅和路线仍来自本地 Mock/估算，不会因为配置 Key 自动变成真实高德数据。
+`LLM_API` 只用于 RouterExtractor 的结构化语义抽取。活动与餐厅仍来自本地 Mock 目录；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德，不会因为配置 LLM Key 自动变成真实数据。
 
 天气 Provider 独立使用后端环境变量；密钥不会返回前端或写入 fixture：
 
@@ -75,17 +76,20 @@ API Key 只用于 RouterExtractor 的结构化语义抽取。当前活动、餐�
 # mock（默认）/ replay 可完全离线运行
 HFT_PROVIDER_MODE=mock
 HFT_MOCK_WEATHER=中雨
+HFT_ROUTE_PROVIDER_MODE=mock
 
 # replay 从固定规范化事实读取
 # HFT_PROVIDER_MODE=replay
 # HFT_WEATHER_REPLAY_PATH=data/replays/weather.json
+# HFT_ROUTE_PROVIDER_MODE=replay
+# HFT_ROUTE_REPLAY_PATH=data/replays/routes.json
 
 # live / record 才要求高德 Web 服务 Key
 # HFT_PROVIDER_MODE=live
 # AMAP_WEB_SERVICE_KEY=your-backend-only-key
 ```
 
-`record` 调用高德后只保存规范化天气事实，不保存请求 Key。`live/record` 失败时使用进程内缓存，再尝试 replay 或明确标记的 Mock 降级。当前缓存尚未持久化，真实高德调用也尚未在仓库测试中验证。
+天气和路线的 `record` 都只保存规范化事实，不保存请求 Key。`live/record` 失败时先使用可用缓存，再尝试 replay；无匹配路线回放时明确降级为本地估算。当前缓存尚未持久化，真实高德调用也尚未在仓库测试中验证。
 
 ## 启动前后端
 
@@ -145,11 +149,14 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 # Entry Graph：旁路、规划、interrupt/resume
 & $PYTHON -m unittest tests.test_entry_graph -v
 
-# Planning：双站方案、硬约束和严格预算冲突
+# Planning：双站方案、天气剪枝、finalist 路线复核和冲突
 & $PYTHON -m unittest tests.test_planning -v
 
 # Weather Provider：模式一致性、TTL、失败短缓存和降级
 & $PYTHON -m unittest tests.test_weather_provider -v
+
+# Route Provider：高德 v5 契约、record/replay、TTL 和本地估算降级
+& $PYTHON -m unittest tests.test_route_provider -v
 
 # Persistence：user_id 会话隔离和消息持久化
 & $PYTHON -m unittest tests.test_persistence -v
@@ -184,7 +191,8 @@ pnpm run build
 - `app/services/question_gate.py`：阻断式反问策略。
 - `app/services/planning.py`：V2 规划接口和 V1 Mock 规划适配。
 - `app/providers/weather.py`：天气 live/record/replay/mock Adapter、缓存与降级。
-- `app/domain/providers.py`：Provider 模式、来源与天气事实契约。
+- `app/providers/route.py`：路线 live/record/replay/mock Adapter、缓存与本地估算降级。
+- `app/domain/providers.py`：Provider 模式、来源及天气/路线事实契约。
 - `app/api/application.py`：FastAPI 与 LangGraph/SQLite 的组合入口。
 - `frontend/src/App.tsx`：前端会话、方案选择与详情状态流。
 

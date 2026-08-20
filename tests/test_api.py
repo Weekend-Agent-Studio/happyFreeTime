@@ -8,8 +8,14 @@ from fastapi.testclient import TestClient
 
 from app.api.application import create_app
 from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints
-from app.domain.providers import ProviderMode, ProviderSource, WeatherFact
-from app.domain.providers import WeatherRequest
+from app.domain.providers import (
+    ProviderMode,
+    ProviderSource,
+    RouteFact,
+    RouteRequest,
+    WeatherFact,
+    WeatherRequest,
+)
 from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
 from app.services.enrichment import EnvironmentContext
 from app.services.router_extractor import RouterContext
@@ -62,6 +68,21 @@ class RuleRouter:
         )
 
 
+class FixedReplayRouteProvider:
+    def route(self, request: RouteRequest) -> RouteFact:
+        return RouteFact(
+            origin=request.origin,
+            destination=request.destination,
+            mode=request.mode,
+            distance_km=4.2,
+            duration_minutes=20,
+            geometry=[request.origin, request.destination],
+            source=ProviderSource.REPLAY,
+            provider_mode=ProviderMode.REPLAY,
+            verified_at=datetime(2026, 8, 15, 8, 5, tzinfo=timezone.utc),
+        )
+
+
 class ApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -106,6 +127,7 @@ class ApiTest(unittest.TestCase):
                 store=replay_store,
                 clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
             ),
+            route_provider=FixedReplayRouteProvider(),
         )
         self.client_context = TestClient(app)
         self.client = self.client_context.__enter__()
@@ -119,6 +141,24 @@ class ApiTest(unittest.TestCase):
         response = self.client.post("/api/sessions", headers=self.headers)
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()["data"]["session_id"]
+
+    def test_message_exposes_route_source_and_verified_timeline(self) -> None:
+        session_id = self._create_session()
+
+        response = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={"content": "今天下午出去玩"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        plan = response.json()["data"]["plans"][0]
+        first_leg = plan["route_legs"][0]
+        self.assertEqual(first_leg["source"], "replay")
+        self.assertEqual(first_leg["provider_mode"], "replay")
+        self.assertEqual(first_leg["verified_at"], "2026-08-15T08:05:00Z")
+        self.assertFalse(first_leg["degraded"])
+        self.assertEqual(first_leg["end"], plan["stops"][0]["start"])
 
     def test_get_session_restores_stable_conversation_and_plan_snapshot(self) -> None:
         session_id = self._create_session()
