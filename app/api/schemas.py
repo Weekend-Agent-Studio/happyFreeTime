@@ -50,3 +50,4 @@ class AgentResponse(BaseModel):
     constraint_summary: list[ConstraintSummaryItem] = Field(default_factory=list)
     plans: list[dict[str, Any]] = Field(default_factory=list)
     conflict: dict[str, Any] | None = None
+    provider_facts: list[dict[str, Any]] = Field(default_factory=list)

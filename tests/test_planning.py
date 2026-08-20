@@ -1,5 +1,5 @@
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.domain.constraints import (
     ConstraintSource,
@@ -10,6 +10,13 @@ from app.domain.constraints import (
     TimeWindow,
 )
 from app.domain.planning import RouteSource, StopType
+from app.domain.providers import (
+    ProviderMode,
+    ProviderSource,
+    WeatherFact,
+    WeatherRequest,
+)
+from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
 from app.services.planning import PlanningService
 
 
@@ -76,6 +83,59 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertEqual(result.conflict.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
         self.assertIn("预算", result.conflict.message)
         self.assertTrue(result.conflict.relaxation_options)
+
+    def test_rain_eliminates_weather_sensitive_outdoor_stops_but_keeps_indoor_stops(self) -> None:
+        rainy_weather = WeatherFact(
+            city="北京市",
+            district="朝阳区",
+            date=date(2026, 8, 15),
+            condition="中雨",
+            temperature_c=23,
+            precipitation_mm=8.0,
+            is_adverse=True,
+            source=ProviderSource.REPLAY,
+            mode=ProviderMode.REPLAY,
+            observed_at=datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc),
+            verified_at=datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+        )
+        constraints = planning_constraints().model_copy(
+            update={
+                "party": ConstraintValue[PartyProfile](
+                    value=PartyProfile(adults=1, children=1, child_age=6),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+                "preferences": ["亲子"],
+                "scene_tags": ["家庭"],
+            }
+        )
+        store = InMemoryWeatherReplayStore()
+        request = WeatherRequest(
+            city="北京市",
+            district="朝阳区",
+            adcode="110105",
+            date=date(2026, 8, 15),
+        )
+        store.save(request, rainy_weather)
+
+        result = PlanningService(
+            weather_provider=ReplayWeatherProvider(
+                store=store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            )
+        ).plan(constraints)
+
+        self.assertGreaterEqual(len(result.plans), 1)
+        self.assertIsNone(result.conflict)
+        activity_ids = {
+            stop.resource_id
+            for plan in result.plans
+            for stop in plan.stops
+            if stop.type == StopType.ACTIVITY
+        }
+        self.assertIn("act_001", activity_ids)
+        self.assertNotIn("act_002", activity_ids)
+        self.assertEqual(result.provider_facts[0].source, ProviderSource.REPLAY)
+        self.assertEqual(result.provider_facts[0].condition, "中雨")
 
 
 if __name__ == "__main__":

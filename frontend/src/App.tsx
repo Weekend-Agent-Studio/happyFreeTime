@@ -15,10 +15,11 @@ import {
   Send,
   Sparkles,
   Utensils,
+  CloudRain,
 } from "lucide-react";
 
 import { createSession, sendMessage } from "./api";
-import type { AgentResponse, Assumption, ChatMessage, ConstraintSummaryItem, Plan } from "./types";
+import type { AgentResponse, Assumption, ChatMessage, ConstraintSummaryItem, Plan, ProviderFact } from "./types";
 
 const SUGGESTIONS = [
   "今天下午出去玩，别太远",
@@ -83,6 +84,16 @@ function strategyLabel(strategy: string): string {
     budget: "省钱",
   };
   return labels[strategy] ?? strategy;
+}
+
+function providerSourceLabel(fact: ProviderFact): string {
+  const labels: Record<ProviderFact["source"], string> = {
+    amap_live: "高德实时",
+    cache: "缓存",
+    replay: "固定回放",
+    mock: "本地模拟",
+  };
+  return labels[fact.source];
 }
 
 function App() {
@@ -206,6 +217,14 @@ function App() {
             ))}
           </section>
         ) : null}
+
+        {response?.provider_facts.map((fact) => (
+          <section className={`provider-fact ${fact.degraded ? "degraded" : ""}`} aria-label="天气事实" key={`${fact.kind}-${fact.date}`}>
+            <CloudRain size={16} aria-hidden="true" />
+            <span><strong>{fact.city}{fact.district} · {fact.condition}</strong>{fact.temperature_c === null ? "" : ` · ${fact.temperature_c}℃`}</span>
+            <small>{providerSourceLabel(fact)} · 核验于 {new Date(fact.verified_at).toLocaleString("zh-CN")}{fact.degraded ? ` · 已降级：${fact.degraded_reason}` : " · 未降级"}</small>
+          </section>
+        ))}
 
         <section className="conversation" aria-live="polite">
           {messages.length === 0 ? (

@@ -6,7 +6,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from app.api.application import create_app
+from app.domain.providers import ProviderMode
 from app.orchestration.entry_graph import default_environment_provider
+from app.providers.weather import build_weather_provider
 from app.services.demo_router import DemoRouter
 from app.services.router_extractor import build_default_router_extractor
 
@@ -34,8 +36,29 @@ def build_router():
 
 router = build_router()
 
+
+def build_default_weather_provider():
+    mode_value = os.getenv("HFT_PROVIDER_MODE", ProviderMode.MOCK.value)
+    try:
+        mode = ProviderMode(mode_value)
+    except ValueError as error:
+        allowed = ", ".join(item.value for item in ProviderMode)
+        raise RuntimeError(f"HFT_PROVIDER_MODE must be one of: {allowed}") from error
+    return build_weather_provider(
+        mode=mode,
+        replay_path=Path(
+            os.getenv("HFT_WEATHER_REPLAY_PATH", "data/replays/weather.json")
+        ),
+        api_key=os.getenv("AMAP_WEB_SERVICE_KEY"),
+        mock_condition=os.getenv("HFT_MOCK_WEATHER", "晴"),
+    )
+
+
+weather_provider = build_default_weather_provider()
+
 app = create_app(
     database_path=Path("data/happy_free_time_v2.db"),
     router=router,
     environment_provider=default_environment_provider,
+    weather_provider=weather_provider,
 )

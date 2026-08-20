@@ -18,6 +18,8 @@ _当前实现、架构基线、学习记录、面试材料和历史设计的统�
 6. 读取 [`collaboration/session_bootstrap.md`](collaboration/session_bootstrap.md)，按切片约定开始协作
 7. 最后检查 `git status`、当前分支和最近提交，避免覆盖用户改动
 
+继续 M2 时同时阅读 [`status/m2_trustworthy_planning_plan_2026-08-20.md`](status/m2_trustworthy_planning_plan_2026-08-20.md) 与 [`learning/milestones/m2_trustworthy_planning.md`](learning/milestones/m2_trustworthy_planning.md)。前者是切片计划快照，不高于 canonical 路线图；后者区分代码证据与个人学习状态。
+
 可以把下面这段直接发给新会话：
 
 ```text

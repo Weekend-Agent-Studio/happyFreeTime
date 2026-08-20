@@ -12,6 +12,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | [`docs/canonical/`](docs/canonical/) | 已确认的 V2 架构基线和开发路线图 |
 | [`docs/learning/progress.md`](docs/learning/progress.md) | 学习进度；与代码完成度分开维护 |
 | [`docs/learning/milestones/m1_entry_loop.md`](docs/learning/milestones/m1_entry_loop.md) | M1 项目链路、关键设计、测试证据与面试表达 |
+| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气切片的领域契约、证据与已知限制 |
 | [`docs/product/product_idea_inbox.md`](docs/product/product_idea_inbox.md) | 尚未批准实现的临时想法 |
 | [`docs/collaboration/session_bootstrap.md`](docs/collaboration/session_bootstrap.md) | 新开 Codex 会话时的协作启动说明 |
 
@@ -33,7 +34,8 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | 移动端使用                | 已完成             | 375 px 起可用，方案卡可横向滑动，详情下沉展示            |
 | 最近会话列表              | 后端已存、前端未接 | 左栏目前只展示当前会话，尚不能加载历史会话               |
 | 修改假设值                | 未完成             | 当前只能查看假设，还没有点击编辑控件                     |
-| 真实天气、POI、路线与打车 | 未完成             | M2 计划通过工具适配器接入高德等真实服务                  |
+| 天气事实与雨天可行性      | M2 切片 A 已完成   | 支持 mock/replay、live/record Adapter、缓存降级与来源展示；真实 Key 尚未验证 |
+| 真实 POI、路线与打车      | 未完成             | 路线、POI 来源元数据和动态业务数据仍是后续 M2 切片       |
 | 订单/预订执行             | 占位               | “订单”页签是 M4 产品闭环的入口，目前不能下单             |
 
 ## 推荐的前端验收场景
@@ -66,6 +68,24 @@ BASE_URL=https://api.deepseek.com
 ```
 
 API Key 只用于 RouterExtractor 的结构化语义抽取。当前活动、餐厅和路线仍来自本地 Mock/估算，不会因为配置 Key 自动变成真实高德数据。
+
+天气 Provider 独立使用后端环境变量；密钥不会返回前端或写入 fixture：
+
+```dotenv
+# mock（默认）/ replay 可完全离线运行
+HFT_PROVIDER_MODE=mock
+HFT_MOCK_WEATHER=中雨
+
+# replay 从固定规范化事实读取
+# HFT_PROVIDER_MODE=replay
+# HFT_WEATHER_REPLAY_PATH=data/replays/weather.json
+
+# live / record 才要求高德 Web 服务 Key
+# HFT_PROVIDER_MODE=live
+# AMAP_WEB_SERVICE_KEY=your-backend-only-key
+```
+
+`record` 调用高德后只保存规范化天气事实，不保存请求 Key。`live/record` 失败时使用进程内缓存，再尝试 replay 或明确标记的 Mock 降级。当前缓存尚未持久化，真实高德调用也尚未在仓库测试中验证。
 
 ## 启动前后端
 
@@ -128,6 +148,9 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 # Planning：双站方案、硬约束和严格预算冲突
 & $PYTHON -m unittest tests.test_planning -v
 
+# Weather Provider：模式一致性、TTL、失败短缓存和降级
+& $PYTHON -m unittest tests.test_weather_provider -v
+
 # Persistence：user_id 会话隔离和消息持久化
 & $PYTHON -m unittest tests.test_persistence -v
 
@@ -160,6 +183,8 @@ pnpm run build
 - `app/services/enrichment.py`：确定性规则、默认值和 provenance。
 - `app/services/question_gate.py`：阻断式反问策略。
 - `app/services/planning.py`：V2 规划接口和 V1 Mock 规划适配。
+- `app/providers/weather.py`：天气 live/record/replay/mock Adapter、缓存与降级。
+- `app/domain/providers.py`：Provider 模式、来源与天气事实契约。
 - `app/api/application.py`：FastAPI 与 LangGraph/SQLite 的组合入口。
 - `frontend/src/App.tsx`：前端会话、方案选择与详情状态流。
 

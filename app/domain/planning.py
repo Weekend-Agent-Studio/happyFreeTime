@@ -9,6 +9,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.providers import WeatherFact
+
 
 class StopType(str, Enum):
     """行程停靠点类型。M1 主要使用活动和餐厅，其他类型为近期扩展保留。"""
@@ -95,3 +97,4 @@ class CandidateSet(BaseModel):
 
     plans: list[Plan] = Field(default_factory=list)
     conflict: ConstraintConflict | None = None
+    provider_facts: list[WeatherFact] = Field(default_factory=list)

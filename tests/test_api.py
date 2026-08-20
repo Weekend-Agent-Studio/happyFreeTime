@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient
 
 from app.api.application import create_app
 from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints
+from app.domain.providers import ProviderMode, ProviderSource, WeatherFact
+from app.domain.providers import WeatherRequest
+from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
 from app.services.enrichment import EnvironmentContext
 from app.services.router_extractor import RouterContext
 
@@ -72,10 +75,37 @@ class ApiTest(unittest.TestCase):
                 longitude=116.4436,
             ),
         )
+        rainy_fact = WeatherFact(
+            city="北京市",
+            district="朝阳区",
+            date=date(2026, 8, 15),
+            condition="中雨",
+            temperature_c=23,
+            precipitation_mm=8.0,
+            is_adverse=True,
+            source=ProviderSource.REPLAY,
+            mode=ProviderMode.REPLAY,
+            observed_at=datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc),
+            verified_at=datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+        )
+        replay_store = InMemoryWeatherReplayStore()
+        replay_store.save(
+            WeatherRequest(
+                city="北京市",
+                district="朝阳区",
+                adcode="110105",
+                date=date(2026, 8, 15),
+            ),
+            rainy_fact,
+        )
         app = create_app(
             database_path=Path(self.temp_dir.name) / "api.db",
             router=RuleRouter(),
             environment_provider=lambda _: environment,
+            weather_provider=ReplayWeatherProvider(
+                store=replay_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
         )
         self.client_context = TestClient(app)
         self.client = self.client_context.__enter__()
@@ -140,6 +170,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(party["evidence"], "约会")
         self.assertEqual(party["confidence"], 0.85)
         self.assertTrue(party["user_editable"])
+
+    def test_message_exposes_weather_source_and_degradation_state(self) -> None:
+        session_id = self._create_session()
+
+        response = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={"content": "今天下午出去玩"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        facts = response.json()["data"]["provider_facts"]
+        self.assertEqual(len(facts), 1)
+        self.assertEqual(facts[0]["kind"], "weather")
+        self.assertEqual(facts[0]["condition"], "中雨")
+        self.assertEqual(facts[0]["source"], "replay")
+        self.assertFalse(facts[0]["degraded"])
+        self.assertIsNone(facts[0]["degraded_reason"])
 
     def test_blocking_question_resumes_on_the_next_message(self) -> None:
         session_id = self._create_session()

@@ -17,6 +17,7 @@ from app.api.schemas import (
     ResponseEnvelope,
 )
 from app.domain.constraints import ActorContext, IdentityType
+from app.providers.weather import WeatherProvider
 from app.orchestration.entry_graph import (
     EnvironmentProvider,
     Router,
@@ -32,6 +33,7 @@ def create_app(
     database_path: Path,
     router: Router,
     environment_provider: EnvironmentProvider,
+    weather_provider: WeatherProvider | None = None,
 ) -> FastAPI:
     """创建可注入依赖的应用实例。
 
@@ -51,6 +53,7 @@ def create_app(
     graph = build_entry_graph(
         router=router,
         environment_provider=environment_provider,
+        weather_provider=weather_provider,
         checkpointer=checkpointer,
     )
 
@@ -166,6 +169,7 @@ def create_app(
                     question=question,
                     assumptions=_dump_assumptions(result),
                     constraint_summary=_dump_constraint_summary(result),
+                    provider_facts=[],
                 )
             )
 
@@ -201,6 +205,11 @@ def create_app(
                 constraint_summary=_dump_constraint_summary(result),
                 plans=[plan.model_dump(mode="json") for plan in plans],
                 conflict=conflict.model_dump(mode="json") if conflict else None,
+                provider_facts=(
+                    [fact.model_dump(mode="json") for fact in candidate_set.provider_facts]
+                    if candidate_set
+                    else []
+                ),
             )
         )
 

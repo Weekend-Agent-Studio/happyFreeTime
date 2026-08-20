@@ -13,6 +13,9 @@ from app.domain.planning import (
     Stop,
     StopType,
 )
+from app.domain.providers import WeatherRequest
+from app.providers.weather import WeatherProvider, clear_mock_weather
+from services.catalog_service import search_activities
 from services.planning_service import generate_candidate_plans
 from services.scoring_service import compare_plans
 
@@ -24,12 +27,38 @@ class PlanningService:
     或真实 POI 检索时，调用方仍只依赖 ``plan(constraints) -> CandidateSet``。
     """
 
+    def __init__(self, weather_provider: WeatherProvider | None = None) -> None:
+        self._weather_provider = weather_provider or clear_mock_weather()
+
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         # 先把 V2 约束转换成冻结的 V1 字典输入，再将 V1 输出转回 V2 模型。
         # 这种适配让迁移可分阶段完成，不要求一次重写规划算法和整个调用链。
         legacy_constraints = self._to_legacy_constraints(constraints)
+        location = constraints.location.value
+        weather = self._weather_provider.get_weather(
+            WeatherRequest(
+                city=location.city,
+                district=location.district,
+                adcode=_beijing_weather_adcode(location.district),
+                date=constraints.date.value,
+            )
+        )
+        activity_candidates = search_activities(
+            tags=legacy_constraints["preferences"],
+            location=legacy_constraints["location"],
+            radius_km=legacy_constraints["max_distance_km"],
+            time_window=legacy_constraints["time_window"],
+            party_profile=legacy_constraints["party_profile"],
+        )
+        if weather.is_adverse:
+            activity_candidates = [
+                candidate
+                for candidate in activity_candidates
+                if not candidate.get("weather_sensitive", False)
+            ]
         legacy_plans = generate_candidate_plans(
             legacy_constraints,
+            activity_candidates=activity_candidates,
             product_candidates=[],
         )
         scored_plans = compare_plans(legacy_plans, legacy_constraints)
@@ -40,13 +69,14 @@ class PlanningService:
         ][:3]
 
         if plans:
-            return CandidateSet(plans=plans)
+            return CandidateSet(plans=plans, provider_facts=[weather])
 
         # 严格预算是硬约束：没有满足条件的结果时返回结构化冲突，不能偷偷放宽
         # 后仍告诉用户“已满足预算”。普通不可行则返回更通用的冲突类型。
         if constraints.strict_budget:
             budget = constraints.budget_per_person.value if constraints.budget_per_person else None
             return CandidateSet(
+                provider_facts=[weather],
                 conflict=ConstraintConflict(
                     code="NO_PLAN_WITHIN_STRICT_BUDGET",
                     message=f"当前目录中没有满足人均 {budget} 元严格预算的双站方案。",
@@ -60,6 +90,7 @@ class PlanningService:
             )
 
         return CandidateSet(
+            provider_facts=[weather],
             conflict=ConstraintConflict(
                 code="NO_FEASIBLE_TWO_STOP_PLAN",
                 message="当前目录中没有满足时间、距离和人群约束的双站方案。",
@@ -180,3 +211,16 @@ class PlanningService:
             highlights=plan.get("highlights", []),
             tradeoffs=plan.get("tradeoffs", []),
         )
+
+
+def _beijing_weather_adcode(district: str) -> str:
+    """M2 首批北京范围的显式映射；后续由 Geocoding Provider 提供。"""
+    adcodes = {
+        "东城区": "110101",
+        "西城区": "110102",
+        "朝阳区": "110105",
+        "丰台区": "110106",
+        "石景山区": "110107",
+        "海淀区": "110108",
+    }
+    return adcodes.get(district, "110000")

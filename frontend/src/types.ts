@@ -51,6 +51,24 @@ export type Plan = {
   tradeoffs: string[];
 };
 
+export type ProviderFact = {
+  kind: "weather";
+  city: string;
+  district: string;
+  date: string;
+  condition: string;
+  temperature_c: number | null;
+  precipitation_mm: number;
+  is_adverse: boolean;
+  source: "amap_live" | "cache" | "replay" | "mock";
+  mode: "live" | "record" | "replay" | "mock";
+  observed_at: string;
+  verified_at: string;
+  degraded: boolean;
+  degraded_reason: string | null;
+  cache_age_seconds: number | null;
+};
+
 export type AgentResponse = {
   /** needs_input 表示 Graph 已在 interrupt 暂停，下一条消息将恢复该会话。 */
   status: "completed" | "needs_input";
@@ -64,6 +82,7 @@ export type AgentResponse = {
     message: string;
     relaxation_options: string[];
   } | null;
+  provider_facts: ProviderFact[];
 };
 
 export type ChatMessage = {

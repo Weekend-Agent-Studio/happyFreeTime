@@ -54,6 +54,9 @@ h1, h2, h3, p { margin-top: 0; }
 .workspace-header h1 { font-size: 24px; line-height: 1.25; margin-bottom: 0; letter-spacing: 0; }
 .location-chip { display: flex; align-items: center; gap: 6px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 8px 11px; font-size: 12px; white-space: nowrap; }
 .assumption-strip { margin: 18px 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.provider-fact { margin: -8px 0 18px; display: flex; align-items: center; gap: 8px; border: 1px solid #cfe1db; background: #f1faf7; color: #23483d; border-radius: 7px; padding: 9px 11px; font-size: 13px; }
+.provider-fact small { margin-left: auto; color: #55736a; }
+.provider-fact.degraded { border-color: #efd7a2; background: #fff7e8; color: #6d4b13; }
 .strip-title { color: var(--primary); font-size: 12px; display: flex; align-items: center; gap: 5px; font-weight: 700; }
 .assumption-chip { background: var(--surface); border: 1px solid var(--border); padding: 7px 9px; border-radius: 6px; font-size: 12px; color: var(--text-muted); }
 .assumption-chip strong { color: var(--text); margin-right: 6px; }
