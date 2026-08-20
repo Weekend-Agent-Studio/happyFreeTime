@@ -1,6 +1,7 @@
 import unittest
 from datetime import date, datetime, timezone
 
+from app.domain.catalog import VerificationStatus, ViolationCode
 from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
@@ -48,14 +49,20 @@ class FixedReplayRouteProvider:
         )
 
 
-def planning_constraints(*, budget: int = 120, strict_budget: bool = False) -> NormalizedConstraints:
+def planning_constraints(
+    *,
+    budget: int = 120,
+    strict_budget: bool = False,
+    max_distance_km: float = 8.0,
+    time_end: str = "18:00",
+) -> NormalizedConstraints:
     return NormalizedConstraints(
         date=ConstraintValue[date](
             value=date(2026, 8, 15),
             source=ConstraintSource.USER_INFERRED,
         ),
         time_window=ConstraintValue[TimeWindow](
-            value=TimeWindow(start="14:00", end="18:00"),
+            value=TimeWindow(start="14:00", end=time_end),
             source=ConstraintSource.USER_INFERRED,
         ),
         location=ConstraintValue[GeoLocation](
@@ -77,7 +84,7 @@ def planning_constraints(*, budget: int = 120, strict_budget: bool = False) -> N
             source=ConstraintSource.USER_EXPLICIT,
         ),
         max_distance_km=ConstraintValue[float](
-            value=8.0,
+            value=max_distance_km,
             source=ConstraintSource.USER_INFERRED,
         ),
         strict_budget=strict_budget,
@@ -85,6 +92,36 @@ def planning_constraints(*, budget: int = 120, strict_budget: bool = False) -> N
 
 
 class PlanningServiceTest(unittest.TestCase):
+    def test_catalog_prunes_before_combination_and_preserves_stop_source(self) -> None:
+        result = PlanningService().plan(
+            planning_constraints(
+                budget=100,
+                strict_budget=True,
+                max_distance_km=15,
+                time_end="20:00",
+            )
+        )
+
+        self.assertGreaterEqual(len(result.plans), 1)
+        pruned_ids = {item.resource_id for item in result.catalog_violations}
+        self.assertTrue({"act_004", "rest_003", "rest_004"}.issubset(pruned_ids))
+        self.assertTrue(
+            all(
+                item.code == ViolationCode.SINGLE_RESOURCE_BUDGET_EXCEEDED
+                for item in result.catalog_violations
+                if item.resource_id in {"act_004", "rest_003", "rest_004"}
+            )
+        )
+        for plan in result.plans:
+            self.assertFalse(pruned_ids & {stop.resource_id for stop in plan.stops})
+            self.assertTrue(
+                all(
+                    stop.source.verification_status
+                    == VerificationStatus.UNVERIFIED
+                    for stop in plan.stops
+                )
+            )
+
     def test_finalist_routes_rebuild_stop_times_from_provider_durations(self) -> None:
         route_provider = FixedReplayRouteProvider()
 

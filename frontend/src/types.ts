@@ -16,6 +16,15 @@ export type ConstraintSummaryItem = {
   user_editable: boolean;
 };
 
+export type CatalogSource = {
+  source_name: string;
+  source_uri: string;
+  collected_at: string;
+  last_verified_at: string | null;
+  verification_status: "verified" | "unverified" | "stale";
+  dynamic_fields_mock: string[];
+};
+
 export type Stop = {
   resource_id: string;
   type: "activity" | "restaurant" | "cafe" | "dessert";
@@ -24,6 +33,15 @@ export type Stop = {
   end: string;
   duration_minutes: number;
   price: number;
+  source: CatalogSource;
+};
+
+export type CatalogViolation = {
+  resource_id: string;
+  resource_name: string;
+  code: string;
+  field: string;
+  message: string;
 };
 
 export type RouteLeg = {
@@ -89,6 +107,7 @@ export type AgentResponse = {
     relaxation_options: string[];
   } | null;
   provider_facts: ProviderFact[];
+  catalog_violations: CatalogViolation[];
 };
 
 export type ChatMessage = {

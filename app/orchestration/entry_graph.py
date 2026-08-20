@@ -34,8 +34,15 @@ from app.domain.providers import (
     RouteSource,
     WeatherFact,
 )
+from app.domain.catalog import (
+    CatalogSource,
+    ConstraintViolation,
+    VerificationStatus,
+    ViolationCode,
+)
 from app.providers.route import RouteProvider
 from app.providers.weather import WeatherProvider
+from app.services.catalog import Catalog
 from app.services.enrichment import EnvironmentContext, EnrichmentService
 from app.services.planning import PlanningService
 from app.services.question_gate import GateContext, NeedQuestionGate
@@ -73,6 +80,7 @@ def build_entry_graph(
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
     route_provider: RouteProvider | None = None,
+    catalog: Catalog | None = None,
     checkpointer: object | None = None,
 ):
     """组装 M1 控制流，并允许注入 Router、环境提供器和 checkpointer。
@@ -85,6 +93,7 @@ def build_entry_graph(
     planning_service = PlanningService(
         weather_provider=weather_provider,
         route_provider=route_provider,
+        catalog=catalog,
     )
 
     def router_node(state: EntryState) -> dict[str, object]:
@@ -215,6 +224,8 @@ def checkpoint_serializer() -> JsonPlusSerializer:
         allowed_msgpack_modules=[
             ActorContext,
             CandidateSet,
+            CatalogSource,
+            ConstraintViolation,
             ConstraintSource,
             EnrichmentResult,
             IdentityType,
@@ -228,6 +239,8 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             RouteMode,
             RouteSource,
             WeatherFact,
+            VerificationStatus,
+            ViolationCode,
         ],
     )
 

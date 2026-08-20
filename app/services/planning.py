@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
+from app.domain.catalog import ResourceType, StopCandidate
 from app.domain.constraints import NormalizedConstraints
 from app.domain.planning import (
     CandidateSet,
@@ -25,7 +26,8 @@ from app.domain.providers import (
 )
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
-from services.catalog_service import get_resource_detail, search_activities
+from app.services.catalog import Catalog, LocalFixtureCatalog
+from services.catalog_service import get_resource_detail
 from services.planning_service import generate_candidate_plans
 from services.scoring_service import compare_plans
 
@@ -41,9 +43,11 @@ class PlanningService:
         self,
         weather_provider: WeatherProvider | None = None,
         route_provider: RouteProvider | None = None,
+        catalog: Catalog | None = None,
     ) -> None:
         self._weather_provider = weather_provider or clear_mock_weather()
         self._route_provider = route_provider or LocalEstimateRouteProvider()
+        self._catalog = catalog or LocalFixtureCatalog()
 
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         # 先把 V2 约束转换成冻结的 V1 字典输入，再将 V1 输出转回 V2 模型。
@@ -58,27 +62,36 @@ class PlanningService:
                 date=constraints.date.value,
             )
         )
-        activity_candidates = search_activities(
-            tags=legacy_constraints["preferences"],
-            location=legacy_constraints["location"],
-            radius_km=legacy_constraints["max_distance_km"],
-            time_window=legacy_constraints["time_window"],
-            party_profile=legacy_constraints["party_profile"],
-        )
+        catalog_result = self._catalog.recall(constraints)
+        candidate_by_id = {
+            candidate.resource_id: candidate
+            for candidate in catalog_result.candidates
+        }
+        activity_candidates = [
+            candidate.to_legacy_record()
+            for candidate in catalog_result.candidates
+            if candidate.resource_type == ResourceType.ACTIVITY
+        ]
         if weather.is_adverse:
             activity_candidates = [
                 candidate
                 for candidate in activity_candidates
                 if not candidate.get("weather_sensitive", False)
             ]
+        restaurant_candidates = [
+            candidate.to_legacy_record()
+            for candidate in catalog_result.candidates
+            if candidate.resource_type == ResourceType.RESTAURANT
+        ]
         legacy_plans = generate_candidate_plans(
             legacy_constraints,
             activity_candidates=activity_candidates,
+            restaurant_candidates=restaurant_candidates,
             product_candidates=[],
         )
         scored_plans = compare_plans(legacy_plans, legacy_constraints)
         local_finalists = [
-            self._to_plan(plan)
+            self._to_plan(plan, candidate_by_id)
             for plan in scored_plans
             if self._is_feasible(plan, constraints)
         ][:3]
@@ -98,11 +111,16 @@ class PlanningService:
             plans.append(verified)
 
         if plans:
-            return CandidateSet(plans=plans, provider_facts=[weather])
+            return CandidateSet(
+                plans=plans,
+                provider_facts=[weather],
+                catalog_violations=catalog_result.violations,
+            )
 
         if local_finalists:
             return CandidateSet(
                 provider_facts=[weather],
+                catalog_violations=catalog_result.violations,
                 conflict=ConstraintConflict(
                     code="NO_PLAN_AFTER_ROUTE_VERIFICATION",
                     message="路线复核后，候选方案均违反时间或单段距离限制。",
@@ -125,6 +143,7 @@ class PlanningService:
             budget = constraints.budget_per_person.value if constraints.budget_per_person else None
             return CandidateSet(
                 provider_facts=[weather],
+                catalog_violations=catalog_result.violations,
                 conflict=ConstraintConflict(
                     code="NO_PLAN_WITHIN_STRICT_BUDGET",
                     message=f"当前目录中没有满足人均 {budget} 元严格预算的双站方案。",
@@ -139,6 +158,7 @@ class PlanningService:
 
         return CandidateSet(
             provider_facts=[weather],
+            catalog_violations=catalog_result.violations,
             conflict=ConstraintConflict(
                 code="NO_FEASIBLE_TWO_STOP_PLAN",
                 message="当前目录中没有满足时间、距离和人群约束的双站方案。",
@@ -285,7 +305,10 @@ class PlanningService:
         return plan.get("total_score", 0) > 0
 
     @staticmethod
-    def _to_plan(plan: dict) -> Plan:
+    def _to_plan(
+        plan: dict,
+        candidate_by_id: dict[str, StopCandidate],
+    ) -> Plan:
         """将 V1 混合 items 列表拆成 V2 的 stops 与 route_legs。"""
         stops: list[Stop] = []
         route_legs: list[RouteLeg] = []
@@ -313,6 +336,7 @@ class PlanningService:
                 continue
             if item_type not in {"activity", "restaurant"}:
                 continue
+            candidate = candidate_by_id[item["resource_id"]]
             stop = Stop(
                 resource_id=item["resource_id"],
                 type=StopType(item_type),
@@ -321,6 +345,7 @@ class PlanningService:
                 end=item["end"],
                 duration_minutes=item["duration_minutes"],
                 price=item.get("price", 0),
+                source=candidate.source,
             )
             stops.append(stop)
             previous_name = stop.name

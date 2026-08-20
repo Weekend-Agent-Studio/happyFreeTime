@@ -19,6 +19,7 @@ from app.api.schemas import (
 from app.domain.constraints import ActorContext, IdentityType
 from app.providers.weather import WeatherProvider
 from app.providers.route import RouteProvider
+from app.services.catalog import Catalog
 from app.orchestration.entry_graph import (
     EnvironmentProvider,
     Router,
@@ -36,6 +37,7 @@ def create_app(
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
     route_provider: RouteProvider | None = None,
+    catalog: Catalog | None = None,
 ) -> FastAPI:
     """创建可注入依赖的应用实例。
 
@@ -57,6 +59,7 @@ def create_app(
         environment_provider=environment_provider,
         weather_provider=weather_provider,
         route_provider=route_provider,
+        catalog=catalog,
         checkpointer=checkpointer,
     )
 
@@ -173,6 +176,7 @@ def create_app(
                     assumptions=_dump_assumptions(result),
                     constraint_summary=_dump_constraint_summary(result),
                     provider_facts=[],
+                    catalog_violations=[],
                 )
             )
 
@@ -210,6 +214,14 @@ def create_app(
                 conflict=conflict.model_dump(mode="json") if conflict else None,
                 provider_facts=(
                     [fact.model_dump(mode="json") for fact in candidate_set.provider_facts]
+                    if candidate_set
+                    else []
+                ),
+                catalog_violations=(
+                    [
+                        item.model_dump(mode="json")
+                        for item in candidate_set.catalog_violations
+                    ]
                     if candidate_set
                     else []
                 ),

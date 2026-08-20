@@ -10,6 +10,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.catalog import CatalogSource, ConstraintViolation
 from app.domain.providers import (
     GeoPoint,
     ProviderMode,
@@ -38,6 +39,7 @@ class Stop(BaseModel):
     end: str
     duration_minutes: int = Field(gt=0)
     price: int = Field(default=0, ge=0)
+    source: CatalogSource
 
 
 class RouteLeg(BaseModel):
@@ -93,3 +95,4 @@ class CandidateSet(BaseModel):
     plans: list[Plan] = Field(default_factory=list)
     conflict: ConstraintConflict | None = None
     provider_facts: list[WeatherFact] = Field(default_factory=list)
+    catalog_violations: list[ConstraintViolation] = Field(default_factory=list)

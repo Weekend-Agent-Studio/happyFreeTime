@@ -107,6 +107,15 @@ function routeSourceLabel(source: string): string {
   return labels[source] ?? source;
 }
 
+function catalogSourceLabel(source: Plan["stops"][number]["source"]): string {
+  const status = {
+    verified: "已核验",
+    unverified: "未核验",
+    stale: "已过期",
+  }[source.verification_status];
+  return `${source.source_name} · ${status}`;
+}
+
 function App() {
   // M1 在组件内只维护一个活跃会话。后端已经支持多个隔离会话，但“加载历史
   // 会话列表”属于后续前端切片，所以当前新建按钮只重置本地活跃状态。
@@ -237,6 +246,13 @@ function App() {
           </section>
         ))}
 
+        {response?.catalog_violations.length ? (
+          <section className="catalog-summary" aria-label="Catalog 单资源剪枝摘要">
+            <strong>组合前已排除 {new Set(response.catalog_violations.map((item) => item.resource_id)).size} 个不满足单资源硬约束的地点</strong>
+            <span>原因已结构化记录，未用低分或文案掩盖硬约束违反。</span>
+          </section>
+        ) : null}
+
         <section className="conversation" aria-live="polite">
           {messages.length === 0 ? (
             <div className="empty-conversation">
@@ -363,7 +379,7 @@ function TripPanel({ plan }: { plan?: Plan }) {
           <li key={stop.resource_id}>
             <div className="timeline-time">{stop.start}<span>{stop.end}</span></div>
             <div className="timeline-marker">{index + 1}</div>
-            <div className="timeline-content"><span>{stop.type === "restaurant" ? "餐饮" : "活动"}</span><strong>{stop.name}</strong><small>{stop.duration_minutes} 分钟 · ¥{stop.price}</small></div>
+            <div className="timeline-content"><span>{stop.type === "restaurant" ? "餐饮" : "活动"}</span><strong>{stop.name}</strong><small>{stop.duration_minutes} 分钟 · ¥{stop.price}</small><small>{catalogSourceLabel(stop.source)}{stop.source.dynamic_fields_mock.length ? " · 动态字段为 Mock" : ""}</small></div>
             {plan.route_legs[index + 1] ? <div className="route-note"><Route size={14} />下一程 {plan.route_legs[index + 1].distance_km}km · 约 {plan.route_legs[index + 1].duration_minutes} 分钟</div> : null}
           </li>
         ))}

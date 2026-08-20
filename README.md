@@ -12,7 +12,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | [`docs/canonical/`](docs/canonical/) | 已确认的 V2 架构基线和开发路线图 |
 | [`docs/learning/progress.md`](docs/learning/progress.md) | 学习进度；与代码完成度分开维护 |
 | [`docs/learning/milestones/m1_entry_loop.md`](docs/learning/milestones/m1_entry_loop.md) | M1 项目链路、关键设计、测试证据与面试表达 |
-| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气与路线切片的领域契约、证据与已知限制 |
+| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气、路线与 Catalog C1 的领域契约、证据和限制 |
 | [`docs/product/product_idea_inbox.md`](docs/product/product_idea_inbox.md) | 尚未批准实现的临时想法 |
 | [`docs/collaboration/session_bootstrap.md`](docs/collaboration/session_bootstrap.md) | 新开 Codex 会话时的协作启动说明 |
 
@@ -36,7 +36,8 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | 修改假设值                | 未完成             | 当前只能查看假设，还没有点击编辑控件                     |
 | 天气事实与雨天可行性      | M2 切片 A 已完成   | 支持 mock/replay、live/record Adapter、缓存降级与来源展示；真实 Key 尚未验证 |
 | 路线复核与完整双站时间线  | M2 切片 B 已完成   | finalist 才复核路线并重建时间线；支持缓存、replay、本地估算降级；真实 Key 尚未验证 |
-| 真实 POI 与打车执行       | 未完成             | POI 来源元数据、动态库存/价格和真实叫车仍是后续里程碑     |
+| Catalog 来源与单资源剪枝  | M2 子切片 C1 已完成 | 现有 8 个 fixture 明确标为未核验；严格预算、人数、儿童年龄、基础营业和明显超出召回半径的资源在组合前剪枝 |
+| 真实 POI 与打车执行       | 未完成             | 30–50 个真实 POI、动态库存/价格和真实叫车仍是后续里程碑   |
 | 订单/预订执行             | 占位               | “订单”页签是 M4 产品闭环的入口，目前不能下单             |
 
 ## 推荐的前端验收场景
@@ -158,6 +159,9 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 # Route Provider：高德 v5 契约、record/replay、TTL 和本地估算降级
 & $PYTHON -m unittest tests.test_route_provider -v
 
+# Catalog：来源元数据、单资源硬约束剪枝和来源缺失拒绝
+& $PYTHON -m unittest tests.test_catalog -v
+
 # Persistence：user_id 会话隔离和消息持久化
 & $PYTHON -m unittest tests.test_persistence -v
 
@@ -190,6 +194,8 @@ pnpm run build
 - `app/services/enrichment.py`：确定性规则、默认值和 provenance。
 - `app/services/question_gate.py`：阻断式反问策略。
 - `app/services/planning.py`：V2 规划接口和 V1 Mock 规划适配。
+- `app/services/catalog.py`：Catalog seam、本地 fixture Adapter 和单资源硬约束剪枝。
+- `app/domain/catalog.py`：StopCandidate、CatalogSource 与 ConstraintViolation 契约。
 - `app/providers/weather.py`：天气 live/record/replay/mock Adapter、缓存与降级。
 - `app/providers/route.py`：路线 live/record/replay/mock Adapter、缓存与本地估算降级。
 - `app/domain/providers.py`：Provider 模式、来源及天气/路线事实契约。

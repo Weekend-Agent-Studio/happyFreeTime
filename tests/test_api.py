@@ -38,6 +38,18 @@ class RuleRouter:
                 extraction_confidence={"party": 0.85},
                 inferred_fields={"party"},
             )
+        if "人均100" in user_input:
+            return Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(
+                    date_text="今天",
+                    time_text="下午",
+                    budget_text="人均100",
+                    budget_per_person=100,
+                    strict_budget=True,
+                ),
+            )
         if "人均200" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
@@ -159,6 +171,34 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(first_leg["verified_at"], "2026-08-15T08:05:00Z")
         self.assertFalse(first_leg["degraded"])
         self.assertEqual(first_leg["end"], plan["stops"][0]["start"])
+
+    def test_message_exposes_catalog_source_and_pruning_violations(self) -> None:
+        session_id = self._create_session()
+
+        response = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={"content": "今天下午出去玩，人均100"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()["data"]
+        self.assertTrue(body["catalog_violations"])
+        self.assertIn(
+            "single_resource_budget_exceeded",
+            {item["code"] for item in body["catalog_violations"]},
+        )
+
+        regular_session = self._create_session()
+        regular = self.client.post(
+            f"/api/sessions/{regular_session}/messages",
+            headers=self.headers,
+            json={"content": "今天下午出去玩"},
+        )
+        self.assertEqual(regular.status_code, 200, regular.text)
+        stop_source = regular.json()["data"]["plans"][0]["stops"][0]["source"]
+        self.assertEqual(stop_source["verification_status"], "unverified")
+        self.assertTrue(stop_source["source_uri"].startswith("repo://data/"))
 
     def test_get_session_restores_stable_conversation_and_plan_snapshot(self) -> None:
         session_id = self._create_session()

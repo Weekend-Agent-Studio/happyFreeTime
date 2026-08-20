@@ -1,0 +1,33 @@
+{
+  "activities.json": {
+    "source_name": "HappyFreeTime local activity fixture",
+    "source_uri": "repo://data/activities.json",
+    "collected_at": "2026-05-20T12:24:04+08:00",
+    "last_verified_at": null,
+    "verification_status": "unverified",
+    "dynamic_fields_mock": [
+      "avg_price",
+      "rating",
+      "review_count",
+      "availability",
+      "packages",
+      "queue_risk",
+      "queue_minutes_estimate"
+    ]
+  },
+  "restaurants.json": {
+    "source_name": "HappyFreeTime local restaurant fixture",
+    "source_uri": "repo://data/restaurants.json",
+    "collected_at": "2026-05-20T12:24:04+08:00",
+    "last_verified_at": null,
+    "verification_status": "unverified",
+    "dynamic_fields_mock": [
+      "avg_price",
+      "rating",
+      "review_count",
+      "available_tables",
+      "queue_risk",
+      "queue_minutes_estimate"
+    ]
+  }
+}
