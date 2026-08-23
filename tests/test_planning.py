@@ -21,7 +21,7 @@ from app.domain.providers import (
     WeatherRequest,
 )
 from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
-from app.services.catalog import CsvCatalog, LocalFixtureCatalog
+from app.services.catalog import InMemoryCatalog, LocalFixtureCatalog, SnapshotCatalog
 from app.services.planning import PlanningService
 
 
@@ -93,13 +93,13 @@ def planning_constraints(
 
 
 class PlanningServiceTest(unittest.TestCase):
-    def test_default_catalog_uses_curated_csv_records(self) -> None:
+    def test_default_catalog_uses_generated_snapshot_records(self) -> None:
         result = PlanningService(
             route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
         ).plan(planning_constraints(max_distance_km=30, time_end="22:00"))
 
         self.assertGreaterEqual(len(result.plans), 1)
-        self.assertTrue(all(plan.price_status.value == "estimated" for plan in result.plans))
+        self.assertTrue(all(plan.price_status.value == "incomplete" for plan in result.plans))
         self.assertTrue(
             all(
                 stop.resource_id.startswith("osm-")
@@ -108,11 +108,11 @@ class PlanningServiceTest(unittest.TestCase):
             )
         )
 
-    def test_curated_csv_catalog_runs_through_planning_and_route_verification_offline(self) -> None:
+    def test_snapshot_catalog_runs_through_planning_and_route_verification_offline(self) -> None:
         route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
 
         result = PlanningService(
-            catalog=CsvCatalog(),
+            catalog=SnapshotCatalog(),
             route_provider=route_provider,
         ).plan(
             planning_constraints(max_distance_km=30, time_end="22:00")
@@ -136,7 +136,7 @@ class PlanningServiceTest(unittest.TestCase):
         )
         self.assertEqual(len(route_provider.requests), len(result.plans) * 2)
 
-    def test_strict_budget_rejects_unverified_csv_prices_before_combination(self) -> None:
+    def test_strict_budget_rejects_unknown_snapshot_prices_before_combination(self) -> None:
         result = PlanningService().plan(
             planning_constraints(
                 budget=100,
@@ -151,6 +151,24 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertIn(
             ViolationCode.SINGLE_RESOURCE_PRICE_UNVERIFIED,
             {item.code for item in result.catalog_violations},
+        )
+
+    def test_unknown_catalog_facts_are_exposed_only_for_final_plan_stops(self) -> None:
+        recalled = LocalFixtureCatalog().recall(
+            planning_constraints(max_distance_km=30, time_end="22:00")
+        ).candidates
+        unknown = [item.model_copy(update={"open_hours": {}}) for item in recalled]
+
+        result = PlanningService(
+            catalog=InMemoryCatalog(unknown),
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2),
+        ).plan(planning_constraints(max_distance_km=30, time_end="22:00"))
+
+        selected_ids = {stop.resource_id for plan in result.plans for stop in plan.stops}
+        self.assertTrue(result.catalog_warnings)
+        self.assertEqual(
+            {warning.resource_id for warning in result.catalog_warnings},
+            selected_ids,
         )
 
     def test_finalist_routes_rebuild_stop_times_from_provider_durations(self) -> None:

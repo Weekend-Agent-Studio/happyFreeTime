@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from pydantic import ValidationError
 
 from app.domain.catalog import (
+    CatalogWarningCode,
     CatalogSource,
     PriceKind,
     ResourceType,
@@ -29,7 +30,6 @@ SOURCE = CatalogSource(
     source_license="project-test-fixture",
     collected_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
     verification_status=VerificationStatus.UNVERIFIED,
-    dynamic_fields_mock=["avg_price"],
 )
 
 
@@ -100,6 +100,23 @@ def candidate(
 
 
 class CatalogTest(unittest.TestCase):
+    def test_unknown_hours_and_child_suitability_are_warnings_not_mocked_or_pruned(self) -> None:
+        unknown = candidate("unknown-facts").model_copy(
+            update={"children_allowed": None, "open_hours": {}}
+        )
+
+        result = InMemoryCatalog([unknown]).recall(constraints())
+
+        self.assertEqual([item.resource_id for item in result.candidates], ["unknown-facts"])
+        self.assertEqual(result.violations, [])
+        self.assertEqual(
+            {warning.code for warning in result.warnings},
+            {
+                CatalogWarningCode.OPENING_HOURS_UNVERIFIED,
+                CatalogWarningCode.CHILD_SUITABILITY_UNVERIFIED,
+            },
+        )
+
     def test_strict_budget_rejects_estimated_or_unknown_prices(self) -> None:
         catalog = InMemoryCatalog(
             [
@@ -188,13 +205,12 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(len(result.candidates), 8)
         self.assertEqual(result.violations, [])
         for item in result.candidates:
-            self.assertTrue(item.source.source_uri.startswith("repo://data/"))
+            self.assertTrue(item.source.source_uri.startswith("repo://data/fixtures/v1/"))
             self.assertEqual(
                 item.source.verification_status,
                 VerificationStatus.UNVERIFIED,
             )
             self.assertIsNone(item.source.last_verified_at)
-            self.assertTrue(item.source.dynamic_fields_mock)
 
 
 if __name__ == "__main__":

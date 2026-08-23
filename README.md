@@ -12,7 +12,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | [`docs/canonical/`](docs/canonical/) | 已确认的 V2 架构基线和开发路线图 |
 | [`docs/learning/progress.md`](docs/learning/progress.md) | 学习进度；与代码完成度分开维护 |
 | [`docs/learning/milestones/m1_entry_loop.md`](docs/learning/milestones/m1_entry_loop.md) | M1 项目链路、关键设计、测试证据与面试表达 |
-| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气、路线与 Catalog C1/C2 的领域契约、证据和限制 |
+| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气、路线与 Catalog C1-C3 的领域契约、证据和限制 |
 | [`docs/product/product_idea_inbox.md`](docs/product/product_idea_inbox.md) | 尚未批准实现的临时想法 |
 | [`docs/collaboration/session_bootstrap.md`](docs/collaboration/session_bootstrap.md) | 新开 Codex 会话时的协作启动说明 |
 
@@ -36,7 +36,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | 修改假设值                | 未完成             | 当前只能查看假设，还没有点击编辑控件                     |
 | 天气事实与雨天可行性      | M2 切片 A 已完成   | 支持 mock/replay、live/record Adapter、缓存降级与来源展示；真实 Key 尚未验证 |
 | 路线复核与完整双站时间线  | M2 切片 B 已完成   | finalist 才复核路线并重建时间线；支持缓存、replay、本地估算降级；真实 Key 尚未验证 |
-| Catalog 来源与单资源剪枝  | M2 切片 C 已完成   | 默认离线读取 36 条 OSM 北京 POI；来源、许可、采集时间、坐标系和核验状态可追溯，单资源硬约束在组合前剪枝 |
+| Catalog 来源与单资源剪枝  | M2 C1-C3 已完成   | 默认离线读取 200 条可重建 OSM 北京 POI；来源、许可、未知事实和核验状态可见，单资源硬约束在组合前剪枝 |
 | 动态 POI 与打车执行       | 未完成             | 当前 POI 是版本化静态快照且未现场核验；动态库存、可靠价格、实时 POI 检索和真实叫车仍未实现 |
 | 订单/预订执行             | 占位               | “订单”页签是 M4 产品闭环的入口，目前不能下单             |
 
@@ -69,7 +69,7 @@ LLM_API=your-api-key
 BASE_URL=https://api.deepseek.com
 ```
 
-`LLM_API` 只用于 RouterExtractor 的结构化语义抽取。活动与餐厅默认来自版本化的 `data/catalog/pois.csv`，不因配置 LLM Key 自动更新；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德。
+`LLM_API` 只用于 RouterExtractor 的结构化语义抽取。活动与餐厅默认来自版本化的 `data/catalog/pois.json`，不因配置 LLM Key 自动更新；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德。
 
 天气 Provider 独立使用后端环境变量；密钥不会返回前端或写入 fixture：
 
@@ -94,32 +94,40 @@ HFT_ROUTE_PROVIDER_MODE=mock
 
 ## POI Catalog、价格与图片边界
 
-- `data/catalog/pois.csv` 当前包含 36 条北京 POI：18 个活动、18 个餐厅，基础来源为 OpenStreetMap contributors，许可标记为 ODbL 1.0。
-- CSV 保存原始 WGS84 坐标；`CsvCatalog` 在 Adapter 内转换为供当前高德路线接口使用的 GCJ-02，避免静默混用坐标系。
-- 营业时间是采集时的静态基础时段，`verification_status=unverified`；C2 不表达节假日例外、多营业时段、过夜营业或实时闭店。
-- 价格区分 `known / estimated / free / unknown`。当前 36 条价格都是本地估算；非严格预算可使用并显示“估算”，严格预算只接受 `known/free`，因此可能如实返回无解。
-- 图片是可选远程引用。当前只收录许可可追溯的 Wikimedia Commons 图片；缺图或加载失败显示占位图，图片不参与召回、评分、硬约束或冲突判断，也不会下载到仓库。
+- `data/catalog/pois.json` 当前包含 200 条北京 POI：100 个活动、100 个餐厅。它由版本化 Overpass 查询、原始响应 replay 和生成脚本构建，基础来源为 OpenStreetMap contributors（ODbL 1.0）。
+- 快照保存 WGS84，`SnapshotCatalog` 在 Adapter 内转换为当前路线 Provider 使用的 GCJ-02。旧 M1 Mock 数据只存在于 `data/fixtures/v1/`，不会混入运行快照。
+- 当前覆盖率：地址 99/200、基础营业时间 110/200、许可可追溯远程图片 72/200、可靠价格 0/200。完整报告见 `data/catalog/completeness.md`。
+- 缺营业时间或亲子适配信息时保留候选并输出 Warning；已知不满足硬约束时才输出 Violation 并淘汰。未知价格不会随机补齐或当作免费，严格预算只接受 `known/free`。
+- 图片通过 OSM 的 Wikidata/Commons 引用解析，只保存 URL、作者与许可元数据；缺图或加载失败显示类别占位图，不影响规划，也不会下载图片文件。
+
+完全离线重建相同快照：
+
+```powershell
+& 'D:\NWPU_career\anaconda3\envs\PyTorch\python.exe' scripts/collect_osm_catalog.py --offline --max-records 200
+```
+
+在线刷新会访问公开 Overpass 与 Wikimedia API，不需要 API Key；应遵守服务使用策略并控制频率。当前脚本不是通用爬虫，也不抓取大众点评。
 
 ## 启动前后端
 
 项目已在 `D:\NWPU_career\anaconda3\envs\PyTorch`（Python 3.11）验证。首次运行先安装后端依赖：
 
 ```powershell
-Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime
+Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime-m2
 & 'D:\NWPU_career\anaconda3\envs\PyTorch\python.exe' -m pip install --no-cache-dir -r requirements.txt
 ```
 
 打开第一个 PowerShell，启动离线后端：
 
 ```powershell
-Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime
+Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime-m2
 .\scripts\start_backend_demo.ps1
 ```
 
 打开第二个 PowerShell，启动前端：
 
 ```powershell
-Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime
+Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime-m2
 .\scripts\start_frontend.ps1
 ```
 
@@ -133,7 +141,7 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 & 'D:\NWPU_career\anaconda3\envs\PyTorch\python.exe' -m uvicorn app.api.server:app --host 127.0.0.1 --port 8000
 
 # 另一个终端
-Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime\frontend
+Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime-m2\frontend
 pnpm install --store-dir ..\.pnpm-store
 pnpm run dev
 ```
@@ -167,8 +175,8 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 # Route Provider：高德 v5 契约、record/replay、TTL 和本地估算降级
 & $PYTHON -m unittest tests.test_route_provider -v
 
-# Catalog：fixture/Csv Adapter、schema、许可、价格语义与单资源硬约束剪枝
-& $PYTHON -m unittest tests.test_catalog tests.test_csv_catalog -v
+# Catalog：采集/回放、snapshot schema、未知语义与单资源硬约束剪枝
+& $PYTHON -m unittest tests.test_catalog tests.test_catalog_collection tests.test_snapshot_catalog -v
 
 # Persistence：user_id 会话隔离和消息持久化
 & $PYTHON -m unittest tests.test_persistence -v
@@ -201,8 +209,9 @@ pnpm run build
 - `app/services/demo_router.py`：不需要 Key 的离线抽取器。
 - `app/services/enrichment.py`：确定性规则、默认值和 provenance。
 - `app/services/question_gate.py`：阻断式反问策略。
-- `app/services/planning.py`：V2 规划接口、默认 CSV Catalog 和 V1 组合器适配。
-- `app/services/catalog.py`：Catalog seam、CSV/fixture Adapter、schema 校验、坐标归一化和单资源硬约束剪枝。
+- `app/services/planning.py`：V2 规划接口、默认 Snapshot Catalog 和 V1 组合器适配。
+- `app/services/catalog.py`：Catalog seam、snapshot/fixture Adapter、schema 校验、坐标归一化和单资源硬约束剪枝。
+- `app/services/catalog_collection.py` 与 `scripts/collect_osm_catalog.py`：Overpass/Commons 采集、去重、质量报告和离线 replay。
 - `app/domain/catalog.py`：StopCandidate、CatalogSource 与 ConstraintViolation 契约。
 - `app/providers/weather.py`：天气 live/record/replay/mock Adapter、缓存与降级。
 - `app/providers/route.py`：路线 live/record/replay/mock Adapter、缓存与本地估算降级。

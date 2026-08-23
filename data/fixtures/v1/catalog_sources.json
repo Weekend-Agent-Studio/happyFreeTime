@@ -1,0 +1,18 @@
+{
+  "activities.json": {
+    "source_name": "HappyFreeTime local activity fixture",
+    "source_uri": "repo://data/fixtures/v1/activities.json",
+    "source_license": "project-fixture",
+    "collected_at": "2026-05-20T12:24:04+08:00",
+    "last_verified_at": null,
+    "verification_status": "unverified"
+  },
+  "restaurants.json": {
+    "source_name": "HappyFreeTime local restaurant fixture",
+    "source_uri": "repo://data/fixtures/v1/restaurants.json",
+    "source_license": "project-fixture",
+    "collected_at": "2026-05-20T12:24:04+08:00",
+    "last_verified_at": null,
+    "verification_status": "unverified"
+  }
+}

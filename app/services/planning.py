@@ -27,7 +27,7 @@ from app.domain.providers import (
 )
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
-from app.services.catalog import Catalog, CsvCatalog
+from app.services.catalog import Catalog, SnapshotCatalog
 from services.planning_service import generate_candidate_plans
 from services.scoring_service import compare_plans
 
@@ -47,7 +47,7 @@ class PlanningService:
     ) -> None:
         self._weather_provider = weather_provider or clear_mock_weather()
         self._route_provider = route_provider or LocalEstimateRouteProvider()
-        self._catalog = catalog or CsvCatalog()
+        self._catalog = catalog or SnapshotCatalog()
 
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         # 先把 V2 约束转换成冻结的 V1 字典输入，再将 V1 输出转回 V2 模型。
@@ -116,10 +116,20 @@ class PlanningService:
             plans.append(verified)
 
         if plans:
+            selected_ids = {
+                stop.resource_id
+                for plan in plans
+                for stop in plan.stops
+            }
             return CandidateSet(
                 plans=plans,
                 provider_facts=[weather],
                 catalog_violations=catalog_result.violations,
+                catalog_warnings=[
+                    warning
+                    for warning in catalog_result.warnings
+                    if warning.resource_id in selected_ids
+                ],
             )
 
         if local_finalists:
@@ -349,6 +359,7 @@ class PlanningService:
                 duration_minutes=item["duration_minutes"],
                 price=item.get("price", 0),
                 price_kind=candidate.price_kind,
+                category_tags=candidate.category_tags,
                 image=candidate.image,
                 source=candidate.source,
             )

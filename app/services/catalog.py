@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import math
-import re
 from pathlib import Path
 from typing import Protocol
 
@@ -14,6 +12,8 @@ from pydantic import ValidationError
 from app.domain.catalog import (
     CatalogSource,
     CatalogResult,
+    CatalogWarning,
+    CatalogWarningCode,
     CoordinateSystem,
     ConstraintViolation,
     ImageRef,
@@ -42,20 +42,25 @@ class InMemoryCatalog:
     def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
         kept: list[StopCandidate] = []
         violations: list[ConstraintViolation] = []
+        warnings: list[CatalogWarning] = []
         for candidate in self._candidates:
             candidate_violations = _violations_for(candidate, constraints)
             if candidate_violations:
                 violations.extend(candidate_violations)
             else:
                 kept.append(candidate.model_copy(deep=True))
-        return CatalogResult(candidates=kept, violations=violations)
+                warnings.extend(_warnings_for(candidate, constraints))
+        return CatalogResult(candidates=kept, violations=violations, warnings=warnings)
 
 
 class LocalFixtureCatalog:
     """Normalize the repository's explicitly unverified local fixture data."""
 
     def __init__(self, data_dir: Path | None = None) -> None:
-        self._data_dir = data_dir or Path(__file__).resolve().parents[2] / "data"
+        self._data_dir = (
+            data_dir
+            or Path(__file__).resolve().parents[2] / "data" / "fixtures" / "v1"
+        )
 
     def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
         source_payload = _read_json(self._data_dir / "catalog_sources.json")
@@ -73,47 +78,11 @@ class LocalFixtureCatalog:
         return InMemoryCatalog(candidates).recall(constraints)
 
 
-class CsvCatalog:
-    """Load and validate a small, versioned POI catalog fully offline."""
-
-    REQUIRED_COLUMNS = {
-        "resource_id",
-        "resource_type",
-        "name",
-        "category_tags",
-        "district",
-        "address",
-        "latitude",
-        "longitude",
-        "coordinate_system",
-        "duration_minutes",
-        "weather_sensitive",
-        "avg_price_yuan",
-        "price_kind",
-        "max_party_size",
-        "children_allowed",
-        "child_age_min",
-        "child_age_max",
-        "booking_required",
-        "reservation_required",
-        *(f"open_{day}" for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")),
-        "source_name",
-        "source_uri",
-        "source_license",
-        "collected_at",
-        "last_verified_at",
-        "verification_status",
-        "image_url",
-        "image_source_uri",
-        "image_author",
-        "image_license",
-        "image_license_uri",
-        "image_attribution",
-        "notes",
-    }
+class SnapshotCatalog:
+    """Load the generated OSM snapshot behind the stable Catalog seam."""
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path = path or Path(__file__).resolve().parents[2] / "data" / "catalog" / "pois.csv"
+        self._path = path or Path(__file__).resolve().parents[2] / "data" / "catalog" / "pois.json"
         self._delegate = InMemoryCatalog(self._load())
 
     def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
@@ -121,32 +90,70 @@ class CsvCatalog:
 
     def _load(self) -> list[StopCandidate]:
         try:
-            with self._path.open("r", encoding="utf-8-sig", newline="") as handle:
-                reader = csv.DictReader(handle)
-                missing = self.REQUIRED_COLUMNS - set(reader.fieldnames or [])
-                if missing:
-                    raise CatalogDataError(
-                        f"{self._path}: missing columns: {', '.join(sorted(missing))}"
-                    )
-                rows = list(reader)
-        except OSError as exc:
-            raise CatalogDataError(f"cannot read catalog {self._path}: {exc}") from exc
+            payload = _read_json(self._path)
+            manifest = payload["manifest"]
+            records = payload["records"]
+            source_manifest = manifest["source"]
+        except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise CatalogDataError(f"cannot read catalog snapshot {self._path}: {exc}") from exc
 
-        seen: set[str] = set()
+        if manifest.get("record_count") != len(records):
+            raise CatalogDataError(f"{self._path}: manifest record_count does not match records")
+        try:
+            coordinate_system = CoordinateSystem(source_manifest["coordinate_system"])
+            collected_at = manifest["collected_at"]
+            source_name = source_manifest["name"]
+            source_license = source_manifest["license"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CatalogDataError(f"{self._path}: invalid manifest: {exc}") from exc
+
         candidates: list[StopCandidate] = []
-        for line_number, row in enumerate(rows, start=2):
-            resource_id = row["resource_id"].strip()
-            if resource_id in seen:
-                raise CatalogDataError(
-                    f"{self._path}:{line_number}: duplicate resource_id {resource_id!r}"
-                )
+        seen: set[str] = set()
+        for index, record in enumerate(records, start=1):
+            resource_id = record.get("resource_id", "")
+            if not resource_id or resource_id in seen:
+                raise CatalogDataError(f"{self._path}: invalid or duplicate resource_id {resource_id!r}")
             seen.add(resource_id)
             try:
-                candidates.append(_candidate_from_csv(row))
+                latitude = float(record["latitude"])
+                longitude = float(record["longitude"])
+                if coordinate_system == CoordinateSystem.WGS84:
+                    latitude, longitude = _wgs84_to_gcj02(latitude, longitude)
+                source = CatalogSource(
+                    source_name=source_name,
+                    source_uri=record["source_uri"],
+                    source_license=source_license,
+                    collected_at=collected_at,
+                    last_verified_at=record.get("last_verified_at"),
+                    verification_status=record.get("verification_status", "unverified"),
+                )
+                candidates.append(
+                    StopCandidate(
+                        resource_id=resource_id,
+                        resource_type=record["resource_type"],
+                        name=record["name"],
+                        district=record.get("district", ""),
+                        address=record.get("address", ""),
+                        location=GeoPoint(latitude=latitude, longitude=longitude),
+                        coordinate_system=CoordinateSystem.GCJ02,
+                        category_tags=record.get("category_tags", []),
+                        avg_price=record.get("avg_price_yuan"),
+                        price_kind=record.get("price_kind", "unknown"),
+                        duration_minutes=record["duration_minutes"],
+                        open_hours=record.get("open_hours", {}),
+                        max_party_size=record.get("max_party_size"),
+                        children_allowed=record.get("children_allowed"),
+                        child_age_min=record.get("child_age_min"),
+                        child_age_max=record.get("child_age_max"),
+                        weather_sensitive=record.get("weather_sensitive", False),
+                        booking_required=record.get("booking_required", False),
+                        reservation_required=record.get("reservation_required", False),
+                        image=(ImageRef.model_validate(record["image"]) if record.get("image") else None),
+                        source=source,
+                    )
+                )
             except (KeyError, TypeError, ValueError, ValidationError) as exc:
-                raise CatalogDataError(
-                    f"{self._path}:{line_number}: {exc}"
-                ) from exc
+                raise CatalogDataError(f"{self._path}: record {index}: {exc}") from exc
         return candidates
 
 
@@ -220,7 +227,7 @@ def _violations_for(
         ]
         hours = candidate.open_hours.get(weekday)
         window = constraints.time_window.value
-        if not hours or not _overlaps(hours, window.start, window.end):
+        if hours and not _overlaps(hours, window.start, window.end):
             violations.append(
                 _violation(
                     candidate,
@@ -249,6 +256,37 @@ def _violations_for(
             )
 
     return violations
+
+
+def _warnings_for(
+    candidate: StopCandidate,
+    constraints: NormalizedConstraints,
+) -> list[CatalogWarning]:
+    warnings: list[CatalogWarning] = []
+    party = constraints.party.value if constraints.party else None
+    if party and party.children > 0 and candidate.children_allowed is None:
+        warnings.append(
+            _warning(
+                candidate,
+                CatalogWarningCode.CHILD_SUITABILITY_UNVERIFIED,
+                "party.child_age",
+                "该地点没有可靠的儿童适用性信息，请出发前确认。",
+            )
+        )
+    if constraints.date and constraints.time_window:
+        weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
+            constraints.date.value.weekday()
+        ]
+        if not candidate.open_hours.get(weekday):
+            warnings.append(
+                _warning(
+                    candidate,
+                    CatalogWarningCode.OPENING_HOURS_UNVERIFIED,
+                    "date",
+                    "该地点在请求日期的营业时间未知，请出发前确认。",
+                )
+            )
+    return warnings
 
 
 def _supports_child_age(candidate: StopCandidate, child_age: int) -> bool:
@@ -302,6 +340,21 @@ def _violation(
     message: str,
 ) -> ConstraintViolation:
     return ConstraintViolation(
+        resource_id=candidate.resource_id,
+        resource_name=candidate.name,
+        code=code,
+        field=field,
+        message=message,
+    )
+
+
+def _warning(
+    candidate: StopCandidate,
+    code: CatalogWarningCode,
+    field: str,
+    message: str,
+) -> CatalogWarning:
+    return CatalogWarning(
         resource_id=candidate.resource_id,
         resource_name=candidate.name,
         code=code,
@@ -374,166 +427,6 @@ def _child_age_range(record: dict) -> tuple[int | None, int | None]:
 
 def _read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-_HOURS_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$")
-
-
-def _candidate_from_csv(row: dict[str, str]) -> StopCandidate:
-    source_name = _required(row, "source_name")
-    source_uri = _required(row, "source_uri")
-    source_license = _required(row, "source_license")
-    source_coordinate_system = CoordinateSystem(_required(row, "coordinate_system"))
-    latitude = _float(row, "latitude")
-    longitude = _float(row, "longitude")
-    if not -90 <= latitude <= 90:
-        raise ValueError("latitude must be between -90 and 90")
-    if not -180 <= longitude <= 180:
-        raise ValueError("longitude must be between -180 and 180")
-    if source_coordinate_system == CoordinateSystem.WGS84:
-        latitude, longitude = _wgs84_to_gcj02(latitude, longitude)
-
-    price_kind = PriceKind(_required(row, "price_kind"))
-    price = _price(row.get("avg_price_yuan", ""), price_kind)
-    estimated_fields = ["duration_minutes"]
-    if price_kind == PriceKind.ESTIMATED:
-        estimated_fields.append("avg_price")
-    open_hours = {
-        day: value
-        for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-        if (value := _hours(row, f"open_{day}", required=day in {"sat", "sun"}))
-    }
-
-    image = None
-    if row.get("image_url", "").strip():
-        image = ImageRef(
-            url=_required(row, "image_url"),
-            source_uri=_required(row, "image_source_uri"),
-            author=_optional(row, "image_author"),
-            license=_required(row, "image_license"),
-            license_uri=_required(row, "image_license_uri"),
-            attribution=_optional(row, "image_attribution"),
-        )
-
-    source = CatalogSource(
-        source_name=source_name,
-        source_uri=source_uri,
-        source_license=source_license,
-        coordinate_system=source_coordinate_system,
-        collected_at=_required(row, "collected_at"),
-        last_verified_at=_optional(row, "last_verified_at"),
-        verification_status=_required(row, "verification_status"),
-        estimated_fields=estimated_fields,
-        derived_fields=[
-            "resource_type",
-            "category_tags",
-            "weather_sensitive",
-            "booking_required",
-            "reservation_required",
-        ],
-    )
-    return StopCandidate(
-        resource_id=_required(row, "resource_id"),
-        resource_type=ResourceType(_required(row, "resource_type")),
-        name=_required(row, "name"),
-        category_tags=[
-            value.strip()
-            for value in row.get("category_tags", "").split("|")
-            if value.strip()
-        ],
-        district=row.get("district", "").strip(),
-        address=row.get("address", "").strip(),
-        location=GeoPoint(latitude=latitude, longitude=longitude),
-        coordinate_system=CoordinateSystem.GCJ02,
-        avg_price=price,
-        price_kind=price_kind,
-        duration_minutes=_int(row, "duration_minutes", required=True),
-        open_hours=open_hours,
-        max_party_size=_int(row, "max_party_size"),
-        children_allowed=_bool(row, "children_allowed"),
-        child_age_min=_int(row, "child_age_min"),
-        child_age_max=_int(row, "child_age_max"),
-        weather_sensitive=_bool(row, "weather_sensitive", required=True),
-        booking_required=_bool(row, "booking_required", required=True),
-        reservation_required=_bool(row, "reservation_required", required=True),
-        image=image,
-        source=source,
-    )
-
-
-def _required(row: dict[str, str], field: str) -> str:
-    value = row.get(field, "").strip()
-    if not value:
-        raise ValueError(f"{field} is required")
-    return value
-
-
-def _optional(row: dict[str, str], field: str) -> str | None:
-    return row.get(field, "").strip() or None
-
-
-def _int(row: dict[str, str], field: str, *, required: bool = False) -> int | None:
-    raw = row.get(field, "").strip()
-    if not raw:
-        if required:
-            raise ValueError(f"{field} is required")
-        return None
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise ValueError(f"{field} must be an integer") from exc
-
-
-def _float(row: dict[str, str], field: str) -> float:
-    try:
-        return float(_required(row, field))
-    except ValueError as exc:
-        raise ValueError(f"{field} must be a number") from exc
-
-
-def _bool(row: dict[str, str], field: str, *, required: bool = False) -> bool | None:
-    raw = row.get(field, "").strip().lower()
-    if not raw and not required:
-        return None
-    if raw == "true":
-        return True
-    if raw == "false":
-        return False
-    raise ValueError(f"{field} must be true or false")
-
-
-def _hours(row: dict[str, str], field: str, *, required: bool) -> str | None:
-    raw = row.get(field, "").strip()
-    if not raw:
-        if required:
-            raise ValueError(f"{field} is required")
-        return None
-    if not _HOURS_PATTERN.fullmatch(raw):
-        raise ValueError(f"{field} must use HH:MM-HH:MM")
-    if _minutes(raw.split("-", 1)[0]) >= _minutes(raw.split("-", 1)[1]):
-        raise ValueError(f"{field} must close after it opens")
-    return raw
-
-
-def _price(raw: str, kind: PriceKind) -> int | None:
-    value = raw.strip()
-    if kind == PriceKind.UNKNOWN:
-        if value:
-            raise ValueError("avg_price_yuan must be blank when price_kind is unknown")
-        return None
-    if kind == PriceKind.FREE:
-        if value not in {"", "0"}:
-            raise ValueError("avg_price_yuan must be blank or 0 when price_kind is free")
-        return 0
-    if not value:
-        raise ValueError(f"avg_price_yuan is required when price_kind is {kind.value}")
-    try:
-        price = int(value)
-    except ValueError as exc:
-        raise ValueError("avg_price_yuan must be an integer") from exc
-    if price < 0:
-        raise ValueError("avg_price_yuan must be non-negative")
-    return price
 
 
 def _wgs84_to_gcj02(latitude: float, longitude: float) -> tuple[float, float]:

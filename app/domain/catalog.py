@@ -46,19 +46,20 @@ class ViolationCode(str, Enum):
     OUTSIDE_RECALL_RADIUS = "outside_recall_radius"
 
 
+class CatalogWarningCode(str, Enum):
+    OPENING_HOURS_UNVERIFIED = "opening_hours_unverified"
+    CHILD_SUITABILITY_UNVERIFIED = "child_suitability_unverified"
+
+
 class CatalogSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source_name: str = Field(min_length=1)
     source_uri: str = Field(min_length=1)
     source_license: str = Field(min_length=1)
-    coordinate_system: CoordinateSystem = CoordinateSystem.GCJ02
     collected_at: datetime
     last_verified_at: datetime | None = None
     verification_status: VerificationStatus
-    dynamic_fields_mock: list[str] = Field(default_factory=list)
-    estimated_fields: list[str] = Field(default_factory=list)
-    derived_fields: list[str] = Field(default_factory=list)
 
 
 class ImageRef(BaseModel):
@@ -142,8 +143,19 @@ class ConstraintViolation(BaseModel):
     message: str
 
 
+class CatalogWarning(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    resource_id: str
+    resource_name: str
+    code: CatalogWarningCode
+    field: str
+    message: str
+
+
 class CatalogResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidates: list[StopCandidate] = Field(default_factory=list)
     violations: list[ConstraintViolation] = Field(default_factory=list)
+    warnings: list[CatalogWarning] = Field(default_factory=list)

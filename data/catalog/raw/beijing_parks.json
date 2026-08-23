@@ -1,0 +1,1400 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-08-23T16:52:05Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+
+{
+  "type": "way",
+  "id": 988803316,
+  "center": {
+    "lat": 39.8313864,
+    "lon": 116.2301383
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "世纪森林公园",
+    "opening_hours": "closed"
+  }
+},
+{
+  "type": "way",
+  "id": 156322316,
+  "center": {
+    "lat": 39.7801931,
+    "lon": 116.3200002
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "地铁文化公园",
+    "name:en": "Metro Cultural Park",
+    "name:zh": "地铁文化公园",
+    "wikidata": "Q19852205",
+    "wikimedia_commons": "Category:Beijing Subway Culture Park",
+    "wikipedia": "zh:地铁文化公园"
+  }
+},
+{
+  "type": "way",
+  "id": 312174169,
+  "center": {
+    "lat": 39.7758767,
+    "lon": 116.4584726
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "南海子公园",
+    "name:en": "Nanhaizi Park",
+    "name:zh": "南海子公园",
+    "name:zh-Hans": "南海子公园",
+    "name:zh-Hant": "南海子公園",
+    "wikidata": "Q10908454",
+    "wikipedia": "zh:南海子公园"
+  }
+},
+{
+  "type": "way",
+  "id": 550815353,
+  "center": {
+    "lat": 39.9116043,
+    "lon": 116.1393446
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "北京冬奥公园（永定河河岸公园）",
+    "name:en": "Beijing Winter Olympic Park",
+    "name:zh": "北京冬奥公园（永定河河岸公园）",
+    "name:zh-Hans": "北京冬奥公园（永定河河岸公园）",
+    "name:zh-Hant": "北京冬奧公園（永定河河岸公園）",
+    "old_name": "莲石湖湿地公园",
+    "smoking": "no",
+    "wikidata": "Q111022144",
+    "wikipedia": "zh:北京冬奥公园"
+  }
+},
+{
+  "type": "way",
+  "id": 683573580,
+  "center": {
+    "lat": 40.1024668,
+    "lon": 116.1810796
+  },
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "海淀区",
+    "addr:housenumber": "17",
+    "addr:postcode": "100089",
+    "addr:province": "北京市",
+    "addr:street": "长春桥路",
+    "alt_name": "翠湖国家湿地公园;翠湖城市湿地公园;翠湖湿地公园;翠湖公园",
+    "barrier": "wall",
+    "leisure": "park",
+    "name": "翠湖国家城市湿地公园",
+    "name:en": "Cuihu National Urban Wetland Park",
+    "name:zh": "翠湖国家城市湿地公园",
+    "opening_hours": "Apr-Oct: Mo,We,Sa 09:00-11:30,14:00-16:30",
+    "operator": "北京市海淀区人民政府",
+    "wikidata": "Q98110034",
+    "wikipedia": "zh:翠湖湿地"
+  }
+},
+{
+  "type": "way",
+  "id": 333934481,
+  "center": {
+    "lat": 39.9105831,
+    "lon": 116.1938172
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "石景山雕塑公园",
+    "wikidata": "Q16868500",
+    "wikipedia": "zh:石景山雕塑公园"
+  }
+},
+{
+  "type": "way",
+  "id": 42416783,
+  "center": {
+    "lat": 39.9043037,
+    "lon": 116.2378655
+  },
+  "tags": {
+    "addr:full": "北京市石景山区",
+    "leisure": "park",
+    "name": "北京国际雕塑公园",
+    "name:en": "Beijing International Sculpture Park",
+    "name:zh": "北京国际雕塑公园",
+    "name:zh-Hans": "北京国际雕塑公园",
+    "name:zh-Hant": "北京國際雕塑公園",
+    "wikidata": "Q10902099",
+    "wikimedia_commons": "Category:Beijing Sculpture Park",
+    "wikipedia": "zh:北京国际雕塑公园"
+  }
+},
+{
+  "type": "way",
+  "id": 732264431,
+  "center": {
+    "lat": 39.9077960,
+    "lon": 116.2313794
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "郎园",
+    "opening_hours": "24/7"
+  }
+},
+{
+  "type": "way",
+  "id": 1022770140,
+  "center": {
+    "lat": 39.8803130,
+    "lon": 116.2705857
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "岳各庄花园",
+    "opening_hours": "24/7",
+    "operator": "丰台区园林绿化服务中心;北京格林建设有限公司",
+    "operator:type": "government",
+    "phone": "+86 184 4351 9345"
+  }
+},
+{
+  "type": "way",
+  "id": 845122559,
+  "center": {
+    "lat": 39.8834429,
+    "lon": 116.2759160
+  },
+  "tags": {
+    "alt_name": "足球公园",
+    "leisure": "park",
+    "name": "岳各庄城市休闲森林公园",
+    "opening_hours": "24/7",
+    "operator": "丰台区园林绿化服务中心;北京格林建设有限公司",
+    "operator:type": "government",
+    "phone": "+86 184 4351 9345",
+    "start_date": "2016"
+  }
+},
+{
+  "type": "way",
+  "id": 107011057,
+  "center": {
+    "lat": 39.9098268,
+    "lon": 116.2747458
+  },
+  "tags": {
+    "addr:district": "海淀区",
+    "addr:housename": "五棵松体育馆",
+    "addr:housenumber": "69号",
+    "addr:province": "北京市",
+    "addr:street": "复兴路",
+    "alt_name:en": "Cadillac Arena",
+    "building": "yes",
+    "leisure": "sports_centre",
+    "name": "凯迪拉克中心",
+    "name:en": "Wukesong Arena",
+    "name:es": "Wukesong Arena",
+    "name:eu": "Wukesong Estadioa",
+    "name:fr": "Palais omnisports de Wukesong",
+    "name:id": "Stadion Wukesong",
+    "name:it": "Wukesong Indoor Stadium",
+    "name:lt": "Vukesongo uždarasis stadionas",
+    "name:lv": "Vukesonas arēna",
+    "name:nb": "Wukesong sportssenter",
+    "name:pt": "Estádio Indoor Wukesong",
+    "sport": "basketball;icehockey",
+    "wikidata": "Q1321458",
+    "wikimedia_commons": "Category:Cadillac Arena",
+    "wikipedia": "zh:凯迪拉克中心"
+  }
+},
+{
+  "type": "way",
+  "id": 1223991830,
+  "center": {
+    "lat": 39.9297471,
+    "lon": 116.1931159
+  },
+  "tags": {
+    "addr:housenumber": "10号院1号楼",
+    "addr:province": "北京市",
+    "addr:street": "北京市石景山区苹果园南路",
+    "leisure": "park",
+    "name": "石景山区文化馆公园",
+    "opening_hours": "24小时"
+  }
+},
+{
+  "type": "way",
+  "id": 982189482,
+  "center": {
+    "lat": 39.9329628,
+    "lon": 116.2016712
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "西黄村公园",
+    "opening_hours": "sunrise-sunset",
+    "source": "local knowledge"
+  }
+},
+{
+  "type": "way",
+  "id": 29222903,
+  "center": {
+    "lat": 39.9157791,
+    "lon": 116.3163536
+  },
+  "tags": {
+    "alt_name": "玉渊潭",
+    "leisure": "park",
+    "name": "玉渊潭公园",
+    "name:en": "Yuyuantan Park",
+    "name:zh": "玉渊潭公园",
+    "short_name": "紫竹院",
+    "wikidata": "Q12011122",
+    "wikimedia_commons": "Category:Yuyuantan",
+    "wikipedia": "zh:玉渊潭公园"
+  }
+},
+{
+  "type": "way",
+  "id": 33658131,
+  "center": {
+    "lat": 39.8907751,
+    "lon": 116.3093905
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "莲花池公园",
+    "name:en": "Lianhuachi Park",
+    "name:fr": "Parc liánhuā chí",
+    "name:zh": "莲花池公园",
+    "name:zh-Latn-pinyin": "liánhuā chí gōngyuán",
+    "wikidata": "Q15939948",
+    "wikimedia_commons": "Category:Lianhuachi Park (Beijing)",
+    "wikipedia": "en:Lotus Pond Park"
+  }
+},
+{
+  "type": "way",
+  "id": 921948038,
+  "center": {
+    "lat": 39.9081022,
+    "lon": 116.3175452
+  },
+  "tags": {
+    "landuse": "military",
+    "leisure": "park",
+    "name": "中国人民革命军事博物馆",
+    "opening_hours": "Tu-Su 09:00-20:00",
+    "operator": "中央军事委员会政治工作部",
+    "operator:type": "military"
+  }
+},
+{
+  "type": "way",
+  "id": 24825443,
+  "center": {
+    "lat": 39.8700503,
+    "lon": 116.3500737
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "北京大观园",
+    "name:en": "Beijing Grand View Garden",
+    "wikidata": "Q10902197",
+    "wikimedia_commons": "Category:Beijing Daguanyuan",
+    "wikipedia": "zh:北京大观园"
+  }
+},
+{
+  "type": "way",
+  "id": 42676055,
+  "center": {
+    "lat": 39.8781867,
+    "lon": 116.3623941
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "万寿公园",
+    "name:en": "Wanshou Park",
+    "wikidata": "Q19851581",
+    "wikipedia": "zh:万寿公园",
+    "wikipedia:zh": "万寿公园"
+  }
+},
+{
+  "type": "way",
+  "id": 30784976,
+  "center": {
+    "lat": 39.8735581,
+    "lon": 116.3750950
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "陶然亭公园",
+    "name:en": "Taoranting Park",
+    "wikidata": "Q835886",
+    "wikimedia_commons": "Category:Taoranting Park",
+    "wikipedia": "en:Taoranting Park"
+  }
+},
+{
+  "type": "way",
+  "id": 232729255,
+  "center": {
+    "lat": 39.9092828,
+    "lon": 116.3483798
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "南礼士路公园",
+    "wikidata": "Q10908793",
+    "wikipedia": "zh:南礼士路公园"
+  }
+},
+{
+  "type": "way",
+  "id": 30725406,
+  "center": {
+    "lat": 39.9413131,
+    "lon": 116.3132526
+  },
+  "tags": {
+    "alt_name": "紫竹院",
+    "leisure": "park",
+    "name": "紫竹院公园",
+    "name:en": "Zizhuyuan Park",
+    "name:zh": "紫竹院公园",
+    "short_name": "紫竹院",
+    "wikidata": "Q7261399",
+    "wikipedia": "zh:紫竹院公园"
+  }
+},
+{
+  "type": "way",
+  "id": 366464114,
+  "center": {
+    "lat": 39.9264852,
+    "lon": 116.3824998
+  },
+  "tags": {
+    "fee": "￥10",
+    "leisure": "park",
+    "name": "北海公园",
+    "name:de": "Nordsee- (Beihai-)Garten",
+    "name:en": "Beihai Park",
+    "name:es": "Parque Beihai",
+    "name:fr": "Parc Běihǎi",
+    "name:it": "Parco Beihai",
+    "name:lzh": "北海公園",
+    "name:no": "Beihaiparken",
+    "name:pt": "Parque Beihai (Mar do Norte)",
+    "name:ru": "парк Бэйхай",
+    "name:zh": "北海公园",
+    "name:zh-Hans": "北海公园",
+    "name:zh-Hant": "北海公園",
+    "name:zh-Latn-pinyin": "Běihǎi gōngyuán",
+    "opening_hours": "Apr-Oct 06:30-21:00; Nov-Mar 06:30-20:00",
+    "tourism": "attraction",
+    "website": "https://www.beihaipark.com.cn/",
+    "wikidata": "Q133650",
+    "wikipedia": "zh:北海公园"
+  }
+},
+{
+  "type": "way",
+  "id": 29201967,
+  "center": {
+    "lat": 39.9244135,
+    "lon": 116.3903832
+  },
+  "tags": {
+    "alt_name:de": "Kohlehügel-Park",
+    "barrier": "wall",
+    "leisure": "park",
+    "name": "景山公园",
+    "name:de": "Jingshan Park",
+    "name:en": "Jingshan Park",
+    "name:eo": "Ĝingŝan-parko",
+    "name:fr": "Jingshan Park",
+    "name:ja": "景山公園",
+    "name:ko": "경산 공원",
+    "name:ml": "ജിങ്ഷാൻ പാർക്ക്",
+    "name:ru": "парк Цзиншань",
+    "name:vi": "Công viên Cảnh Sơn",
+    "name:zh": "景山公园",
+    "name:zh-Hans": "景山公园",
+    "name:zh-Hant": "景山公園",
+    "wikidata": "Q734499",
+    "wikipedia": "zh:景山公园"
+  }
+},
+{
+  "type": "way",
+  "id": 26514859,
+  "center": {
+    "lat": 39.9407497,
+    "lon": 116.3763625
+  },
+  "tags": {
+    "layer": "-3",
+    "leisure": "park",
+    "name": "后海公园",
+    "name:en": "Houhai Park",
+    "wikidata": "Q1136851",
+    "wikipedia": "en:Shichahai"
+  }
+},
+{
+  "type": "way",
+  "id": 30784058,
+  "center": {
+    "lat": 39.9648854,
+    "lon": 116.3686607
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "双秀公园",
+    "name:en": "Shuangxiugong yuan",
+    "wikidata": "Q29635813"
+  }
+},
+{
+  "type": "way",
+  "id": 42360322,
+  "center": {
+    "lat": 39.9594353,
+    "lon": 116.3954634
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "柳荫公园",
+    "name:en": "Liuyin Park",
+    "wikidata": "Q29624970"
+  }
+},
+{
+  "type": "way",
+  "id": 24827108,
+  "center": {
+    "lat": 40.0050811,
+    "lon": 116.2971533
+  },
+  "tags": {
+    "addr:country": "CN",
+    "addr:district": "海淀区",
+    "addr:housenumber": "28",
+    "addr:postcode": "100084",
+    "addr:province": "北京市",
+    "addr:street": "清华西路",
+    "alt_name": "Yuanmingyuan",
+    "dog": "no",
+    "email": "ymyyzxx@163.com",
+    "leisure": "park",
+    "name": "圆明园遗址公园",
+    "name:de": "Alter Sommerpalast",
+    "name:en": "Old Summer Palace Park",
+    "name:fr": "Ancien Palais d'Été",
+    "name:nan": "Oân-bêng-hn̂g Ûi-chí Kong-hn̂g",
+    "name:nan-Hans": "圆明园遗址公园",
+    "name:nan-Latn-pehoeji": "Oân-bêng-hn̂g Ûi-chí Kong-hn̂g",
+    "name:nan-Latn-tailo": "Uân-bîng-hn̂g Uî-tsí Kong-hn̂g",
+    "name:nl": "Oud Zomerpaleis",
+    "name:ru": "Старый летний дворец",
+    "name:zh": "圆明园遗址公园",
+    "name:zh-Hans": "圆明园遗址公园",
+    "name:zh-Hant": "園明園遺址公園",
+    "name:zh-Latn-pinyin": "Yuánmíngyuán",
+    "opening_hours": "Mo-Su 07:00-19:30",
+    "phone": "+86 10 6262 8501",
+    "smoking": "no",
+    "tourism": "attraction",
+    "website": "https://www.yuanmingyuanpark.cn/",
+    "wikidata": "Q907894",
+    "wikipedia": "en:Old Summer Palace"
+  }
+},
+{
+  "type": "way",
+  "id": 29228773,
+  "center": {
+    "lat": 39.9901784,
+    "lon": 116.2659253
+  },
+  "tags": {
+    "addr:district": "海淀区",
+    "addr:housenumber": "19",
+    "addr:postcode": "100091",
+    "addr:province": "北京市",
+    "addr:street": "新建宫门路",
+    "alt_name:eo": "Somera Palaco",
+    "boundary": "protected_area",
+    "dog": "no",
+    "fax": "+86 10 6288 1077",
+    "heritage": "1",
+    "heritage:operator": "whc;ncha",
+    "heritage:operator:wikidata": "Q7603002",
+    "heritage:operator:wikipedia": "zh:国家文物局",
+    "heritage:since": "1961",
+    "historic": "heritage",
+    "historic:civilization": "imperial_chinese",
+    "historic:period": "qing",
+    "leisure": "park",
+    "name": "颐和园",
+    "name:de": "Sommerpalast",
+    "name:en": "Summer Palace",
+    "name:fr": "Palais d'Été",
+    "name:hi": "ग्रीष्मकालीन महल (समर पैलस)",
+    "name:it": "Palazzo d'estate",
+    "name:ko": "이화원",
+    "name:nl": "Zomerpaleis",
+    "name:ru": "Летний дворец",
+    "name:zh": "颐和园",
+    "name:zh-Hans": "颐和园",
+    "name:zh-Hant": "頤和園",
+    "name:zh-Latn-pinyin": "Yíhéyuán",
+    "ncha:inscription_date": "1961-03-04",
+    "ncha:name": "颐和园",
+    "ncha:type": "古建筑",
+    "opening_hours": "Mo-Su 06:30-18:00",
+    "operator": "北京市颐和园管理处",
+    "phone": "+86 10 6288 1144",
+    "protected_area": "historic_district",
+    "protection_title": "世界遗产;全国重点文物保护单位;国家重点公园",
+    "ref:heritage:CN": "1-0122-3-075",
+    "ref:whc": "880",
+    "smoking": "no",
+    "start_date": "1873",
+    "tourism": "attraction",
+    "tourism:level:CN": "AAAAA",
+    "website": "https://www.summerpalace-china.com/English/index.htm",
+    "whc:criteria": "(i),(ii),(iii)",
+    "whc:inscription_date": "1998",
+    "whc:name": "北京皇家园林-颐和园",
+    "wikidata": "Q4132",
+    "wikipedia": "en:Summer Palace"
+  }
+},
+{
+  "type": "way",
+  "id": 569519023,
+  "center": {
+    "lat": 39.9845606,
+    "lon": 116.2511199
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "北坞公园",
+    "wikidata": "Q48928388",
+    "wikipedia": "zh:北坞公园"
+  }
+},
+{
+  "type": "way",
+  "id": 189801200,
+  "center": {
+    "lat": 39.9843208,
+    "lon": 116.2895226
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "海淀公园",
+    "name:en": "Haidian Park",
+    "wikidata": "Q19853030",
+    "wikimedia_commons": "Category:Haidian Park",
+    "wikipedia": "zh:海淀公园"
+  }
+},
+{
+  "type": "way",
+  "id": 84336744,
+  "center": {
+    "lat": 40.0000541,
+    "lon": 116.3140375
+  },
+  "tags": {
+    "access": "private",
+    "alt_name": "荒岛",
+    "leisure": "park",
+    "name": "近春园遗址",
+    "operator": "清华大学",
+    "operator:type": "government",
+    "wikidata": "Q15914601",
+    "wikipedia": "zh:近春园"
+  }
+},
+{
+  "type": "way",
+  "id": 1316961658,
+  "center": {
+    "lat": 39.9992626,
+    "lon": 116.3135749
+  },
+  "tags": {
+    "leisure": "sports_centre",
+    "name": "西湖游泳池",
+    "sport": "swimming",
+    "wikidata": "Q67933030",
+    "wikipedia": "zh:清華大學西湖游泳池"
+  }
+},
+{
+  "type": "way",
+  "id": 80716324,
+  "center": {
+    "lat": 40.0041780,
+    "lon": 116.3193565
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "北院",
+    "name:zh": "北院",
+    "name:zh-Hans": "北院",
+    "name:zh-Hant": "北院",
+    "operator": "清华大学",
+    "wikidata": "Q48901922",
+    "wikipedia": "zh:清华大学北院"
+  }
+},
+{
+  "type": "way",
+  "id": 131835343,
+  "center": {
+    "lat": 39.9791024,
+    "lon": 116.3423987
+  },
+  "tags": {
+    "addr:housename": "游泳馆",
+    "building": "yes",
+    "leisure": "sports_centre",
+    "name": "游泳馆",
+    "name:de": "Schwimmhalle",
+    "name:en": "Swimming Hall",
+    "name:zh": "游泳馆",
+    "name:zh-Hans": "游泳馆",
+    "name:zh-Hant": "游泳館",
+    "opening_hours": "07:00-8:30,12:00-13:30,16:00-18:00,18:30-20:30",
+    "sport": "swimming"
+  }
+},
+{
+  "type": "way",
+  "id": 33616744,
+  "center": {
+    "lat": 40.0207575,
+    "lon": 116.3855123
+  },
+  "tags": {
+    "alt_name": "奥森;奥森公园",
+    "capacity": "20000",
+    "emergency": "yes",
+    "emergency_shelter": "park",
+    "leisure": "park",
+    "name": "奥林匹克森林公园",
+    "name:en": "Olympic Forest Park",
+    "name:zh": "奥林匹克森林公园",
+    "name:zh-Hans": "奥林匹克森林公园",
+    "name:zh-Hant": "奧林匹克森林公園",
+    "wikidata": "Q7089073",
+    "wikimedia_commons": "Category:Olympic Forest Park",
+    "wikipedia": "en:Olympic Forest Park"
+  }
+},
+{
+  "type": "way",
+  "id": 264421511,
+  "center": {
+    "lat": 39.9889773,
+    "lon": 116.3559986
+  },
+  "tags": {
+    "addr:city": "北京市",
+    "addr:postcode": "100083",
+    "building": "yes",
+    "leisure": "sports_centre",
+    "name": "北京科技大学体育館",
+    "sport": "basketball;swimming;golf;table_tennis;badminton;jodo",
+    "wikidata": "Q2461201",
+    "wikimedia_commons": "Category:Beijing Science and Technology University Gymnasium",
+    "wikipedia": "en:Beijing Science and Technology University Gymnasium"
+  }
+},
+{
+  "type": "way",
+  "id": 990439598,
+  "center": {
+    "lat": 39.9745195,
+    "lon": 116.3785513
+  },
+  "tags": {
+    "alt_name": "北土城公园",
+    "emergency": "designated",
+    "leisure": "park",
+    "name": "元大都城垣遗址公园",
+    "wikidata": "Q15908686",
+    "wikimedia_commons": "Category:Dadu City Wall Relics Park",
+    "wikipedia": "en:Yuan Dadu City Wall Ruins Park"
+  }
+},
+{
+  "type": "way",
+  "id": 232724487,
+  "center": {
+    "lat": 39.9745820,
+    "lon": 116.3917870
+  },
+  "tags": {
+    "alt_name": "北土城公园",
+    "alt_name:eo": "Parko de Urbomuro de Yuan Dadu",
+    "emergency": "designated",
+    "leisure": "park",
+    "name": "元大都城垣遗址公园",
+    "wikidata": "Q15908686",
+    "wikimedia_commons": "Category:Dadu City Wall Relics Park",
+    "wikipedia": "en:Yuan Dadu City Wall Ruins Park"
+  }
+},
+{
+  "type": "way",
+  "id": 990439599,
+  "center": {
+    "lat": 39.9745639,
+    "lon": 116.3848310
+  },
+  "tags": {
+    "alt_name": "北土城公园",
+    "emergency": "designated",
+    "leisure": "park",
+    "name": "元大都城垣遗址公园",
+    "wikidata": "Q15908686",
+    "wikimedia_commons": "Category:Dadu City Wall Relics Park",
+    "wikipedia": "en:Yuan Dadu City Wall Ruins Park"
+  }
+},
+{
+  "type": "way",
+  "id": 1206659892,
+  "center": {
+    "lat": 40.0044647,
+    "lon": 116.3412421
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "雨水花园",
+    "opening_hours": "all time"
+  }
+},
+{
+  "type": "way",
+  "id": 48050631,
+  "center": {
+    "lat": 40.0190621,
+    "lon": 116.3726265
+  },
+  "tags": {
+    "leisure": "sports_centre",
+    "name": "国家网球中心",
+    "name:en": "National Tennis Center",
+    "name:fr": "National Tennis Center",
+    "sport": "tennis",
+    "wikidata": "Q1763829",
+    "wikimedia_commons": "Category:Olympic Green Tennis Centre",
+    "wikipedia": "zh:国家网球中心"
+  }
+},
+{
+  "type": "way",
+  "id": 682468610,
+  "center": {
+    "lat": 40.0642974,
+    "lon": 116.3641525
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "翡丽公园",
+    "opening_hours": "24/7"
+  }
+},
+{
+  "type": "way",
+  "id": 1280498660,
+  "center": {
+    "lat": 40.0655188,
+    "lon": 116.3671468
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "体育公园",
+    "opening_hours": "24/7"
+  }
+},
+{
+  "type": "way",
+  "id": 24824550,
+  "center": {
+    "lat": 39.8798919,
+    "lon": 116.4041826
+  },
+  "tags": {
+    "alt_name:eo": "Ĉiela Altaro",
+    "boundary": "protected_area",
+    "heritage": "1",
+    "heritage:operator": "whc;ncha",
+    "heritage:operator:wikidata": "Q7603002",
+    "heritage:operator:wikipedia": "zh:国家文物局",
+    "heritage:since": "1961",
+    "historic": "heritage",
+    "historic:civilization": "imperial_chinese",
+    "historic:period": "ming",
+    "layer": "1",
+    "leisure": "park",
+    "name": "天坛公园",
+    "name:de": "Himmelstempel",
+    "name:en": "Temple of Heaven",
+    "name:es": "Templo del Cielo",
+    "name:fi": "Taivaan temppeli",
+    "name:fr": "Temple du ciel",
+    "name:hi": "स्वर्ग का मंदिर",
+    "name:it": "Tempio del cielo",
+    "name:ko": "천단 공원",
+    "name:ml": "സ്വർഗ്ഗ ക്ഷേത്രം",
+    "name:nl": "Tempel van de Hemel",
+    "name:pt": "Templo do Céu",
+    "name:ro": "Templul cerului",
+    "name:ru": "Храм Неба",
+    "name:zh": "天坛公园",
+    "name:zh-Hans": "天坛",
+    "name:zh-Hant": "天壇",
+    "name:zh-Latn-pinyin": "Tiāntán",
+    "ncha:inscription_date": "1961-03-04",
+    "ncha:name": "天坛",
+    "ncha:type": "古建筑",
+    "opening_hours": "opening_hours=Apr 1-Oct 31 06:00-21:00; Nov 1-Mar 31 06:30-21:00",
+    "place": "plot",
+    "protected_area": "historic_district",
+    "protection_title": "世界遗产;全国重点文物保护单位;国家重点公园",
+    "ref:heritage:CN": "1-0105-3-058",
+    "ref:whc": "881",
+    "short_name": "天坛",
+    "start_date": "1420",
+    "tourism": "attraction",
+    "tourism:level:CN": "AAAAA",
+    "website": "https://www.tiantanpark.cn/",
+    "whc:criteria": "(i),(ii),(iii)",
+    "whc:inscription_date": "1998",
+    "whc:name": "北京皇家祭坛—天坛",
+    "wikidata": "Q125445",
+    "wikimedia_commons": "Category:Temple of Heaven",
+    "wikipedia": "zh:天坛"
+  }
+},
+{
+  "type": "way",
+  "id": 42415622,
+  "center": {
+    "lat": 39.8657374,
+    "lon": 116.4223035
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "方庄体育公园",
+    "name:en": "Fangzhuang Sport Park",
+    "name:zh": "方庄体育公园",
+    "name:zh-Hans": "方庄体育公园",
+    "name:zh-Hant": "方莊體育公園",
+    "opening_hours": "Mo-Su 06:00-22:00"
+  }
+},
+{
+  "type": "way",
+  "id": 33607759,
+  "center": {
+    "lat": 39.8766087,
+    "lon": 116.4337760
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "龙潭公园",
+    "name:en": "Longtan Park",
+    "opening_hours": "Mo-Su 06:00-22:00",
+    "wikidata": "Q130899",
+    "wikimedia_commons": "Category:Longtan Park, Beijing",
+    "wikipedia": "zh:龙潭公园 (北京)"
+  }
+},
+{
+  "type": "way",
+  "id": 33607958,
+  "center": {
+    "lat": 39.8754136,
+    "lon": 116.4253836
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "龙潭中湖公园",
+    "name:en": "Longtan Zhonghu Park",
+    "note": "龙潭中湖公园于2021年9月24日对外开放 https://mp.weixin.qq.com/s/kS9rsmDAHoeXmjEGfFN0RA",
+    "opening_hours": "Mo-Su 06:00-22:00",
+    "opening_hours:covid19": "Mo-Su 08:00-18:00"
+  }
+},
+{
+  "type": "way",
+  "id": 200571719,
+  "center": {
+    "lat": 39.8936099,
+    "lon": 116.4316228
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "袁崇焕墓和祠",
+    "wikidata": "Q15916904"
+  }
+},
+{
+  "type": "way",
+  "id": 24476204,
+  "center": {
+    "lat": 39.9141594,
+    "lon": 116.4375986
+  },
+  "tags": {
+    "addr:district": "朝阳区",
+    "addr:housenumber": "6号",
+    "addr:province": "北京市",
+    "addr:street": "日坛北路",
+    "check_date": "2026-03-20",
+    "leisure": "park",
+    "name": "日坛公园",
+    "name:en": "Ritan Park",
+    "name:ru": "Парк Житань",
+    "name:zh": "日坛公园",
+    "name:zh-Latn-pinyin": "Rìtán Gōngyuán",
+    "opening_hours": "Mo-Su 06:00-22:00",
+    "phone": "+86 10 8561 9984",
+    "wikidata": "Q964720",
+    "wikimedia_commons": "Category:Temple of the Sun",
+    "wikipedia": "en:Ritan (Beijing)"
+  }
+},
+{
+  "type": "way",
+  "id": 438877647,
+  "center": {
+    "lat": 39.8711249,
+    "lon": 116.4775644
+  },
+  "tags": {
+    "building": "yes",
+    "leisure": "sports_centre",
+    "name": "北京工业大学体育馆",
+    "wikidata": "Q2383237",
+    "wikipedia": "en:Beijing University of Technology Gymnasium"
+  }
+},
+{
+  "type": "way",
+  "id": 191693427,
+  "center": {
+    "lat": 39.9308092,
+    "lon": 116.4360147
+  },
+  "tags": {
+    "building": "yes",
+    "leisure": "sports_centre",
+    "name": "工人体育馆",
+    "name:en": "Workers’ Gymnasium",
+    "wikidata": "Q1443105",
+    "wikimedia_commons": "Category:Workers Indoor Arena",
+    "wikipedia": "en:Workers Indoor Arena",
+    "wikipedia:zh": "北京工人体育馆"
+  }
+},
+{
+  "type": "way",
+  "id": 42361478,
+  "center": {
+    "lat": 39.9540481,
+    "lon": 116.3962772
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "青年湖公园",
+    "name:en": "Qingnianhu Park",
+    "name:simple": "Youth Lake Park",
+    "wikidata": "Q16929043",
+    "wikimedia_commons": "Category:Qingnianhu Park",
+    "wikipedia": "en:Qingnianhu Park",
+    "wikipedia:zh": "青年湖公园"
+  }
+},
+{
+  "type": "way",
+  "id": 24825400,
+  "center": {
+    "lat": 39.9527739,
+    "lon": 116.4090383
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "地坛公园",
+    "name:en": "Temple of Earth Park",
+    "name:zh": "地坛公园",
+    "name:zh-Hans": "地坛公园",
+    "name:zh-Hant": "地壇公園",
+    "name:zh-Latn-pinyin": "Dìtán gōngyuán",
+    "wikidata": "Q615178"
+  }
+},
+{
+  "type": "way",
+  "id": 42709185,
+  "center": {
+    "lat": 39.9421602,
+    "lon": 116.4215286
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "南馆公园",
+    "name:en": "Nanguan Park",
+    "name:ru": "Парк Наньгуань",
+    "name:zh": "南馆公园",
+    "name:zh-Hant": "南館公園",
+    "wikidata": "Q28927757"
+  }
+},
+{
+  "type": "way",
+  "id": 233205070,
+  "center": {
+    "lat": 39.9444089,
+    "lon": 116.4755863
+  },
+  "tags": {
+    "alt_name:eo": "Chaoyang-Parko",
+    "emergency": "yes",
+    "leisure": "park",
+    "name": "朝阳公园",
+    "name:en": "Chaoyang Park",
+    "name:zh": "朝阳公园",
+    "wikidata": "Q1062603",
+    "wikimedia_commons": "Category:Chaoyang Park, Beijing",
+    "wikipedia": "en:Chaoyang Park",
+    "应急避难场所": "公园"
+  }
+},
+{
+  "type": "way",
+  "id": 129187924,
+  "center": {
+    "lat": 39.9393745,
+    "lon": 116.4596758
+  },
+  "tags": {
+    "addr:housenumber": "16",
+    "addr:street": "东三环北路",
+    "leisure": "park",
+    "name": "全国农业展览馆;中国农业博物馆",
+    "name:en": "Agricultural Exhibition Center",
+    "tourism": "museum",
+    "wikidata": "Q15703418",
+    "wikimedia_commons": "Category:China Agricultural Museum",
+    "wikipedia": "en:China Agricultural Museum"
+  }
+},
+{
+  "type": "way",
+  "id": 783788557,
+  "center": {
+    "lat": 39.9108519,
+    "lon": 116.5512655
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "文化广场",
+    "opening_hours": "24/7",
+    "operator": "中国传媒大学"
+  }
+},
+{
+  "type": "way",
+  "id": 1038005442,
+  "center": {
+    "lat": 39.9152399,
+    "lon": 116.5588087
+  },
+  "tags": {
+    "addr:city": "北京",
+    "addr:district": "朝阳",
+    "addr:province": "北京",
+    "addr:street": "朝阳路",
+    "leisure": "park",
+    "name": "石道碑花园",
+    "opening_hours": "24/7"
+  }
+},
+{
+  "type": "way",
+  "id": 990439600,
+  "center": {
+    "lat": 39.9746102,
+    "lon": 116.3980927
+  },
+  "tags": {
+    "alt_name": "北土城公园",
+    "alt_name:eo": "Parko de Urbomuro de Yuan Dadu",
+    "emergency": "designated",
+    "leisure": "park",
+    "name": "元大都城垣遗址公园",
+    "name:en": "Yuan Dadu City Wall Ruins Park",
+    "name:zh": "元大都城垣遗址公园",
+    "name:zh-Hans": "元大都城垣遗址公园",
+    "name:zh-Hant": "元大都城垣遺址公園",
+    "wikidata": "Q15908686",
+    "wikimedia_commons": "Category:Dadu City Wall Relics Park",
+    "wikipedia": "zh:元大都城垣遗址公园"
+  }
+},
+{
+  "type": "way",
+  "id": 108382017,
+  "center": {
+    "lat": 39.9712236,
+    "lon": 116.4689460
+  },
+  "tags": {
+    "barrier": "fence",
+    "leisure": "park",
+    "name": "四得公园",
+    "name:en": "Side Park",
+    "wikidata": "Q6543734"
+  }
+},
+{
+  "type": "way",
+  "id": 42363479,
+  "center": {
+    "lat": 40.0361219,
+    "lon": 116.4017524
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "景藏健康公园",
+    "opening_hours": "closed"
+  }
+},
+{
+  "type": "way",
+  "id": 33532171,
+  "center": {
+    "lat": 40.0728236,
+    "lon": 116.4643006
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "温榆河公园朝阳示范区",
+    "name:en": "Wenyuhe Park",
+    "opening_hours": "Mo-Su 06:00-21:00",
+    "phone": "+86 10 2173 7733",
+    "source": "Yahoo",
+    "start_date": "2020-09-01"
+  }
+},
+{
+  "type": "way",
+  "id": 1010395643,
+  "center": {
+    "lat": 40.0821787,
+    "lon": 116.2244781
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "休闲公园",
+    "opening_hours": "24/7",
+    "operator": "大牛坊村"
+  }
+},
+{
+  "type": "relation",
+  "id": 8769598,
+  "center": {
+    "lat": 39.8744825,
+    "lon": 116.1826308
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "北京园博园",
+    "name:en": "Beijing Garden Expo Park",
+    "name:zh": "园博园",
+    "name:zh-Hans": "园博园",
+    "name:zh-Hant": "園博園",
+    "type": "multipolygon",
+    "wikidata": "Q25104298",
+    "wikipedia": "en:Beijing Garden Expo Park"
+  }
+},
+{
+  "type": "relation",
+  "id": 12122761,
+  "center": {
+    "lat": 39.8664297,
+    "lon": 116.2719813
+  },
+  "tags": {
+    "addr:city": "丰台区",
+    "addr:province": "北京市",
+    "fee": "no",
+    "leisure": "sports_centre",
+    "name": "北京丰台体育中心",
+    "name:en": "Beijing Fengtai Sports Center",
+    "name:zh-Hant": "北京丰台體育中心",
+    "name:zh-Latn-pinyin": "Běijīng fēngtái tǐyù zhōngxīn",
+    "sport": "soccer;athletics;netball;volleyball;softball",
+    "type": "site",
+    "wikidata": "Q14923944",
+    "wikipedia": "zh:北京丰台体育中心"
+  }
+},
+{
+  "type": "relation",
+  "id": 19108749,
+  "center": {
+    "lat": 39.8733961,
+    "lon": 116.3928043
+  },
+  "tags": {
+    "addr:housenumber": "156",
+    "addr:street": "永定门内大街",
+    "leisure": "park",
+    "name": "永定门公园",
+    "opening_hours": "Mo-Su 06:00-20:00",
+    "type": "multipolygon",
+    "wikidata": "Q18654142",
+    "wikipedia": "zh:永定门公园"
+  }
+},
+{
+  "type": "relation",
+  "id": 9054321,
+  "center": {
+    "lat": 39.9091507,
+    "lon": 116.3880372
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "中山公园",
+    "name:de": "Zhongshan-Garten",
+    "name:en": "Zhongshan garden",
+    "name:fr": "Jardin zhōngshān",
+    "name:ko": "중산공원",
+    "name:ru": "парк Чжуншань",
+    "name:zh": "中山公园",
+    "name:zh-Hans": "中山公园",
+    "name:zh-Hant": "中山公園",
+    "name:zh-Latn-pinyin": "Zhōngshān Gōngyuán",
+    "type": "multipolygon",
+    "wikidata": "Q970561",
+    "wikimedia_commons": "Category:Zhongshan Park (Beijing)",
+    "wikipedia": "zh:北京中山公园"
+  }
+},
+{
+  "type": "relation",
+  "id": 13296936,
+  "center": {
+    "lat": 39.9661723,
+    "lon": 116.3875719
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "元大都城垣遗址公园",
+    "site": "park",
+    "type": "site",
+    "wikidata": "Q15908686",
+    "wikipedia": "zh:元大都城垣遗址公园"
+  }
+},
+{
+  "type": "relation",
+  "id": 14549539,
+  "center": {
+    "lat": 39.9977584,
+    "lon": 116.3876003
+  },
+  "tags": {
+    "alt_name": "奥体公园",
+    "leisure": "park",
+    "name": "奥林匹克公园",
+    "name:ar": "الحديقة الأولمبية",
+    "name:bg": "Олимпик Грийн",
+    "name:bn": "অলিম্পিক গ্রীন",
+    "name:de": "Olympic Green",
+    "name:en": "Olympic Park",
+    "name:es": "Parque Olímpico",
+    "name:fr": "Olympic Green",
+    "name:he": "הפארק האולימפי (בייג'ינג)",
+    "name:id": "Taman Olimpiade",
+    "name:it": "Olympic Green",
+    "name:ja": "オリンピック公園",
+    "name:ko": "올림픽 공원",
+    "name:nb": "Olympiaparken",
+    "name:pt": "Olympic Green",
+    "name:ru": "Олимпийский парк",
+    "name:sv": "Olympiaparken",
+    "name:tr": "Pekin Olimpiyat Parkı",
+    "name:uk": "Олімпійський парк",
+    "type": "multipolygon",
+    "wikidata": "Q912817",
+    "wikipedia": "zh:奥林匹克公园 (北京)"
+  }
+},
+{
+  "type": "relation",
+  "id": 13157312,
+  "center": {
+    "lat": 39.8779776,
+    "lon": 116.4237011
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "龙潭西湖公园",
+    "name:en": "Longtanxihu Park",
+    "type": "multipolygon",
+    "wikidata": "Q16868554"
+  }
+},
+{
+  "type": "relation",
+  "id": 9509823,
+  "center": {
+    "lat": 39.9071474,
+    "lon": 116.3972905
+  },
+  "tags": {
+    "leisure": "park",
+    "name": "菖蒲河公园",
+    "name:en": "Changpuhe Park",
+    "name:ja": "菖蒲河公園",
+    "name:ja-Hira": "しょうぶかこうえん",
+    "name:ko": "창포하공원",
+    "name:ru": "парк Чанпухэ",
+    "name:zh": "菖蒲河公园",
+    "name:zh-Hans": "菖蒲河公园",
+    "name:zh-Hant": "菖蒲河公園",
+    "name:zh-Latn-pinyin": "Chāngpúhé Gōngyuán",
+    "type": "multipolygon",
+    "wikidata": "Q55652"
+  }
+}
+
+  ]
+}

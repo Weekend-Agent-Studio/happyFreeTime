@@ -6,7 +6,9 @@ import math
 import os
 from typing import Optional
 
-_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+_DATA_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "fixtures", "v1"
+)
 
 # 模块级缓存：首次加载后常驻内存
 _cache: dict[str, list[dict]] = {}

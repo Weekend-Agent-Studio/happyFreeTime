@@ -177,6 +177,7 @@ def create_app(
                     constraint_summary=_dump_constraint_summary(result),
                     provider_facts=[],
                     catalog_violations=[],
+                    catalog_warnings=[],
                 )
             )
 
@@ -221,6 +222,14 @@ def create_app(
                     [
                         item.model_dump(mode="json")
                         for item in candidate_set.catalog_violations
+                    ]
+                    if candidate_set
+                    else []
+                ),
+                catalog_warnings=(
+                    [
+                        item.model_dump(mode="json")
+                        for item in candidate_set.catalog_warnings
                     ]
                     if candidate_set
                     else []

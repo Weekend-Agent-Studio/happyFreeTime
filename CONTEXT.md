@@ -85,6 +85,18 @@ An acceptable sacrifice against a Planning Preference in an otherwise feasible P
 **Warning**:
 Non-blocking information about uncertainty, stale data, degraded capability, or execution risk. A Warning does not make a Plan infeasible by itself.
 
+**Source Fact**:
+A value obtained from an identified external dataset or Provider, with enough provenance to state where and when it was observed. Source provenance does not by itself mean the value is currently verified.
+
+**Estimate**:
+A project-computed approximation used when its uncertainty is acceptable and visible. An Estimate is not a Source Fact and cannot prove a strict Hard Constraint unless the domain contract explicitly permits it.
+
+**Unknown Fact**:
+A required value for which no reliable evidence is available. Unknown is neither a passing result nor a Constraint Violation by itself; it may produce a Warning or prevent proof of a strict constraint.
+
+**Fixture**:
+Deliberately simulated data used for tests or demonstrations. A Fixture must remain identifiable and must not be silently merged into a source-derived production snapshot.
+
 **Candidate Set**:
 The result of planning: either one or more feasible Plans or a Constraint Conflict. These outcomes should be mutually exclusive.
 

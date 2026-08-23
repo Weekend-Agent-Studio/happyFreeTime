@@ -266,6 +266,13 @@ function App() {
           </section>
         ) : null}
 
+        {response?.catalog_warnings.length ? (
+          <section className="catalog-summary warning" aria-label="Catalog 待确认信息">
+            <strong>最终方案有 {new Set(response.catalog_warnings.map((item) => item.resource_id)).size} 个地点的信息待确认</strong>
+            <span>缺失事实保持未知，没有用 Mock 补齐；请在出发前核对营业时间或亲子适配。</span>
+          </section>
+        ) : null}
+
         <section className="conversation" aria-live="polite">
           {messages.length === 0 ? (
             <div className="empty-conversation">
@@ -397,7 +404,7 @@ function TripPanel({ plan }: { plan?: Plan }) {
               <span>{stop.type === "restaurant" ? "餐饮" : "活动"}</span>
               <strong>{stop.name}</strong>
               <small>{stop.duration_minutes} 分钟 · {priceLabel(stop)}</small>
-              <small>{catalogSourceLabel(stop.source)}{stop.source.dynamic_fields_mock.length ? " · 动态字段为 Mock" : ""}{stop.source.estimated_fields.length ? ` · 估算字段：${stop.source.estimated_fields.join("、")}` : ""}</small>
+              <small>{catalogSourceLabel(stop.source)} · 采集于 {stop.source.collected_at.slice(0, 10)}</small>
               {stop.image ? <small>图片：{stop.image.attribution || stop.image.author || stop.image.license} · <a href={stop.image.license_uri} target="_blank" rel="noreferrer">许可</a></small> : null}
             </div>
             {plan.route_legs[index + 1] ? <div className="route-note"><Route size={14} />下一程 {plan.route_legs[index + 1].distance_km}km · 约 {plan.route_legs[index + 1].duration_minutes} 分钟</div> : null}
@@ -412,7 +419,11 @@ function TripPanel({ plan }: { plan?: Plan }) {
 function StopImage({ stop }: { stop: Plan["stops"][number] }) {
   const [failed, setFailed] = useState(false);
   if (!stop.image || failed) {
-    return <div className="stop-image placeholder" aria-label={`${stop.name}暂无可靠图片`}><ImageIcon size={20} aria-hidden="true" /></div>;
+    const label = stop.category_tags[0] || (stop.type === "restaurant" ? "餐饮" : "活动");
+    return <div className={`stop-image placeholder ${stop.type}`} aria-label={`${stop.name}暂无可靠图片`}>
+      {stop.type === "restaurant" ? <Utensils size={20} aria-hidden="true" /> : <ImageIcon size={20} aria-hidden="true" />}
+      <span>{label}</span>
+    </div>;
   }
   return (
     <a href={stop.image.source_uri} target="_blank" rel="noreferrer" aria-label={`查看${stop.name}图片来源`}>

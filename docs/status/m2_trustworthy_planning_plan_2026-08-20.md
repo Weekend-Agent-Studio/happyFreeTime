@@ -38,11 +38,11 @@ M2 不一次重写 Planner，而是让每片都增加一条用户可观察、可
 
 ## C. Catalog 与单资源硬约束剪枝
 
-**实现状态：** C1 与 C2 已完成：Catalog seam、资源级剪枝、36 条许可明确且可追溯的北京 OSM POI、CSV schema、价格证据语义、坐标归一化和 HTTP/UI 图片降级均已实现。动态 POI、可靠实时价格和现场核验不属于本切片；M2 整体仍未完成。
+**实现状态：** C1-C3 已完成：Catalog seam、资源级剪枝、200 条可离线 replay 的北京 OSM POI、Unknown/Warning 语义、Fixture 隔离、坐标归一化和 HTTP/UI 图片降级均已实现。动态 POI、可靠实时价格和现场核验不属于本切片；M2 整体仍未完成。
 
 **用户故事：** 进入组合器的每个 POI 已经在日期、人数、儿童年龄、预算、基础营业信息和召回距离下界上具备单资源可行性，并能追溯数据来源。
 
-**接口与契约：** 通用 `StopCandidate`；POI 元数据包含 `source_uri/source_name/source_license`、`collected_at`、`last_verified_at`、`verification_status`、坐标系、`PriceKind` 与可选 `ImageRef`。`CsvCatalog` 校验并归一化静态快照，Catalog 召回后返回候选及结构化 `ConstraintViolation[]` 剪枝摘要。
+**接口与契约：** 通用 `StopCandidate`；POI 元数据包含 `source_uri/source_name/source_license`、`collected_at`、`last_verified_at`、`verification_status`、坐标系、`PriceKind` 与可选 `ImageRef`。`SnapshotCatalog` 校验并归一化生成快照，Catalog 召回后返回候选、结构化 `ConstraintViolation[]` 和非阻断 `CatalogWarning[]`。
 
 **验收：** 36 个真实北京 POI 基础字段可追溯；动态价格/库存明确仍未核验；不适龄、不容纳人数、单资源已超预算、价格证据不足或当天不营业的资源不进入严格组合。图片缺失/失败不影响规划。
 

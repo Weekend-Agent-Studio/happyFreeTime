@@ -20,13 +20,9 @@ export type CatalogSource = {
   source_name: string;
   source_uri: string;
   source_license: string;
-  coordinate_system: "WGS84" | "GCJ02";
   collected_at: string;
   last_verified_at: string | null;
   verification_status: "verified" | "unverified" | "stale";
-  dynamic_fields_mock: string[];
-  estimated_fields: string[];
-  derived_fields: string[];
 };
 
 export type ImageRef = {
@@ -47,6 +43,7 @@ export type Stop = {
   duration_minutes: number;
   price: number;
   price_kind: "known" | "estimated" | "free" | "unknown";
+  category_tags: string[];
   image: ImageRef | null;
   source: CatalogSource;
 };
@@ -58,6 +55,8 @@ export type CatalogViolation = {
   field: string;
   message: string;
 };
+
+export type CatalogWarning = CatalogViolation;
 
 export type RouteLeg = {
   origin_name: string;
@@ -124,6 +123,7 @@ export type AgentResponse = {
   } | null;
   provider_facts: ProviderFact[];
   catalog_violations: CatalogViolation[];
+  catalog_warnings: CatalogWarning[];
 };
 
 export type ChatMessage = {

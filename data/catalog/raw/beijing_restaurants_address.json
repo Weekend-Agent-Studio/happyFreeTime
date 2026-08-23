@@ -1,0 +1,4931 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-08-23T16:51:06Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+
+{
+  "type": "node",
+  "id": 13504857552,
+  "lat": 39.7715968,
+  "lon": 116.3196728,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "大兴区",
+    "addr:housenumber": "金惠园小区",
+    "addr:postcode": "100000",
+    "addr:province": "北京",
+    "addr:street": "高米店街道",
+    "amenity": "restaurant",
+    "cuisine": "chinese;regional;asian;barbecue;hotpot",
+    "diet:halal": "yes",
+    "name": "滩羊佬倌盐池滩羊馆(香园路店)"
+  }
+},
+{
+  "type": "node",
+  "id": 5242939414,
+  "lat": 39.8564520,
+  "lon": 116.3025343,
+  "tags": {
+    "addr:city": "丰台 / Fengtai",
+    "addr:housenumber": "16",
+    "addr:street": "丰管路",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:wikipedia": "zh:肯德基",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "delivery": "yes",
+    "drive_through": "no",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "opening_hours": "Mo-Su 06:00-23:00",
+    "outdoor_seating": "no",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 13462569403,
+  "lat": 39.8001567,
+  "lon": 116.4963229,
+  "tags": {
+    "addr:housenumber": "7号",
+    "addr:street": "荣华中路",
+    "amenity": "fast_food",
+    "level": "1",
+    "name": "魏家凉皮",
+    "opening_hours": "24/7"
+  }
+},
+{
+  "type": "node",
+  "id": 13462569701,
+  "lat": 39.8001005,
+  "lon": 116.4963684,
+  "tags": {
+    "addr:housenumber": "7号",
+    "addr:street": "荣华中路",
+    "amenity": "fast_food",
+    "level": "1",
+    "name": "麦当劳"
+  }
+},
+{
+  "type": "node",
+  "id": 13462569801,
+  "lat": 39.8000059,
+  "lon": 116.4964451,
+  "tags": {
+    "addr:housenumber": "7号",
+    "addr:street": "荣华中路",
+    "amenity": "cafe",
+    "name": "Silver Flow银流咖啡"
+  }
+},
+{
+  "type": "node",
+  "id": 5083523723,
+  "lat": 39.8118318,
+  "lon": 116.3967783,
+  "tags": {
+    "addr:street": "和义东里",
+    "amenity": "fast_food",
+    "brand": "吉野家",
+    "brand:en": "Yoshinoya",
+    "brand:ja": "吉野家",
+    "brand:wikidata": "Q776272",
+    "brand:wikipedia": "ja:吉野家",
+    "cuisine": "beef_bowl",
+    "level": "1",
+    "name": "吉野家",
+    "name:en": "Yoshinoya",
+    "name:ja": "吉野家",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 4365664490,
+  "lat": 39.8532236,
+  "lon": 116.4294058,
+  "tags": {
+    "addr:housenumber": "8",
+    "addr:street": "横一条",
+    "amenity": "restaurant",
+    "name": "江西大厦合味原餐厅",
+    "name:zh": "江西大厦合味原餐厅",
+    "phone": "+86 10 6765 1901"
+  }
+},
+{
+  "type": "node",
+  "id": 2496303226,
+  "lat": 39.8569610,
+  "lon": 116.4302573,
+  "tags": {
+    "addr:street": "南三环东路",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:wikipedia": "zh:肯德基",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "name:zh-Latn-pinyin": "Kěn Dé Jī",
+    "phone": "+86 10 6763 5409",
+    "takeaway": "yes",
+    "website": "https://www.kfc.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 4365671699,
+  "lat": 39.8568653,
+  "lon": 116.4293336,
+  "tags": {
+    "addr:housenumber": "2",
+    "addr:street": "横一条",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "秦门",
+    "name:zh": "秦门",
+    "phone": "+86 10 6768 2291"
+  }
+},
+{
+  "type": "node",
+  "id": 4322791058,
+  "lat": 40.0564481,
+  "lon": 116.1733012,
+  "tags": {
+    "addr:city": "北京",
+    "addr:housenumber": "5号院1号楼",
+    "addr:street": "海淀区地锦路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "潇湘府（环保园店）"
+  }
+},
+{
+  "type": "node",
+  "id": 4408536481,
+  "lat": 39.9055419,
+  "lon": 116.2130062,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:housenumber": "22",
+    "addr:street": "石景山路",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:wikipedia": "zh:肯德基",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "delivery": "yes",
+    "drive_through": "no",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 14091162306,
+  "lat": 39.9168528,
+  "lon": 116.2536163,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "海淀区",
+    "addr:housenumber": "21",
+    "addr:postcode": "100143",
+    "addr:province": "北京市",
+    "addr:street": "金沟河路",
+    "amenity": "restaurant",
+    "cuisine": "barbecue",
+    "name": "管氏翅吧"
+  }
+},
+{
+  "type": "node",
+  "id": 14091162307,
+  "lat": 39.9167472,
+  "lon": 116.2536176,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "海淀区",
+    "addr:housenumber": "21",
+    "addr:postcode": "100143",
+    "addr:province": "北京市",
+    "addr:street": "金沟河路",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "drive_through": "no",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 1688751288,
+  "lat": 39.9168850,
+  "lon": 116.2543779,
+  "tags": {
+    "addr:city": "永定路街道",
+    "addr:district": "海淀区",
+    "addr:housenumber": "19",
+    "addr:postcode": "100143",
+    "addr:province": "北京市",
+    "addr:street": "金沟河路",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:zh": "麦当劳",
+    "cuisine": "burger",
+    "drive_through": "no",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "opening_hours": "Mo-Su 06:00-23:00",
+    "operator": "McDonald's",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 1688751294,
+  "lat": 39.9167318,
+  "lon": 116.2548811,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "海淀区",
+    "addr:housenumber": "19",
+    "addr:postcode": "100143",
+    "addr:province": "北京市",
+    "addr:street": "金沟河路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "秀儿四九城·新京菜",
+    "opening_hours": "Mo-Su 11:00-14:00, 17:00-21:00",
+    "phone": "+86 10 88999985"
+  }
+},
+{
+  "type": "node",
+  "id": 14091162308,
+  "lat": 39.9171034,
+  "lon": 116.2543665,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "海淀区",
+    "addr:housenumber": "19",
+    "addr:postcode": "100143",
+    "addr:province": "北京市",
+    "addr:street": "金沟河路",
+    "amenity": "restaurant",
+    "cuisine": "chinese;beijing",
+    "name": "京小灶"
+  }
+},
+{
+  "type": "node",
+  "id": 9300419407,
+  "lat": 39.9574380,
+  "lon": 116.2854083,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:country": "CN",
+    "addr:district": "海淀区",
+    "addr:floor": "1",
+    "addr:full": "远大路一号金源燕莎MALL一层Z1029",
+    "addr:housename": "金源燕莎MALL",
+    "addr:housenumber": "1",
+    "addr:province": "北京市",
+    "addr:room": "Z1029",
+    "addr:street": "远大路",
+    "amenity": "fast_food",
+    "branch": "北京金源燕莎店",
+    "brand": "DUNKIN唐恩都乐",
+    "brand:en": "Dunkin' Donuts",
+    "brand:wikidata": "Q847743",
+    "brand:wikipedia": "zh:唐恩都乐",
+    "brand:zh": "唐恩都乐",
+    "cuisine": "donut;coffee_shop",
+    "name": "DUNKIN唐恩都乐",
+    "name:en": "Dunkin' Donuts",
+    "name:zh": "唐恩都乐",
+    "opening_hours": "Mo-Su 10:00-20:30",
+    "phone": "+86 10 8887 5960",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 11743043483,
+  "lat": 39.8819752,
+  "lon": 116.3000279,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "丰台区",
+    "addr:postcode": "100073",
+    "addr:province": "北京市",
+    "addr:street": "G4辅路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "东兴楼(六里桥)"
+  }
+},
+{
+  "type": "node",
+  "id": 9300419406,
+  "lat": 39.9108925,
+  "lon": 116.2972807,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:country": "CN",
+    "addr:district": "海淀区",
+    "addr:floor": "1",
+    "addr:full": "北京市翠微路12号印象城101-05",
+    "addr:housename": "印象城",
+    "addr:housenumber": "12",
+    "addr:province": "北京市",
+    "addr:room": "101-05",
+    "addr:street": "翠微路",
+    "amenity": "fast_food",
+    "branch": "北京翠微路店",
+    "brand": "DUNKIN唐恩都乐",
+    "brand:en": "Dunkin' Donuts",
+    "brand:wikidata": "Q847743",
+    "brand:wikipedia": "zh:唐恩都乐",
+    "brand:zh": "唐恩都乐",
+    "cuisine": "donut;coffee_shop",
+    "name": "DUNKIN唐恩都乐",
+    "name:en": "Dunkin' Donuts",
+    "name:zh": "唐恩都乐",
+    "opening_hours": "Mo-Su 08:00-21:30",
+    "phone": "+86 10 6821 1761",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 8011276053,
+  "lat": 39.8922761,
+  "lon": 116.3166609,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "丰台区",
+    "addr:street": "广莲路北京西站南广场东附属楼内",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:wikipedia": "zh:麦当劳",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "opening_hours": "Mo-Su 06:30-22:00",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 1742670815,
+  "lat": 39.8837172,
+  "lon": 116.3571096,
+  "tags": {
+    "addr:housenumber": "11-1",
+    "addr:street": "牛街",
+    "amenity": "restaurant",
+    "name": "老诚伊"
+  }
+},
+{
+  "type": "node",
+  "id": 5770952555,
+  "lat": 39.8796172,
+  "lon": 116.3862359,
+  "tags": {
+    "addr:housenumber": "31-15",
+    "addr:street": "南纬路",
+    "amenity": "cafe",
+    "cuisine": "chinese;beef_bowl;local",
+    "diet:halal": "yes",
+    "name": "穆斯林美食 頂香牛肉面",
+    "name:en": "Muslim Special Beef Noodle",
+    "name:ru": "Мусульманское кафе"
+  }
+},
+{
+  "type": "node",
+  "id": 5931279085,
+  "lat": 39.8798859,
+  "lon": 116.3865626,
+  "tags": {
+    "addr:housenumber": "31",
+    "addr:street": "南纬路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "天橋鴻運樓",
+    "name:en": "Beijing Overbridge Hongyunlou Roast Duck Shop",
+    "name:zh": "天橋鴻運樓烤鴨店",
+    "phone": "+86 10 8316 1729"
+  }
+},
+{
+  "type": "node",
+  "id": 4473106891,
+  "lat": 39.8979399,
+  "lon": 116.3787702,
+  "tags": {
+    "addr:street": "14 Qianmen W St, Xicheng Qu, China",
+    "amenity": "restaurant",
+    "brand": "全聚德",
+    "brand:en": "Quanjude",
+    "brand:wikidata": "Q3269017",
+    "brand:wikipedia": "zh:全聚德",
+    "brand:zh": "全聚德",
+    "cuisine": "chinese",
+    "name": "全聚德",
+    "name:en": "Quanjude",
+    "name:zh": "全聚德"
+  }
+},
+{
+  "type": "node",
+  "id": 2956786949,
+  "lat": 39.8920481,
+  "lon": 116.3829120,
+  "tags": {
+    "addr:housenumber": "59",
+    "addr:street": "Tie shu xie jie",
+    "amenity": "cafe",
+    "name": "Spoonful of sugar",
+    "opening_hours": "Jan-Dec: Mo-Su 10:30-20:30",
+    "phone": "+86 10 6308 3971"
+  }
+},
+{
+  "type": "node",
+  "id": 4131927074,
+  "lat": 39.8946272,
+  "lon": 116.3874481,
+  "tags": {
+    "addr:housenumber": "10—14",
+    "addr:street": "杨梅竹斜街",
+    "amenity": "restaurant",
+    "description": "Japanese",
+    "name": "铃木食堂",
+    "name:en": "Suzuki Kitchen",
+    "phone": "+86 10 6313 5409",
+    "website": "http://www.suzukikitchen.com",
+    "wheelchair": "limited"
+  }
+},
+{
+  "type": "node",
+  "id": 5261868222,
+  "lat": 39.8934211,
+  "lon": 116.3859328,
+  "tags": {
+    "addr:housenumber": "57",
+    "addr:street": "大栅栏西街",
+    "amenity": "restaurant",
+    "name": "德缘烤鸭店",
+    "name:en": "De Yuan Roast Duck",
+    "phone": "+86 10 6308 5371"
+  }
+},
+{
+  "type": "node",
+  "id": 6390479986,
+  "lat": 39.8983513,
+  "lon": 116.3869367,
+  "tags": {
+    "addr:street": "前门西大街",
+    "amenity": "restaurant",
+    "check_date": "2026-05-12",
+    "check_date:opening_hours": "2026-05-08",
+    "cuisine": "asian",
+    "diet:vegan": "only",
+    "internet_access": "wlan",
+    "name": "素虎净素",
+    "name:en": "Vege-Tiger Vegan Buffet",
+    "opening_hours": "Mo-Su 11:00-14:00, 17:00-20:30",
+    "self_service": "only"
+  }
+},
+{
+  "type": "node",
+  "id": 7159617226,
+  "lat": 39.9324083,
+  "lon": 116.3035472,
+  "tags": {
+    "addr:city": "海淀区",
+    "addr:district": "八里庄街道",
+    "addr:housenumber": "91",
+    "addr:postcode": "100048",
+    "addr:province": "北京市",
+    "addr:street": "西三环北路",
+    "amenity": "fast_food",
+    "brand": "Domino's",
+    "brand:wikidata": "Q839466",
+    "brand:wikipedia": "en:Domino's Pizza",
+    "cuisine": "pizza",
+    "delivery": "yes",
+    "drive_through": "no",
+    "name": "Domino's",
+    "phone": "+86 400 159 7597",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 9580935738,
+  "lat": 39.9266250,
+  "lon": 116.3246816,
+  "tags": {
+    "addr:housenumber": "11",
+    "addr:street": "增光路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "description": "https://baike.baidu.com/item/%E6%B5%B7%E7%A2%97%E5%B1%85/4744078?fr=aladdin",
+    "name": "北京市增光海碗居餐饮有限公司",
+    "name:en": "HaiWanJu old Beijing Noodles with Soybean Paste"
+  }
+},
+{
+  "type": "node",
+  "id": 13413964401,
+  "lat": 39.9252669,
+  "lon": 116.3246766,
+  "tags": {
+    "addr:housenumber": "21",
+    "addr:street": "三里河路",
+    "amenity": "restaurant",
+    "cuisine": "chinese;noodles",
+    "name": "Ladychai",
+    "outdoor_seating": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 4646739894,
+  "lat": 39.9523707,
+  "lon": 116.3097654,
+  "tags": {
+    "addr:street": "魏公村16号楼底商",
+    "amenity": "restaurant",
+    "name": "加藤屋",
+    "name:en": "Katoya",
+    "name:zh-Hans": "加藤屋",
+    "name:zh-Hant": "加藤屋"
+  }
+},
+{
+  "type": "node",
+  "id": 6497067681,
+  "lat": 39.9651807,
+  "lon": 116.3019079,
+  "tags": {
+    "addr:city": "北京",
+    "addr:district": "海淀区",
+    "addr:province": "北京",
+    "addr:street": "海淀街道",
+    "amenity": "restaurant",
+    "brand": "必胜客",
+    "brand:en": "Pizza Hut",
+    "brand:wikidata": "Q191615",
+    "brand:wikipedia": "en:Pizza Hut",
+    "brand:zh": "必胜客",
+    "cuisine": "pizza",
+    "name": "必胜客",
+    "name:en": "Pizza Hut",
+    "name:zh": "必胜客"
+  }
+},
+{
+  "type": "node",
+  "id": 6763648555,
+  "lat": 39.9654973,
+  "lon": 116.3018510,
+  "tags": {
+    "addr:city": "北京",
+    "addr:district": "海淀区",
+    "addr:province": "北京",
+    "addr:street": "万泉河路",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:wikipedia": "zh:肯德基",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "drive_through": "yes",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 10289813030,
+  "lat": 39.9224353,
+  "lon": 116.3512307,
+  "tags": {
+    "addr:housenumber": "349",
+    "addr:street": "阜成门内大街",
+    "amenity": "restaurant",
+    "name": "护国寺小吃",
+    "opening_hours": "Mo-Su 06:00-20:30"
+  }
+},
+{
+  "type": "node",
+  "id": 4793701521,
+  "lat": 39.9253220,
+  "lon": 116.3571534,
+  "tags": {
+    "addr:housenumber": "31",
+    "addr:street": "安平巷",
+    "amenity": "fast_food",
+    "name": "徐記燒餅舖"
+  }
+},
+{
+  "type": "node",
+  "id": 13091768201,
+  "lat": 39.9344572,
+  "lon": 116.3532071,
+  "tags": {
+    "addr:housenumber": "68号",
+    "addr:street": "西直门南小街",
+    "amenity": "fast_food",
+    "name": "麦当劳(北京市青年宫店)"
+  }
+},
+{
+  "type": "node",
+  "id": 4792679921,
+  "lat": 39.9176269,
+  "lon": 116.3672869,
+  "tags": {
+    "addr:housenumber": "107號",
+    "addr:street": "西四南大街",
+    "amenity": "fast_food",
+    "brand": "庆丰包子铺",
+    "brand:en": "Qingfeng Steamed Dumpling Shop",
+    "brand:wikidata": "Q24841010",
+    "brand:wikipedia": "zh:庆丰包子铺",
+    "brand:zh": "庆丰包子铺",
+    "cuisine": "chinese",
+    "name": "庆丰包子铺",
+    "name:en": "Qingfeng Steamed Dumpling Shop",
+    "name:zh": "庆丰包子铺",
+    "name:zh-Hant": "慶豐包子舖",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 4793667428,
+  "lat": 39.9173483,
+  "lon": 116.3684870,
+  "tags": {
+    "addr:street": "大酱坊胡同",
+    "amenity": "fast_food",
+    "name": "山西燒餅",
+    "phone": "+86 10 6606 9281"
+  }
+},
+{
+  "type": "node",
+  "id": 4793667429,
+  "lat": 39.9173142,
+  "lon": 116.3663550,
+  "tags": {
+    "addr:housenumber": "11號",
+    "addr:street": "丰盛胡同",
+    "amenity": "restaurant",
+    "cuisine": "dumplings",
+    "name": "多味居饺子馆",
+    "name:zh-Hant": "多味餃子館"
+  }
+},
+{
+  "type": "node",
+  "id": 4793667430,
+  "lat": 39.9173503,
+  "lon": 116.3685740,
+  "tags": {
+    "addr:street": "大酱坊胡同",
+    "amenity": "restaurant",
+    "cuisine": "dumplings",
+    "name": "老北京饺子馆",
+    "name:zh-Hant": "老北京餃子館"
+  }
+},
+{
+  "type": "node",
+  "id": 4793682022,
+  "lat": 39.9172976,
+  "lon": 116.3661532,
+  "tags": {
+    "addr:housenumber": "11號",
+    "addr:street": "丰盛胡同",
+    "amenity": "restaurant",
+    "name": "品品香桂林米粉"
+  }
+},
+{
+  "type": "node",
+  "id": 4793682023,
+  "lat": 39.9196023,
+  "lon": 116.3672074,
+  "tags": {
+    "addr:street": "大院胡同",
+    "amenity": "restaurant",
+    "cuisine": "dumplings",
+    "name": "福喜軒餃子小吃"
+  }
+},
+{
+  "type": "node",
+  "id": 4793697522,
+  "lat": 39.9173174,
+  "lon": 116.3680001,
+  "tags": {
+    "addr:street": "大醬坊胡同",
+    "amenity": "restaurant",
+    "name": "昔中刀削麵"
+  }
+},
+{
+  "type": "node",
+  "id": 4793697523,
+  "lat": 39.9209164,
+  "lon": 116.3675538,
+  "tags": {
+    "addr:housenumber": "168",
+    "addr:street": "西安门大街",
+    "amenity": "restaurant",
+    "name": "古味早到",
+    "opening_hours": "Mo-Su 09:00-21:30"
+  }
+},
+{
+  "type": "node",
+  "id": 4832607821,
+  "lat": 39.9245258,
+  "lon": 116.3669593,
+  "tags": {
+    "addr:housenumber": "199",
+    "addr:street": "西四北大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "惠丰饺子楼",
+    "name:en": "Fantastic dumpling restaurant",
+    "name:zh": "惠丰饺子楼",
+    "opening_hours": "Mo-Su 06:00-09:00, 11:00-21:00"
+  }
+},
+{
+  "type": "node",
+  "id": 3957852787,
+  "lat": 39.9231871,
+  "lon": 116.3737024,
+  "tags": {
+    "addr:housenumber": "31-42",
+    "addr:street": "西什库大街",
+    "amenity": "restaurant",
+    "name": "民福居烤鸭店",
+    "opening_hours": "Mo-Su 09:30-22:30"
+  }
+},
+{
+  "type": "node",
+  "id": 1742835335,
+  "lat": 39.9337815,
+  "lon": 116.3699745,
+  "tags": {
+    "addr:housenumber": "73",
+    "addr:street": "护国寺街",
+    "amenity": "cafe",
+    "internet_access": "terminal",
+    "name": "护国寺网吧",
+    "name:zh": "原建平家",
+    "opening_hours": "Mo-Su,PH 00:00-24:00"
+  }
+},
+{
+  "type": "node",
+  "id": 4911081323,
+  "lat": 39.9335945,
+  "lon": 116.3673334,
+  "tags": {
+    "addr:housenumber": "123-1",
+    "addr:street": "护国寺大街",
+    "amenity": "restaurant",
+    "name": "三大炖",
+    "opening_hours": "Mo-Su 10:00-12:00",
+    "phone": "+86 137 0117 9386"
+  }
+},
+{
+  "type": "node",
+  "id": 4911853604,
+  "lat": 39.9288518,
+  "lon": 116.3668844,
+  "tags": {
+    "addr:housenumber": "57",
+    "addr:street": "西四北大街",
+    "amenity": "restaurant",
+    "name": "山陕面馆",
+    "opening_hours": "Mo-Su 08:00-23:00",
+    "phone": "+86 185 1503 6193"
+  }
+},
+{
+  "type": "node",
+  "id": 4914568434,
+  "lat": 39.9336314,
+  "lon": 116.3682640,
+  "tags": {
+    "addr:housenumber": "101",
+    "addr:street": "护国寺大街",
+    "amenity": "restaurant",
+    "cuisine": "ramen",
+    "name": "二条拉面"
+  }
+},
+{
+  "type": "node",
+  "id": 4915466631,
+  "lat": 39.9386665,
+  "lon": 116.3795430,
+  "tags": {
+    "addr:street": "小翔凤胡同",
+    "amenity": "restaurant",
+    "name": "弥生寿司",
+    "name:en": "YaYoi Sushi"
+  }
+},
+{
+  "type": "node",
+  "id": 4143120689,
+  "lat": 39.9394536,
+  "lon": 116.3905653,
+  "tags": {
+    "addr:housenumber": "331",
+    "addr:street": "鼓楼东大街",
+    "amenity": "restaurant",
+    "name": "姚记炒肝店",
+    "opening_hours": "Mo-Su 06:00-22:30",
+    "wikidata": "Q15932176",
+    "wikimedia_commons": "Category:Yaoji Chaogan",
+    "wikipedia": "zh:姚记炒肝店"
+  }
+},
+{
+  "type": "node",
+  "id": 4915390727,
+  "lat": 39.9399874,
+  "lon": 116.3876265,
+  "tags": {
+    "addr:housenumber": "161",
+    "addr:street": "旧鼓楼大街",
+    "amenity": "fast_food",
+    "name": "开心喵",
+    "opening_hours": "Mo-Su 17:00-02:00"
+  }
+},
+{
+  "type": "node",
+  "id": 5134403823,
+  "lat": 39.9347596,
+  "lon": 116.3891781,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:housenumber": "甲2",
+    "addr:postcode": "100009",
+    "addr:street": "Qianhai Nanyan",
+    "amenity": "cafe",
+    "name": "East Shore Live Jazz Club",
+    "name:en": "East Shore Live Jazz Club",
+    "wheelchair": "limited"
+  }
+},
+{
+  "type": "node",
+  "id": 5580724321,
+  "lat": 39.9368267,
+  "lon": 116.3906668,
+  "tags": {
+    "addr:housenumber": "69",
+    "addr:street": "方砖厂胡同",
+    "amenity": "restaurant",
+    "name": "炸酱面",
+    "opening_hours": "Mo-Su 11:00-13:00, 16:00-17:00"
+  }
+},
+{
+  "type": "node",
+  "id": 14072131110,
+  "lat": 39.9435426,
+  "lon": 116.3434368,
+  "tags": {
+    "addr:city": "海淀区",
+    "addr:postcode": "100044",
+    "addr:province": "北京市",
+    "addr:street": "高梁桥斜街",
+    "amenity": "restaurant",
+    "cuisine": "coffee_shop",
+    "name": "熊煮咖啡BearBrew"
+  }
+},
+{
+  "type": "node",
+  "id": 973340625,
+  "lat": 39.9600741,
+  "lon": 116.3640842,
+  "tags": {
+    "addr:housename": "励耘学苑",
+    "addr:housenumber": "19",
+    "addr:postcode": "100875",
+    "addr:street": "新街口外大街",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "name:zh-Hant": "麥當勞",
+    "name:zh-Latn-pinyin": "Màidāngláo",
+    "takeaway": "yes",
+    "website": "http://mcdonalds.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 1924725186,
+  "lat": 39.9598048,
+  "lon": 116.3641192,
+  "tags": {
+    "addr:housename": "励耘学苑",
+    "addr:housenumber": "19",
+    "addr:postcode": "100875",
+    "addr:street": "新街口外大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "御马墩",
+    "name:zh": "御马墩",
+    "name:zh-Hans": "御马墩",
+    "name:zh-Hant": "禦馬墩"
+  }
+},
+{
+  "type": "node",
+  "id": 1924729425,
+  "lat": 39.9603023,
+  "lon": 116.3640468,
+  "tags": {
+    "addr:housename": "励耘学苑",
+    "addr:housenumber": "19",
+    "addr:postcode": "100875",
+    "addr:street": "新街口外大街",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop",
+    "internet_access": "wlan",
+    "internet_access:fee": "no",
+    "name": "12橡树咖啡",
+    "name:zh": "12橡树咖啡",
+    "name:zh-Hans": "12橡树咖啡",
+    "name:zh-Hant": "12橡樹咖啡"
+  }
+},
+{
+  "type": "node",
+  "id": 5193863223,
+  "lat": 39.9434788,
+  "lon": 116.3876142,
+  "tags": {
+    "addr:street": "旧鼓楼大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "餡老滿"
+  }
+},
+{
+  "type": "node",
+  "id": 2180702925,
+  "lat": 39.9828481,
+  "lon": 116.2988156,
+  "tags": {
+    "addr:housename": "左岸工社",
+    "addr:street": "苏州街",
+    "amenity": "restaurant",
+    "brand": "田老师红烧肉",
+    "brand:wikidata": "Q108485521",
+    "brand:zh": "田老师红烧肉",
+    "cuisine": "chinese",
+    "diet:halal": "no",
+    "name": "田老师红烧肉",
+    "name:zh": "田老师红烧肉"
+  }
+},
+{
+  "type": "node",
+  "id": 2192133661,
+  "lat": 39.9828337,
+  "lon": 116.2986889,
+  "tags": {
+    "addr:housename": "左岸工社",
+    "addr:street": "苏州街",
+    "amenity": "restaurant",
+    "name": "好伦哥",
+    "name:zh": "好伦哥",
+    "name:zh-Hans": "好伦哥",
+    "name:zh-Hant": "好倫哥"
+  }
+},
+{
+  "type": "node",
+  "id": 3040949438,
+  "lat": 39.9808050,
+  "lon": 116.3000440,
+  "tags": {
+    "addr:city": "北京海淀",
+    "addr:postcode": "100080",
+    "addr:street": "苏州街",
+    "amenity": "restaurant",
+    "delivery": "yes",
+    "internet_access": "no",
+    "name": "九格麻辣烫",
+    "name:zh": "九格麻辣烫",
+    "name:zh-Hans": "九格麻辣烫",
+    "name:zh-Hant": "九格麻辣燙",
+    "outdoor_seating": "no",
+    "smoking": "no",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 2753545720,
+  "lat": 39.9818248,
+  "lon": 116.3093023,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "北京",
+    "addr:street": "中关村大街",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:wikipedia": "zh:星巴克",
+    "brand:zh": "星巴克",
+    "cuisine": "coffee_shop",
+    "internet_access": "wlan",
+    "internet_access:fee": "no",
+    "name": "星巴克",
+    "name:de": "Starbucks",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 3015376472,
+  "lat": 39.9754042,
+  "lon": 116.3377070,
+  "tags": {
+    "addr:housenumber": "29",
+    "addr:street": "知春路",
+    "air_conditioning": "yes",
+    "amenity": "fast_food",
+    "branch": "知春路店",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:wikipedia": "en:KFC",
+    "brand:zh": "肯德基",
+    "check_date": "2023-11-03",
+    "cuisine": "chicken",
+    "delivery": "yes",
+    "drive_through": "no",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "name:zh-Latn-pinyin": "Kěn Dé Jī",
+    "opening_hours": "06:00-24:00",
+    "outdoor_seating": "no",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 11947640986,
+  "lat": 39.9754261,
+  "lon": 116.3375758,
+  "tags": {
+    "addr:housenumber": "29",
+    "addr:street": "知春路",
+    "amenity": "restaurant",
+    "branch": "北京航空航天大学学院路校区大运村学生公寓店",
+    "check_date": "2024-05-31",
+    "cuisine": "chinese",
+    "diet:halal": "yes",
+    "level": "0",
+    "name": "丝路伊香兰州牛肉面",
+    "opening_hours": "24/7"
+  }
+},
+{
+  "type": "node",
+  "id": 12814211147,
+  "lat": 39.9756998,
+  "lon": 116.3368857,
+  "tags": {
+    "addr:housenumber": "29",
+    "addr:street": "知春路",
+    "amenity": "restaurant",
+    "check_date": "2025-04-29",
+    "cuisine": "noodle",
+    "name": "阿彩妹云南鲜烫牛肉米线",
+    "opening_hours": "10:00-23:00"
+  }
+},
+{
+  "type": "node",
+  "id": 3092424790,
+  "lat": 39.9810498,
+  "lon": 116.3220636,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:housenumber": "66",
+    "addr:street": "中关村保福寺",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "小吊梨汤",
+    "name:zh": "小吊梨汤",
+    "name:zh-Hans": "小吊梨汤",
+    "name:zh-Hant": "小吊梨湯",
+    "opening_hours": "11:30-21:30",
+    "phone": "+86 10 6264 8616"
+  }
+},
+{
+  "type": "node",
+  "id": 10026476416,
+  "lat": 39.9819791,
+  "lon": 116.3242263,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "海淀区",
+    "addr:housenumber": "8",
+    "addr:postcode": "100190",
+    "addr:province": "北京",
+    "addr:street": "中关村南三街",
+    "amenity": "restaurant",
+    "name": "物科餐厅",
+    "name:en": "Wuke Restaurant",
+    "name:zh": "物科餐厅",
+    "name:zh-Hans": "物科餐厅",
+    "name:zh-Hant": "物科餐廳"
+  }
+},
+{
+  "type": "node",
+  "id": 1747551913,
+  "lat": 39.9915280,
+  "lon": 116.3187702,
+  "tags": {
+    "addr:housenumber": "87",
+    "addr:street": "成府路",
+    "amenity": "cafe",
+    "name": "雪侬舍咖啡",
+    "name:zh": "雪侬舍咖啡",
+    "name:zh-Hans": "雪侬舍咖啡",
+    "name:zh-Hant": "雪儂舍咖啡"
+  }
+},
+{
+  "type": "node",
+  "id": 6081020371,
+  "lat": 39.9911443,
+  "lon": 116.3333996,
+  "tags": {
+    "addr:city": "北京",
+    "addr:street": "成府路",
+    "amenity": "cafe",
+    "brand": "巴黎贝甜",
+    "brand:en": "Paris Baguette",
+    "brand:wikidata": "Q62605260",
+    "brand:zh": "巴黎贝甜",
+    "cuisine": "sandwich",
+    "name": "巴黎贝甜",
+    "name:en": "Paris Baguette",
+    "name:zh": "巴黎贝甜",
+    "shop": "bakery"
+  }
+},
+{
+  "type": "node",
+  "id": 7916566476,
+  "lat": 40.0056159,
+  "lon": 116.3159730,
+  "tags": {
+    "addr:district": "Haidian",
+    "addr:province": "Beijing",
+    "addr:street": "Guan Chou Yuan (Level -1), Tsinghua University",
+    "air_conditioning": "yes",
+    "amenity": "cafe",
+    "bar": "no",
+    "highchair": "no",
+    "internet_access": "wlan",
+    "internet_access:fee": "customers",
+    "internet_access:ssid": "紫荆书咖",
+    "name": "紫荆书咖",
+    "name:en": "Zi Jing Book Cafe",
+    "name:zh": "紫荆书咖",
+    "name:zh-Hans": "紫荆书咖",
+    "name:zh-Hant": "紫荊書咖",
+    "opening_hours": "09:00-次日05:00",
+    "smoking": "no",
+    "takeaway": "yes",
+    "wheelchair": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 7916566477,
+  "lat": 40.0040907,
+  "lon": 116.3180951,
+  "tags": {
+    "addr:city": "北京市海淀区",
+    "addr:district": "海淀区",
+    "addr:housenumber": "East Side F1",
+    "addr:postcode": "100084",
+    "addr:province": "北京",
+    "addr:street": "Li Wen Zheng (North) Library, Tsinghua University",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop",
+    "name": "星巴克",
+    "name:zh": "星巴克",
+    "name:zh-Hans": "星巴克",
+    "outdoor_seating": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 12229291843,
+  "lat": 40.0042400,
+  "lon": 116.3222673,
+  "tags": {
+    "addr:city": "北京市海淀区",
+    "addr:district": "海淀区",
+    "addr:postcode": "100084",
+    "addr:province": "北京市",
+    "addr:street": "祖龙广场",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop",
+    "name": "瑞幸咖啡",
+    "outdoor_seating": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 11266134290,
+  "lat": 39.9754693,
+  "lon": 116.3398344,
+  "tags": {
+    "addr:housenumber": "17",
+    "addr:street": "知春路",
+    "amenity": "cafe",
+    "branch": "人工智能创业基地店(No.1732)",
+    "brand": "瑞幸咖啡",
+    "brand:en": "Luckin Coffee",
+    "brand:wikidata": "Q56811344",
+    "brand:zh": "瑞幸咖啡",
+    "capacity": "0",
+    "check_date": "2023-10-16",
+    "cuisine": "coffee_shop",
+    "delivery": "yes",
+    "drive_through": "no",
+    "name": "瑞幸咖啡",
+    "name:en": "Luckin Coffee",
+    "name:zh": "瑞幸咖啡",
+    "payment:wechat": "yes",
+    "reservation": "no",
+    "takeaway": "yes",
+    "toilets": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 3440474991,
+  "lat": 39.9743465,
+  "lon": 116.3633300,
+  "tags": {
+    "addr:city": "海淀区",
+    "addr:housenumber": "A1",
+    "addr:street": "北太平庄路",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:wikipedia": "zh:麦当劳",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "delivery": "yes",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "name:zh-Latn-pinyin": "Màidāngláo",
+    "opening_hours": "24/7",
+    "operator": "McDonald's China",
+    "smoking": "no",
+    "takeaway": "yes",
+    "website": "http://mcdonalds.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 9590592180,
+  "lat": 39.9780534,
+  "lon": 116.3639801,
+  "tags": {
+    "addr:city": "海淀",
+    "addr:province": "北京",
+    "addr:street": "花园东路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "image": "https://dimg05.c-ctrip.com/images/0100s1200091kl3l03C1D.jpg",
+    "name": "北平楼（牡丹园店）",
+    "opening_hours": "Mo-Su 10:30-20:30",
+    "phone": "+86 10 8208 2197"
+  }
+},
+{
+  "type": "node",
+  "id": 2326467135,
+  "lat": 39.9803928,
+  "lon": 116.3492197,
+  "tags": {
+    "addr:housenumber": "甲38",
+    "addr:street": "学院路",
+    "amenity": "fast_food",
+    "branch": "花园北路店",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:wikipedia": "zh:麦当劳",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "check_date": "2024-05-12",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:de": "McDonald's",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "phone": "+86 10 8202 1668",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 4810718017,
+  "lat": 40.0075609,
+  "lon": 116.3481509,
+  "tags": {
+    "addr:city": "北京",
+    "addr:street": "石板房南路",
+    "amenity": "restaurant",
+    "brand": "萨莉亚",
+    "brand:en": "Saizeriya",
+    "brand:wikidata": "Q886564",
+    "brand:wikipedia": "zh:萨莉亚",
+    "brand:zh": "萨莉亚",
+    "cuisine": "italian",
+    "name": "萨莉亚",
+    "name:en": "Saizeriya",
+    "name:zh": "萨莉亚",
+    "takeaway": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 5567993077,
+  "lat": 40.0114042,
+  "lon": 116.3465479,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "海淀区",
+    "addr:postcode": "100083",
+    "addr:province": "北京市",
+    "addr:street": "学清路",
+    "amenity": "restaurant",
+    "capacity": "100",
+    "cuisine": "chinese",
+    "name": "四爷牛拉",
+    "name:zh": "四爷牛拉",
+    "name:zh-Hans": "四爷牛拉",
+    "name:zh-Hant": "四爺牛拉",
+    "opening_hours": "24/7",
+    "smoking": "no",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 1924568768,
+  "lat": 39.9979066,
+  "lon": 116.3815945,
+  "tags": {
+    "addr:housename": "北辰世纪中心B座",
+    "addr:housenumber": "8",
+    "addr:postcode": "100020",
+    "addr:street": "北辰西路",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:wikipedia": "zh:星巴克",
+    "brand:zh": "星巴克",
+    "cuisine": "coffee_shop",
+    "internet_access": "wlan",
+    "name": "星巴克",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "name:zh-Latn-pinyin": "Xīngbākè",
+    "takeaway": "yes",
+    "website": "https://www.starbucks.com.cn/"
+  }
+},
+{
+  "type": "node",
+  "id": 1924677389,
+  "lat": 39.9979101,
+  "lon": 116.3821512,
+  "tags": {
+    "addr:housename": "北辰世纪中心B座",
+    "addr:housenumber": "8",
+    "addr:postcode": "100020",
+    "addr:street": "北辰西路",
+    "amenity": "restaurant",
+    "brand": "李先生",
+    "brand:en": "Mr. Lee",
+    "brand:wikidata": "Q6928843",
+    "brand:zh": "李先生",
+    "cuisine": "chinese;noodles",
+    "name": "李先生",
+    "name:en": "Mr. Lee",
+    "name:zh": "李先生"
+  }
+},
+{
+  "type": "node",
+  "id": 13352729298,
+  "lat": 40.0079667,
+  "lon": 116.3744425,
+  "tags": {
+    "addr:street": "林翠东路",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:zh": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hant": "麥當勞",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 5669368566,
+  "lat": 40.0407142,
+  "lon": 116.3006544,
+  "tags": {
+    "addr:housenumber": "9号",
+    "addr:street": "信息路",
+    "amenity": "cafe",
+    "name": "奎科大厦-纯5度咖啡店"
+  }
+},
+{
+  "type": "node",
+  "id": 9300406876,
+  "lat": 40.0290573,
+  "lon": 116.3290482,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:country": "CN",
+    "addr:district": "海淀区",
+    "addr:floor": "-1",
+    "addr:full": "北京清河五彩城地下1层B165A号",
+    "addr:housename": "清河五彩城",
+    "addr:province": "北京市",
+    "addr:room": "B165A",
+    "addr:street": "清河中街",
+    "amenity": "fast_food",
+    "branch": "北京清河万象汇店",
+    "brand": "DUNKIN唐恩都乐",
+    "brand:en": "Dunkin' Donuts",
+    "brand:wikidata": "Q847743",
+    "brand:wikipedia": "zh:唐恩都乐",
+    "brand:zh": "唐恩都乐",
+    "cuisine": "donut;coffee_shop",
+    "name": "DUNKIN唐恩都乐",
+    "name:en": "Dunkin' Donuts",
+    "name:zh": "唐恩都乐",
+    "opening_hours": "Mo-Su 10:00-21:30",
+    "phone": "+86 10 6295 1811",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 7262652975,
+  "lat": 40.0509854,
+  "lon": 116.3037668,
+  "tags": {
+    "addr:street": "西二旗大街",
+    "amenity": "restaurant",
+    "name": "绿山时尚餐厅",
+    "opening_hours": "09:30-14:00，16:30-22:30"
+  }
+},
+{
+  "type": "node",
+  "id": 4365572890,
+  "lat": 39.8640976,
+  "lon": 116.4237344,
+  "tags": {
+    "addr:housenumber": "24",
+    "addr:street": "蒲芳路",
+    "amenity": "restaurant",
+    "name": "一碗居",
+    "name:zh": "一碗居",
+    "name:zh-Hans": "一碗居",
+    "name:zh-Hant": "一碗居",
+    "phone": "+86 10 6765 4321"
+  }
+},
+{
+  "type": "node",
+  "id": 4365573590,
+  "lat": 39.8640910,
+  "lon": 116.4220305,
+  "tags": {
+    "addr:housenumber": "26",
+    "addr:street": "蒲芳路",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:wikipedia": "zh:肯德基",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "name:zh-Latn-pinyin": "Kěn Dé Jī",
+    "takeaway": "yes",
+    "website": "https://www.kfc.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 4365589792,
+  "lat": 39.8640958,
+  "lon": 116.4215511,
+  "tags": {
+    "addr:housenumber": "26",
+    "addr:street": "蒲芳路",
+    "amenity": "restaurant",
+    "brand": "海底捞火锅",
+    "brand:en": "Haidilao Hot Pot",
+    "brand:wikidata": "Q5638920",
+    "brand:wikipedia": "zh:海底捞",
+    "brand:zh": "海底捞火锅",
+    "brand:zh-Hans": "海底捞火锅",
+    "brand:zh-Hant": "海底撈火鍋",
+    "cuisine": "chinese;hotpot",
+    "internet_access": "wlan",
+    "name": "海底捞火锅",
+    "name:en": "Haidilao Hot Pot",
+    "name:zh": "海底捞火锅",
+    "name:zh-Hans": "海底捞火锅",
+    "name:zh-Hant": "海底撈火鍋",
+    "phone": "+86 10 6767 6839",
+    "website": "https://www.haidilao.com"
+  }
+},
+{
+  "type": "node",
+  "id": 4365597389,
+  "lat": 39.8642267,
+  "lon": 116.4261844,
+  "tags": {
+    "addr:housenumber": "12",
+    "addr:street": "蒲方路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "小土豆家常菜",
+    "name:zh": "小土豆家常菜",
+    "name:zh-Hans": "小土豆家常菜",
+    "name:zh-Hant": "小土豆家常菜",
+    "phone": "+86 10 6762 1111"
+  }
+},
+{
+  "type": "node",
+  "id": 4365602890,
+  "lat": 39.8647162,
+  "lon": 116.4300963,
+  "tags": {
+    "addr:street": "蒲方路",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:wikipedia": "zh:麦当劳",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "name:zh-Latn-pinyin": "Màidāngláo",
+    "phone": "0106765514",
+    "takeaway": "yes",
+    "website": "http://mcdonalds.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 4365604390,
+  "lat": 39.8647065,
+  "lon": 116.4311114,
+  "tags": {
+    "addr:housenumber": "2",
+    "addr:street": "蒲方路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "鸿禧大清花",
+    "name:zh": "鸿禧大清花",
+    "phone": "+86 10 6766 9529"
+  }
+},
+{
+  "type": "node",
+  "id": 4365608489,
+  "lat": 39.8647035,
+  "lon": 116.4306650,
+  "tags": {
+    "addr:housenumber": "1",
+    "addr:street": "蒲方路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "都一处",
+    "name:zh": "都一处",
+    "phone": "+86 10 6760 6235"
+  }
+},
+{
+  "type": "node",
+  "id": 4365599191,
+  "lat": 39.8647585,
+  "lon": 116.4317902,
+  "tags": {
+    "addr:housenumber": "2",
+    "addr:street": "方庄路",
+    "amenity": "restaurant",
+    "cuisine": "fine_dining",
+    "name": "顺峰",
+    "name:zh": "顺峰",
+    "phone": "+86 10 6367 6368"
+  }
+},
+{
+  "type": "node",
+  "id": 4365695792,
+  "lat": 39.8732614,
+  "lon": 116.4339578,
+  "tags": {
+    "addr:housenumber": "76",
+    "addr:street": "左安门内大街",
+    "amenity": "fast_food",
+    "cuisine": "chinese",
+    "name": "宏状元",
+    "name:zh": "宏状元",
+    "website": "https://www.hongzhuangyuan.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 4365699094,
+  "lat": 39.8735688,
+  "lon": 116.4339196,
+  "tags": {
+    "addr:housenumber": "76",
+    "addr:street": "左安门内大街",
+    "amenity": "fast_food",
+    "brand": "吉野家",
+    "brand:en": "Yoshinoya",
+    "brand:ja": "吉野家",
+    "brand:wikidata": "Q776272",
+    "brand:wikipedia": "ja:吉野家",
+    "brand:zh": "吉野家",
+    "brand:zh-Hans": "吉野家",
+    "brand:zh-Hant": "吉野家",
+    "cuisine": "beef_bowl",
+    "name": "吉野家",
+    "name:en": "Yoshinoya",
+    "name:ja": "吉野家",
+    "name:zh": "吉野家",
+    "name:zh-Hans": "吉野家",
+    "name:zh-Hant": "吉野家",
+    "phone": "+86 135 2274 5128",
+    "takeaway": "yes",
+    "website": "http://yos.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 4365707290,
+  "lat": 39.8744594,
+  "lon": 116.4329356,
+  "tags": {
+    "addr:street": "左安门内大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "金昌盛",
+    "name:zh": "金昌盛",
+    "phone": "+86 10 6716 1451"
+  }
+},
+{
+  "type": "node",
+  "id": 4365695397,
+  "lat": 39.8800675,
+  "lon": 116.4288257,
+  "tags": {
+    "addr:housenumber": "15",
+    "addr:street": "左安门内大街",
+    "amenity": "fast_food",
+    "cuisine": "local",
+    "name": "老磁器口豆汁店",
+    "name:zh": "老磁器口豆汁店",
+    "phone": "+86 10 6712 1159"
+  }
+},
+{
+  "type": "node",
+  "id": 4365699095,
+  "lat": 39.8826214,
+  "lon": 116.4289157,
+  "tags": {
+    "addr:housenumber": "12",
+    "addr:street": "光明路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "烤鱼吧",
+    "name:zh": "烤鱼吧",
+    "phone": "+86 10 6710 9928"
+  }
+},
+{
+  "type": "node",
+  "id": 4367055789,
+  "lat": 39.8831898,
+  "lon": 116.4308987,
+  "tags": {
+    "addr:housenumber": "11",
+    "addr:street": "光明路",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:wikipedia": "zh:肯德基",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "name:zh-Latn-pinyin": "Kěn Dé Jī",
+    "phone": "+86 10 5190 2095",
+    "takeaway": "yes",
+    "website": "http://kfc.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 4367035292,
+  "lat": 39.8832293,
+  "lon": 116.4312661,
+  "tags": {
+    "addr:housenumber": "69",
+    "addr:street": "光明zhong jie",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "良苑餐厅",
+    "name:zh": "良苑餐厅"
+  }
+},
+{
+  "type": "node",
+  "id": 4301877989,
+  "lat": 39.8952903,
+  "lon": 116.3921168,
+  "tags": {
+    "addr:full": "北京市东城区前门大街30号",
+    "addr:housenumber": "30",
+    "addr:street": "前门大街",
+    "amenity": "restaurant",
+    "branch": "前門店",
+    "brand": "全聚德",
+    "brand:en": "Quanjude",
+    "brand:wikidata": "Q3269017",
+    "brand:wikipedia": "zh:全聚德",
+    "brand:zh": "全聚德",
+    "cuisine": "chinese",
+    "name": "全聚德",
+    "name:en": "Quanjude",
+    "name:zh": "全聚德",
+    "start_date": "1864",
+    "wheelchair": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 10816336949,
+  "lat": 39.9012670,
+  "lon": 116.4014838,
+  "tags": {
+    "addr:housenumber": "甲23",
+    "addr:street": "东交民巷",
+    "amenity": "restaurant",
+    "name": "东交民巷饭店"
+  }
+},
+{
+  "type": "node",
+  "id": 5972588689,
+  "lat": 39.8981732,
+  "lon": 116.4062234,
+  "tags": {
+    "addr:street": "东打磨厂街",
+    "amenity": "restaurant",
+    "brand": "紫光园",
+    "brand:en": "ZI GUANG YUAN",
+    "brand:wikidata": "Q110351138",
+    "brand:zh": "紫光园",
+    "cuisine": "chinese",
+    "diet:halal": "only",
+    "level": "1",
+    "name": "紫光园",
+    "name:en": "ZI GUANG YUAN",
+    "name:zh": "紫光园"
+  }
+},
+{
+  "type": "node",
+  "id": 6536283669,
+  "lat": 39.8961788,
+  "lon": 116.4113731,
+  "tags": {
+    "addr:street": "崇文门外大街",
+    "amenity": "restaurant",
+    "brand": "海底捞火锅",
+    "brand:en": "Haidilao Hot Pot",
+    "brand:wikidata": "Q5638920",
+    "brand:zh": "海底捞火锅",
+    "brand:zh-Hans": "海底捞火锅",
+    "brand:zh-Hant": "海底撈火鍋",
+    "check_date": "2026-03-04",
+    "check_date:opening_hours": "2026-03-04",
+    "cuisine": "chinese;hot_pot",
+    "internet_access": "wlan",
+    "name": "海底捞火锅",
+    "name:en": "Haidilao Hot Pot",
+    "name:zh": "海底捞火锅",
+    "name:zh-Hans": "海底捞火锅",
+    "name:zh-Hant": "海底撈火鍋",
+    "opening_hours": "Mo-Su 10:00-07:00"
+  }
+},
+{
+  "type": "node",
+  "id": 6594267102,
+  "lat": 39.8991721,
+  "lon": 116.4052782,
+  "tags": {
+    "addr:housenumber": "2号",
+    "addr:street": "前门东大街",
+    "amenity": "restaurant",
+    "description": "素菜饭庄",
+    "diet:vegan": "only",
+    "diet:vegetarian": "only",
+    "name": "功德林",
+    "name:zh": "功德林",
+    "name:zh-Latn-pinyin": "Gongdelin",
+    "opening_hours": "Mo-Su 10:30-21:00",
+    "phone": "+86 10 6702 0867"
+  }
+},
+{
+  "type": "node",
+  "id": 4941517220,
+  "lat": 39.8962176,
+  "lon": 116.4119449,
+  "tags": {
+    "addr:street": "崇文门外大街",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:wikipedia": "zh:麦当劳",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "check_date": "2026-03-04",
+    "check_date:opening_hours": "2026-03-04",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "opening_hours": "Mo-Su 06:00-23:00",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 5499723821,
+  "lat": 39.8972964,
+  "lon": 116.4132294,
+  "tags": {
+    "addr:city": "崇文门外街道",
+    "addr:district": "东城区",
+    "addr:housenumber": "F4",
+    "addr:postcode": "100062",
+    "addr:province": "北京市",
+    "addr:street": "No. 16 Chongwenmen Wai Street",
+    "amenity": "restaurant",
+    "brand": "便宜坊",
+    "brand:en": "Bianyifang",
+    "brand:wikidata": "Q1049599",
+    "brand:zh": "便宜坊",
+    "cuisine": "chinese",
+    "diet:local": "yes",
+    "diet:meat": "yes",
+    "name": "便宜坊",
+    "name:en": "Bianyifang",
+    "name:zh": "便宜坊",
+    "opening_hours": "11:00-21:00",
+    "phone": "+86 10 67112244",
+    "website": "https://www.bianyifang.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 6584050808,
+  "lat": 39.8966843,
+  "lon": 116.4119426,
+  "tags": {
+    "addr:street": "崇文门外大街",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:wikipedia": "zh:星巴克",
+    "brand:zh": "星巴克",
+    "check_date": "2026-03-04",
+    "check_date:opening_hours": "2026-03-04",
+    "cuisine": "coffee_shop",
+    "internet_access": "wlan",
+    "name": "星巴克",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "official_name": "Starbucks Coffee",
+    "opening_hours": "Mo-Su 07:00-22:00",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 11126717019,
+  "lat": 39.8955849,
+  "lon": 116.4136040,
+  "tags": {
+    "addr:city": "东城区",
+    "addr:district": "东城区",
+    "addr:housenumber": "132",
+    "addr:province": "北京市",
+    "addr:street": "西花市大街",
+    "amenity": "restaurant",
+    "brand": "李先生",
+    "brand:en": "Mr. Lee",
+    "brand:wikidata": "Q6928843",
+    "brand:zh": "李先生",
+    "cuisine": "chinese;noodles",
+    "name": "李先生",
+    "name:en": "Mr. Lee",
+    "name:zh": "李先生"
+  }
+},
+{
+  "type": "node",
+  "id": 11126874643,
+  "lat": 39.8956775,
+  "lon": 116.4171185,
+  "tags": {
+    "addr:district": "东城区",
+    "addr:housenumber": "80号3-5",
+    "addr:street": "西花市大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "diet:halal": "yes",
+    "name": "鸦儿李记涮肉",
+    "opening_hours": "6：00-22：30",
+    "phone": "+86 10 6711 5835",
+    "toilets": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 12817007501,
+  "lat": 39.8982257,
+  "lon": 116.4119048,
+  "tags": {
+    "addr:city": "崇文门外街道",
+    "addr:district": "东城区",
+    "addr:housenumber": "L4-01",
+    "addr:postcode": "100005",
+    "addr:province": "北京市",
+    "addr:street": "Chongwenmen M-Cube No. 1 Chongwenmen Wai Street",
+    "amenity": "restaurant",
+    "brand": "蓝蛙",
+    "brand:en": "Blue Frog",
+    "brand:wikidata": "Q114448902",
+    "brand:zh": "蓝蛙",
+    "cuisine": "western",
+    "diet:meat": "yes",
+    "name": "蓝蛙",
+    "name:en": "Blue Frog",
+    "name:zh": "蓝蛙",
+    "opening_hours": "10:00-23:00",
+    "phone": "+86 17300133635",
+    "website": "https://www.bluefrog.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 4362368695,
+  "lat": 39.9130605,
+  "lon": 116.3966694,
+  "tags": {
+    "addr:housenumber": "15",
+    "addr:street": "南池子大街",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop;cake;sandwich;pasta;tea",
+    "email": "7753206@qq.com",
+    "internet_access": "wlan",
+    "name": "诗意栖居咖啡馆",
+    "name:en": "Poetry Cafe",
+    "opening_hours": "Mo-Su 10:00-21:00"
+  }
+},
+{
+  "type": "node",
+  "id": 13671682602,
+  "lat": 39.9132603,
+  "lon": 116.3965896,
+  "tags": {
+    "addr:housenumber": "11",
+    "addr:street": "南池子大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "四季民福烤鸭店"
+  }
+},
+{
+  "type": "node",
+  "id": 13207036101,
+  "lat": 39.9098939,
+  "lon": 116.4026593,
+  "tags": {
+    "addr:housenumber": "277",
+    "addr:street": "Wangfujing",
+    "amenity": "restaurant",
+    "name": "Hotel Madison"
+  }
+},
+{
+  "type": "node",
+  "id": 13429897801,
+  "lat": 39.9136244,
+  "lon": 116.4001046,
+  "tags": {
+    "addr:housenumber": "1",
+    "addr:street": "南河沿大街",
+    "amenity": "restaurant",
+    "name": "八爷涮肉（王府井店）"
+  }
+},
+{
+  "type": "node",
+  "id": 13429899201,
+  "lat": 39.9141413,
+  "lon": 116.4014681,
+  "tags": {
+    "addr:housenumber": "55",
+    "addr:street": "东安门大街",
+    "amenity": "restaurant",
+    "name": "方砖厂69号炸酱面"
+  }
+},
+{
+  "type": "node",
+  "id": 13988281401,
+  "lat": 39.9078374,
+  "lon": 116.4109137,
+  "tags": {
+    "addr:housenumber": "1",
+    "addr:street": "东长安街",
+    "amenity": "restaurant",
+    "cuisine": "american;burger;chicken",
+    "name": "Popeyes"
+  }
+},
+{
+  "type": "node",
+  "id": 4255841289,
+  "lat": 39.9145985,
+  "lon": 116.4056349,
+  "tags": {
+    "addr:housenumber": "88",
+    "addr:street": "王府井大街",
+    "amenity": "restaurant",
+    "brand": "海底捞火锅",
+    "brand:en": "Haidilao Hot Pot",
+    "brand:wikidata": "Q5638920",
+    "brand:wikipedia": "zh:海底捞",
+    "brand:zh": "海底捞火锅",
+    "brand:zh-Hans": "海底捞火锅",
+    "brand:zh-Hant": "海底撈火鍋",
+    "cuisine": "chinese;hot_pot",
+    "name": "海底捞火锅",
+    "name:en": "Haidilao Hot Pot",
+    "name:zh": "海底捞火锅",
+    "name:zh-Hans": "海底捞火锅",
+    "name:zh-Hant": "海底撈火鍋",
+    "opening_hours": "Mo-Su 10:30-22:00"
+  }
+},
+{
+  "type": "node",
+  "id": 5468196622,
+  "lat": 39.9136572,
+  "lon": 116.4056988,
+  "tags": {
+    "addr:street": "王府井大街",
+    "amenity": "restaurant",
+    "name": "外婆家",
+    "name:en": "The Grandma's",
+    "name:zh": "外婆家（北京amp店）",
+    "phone": "+86 10 6527 5115",
+    "website": "http://waipojia.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 5785996553,
+  "lat": 39.9097911,
+  "lon": 116.4053401,
+  "tags": {
+    "addr:housenumber": "198",
+    "addr:postcode": "100006",
+    "addr:street": "王府井大街",
+    "amenity": "restaurant",
+    "brand": "东来顺",
+    "brand:en": "Dong Lai Shun",
+    "brand:wikidata": "Q10870490",
+    "brand:wikipedia": "zh:东来顺",
+    "brand:zh": "东来顺",
+    "cuisine": "chinese;hotpot",
+    "diet:halal": "only",
+    "name": "东来顺",
+    "name:en": "Dong Lai Shun",
+    "name:zh": "东来顺",
+    "note": "（王府井店）"
+  }
+},
+{
+  "type": "node",
+  "id": 6126939985,
+  "lat": 39.9145926,
+  "lon": 116.4088878,
+  "tags": {
+    "addr:street": "王府井大街",
+    "amenity": "restaurant",
+    "cuisine": "french",
+    "name": "卡本妮法餐厅",
+    "name:en": "Le Cabernet"
+  }
+},
+{
+  "type": "node",
+  "id": 4301877789,
+  "lat": 39.9133188,
+  "lon": 116.4147103,
+  "tags": {
+    "addr:housenumber": "98",
+    "addr:street": "金宝街",
+    "amenity": "restaurant",
+    "name": "1949-全鸭季(金宝街店)",
+    "name:en": "Duck de chine - 1949 The Hidden City"
+  }
+},
+{
+  "type": "node",
+  "id": 4301877889,
+  "lat": 39.9138657,
+  "lon": 116.4151611,
+  "tags": {
+    "addr:street": "金宝街",
+    "amenity": "restaurant",
+    "name": "大董烤鸭店(金宝汇购物中心店)",
+    "name:en": "Da Dong Roast Duck Restaurant"
+  }
+},
+{
+  "type": "node",
+  "id": 984102277,
+  "lat": 39.8918573,
+  "lon": 116.4225044,
+  "tags": {
+    "addr:housenumber": "80",
+    "addr:postcode": "100061",
+    "addr:street": "广渠门内大街",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:wikipedia": "zh:麦当劳",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "name:zh-Latn-pinyin": "Màidāngláo",
+    "phone": "+86 10 5169 6505",
+    "takeaway": "yes",
+    "website": "http://mcdonalds.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 11126717020,
+  "lat": 39.8914519,
+  "lon": 116.4223820,
+  "tags": {
+    "addr:housenumber": "80号",
+    "addr:street": "广渠门内大街",
+    "amenity": "restaurant",
+    "cuisine": "noodle",
+    "name": "李先生"
+  }
+},
+{
+  "type": "node",
+  "id": 4367074496,
+  "lat": 39.8926462,
+  "lon": 116.4290169,
+  "tags": {
+    "addr:housenumber": "29",
+    "addr:street": "广渠门内大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "福顺居",
+    "name:zh": "福顺居",
+    "phone": "+86 10 6304 6842"
+  }
+},
+{
+  "type": "node",
+  "id": 4367139789,
+  "lat": 39.8926303,
+  "lon": 116.4288273,
+  "tags": {
+    "addr:housenumber": "29",
+    "addr:street": "广渠门内大街",
+    "amenity": "restaurant",
+    "brand": "西部马华",
+    "brand:en": "Western Mahua",
+    "brand:wikidata": "Q108485295",
+    "brand:zh": "西部马华",
+    "cuisine": "chinese",
+    "diet:halal": "only",
+    "name": "西部马华",
+    "name:en": "Western Mahua",
+    "name:zh": "西部马华",
+    "phone": "+86 10 6711 3100"
+  }
+},
+{
+  "type": "node",
+  "id": 4367116594,
+  "lat": 39.8919642,
+  "lon": 116.4322608,
+  "tags": {
+    "addr:housenumber": "6",
+    "addr:street": "广渠门内大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "老边饺子馆",
+    "name:zh": "老边饺子馆",
+    "phone": "+86 10 6717 9468"
+  }
+},
+{
+  "type": "node",
+  "id": 4367120190,
+  "lat": 39.8919991,
+  "lon": 116.4325041,
+  "tags": {
+    "addr:housenumber": "6",
+    "addr:street": "广渠门内大街",
+    "amenity": "fast_food",
+    "brand": "庆丰包子铺",
+    "brand:en": "Qingfeng Steamed Dumpling Shop",
+    "brand:wikidata": "Q24841010",
+    "brand:wikipedia": "zh:庆丰包子铺",
+    "brand:zh": "庆丰包子铺",
+    "cuisine": "chinese",
+    "name": "庆丰包子铺",
+    "name:en": "Qingfeng Steamed Dumpling Shop",
+    "name:zh": "庆丰包子铺",
+    "phone": "+86 10 6718 5956",
+    "takeaway": "yes",
+    "website": "http://qing-feng.com"
+  }
+},
+{
+  "type": "node",
+  "id": 4692028797,
+  "lat": 39.9058462,
+  "lon": 116.4400699,
+  "tags": {
+    "addr:housenumber": "9号2号平房",
+    "addr:street": "永安西里",
+    "amenity": "restaurant",
+    "name": "章记新加坡美食",
+    "name:en": "Cheung Kee Singapore food",
+    "name:zh": "章记新加坡美食",
+    "opening_hours": "10:00-22:00",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 5300238822,
+  "lat": 39.9056886,
+  "lon": 116.4403165,
+  "tags": {
+    "addr:street": "建华路",
+    "amenity": "restaurant",
+    "cuisine": "asian",
+    "internet_access": "wlan",
+    "name": "Lost Paradise"
+  }
+},
+{
+  "type": "node",
+  "id": 2250115555,
+  "lat": 39.9074503,
+  "lon": 116.4475880,
+  "tags": {
+    "addr:housename": "South of Xinhua Insurance Building",
+    "addr:street": "Yong'anli ",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "Najia Xiaoguan",
+    "source": "+86 10 6568 6553",
+    "website": "http://www.najia.com.cn/"
+  }
+},
+{
+  "type": "node",
+  "id": 2418894068,
+  "lat": 39.9137453,
+  "lon": 116.4471272,
+  "tags": {
+    "addr:housenumber": "9",
+    "addr:street": "光华路",
+    "amenity": "cafe",
+    "name": "Esquires Coffee"
+  }
+},
+{
+  "type": "node",
+  "id": 6340045885,
+  "lat": 39.9116773,
+  "lon": 116.4467524,
+  "tags": {
+    "addr:housenumber": "22",
+    "addr:street": "光华路",
+    "amenity": "restaurant",
+    "cuisine": "steak_house;french",
+    "email": "mail@bmbeijing.com",
+    "name": "Bleu Marine",
+    "name:en": "Bleu Marine",
+    "opening_hours": "Mo-Su 11:00-14:00, 17:00-22:30",
+    "phone": "+86 10 8595 8299",
+    "website": "https://www.bmbeijing.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 1685681531,
+  "lat": 39.9124293,
+  "lon": 116.4542100,
+  "tags": {
+    "addr:district": "朝阳区",
+    "addr:housename": "北京嘉里中心南楼",
+    "addr:housename:en": "Kerry Centre",
+    "addr:housenumber": "1",
+    "addr:postcode": "100020",
+    "addr:province": "北京市",
+    "addr:street": "光华路",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:wikipedia": "zh:星巴克",
+    "brand:zh": "星巴克",
+    "cuisine": "coffee_shop",
+    "name": "星巴克",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "name:zh-Latn-pinyin": "Xīngbākè",
+    "takeaway": "yes",
+    "website": "https://www.starbucks.com.cn/"
+  }
+},
+{
+  "type": "node",
+  "id": 6183478278,
+  "lat": 39.9106375,
+  "lon": 116.4547289,
+  "tags": {
+    "addr:street": "New China World Mall",
+    "amenity": "restaurant",
+    "cuisine": "malaysian",
+    "name": "Nyonya Kitchen",
+    "name:en": "Nyonya Kitchen",
+    "wheelchair": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 13769977754,
+  "lat": 39.9129853,
+  "lon": 116.4535416,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:street": "Guanghua Road",
+    "amenity": "restaurant",
+    "cuisine": "burger;western",
+    "name": "Jing A Taproom Jingniang Bar (CBD Branch)",
+    "phone": "+86 132 6993 9015"
+  }
+},
+{
+  "type": "node",
+  "id": 6291646963,
+  "lat": 39.9132210,
+  "lon": 116.4851755,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:postcode": "100025",
+    "addr:street": "东四环中路",
+    "amenity": "restaurant",
+    "brand": "必胜客",
+    "brand:en": "Pizza Hut",
+    "brand:wikidata": "Q191615",
+    "brand:zh": "必胜客",
+    "cuisine": "pizza",
+    "name": "必胜客",
+    "name:en": "Pizza Hut",
+    "name:zh": "必胜客"
+  }
+},
+{
+  "type": "node",
+  "id": 13429900701,
+  "lat": 39.9148089,
+  "lon": 116.4023875,
+  "tags": {
+    "addr:housenumber": "14",
+    "addr:street": "锡拉胡同",
+    "amenity": "restaurant",
+    "name": "河沿肉饼"
+  }
+},
+{
+  "type": "node",
+  "id": 4378974093,
+  "lat": 39.9227934,
+  "lon": 116.3946310,
+  "tags": {
+    "addr:housenumber": "28",
+    "addr:postcode": "100009",
+    "addr:street": "中老胡同",
+    "amenity": "restaurant",
+    "name": "黑芝麻厨房",
+    "name:en": "Black Sesame Kitchen",
+    "name:zh": "黑芝麻厨房",
+    "phone": "+86 136 9147 4408",
+    "website": "https://blacksesamekitchen.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 5468196822,
+  "lat": 39.9244820,
+  "lon": 116.4043737,
+  "tags": {
+    "addr:housenumber": "78",
+    "addr:postcode": "100007",
+    "addr:street": "美术馆东街",
+    "amenity": "restaurant",
+    "name": "都满江韩式烤肉",
+    "name:en": "Doumanjiang Korean BBQ",
+    "name:ko": "두 만장 불고기",
+    "name:zh": "都满江韩式烤肉",
+    "phone": "+86 10 6407 2288"
+  }
+},
+{
+  "type": "node",
+  "id": 5828376086,
+  "lat": 39.9241205,
+  "lon": 116.4009503,
+  "tags": {
+    "addr:street": "28 Zhong Lao Hutong",
+    "amenity": "cafe",
+    "cuisine": "chinese",
+    "name": "万怡学院中国茶课",
+    "name:en": "The Courtyard Institute Chinese Tea Class",
+    "name:zh": "万怡学院中国茶课"
+  }
+},
+{
+  "type": "node",
+  "id": 6324162544,
+  "lat": 39.9225595,
+  "lon": 116.4012649,
+  "tags": {
+    "addr:housenumber": "43",
+    "addr:province": "Beijing",
+    "addr:street": "Cuihua Hutong, off Wusi Dajie",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "Yuèbīn Fànguǎn",
+    "name:zh": "悦宾饭馆"
+  }
+},
+{
+  "type": "node",
+  "id": 13429903401,
+  "lat": 39.9174377,
+  "lon": 116.4051662,
+  "tags": {
+    "addr:housenumber": "48",
+    "addr:street": "王府井大街",
+    "amenity": "restaurant",
+    "name": "府门京贝簕铜锅涮肉(王府井店)"
+  }
+},
+{
+  "type": "node",
+  "id": 4269441394,
+  "lat": 39.9259284,
+  "lon": 116.4054194,
+  "tags": {
+    "addr:housenumber": "10",
+    "addr:street": "钱粮胡同",
+    "amenity": "restaurant",
+    "cuisine": "vietnamese",
+    "name": "Susu·苏苏"
+  }
+},
+{
+  "type": "node",
+  "id": 4269231590,
+  "lat": 39.9332573,
+  "lon": 116.3927370,
+  "tags": {
+    "addr:housenumber": "45",
+    "addr:street": "东不压桥胡同",
+    "amenity": "restaurant",
+    "name": "The Georg",
+    "name:zh": "The Georg",
+    "phone": "+86 10 8408 5300"
+  }
+},
+{
+  "type": "node",
+  "id": 13143785401,
+  "lat": 39.9321132,
+  "lon": 116.3957475,
+  "tags": {
+    "addr:street": "地安门东大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese;regional",
+    "name": "Little Yunnan",
+    "outdoor_seating": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 3116216486,
+  "lat": 39.9367798,
+  "lon": 116.3937690,
+  "tags": {
+    "addr:city": "北京",
+    "addr:housenumber": "3",
+    "addr:postcode": "100010",
+    "addr:street": "南下洼子胡同",
+    "amenity": "cafe",
+    "cuisine": "coffee;beer;bar;cocktail;cake;chinese_rice;pasta",
+    "internet_access": "wlan",
+    "name": "Corner Coffee",
+    "opening_hours": "10:00-23:00",
+    "phone": "+86 136 8146 2440",
+    "smoking": "separated"
+  }
+},
+{
+  "type": "node",
+  "id": 3116216487,
+  "lat": 39.9377361,
+  "lon": 116.3966819,
+  "tags": {
+    "addr:city": "beijing",
+    "addr:housenumber": "1",
+    "addr:postcode": "100010",
+    "addr:street": "前鼓楼苑胡同",
+    "amenity": "cafe",
+    "cuisine": "coffee;tea;beer;cake",
+    "internet_access": "wlan",
+    "name": "HEA Coffee",
+    "opening_hours": "10:00-21:00",
+    "phone": "+86 135 2046 3666",
+    "smoking": "separated"
+  }
+},
+{
+  "type": "node",
+  "id": 4142933090,
+  "lat": 39.9394222,
+  "lon": 116.3968564,
+  "tags": {
+    "addr:housenumber": "108",
+    "addr:street": "鼓楼东大街",
+    "amenity": "restaurant",
+    "name": "包子铺"
+  }
+},
+{
+  "type": "node",
+  "id": 4646739895,
+  "lat": 39.9395597,
+  "lon": 116.3939707,
+  "tags": {
+    "addr:housenumber": "134",
+    "addr:street": "鼓楼东大街",
+    "amenity": "cafe",
+    "name": "宝炒面馆（南锣店）",
+    "name:en": "Baochao noodles"
+  }
+},
+{
+  "type": "node",
+  "id": 4646803291,
+  "lat": 39.9396009,
+  "lon": 116.3961321,
+  "tags": {
+    "addr:housenumber": "133",
+    "addr:street": "鼓楼东大街",
+    "amenity": "cafe",
+    "name": "宝炒面馆",
+    "name:en": "Baochao noodles"
+  }
+},
+{
+  "type": "node",
+  "id": 5096623602,
+  "lat": 39.9349507,
+  "lon": 116.3921352,
+  "tags": {
+    "addr:street": "帽儿胡同",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "Yi Long Zhai 伊隆斋",
+    "opening_hours": "Mo-Su 11:00-00:00"
+  }
+},
+{
+  "type": "node",
+  "id": 5875834186,
+  "lat": 39.9367815,
+  "lon": 116.3935981,
+  "tags": {
+    "addr:housenumber": "1",
+    "addr:street": "方砖厂胡同",
+    "amenity": "restaurant",
+    "name": "方砖厂69号炸酱面",
+    "name:en": "Square brick factory No. 69 noodles"
+  }
+},
+{
+  "type": "node",
+  "id": 5924067997,
+  "lat": 39.9400858,
+  "lon": 116.3936940,
+  "tags": {
+    "addr:housenumber": "88",
+    "addr:postcode": "100009",
+    "addr:street": "宝钞胡同",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "老石水饺",
+    "name:en": "Mr. Shi’s Dumplings",
+    "opening_hours": "Mo-Su 10:30-23:30",
+    "website": "http://www.mrshisdumplings.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 6440043885,
+  "lat": 39.9397415,
+  "lon": 116.3969027,
+  "tags": {
+    "addr:housenumber": "84",
+    "addr:street": "北锣鼓巷",
+    "amenity": "cafe",
+    "cuisine": "international",
+    "name": "小时光咖啡馆",
+    "name:en": "Little Time Cat Cafe"
+  }
+},
+{
+  "type": "node",
+  "id": 13167063901,
+  "lat": 39.9382660,
+  "lon": 116.3969667,
+  "tags": {
+    "addr:street": "南锣鼓巷",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "YIN SAN DOUZHI"
+  }
+},
+{
+  "type": "node",
+  "id": 2824198789,
+  "lat": 39.9394040,
+  "lon": 116.4000926,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:housenumber": "46",
+    "addr:postcode": "100007",
+    "addr:street": "鼓楼东大街",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop;sandwich",
+    "diet:vegetarian": "yes",
+    "internet_access": "wlan",
+    "name": "Cafe Zarah",
+    "opening_hours": "Mo-Th 10:00-24:00; Fr-Sa 10:00-01:00",
+    "outdoor_seating": "yes",
+    "smoking": "outside"
+  }
+},
+{
+  "type": "node",
+  "id": 4375359289,
+  "lat": 39.9396322,
+  "lon": 116.4035160,
+  "tags": {
+    "addr:street": "雍和宫大街",
+    "amenity": "restaurant",
+    "cuisine": "steak_house;american;burger;sandwich",
+    "internet_access": "wlan",
+    "name": "QS餐厅",
+    "name:en": "QS Bar"
+  }
+},
+{
+  "type": "node",
+  "id": 6926285886,
+  "lat": 39.9397260,
+  "lon": 116.4004629,
+  "tags": {
+    "addr:housenumber": "25",
+    "addr:street": "Donggong Jie",
+    "amenity": "restaurant",
+    "cuisine": "noodle",
+    "internet_access": "wlan",
+    "name": "鼓楼吃面",
+    "name:en": "Punk Rock Noodles",
+    "opening_hours": "Mo-Su 12:00-02:00",
+    "operator": "Ma Yue",
+    "phone": "+86 10 8402 3180"
+  }
+},
+{
+  "type": "node",
+  "id": 3818290348,
+  "lat": 39.9281055,
+  "lon": 116.4112298,
+  "tags": {
+    "addr:housenumber": "322号",
+    "addr:street": "东四北大街",
+    "amenity": "restaurant",
+    "name": "孔乙己（北京老店）"
+  }
+},
+{
+  "type": "node",
+  "id": 4167796591,
+  "lat": 39.9286111,
+  "lon": 116.4112001,
+  "tags": {
+    "addr:housenumber": "318-2",
+    "addr:street": "东四北大街",
+    "amenity": "restaurant",
+    "cuisine": "dumplings",
+    "name": "食玖城饺子宴",
+    "name:en": "Vegetarian and Dumpling",
+    "name:zh": "食玖城饺子宴",
+    "opening_hours": "Mo-Su 10:00-22:00"
+  }
+},
+{
+  "type": "node",
+  "id": 4376825107,
+  "lat": 39.9308624,
+  "lon": 116.4058592,
+  "tags": {
+    "addr:city": "北京市东城区",
+    "addr:housenumber": "59号",
+    "addr:street": "汪芝麻胡同",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop",
+    "internet_access": "yes",
+    "name": "Café Cuore",
+    "name:zh": "初心咖啡",
+    "opening_hours": "11:00-21:00",
+    "smoking": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 5528730921,
+  "lat": 39.9287874,
+  "lon": 116.4111279,
+  "tags": {
+    "addr:housenumber": "316",
+    "addr:street": "东四北大街",
+    "amenity": "restaurant",
+    "name": "馅老满",
+    "name:en": "Xianlaoman",
+    "name:zh": "馅老满",
+    "phone": "+86 10 8402 5779"
+  }
+},
+{
+  "type": "node",
+  "id": 5580665023,
+  "lat": 39.9337857,
+  "lon": 116.4110927,
+  "tags": {
+    "addr:housenumber": "甲124",
+    "addr:street": "东四北大街",
+    "amenity": "restaurant",
+    "name": "陷活儿"
+  }
+},
+{
+  "type": "node",
+  "id": 2753132903,
+  "lat": 39.9393761,
+  "lon": 116.4115470,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:housenumber": "233号",
+    "addr:street": "东城区东直门内大街",
+    "amenity": "restaurant",
+    "name": "胡大饭馆",
+    "wikidata": "Q17034532",
+    "wikipedia": "zh:胡大饭馆"
+  }
+},
+{
+  "type": "node",
+  "id": 5949236387,
+  "lat": 39.9406192,
+  "lon": 116.4106738,
+  "tags": {
+    "addr:housenumber": "94",
+    "addr:street": "雍和宫大街",
+    "amenity": "cafe",
+    "brand": "85度C",
+    "brand:en": "85C Bakery Cafe",
+    "brand:wikidata": "Q4644852",
+    "brand:zh": "85度C",
+    "cuisine": "coffee_shop",
+    "name": "85度C",
+    "name:en": "85C Bakery Cafe",
+    "name:zh": "85度C",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 3807999855,
+  "lat": 39.9398297,
+  "lon": 116.4127217,
+  "tags": {
+    "addr:housenumber": "235",
+    "addr:street": "东直门内大街",
+    "amenity": "restaurant",
+    "name": "花家怡园（四合院总店）",
+    "name:en": "Huajia Yiyuan",
+    "name:es": "Huajia Yiyuan",
+    "name:zh": "花家怡园"
+  }
+},
+{
+  "type": "node",
+  "id": 5468101221,
+  "lat": 39.9382423,
+  "lon": 116.4132849,
+  "tags": {
+    "addr:housenumber": "1",
+    "addr:postcode": "100001",
+    "addr:street": "Jiudaowan Zhong Xiang Hutong",
+    "amenity": "restaurant",
+    "name": "TRB Hutong",
+    "phone": "+86 159 0104 6127",
+    "website": "https://thehutong.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 5785936053,
+  "lat": 39.9396418,
+  "lon": 116.4123438,
+  "tags": {
+    "addr:housenumber": "235",
+    "addr:postcode": "100007",
+    "addr:street": "东直门内大街",
+    "amenity": "restaurant",
+    "name": "花家怡园",
+    "name:en": "huajia yiyuan"
+  }
+},
+{
+  "type": "node",
+  "id": 6926698385,
+  "lat": 39.9393799,
+  "lon": 116.4120886,
+  "tags": {
+    "addr:housenumber": "264",
+    "addr:street": "东直门内大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "裕德孚老北京涮羊肉",
+    "name:en": "Beijing Mutton In Hot Pot",
+    "opening_hours": "Mo-Su 17:00-02:00",
+    "phone": "+86 10 8402 6223"
+  }
+},
+{
+  "type": "node",
+  "id": 10593225763,
+  "lat": 39.9393569,
+  "lon": 116.4176009,
+  "tags": {
+    "addr:housenumber": "178",
+    "addr:street": "东直门内大街",
+    "amenity": "cafe",
+    "brand": "蜜雪冰城",
+    "brand:en": "MIXUEBINGCHENG",
+    "brand:wikidata": "Q107406476",
+    "brand:zh": "蜜雪冰城",
+    "cuisine": "ice_cream;bubble_tea",
+    "name": "蜜雪冰城",
+    "name:en": "MIXUEBINGCHENG",
+    "name:zh": "蜜雪冰城",
+    "operator": "北京悦淘阁商店",
+    "ref": "911475",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 13438039172,
+  "lat": 39.9398390,
+  "lon": 116.4168299,
+  "tags": {
+    "addr:housenumber": "183",
+    "addr:street": "东直门内大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "嘉陵楼馋嘴城",
+    "name:en": "Gluttonous frog at Jialing house",
+    "phone": "010-62227868"
+  }
+},
+{
+  "type": "node",
+  "id": 4269440793,
+  "lat": 39.9176836,
+  "lon": 116.4260455,
+  "tags": {
+    "addr:housenumber": "8",
+    "addr:postcode": "100600",
+    "addr:street": "大方家胡同",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "崖 Under Clouds 云南餐厅",
+    "name:en": "Ya Under Clouds Yunnan",
+    "name:zh": "崖 Under Clouds 云南餐厅",
+    "opening_hours": "Mo-Su 11:30-21:30",
+    "phone": "+86 10 6512 0930"
+  }
+},
+{
+  "type": "node",
+  "id": 2010074632,
+  "lat": 39.9242305,
+  "lon": 116.4198294,
+  "tags": {
+    "addr:street": "朝内北小街甲125号",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "东四民芳"
+  }
+},
+{
+  "type": "node",
+  "id": 2611847131,
+  "lat": 39.9232908,
+  "lon": 116.4245878,
+  "tags": {
+    "addr:city": "北京",
+    "addr:housename": "东四民芳（朝内大街店）",
+    "addr:housenumber": "79",
+    "addr:postcode": "100010",
+    "addr:street": "朝阳门内大街 (Chaoyangmne Nei Dajie)",
+    "amenity": "restaurant",
+    "capacity": "100",
+    "cuisine": "chinese",
+    "name": "东四民芳",
+    "phone": "+86 10 6406 8858",
+    "source": "大众点评网 http://www.dianping.com/shop/509615"
+  }
+},
+{
+  "type": "node",
+  "id": 2010091930,
+  "lat": 39.9221269,
+  "lon": 116.4262790,
+  "tags": {
+    "addr:housename": "凯恒中心",
+    "addr:housenumber": "1-03",
+    "addr:street": "朝阳门内大街2号",
+    "amenity": "fast_food",
+    "brand": "赛百味",
+    "brand:en": "Subway",
+    "brand:wikidata": "Q244457",
+    "brand:wikipedia": "zh:赛百味",
+    "brand:zh": "赛百味",
+    "cuisine": "sandwich",
+    "name": "赛百味",
+    "name:en": "Subway",
+    "name:zh": "赛百味",
+    "takeaway": "yes",
+    "wheelchair": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 2010091936,
+  "lat": 39.9223243,
+  "lon": 116.4268691,
+  "tags": {
+    "addr:housename": "凯恒中心",
+    "addr:street": "朝阳门内大街2号",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:wikipedia": "zh:星巴克",
+    "brand:zh": "星巴克",
+    "cuisine": "coffee_shop",
+    "name": "星巴克",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "name:zh-Latn-pinyin": "Xīngbākè",
+    "takeaway": "yes",
+    "website": "https://www.starbucks.com.cn/",
+    "wheelchair": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 6183489455,
+  "lat": 39.9183316,
+  "lon": 116.4422191,
+  "tags": {
+    "addr:building": "Parkview Green",
+    "addr:district": "Chaoyang",
+    "addr:housenumber": "9",
+    "addr:level": "B1",
+    "addr:street": "Dongdaqiao Lu",
+    "amenity": "restaurant",
+    "cuisine": "chinese;dumplings",
+    "name": "Mr. Shi's Parkview Green Kiosk"
+  }
+},
+{
+  "type": "node",
+  "id": 4460013789,
+  "lat": 39.9308798,
+  "lon": 116.4245413,
+  "tags": {
+    "addr:housenumber": "甲22号南新仓商务大厦A座首层",
+    "addr:postcode": "100007",
+    "addr:street": "东四十条",
+    "amenity": "restaurant",
+    "internet_access": "wlan",
+    "name": "大董烤鸭店",
+    "name:de": "Dadong Restaurant",
+    "name:en": "DaDong Peking Duck Restaurant",
+    "opening_hours": "Mo-Su 10:00-22:00"
+  }
+},
+{
+  "type": "node",
+  "id": 5273498922,
+  "lat": 39.9325127,
+  "lon": 116.4238845,
+  "tags": {
+    "addr:housenumber": "23号",
+    "addr:street": "东四十条",
+    "amenity": "restaurant",
+    "name": "四季民福",
+    "name:en": "Siji Minfu Roast Duck Shop",
+    "name:zh": "四李民福烤鸡店",
+    "phone": "+86 10 6401 3267"
+  }
+},
+{
+  "type": "node",
+  "id": 3955542629,
+  "lat": 39.9394199,
+  "lon": 116.4197957,
+  "tags": {
+    "addr:housenumber": "144",
+    "addr:street": "东直门内大街",
+    "amenity": "restaurant",
+    "diet:vegan": "yes",
+    "diet:vegetarian": "only",
+    "name": "花开素食（东直门店）",
+    "name:en": "Blossom Vegetarian"
+  }
+},
+{
+  "type": "node",
+  "id": 3523198598,
+  "lat": 39.9318656,
+  "lon": 116.4318580,
+  "tags": {
+    "addr:street": "工人体育场北路",
+    "amenity": "restaurant",
+    "brand": "巴依老爷",
+    "brand:en": "BARON ROZI RESTAURANT",
+    "brand:ug": "روزى باي ربستزرانى",
+    "brand:wikidata": "Q109849169",
+    "brand:zh": "巴依老爷",
+    "cuisine": "chinese;kebab",
+    "diet:halal": "only",
+    "name": "巴依老爷",
+    "name:en": "BARON ROZI RESTAURANT",
+    "name:ug": "روزى باي ربستزرانى",
+    "name:zh": "巴依老爷",
+    "phone": "+86 10 6981 8181"
+  }
+},
+{
+  "type": "node",
+  "id": 4174668490,
+  "lat": 39.9333532,
+  "lon": 116.4379716,
+  "tags": {
+    "addr:street": "Chinxiu Street",
+    "amenity": "restaurant",
+    "cuisine": "japanese",
+    "internet_access": "wlan",
+    "name": "PipiCat Jianghu Barbecue Bistro"
+  }
+},
+{
+  "type": "node",
+  "id": 5273039128,
+  "lat": 39.9401605,
+  "lon": 116.4353888,
+  "tags": {
+    "addr:street": "东直门外大街",
+    "amenity": "cafe",
+    "cuisine": "french;coffee_shop;cake",
+    "internet_access": "wlan",
+    "name": "法派1855",
+    "name:en": "Comptoirs de France",
+    "name:fr": "Comptoirs de France",
+    "opening_hours": "Mo-Su 07:00-20:30",
+    "phone": "+86 10 6461 1525"
+  }
+},
+{
+  "type": "node",
+  "id": 3835418657,
+  "lat": 39.9385479,
+  "lon": 116.4384935,
+  "tags": {
+    "addr:housenumber": "25",
+    "addr:street": "春秀路",
+    "amenity": "restaurant",
+    "name": "Atila",
+    "phone": "64155926"
+  }
+},
+{
+  "type": "node",
+  "id": 4269626291,
+  "lat": 39.9351650,
+  "lon": 116.4387349,
+  "tags": {
+    "addr:housenumber": "1",
+    "addr:street": "幸福村中路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "Ling Er Jiu (029)"
+  }
+},
+{
+  "type": "node",
+  "id": 6183388690,
+  "lat": 39.9360811,
+  "lon": 116.4426404,
+  "tags": {
+    "addr:district": "Sanlitun",
+    "addr:housenumber": "39",
+    "addr:street": "Xingfuercun",
+    "amenity": "restaurant",
+    "capacity": "20",
+    "cuisine": "vietnamese",
+    "delivery": "yes",
+    "name": "Rollbox",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 6183393434,
+  "lat": 39.9351803,
+  "lon": 116.4394700,
+  "tags": {
+    "addr:housenumber": "55",
+    "addr:street": "Xingfucun Zhonglu",
+    "amenity": "restaurant",
+    "cuisine": "burger;american",
+    "delivery": "yes",
+    "name": "Cannon's Burgers"
+  }
+},
+{
+  "type": "node",
+  "id": 9119424746,
+  "lat": 39.9418703,
+  "lon": 116.3974441,
+  "tags": {
+    "addr:housenumber": "14号",
+    "addr:street": "北下洼子胡同",
+    "amenity": "restaurant",
+    "name": "猫小院猫主题咖啡·餐",
+    "phone": "+86 199 1029 6651"
+  }
+},
+{
+  "type": "node",
+  "id": 11780091569,
+  "lat": 39.9419948,
+  "lon": 116.3931598,
+  "tags": {
+    "addr:housenumber": "63",
+    "addr:street": "宝钞胡同",
+    "amenity": "restaurant",
+    "cuisine": "chinese;tapas",
+    "name": "福荣记",
+    "name:en": "Furongji"
+  }
+},
+{
+  "type": "node",
+  "id": 2686612097,
+  "lat": 39.9416823,
+  "lon": 116.4024740,
+  "tags": {
+    "addr:district": "东城区",
+    "addr:housenumber": "252",
+    "addr:postcode": "100009",
+    "addr:province": "北京市",
+    "addr:street": "安定门内大街",
+    "amenity": "restaurant",
+    "cuisine": "chinese;dumpling",
+    "name": "馅老满",
+    "name:en": "Xian'r Lao Man",
+    "phone": "+86 10 6404 6944"
+  }
+},
+{
+  "type": "node",
+  "id": 4143211689,
+  "lat": 39.9427014,
+  "lon": 116.4018282,
+  "tags": {
+    "addr:housenumber": "4",
+    "addr:street": "分司厅胡同",
+    "amenity": "restaurant",
+    "name": "张妈妈特色川味馆",
+    "opening_hours": "Mo-Su 10:00-23:00"
+  }
+},
+{
+  "type": "node",
+  "id": 4262568040,
+  "lat": 39.9427208,
+  "lon": 116.4032739,
+  "tags": {
+    "addr:street": "方家胡同",
+    "amenity": "restaurant",
+    "name": "El Nido"
+  }
+},
+{
+  "type": "node",
+  "id": 4414027091,
+  "lat": 39.9425697,
+  "lon": 116.4041717,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:district": "东城区",
+    "addr:housenumber": "38",
+    "addr:postcode": "100007",
+    "addr:province": "Beijing",
+    "addr:street": "箭厂胡同",
+    "air_conditioning": "yes",
+    "amenity": "cafe",
+    "cuisine": "brunch",
+    "email": "wujinbeijing@gmail.com",
+    "internet_access": "yes",
+    "internet_access:fee": "no",
+    "name": "Wujin Cafe",
+    "name:en": "Wujin Cafe",
+    "name:zh": "五金咖啡",
+    "opening_hours": "Irregular hours",
+    "outdoor_seating": "no",
+    "website": "http://www.wujinbeijing.raniaho.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 6183493829,
+  "lat": 39.9412290,
+  "lon": 116.4033553,
+  "tags": {
+    "addr:housenumber": "68",
+    "addr:street": "Jiaodaokou Beiertiao",
+    "amenity": "cafe",
+    "name": "Metal Hands"
+  }
+},
+{
+  "type": "node",
+  "id": 13426664001,
+  "lat": 39.9500416,
+  "lon": 116.3945627,
+  "tags": {
+    "addr:housenumber": "A10",
+    "addr:street": "安德路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "internet_access": "wlan",
+    "name": "Siji Minfu"
+  }
+},
+{
+  "type": "node",
+  "id": 2425571714,
+  "lat": 39.9415242,
+  "lon": 116.4106442,
+  "tags": {
+    "addr:housenumber": "58",
+    "addr:street": "雍和宫大街",
+    "amenity": "restaurant",
+    "cuisine": "international;french",
+    "name": "Cafe de la Poste",
+    "opening_hours": "Mo-Su 12:00-23:00",
+    "website": "https://www.cafedelaposte.net/"
+  }
+},
+{
+  "type": "node",
+  "id": 3712069714,
+  "lat": 39.9473592,
+  "lon": 116.4061974,
+  "tags": {
+    "addr:housenumber": "59",
+    "addr:street": "五道营胡同",
+    "amenity": "restaurant",
+    "name": "Argo 希腊餐厅",
+    "name:zh": "Argo 希腊餐厅",
+    "name:zh-Hans": "Argo 希腊餐厅",
+    "name:zh-Hant": "Argo 希臘餐廳",
+    "phone": "+86 10 8403 9748"
+  }
+},
+{
+  "type": "node",
+  "id": 5694294335,
+  "lat": 39.9469238,
+  "lon": 116.4055225,
+  "tags": {
+    "addr:housenumber": "24",
+    "addr:street": "五道营胡同",
+    "amenity": "restaurant",
+    "name": "Saffron",
+    "wheelchair": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 6413287985,
+  "lat": 39.9469343,
+  "lon": 116.4068382,
+  "tags": {
+    "addr:street": "五道营胡同",
+    "amenity": "cafe",
+    "cuisine": "international",
+    "description": "Double terrasse and big ginger cat!",
+    "name": "He kitchen&Co.",
+    "name:en": "HO kitchen & Co.",
+    "opening_hours": "Mo-Su 09:00-22:00",
+    "phone": "+86 10 5245 1039",
+    "wheelchair": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 2250130633,
+  "lat": 39.9453034,
+  "lon": 116.4148132,
+  "tags": {
+    "addr:housenumber": "A 26-1",
+    "addr:street": "国子监大街",
+    "amenity": "restaurant",
+    "diet:vegetarian": "only",
+    "name": "叙香斋",
+    "name:en": "Xuxiang Home",
+    "name:zh": "叙香斋",
+    "name:zh-Latn-pinyin": "Xùxiāng zhāi",
+    "source": "+86 10 6404 6568"
+  }
+},
+{
+  "type": "node",
+  "id": 2945347585,
+  "lat": 39.9458407,
+  "lon": 116.4127747,
+  "tags": {
+    "addr:housenumber": "19",
+    "addr:street": "藏经馆胡同",
+    "amenity": "restaurant",
+    "name": "锅儿挑",
+    "name:en": "七寻八找锅儿挑",
+    "name:zh": "七寻八找锅儿挑"
+  }
+},
+{
+  "type": "node",
+  "id": 3955072857,
+  "lat": 39.9412725,
+  "lon": 116.4178998,
+  "tags": {
+    "addr:housenumber": "23",
+    "addr:street": "草原胡同",
+    "addr:street:en": "Caoyuan Hutong",
+    "addr:street:zh": "草原胡同",
+    "amenity": "restaurant",
+    "name": "百合素食",
+    "name:en": "Bǎihé Vegetarian Restaurant",
+    "opening_hours": "Mo-Su 09:30-21:30"
+  }
+},
+{
+  "type": "node",
+  "id": 6017431469,
+  "lat": 39.9428234,
+  "lon": 116.4127152,
+  "tags": {
+    "addr:city": "北京",
+    "addr:district": "东城",
+    "addr:housenumber": "11",
+    "addr:province": "北京",
+    "addr:street": "北新三巷",
+    "amenity": "cafe",
+    "internet_access:ssid": "ZZCT",
+    "name": "Silence Coffee",
+    "name:zh": "静默咖啡",
+    "outdoor_seating": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 7056485085,
+  "lat": 39.9474947,
+  "lon": 116.4436019,
+  "tags": {
+    "addr:housenumber": "20",
+    "addr:street": "新源西里东街",
+    "amenity": "restaurant",
+    "cuisine": "peruvian",
+    "name": "帕查大帝",
+    "name:en": "Pachapapi",
+    "phone": "+86 10 6461 8968"
+  }
+},
+{
+  "type": "node",
+  "id": 5421715522,
+  "lat": 39.9571836,
+  "lon": 116.4411678,
+  "tags": {
+    "addr:street": "3 Dangxiao Lu, Jing’anli",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "花家怡园",
+    "name:en": "Hua Jia Yi Yuan",
+    "opening_hours": "Mo-Su 10:00-22:00",
+    "phone": "84518809"
+  }
+},
+{
+  "type": "node",
+  "id": 7883465485,
+  "lat": 39.9270883,
+  "lon": 116.4585426,
+  "tags": {
+    "addr:district": "朝阳区",
+    "addr:housenumber": "23",
+    "addr:province": "北京市",
+    "addr:street": "白家庄东里",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop",
+    "internet_access": "yes",
+    "internet_access:fee": "customers",
+    "internet_access:ssid": "soe coffee",
+    "name": "SOE COFFEE",
+    "opening_hours": "Mo-Su 08:00-20:00",
+    "outdoor_seating": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 11353562166,
+  "lat": 39.9224359,
+  "lon": 116.4613653,
+  "tags": {
+    "addr:full": "北京市团结湖路52号",
+    "addr:housenumber": "52",
+    "addr:province": "北京市",
+    "addr:street": "团结湖路",
+    "amenity": "restaurant",
+    "cuisine": "chinese;hotpot",
+    "name": "遇见四合院",
+    "name:en": "Meeting Quadrangle",
+    "name:zh": "遇见四合院",
+    "phone": "+86 10 6338 8588"
+  }
+},
+{
+  "type": "node",
+  "id": 4269471799,
+  "lat": 39.9310965,
+  "lon": 116.4509131,
+  "tags": {
+    "addr:street": "工人体育场北路",
+    "amenity": "restaurant",
+    "capacity": "50",
+    "cuisine": "mexican",
+    "name": "The Taco Bar",
+    "outdoor_seating": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 4496708793,
+  "lat": 39.9295936,
+  "lon": 116.4494474,
+  "tags": {
+    "addr:housenumber": "6",
+    "addr:street": "Nansanlitun Lu",
+    "amenity": "restaurant",
+    "cuisine": "burger",
+    "internet_access": "wlan",
+    "name": "Slow Boat Brewery",
+    "opening_hours": "Mo-Su 11:00-00:00",
+    "wikidata": "Q60741039",
+    "wikipedia": "en:Slow Boat Brewery"
+  }
+},
+{
+  "type": "node",
+  "id": 8869468983,
+  "lat": 39.9314452,
+  "lon": 116.4477294,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:housenumber": "217室",
+    "addr:province": "北京市",
+    "addr:street": "工体北路8号院三里屯SOHO商场2号楼B1层",
+    "air_conditioning": "yes",
+    "amenity": "restaurant",
+    "cuisine": "vietnamese",
+    "internet_access:ssid": "Vietnamese",
+    "level": "-1",
+    "name": "越舍正宗越南菜",
+    "name:en": "Vietnamese House",
+    "outdoor_seating": "yes",
+    "phone": "+86 10 5785 3852",
+    "smoking": "outside"
+  }
+},
+{
+  "type": "node",
+  "id": 600243400,
+  "lat": 39.9313007,
+  "lon": 116.4562015,
+  "tags": {
+    "addr:housename": "3号楼",
+    "addr:housenumber": "3号楼",
+    "addr:street": "团结湖北口",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "description": "Beijing Duck Restaurant",
+    "name": "大董烤鸭团结湖分店",
+    "name:an": "Dadong Kaoya",
+    "name:ko": "대동 베이징덕",
+    "opening_hours": "11:00-22:00",
+    "phone": "+86 10 6582 2892",
+    "website": "http://www.dadongdadong.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 3711741814,
+  "lat": 39.9300678,
+  "lon": 116.4520829,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:housenumber": "The Hidden City, Courtyard 4",
+    "addr:postcode": "100027",
+    "addr:street": "Gongti Beilu (behind Pacific Century Place)",
+    "amenity": "restaurant",
+    "cuisine": "sushi",
+    "delivery": "no",
+    "name": "Okra1949",
+    "opening_hours": "18:00 - 22:00",
+    "smoking": "no",
+    "takeaway": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 3711747377,
+  "lat": 39.9302241,
+  "lon": 116.4520078,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:housenumber": "The Hidden City, Courtyard 4",
+    "addr:postcode": "100027",
+    "addr:street": "Gongti Beilu (behind Pacific Century Place), Chaoyang District",
+    "amenity": "cafe",
+    "cuisine": "sandwich",
+    "internet_access": "yes",
+    "name": "Traitor Zhou's Non Kosher Delicatessen 1949",
+    "opening_hours": "10:00-21:00",
+    "smoking": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 3651680155,
+  "lat": 39.9357703,
+  "lon": 116.4446921,
+  "tags": {
+    "addr:housenumber": "12",
+    "addr:street": "新东路",
+    "amenity": "restaurant",
+    "name": "Hacker-Pschorr Bräuhaus"
+  }
+},
+{
+  "type": "node",
+  "id": 4269562889,
+  "lat": 39.9364219,
+  "lon": 116.4490608,
+  "tags": {
+    "addr:housenumber": "11",
+    "addr:street": "南三里屯路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "Transit"
+  }
+},
+{
+  "type": "node",
+  "id": 4031071847,
+  "lat": 39.9363381,
+  "lon": 116.4539353,
+  "tags": {
+    "addr:housenumber": "4",
+    "addr:street": "三里屯东三街",
+    "amenity": "restaurant",
+    "description": "Ristorante Italiano",
+    "name": "Scott's Family",
+    "phone": "56154988"
+  }
+},
+{
+  "type": "node",
+  "id": 3564774145,
+  "lat": 39.9314096,
+  "lon": 116.4632750,
+  "tags": {
+    "addr:housenumber": "8",
+    "addr:street": "团结湖北四条甲",
+    "amenity": "restaurant",
+    "cuisine": "japanese",
+    "name": "Manzo",
+    "name:en": "Manzo",
+    "phone": "64361608"
+  }
+},
+{
+  "type": "node",
+  "id": 3896739633,
+  "lat": 39.9170578,
+  "lon": 116.4717228,
+  "tags": {
+    "addr:housenumber": "20",
+    "addr:street": "金台路金台里",
+    "amenity": "restaurant",
+    "cuisine": "ramen",
+    "name": "宫崎家拉面",
+    "opening_hours": "Mo-Su 11:00-22:00",
+    "phone": "85994866"
+  }
+},
+{
+  "type": "node",
+  "id": 274748336,
+  "lat": 39.9217876,
+  "lon": 116.4736839,
+  "tags": {
+    "addr:street": "甜水园餐厅",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:wikipedia": "zh:麦当劳",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "name:zh-Latn-pinyin": "Màidāngláo",
+    "takeaway": "yes",
+    "website": "http://mcdonalds.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 2990679175,
+  "lat": 39.9274288,
+  "lon": 116.4726721,
+  "tags": {
+    "addr:street": "Tianshui Street",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "name:zh-Latn-pinyin": "Màidāngláo",
+    "takeaway": "yes",
+    "website": "http://mcdonalds.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 10844047297,
+  "lat": 39.9243174,
+  "lon": 116.4784124,
+  "tags": {
+    "addr:district": "朝阳区",
+    "addr:housenumber": "7号楼",
+    "addr:province": "北京市",
+    "addr:street": "甜水园东里",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "德和斋",
+    "phone": "+86 10 8576 2798"
+  }
+},
+{
+  "type": "node",
+  "id": 3677572226,
+  "lat": 39.9427524,
+  "lon": 116.4567958,
+  "tags": {
+    "addr:housenumber": "10",
+    "addr:street": "东三环北路",
+    "amenity": "restaurant",
+    "name": "长城酒家",
+    "name:en": "Great Wall Restaurant",
+    "name:zh": "长城酒家",
+    "source": "https://www.flickr.com/photos/125134384@N03/33457812340/in/album-72157678942446813/"
+  }
+},
+{
+  "type": "node",
+  "id": 4269480690,
+  "lat": 39.9430229,
+  "lon": 116.4620733,
+  "tags": {
+    "addr:housenumber": "8",
+    "addr:street": "麦子店街",
+    "amenity": "restaurant",
+    "cuisine": "japanese",
+    "name": "Vin Vie"
+  }
+},
+{
+  "type": "node",
+  "id": 4706316151,
+  "lat": 39.9440903,
+  "lon": 116.4657235,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:housenumber": "78号2栋2层201",
+    "addr:street": "麦子店街",
+    "amenity": "cafe",
+    "internet_access": "wlan",
+    "internet_access:ssid": "books",
+    "name": "Jilu Bookstore",
+    "name:zh": "基路书店",
+    "opening_hours": "09:30-21:30",
+    "smoking": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 7217512285,
+  "lat": 39.9492524,
+  "lon": 116.4576118,
+  "tags": {
+    "addr:housenumber": "官舎南区2F 206",
+    "addr:street": "东方东路",
+    "amenity": "restaurant",
+    "name": "徳永",
+    "name:en": "Tak Yong",
+    "phone": "+86 10 8531 5015"
+  }
+},
+{
+  "type": "node",
+  "id": 13504885612,
+  "lat": 39.9489182,
+  "lon": 116.4700735,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:housenumber": "公园路6号亮马食街",
+    "addr:postcode": "100000",
+    "addr:province": "北京",
+    "addr:street": "麦子店街道",
+    "amenity": "restaurant",
+    "cuisine": "chinese;regional;asian;hotpot;barbecue",
+    "diet:halal": "yes",
+    "name": "滩羊佬倌盐池滩羊馆(蓝色港湾店)",
+    "opening_hours": "Mo-Su 11:00-22:00"
+  }
+},
+{
+  "type": "node",
+  "id": 3645418975,
+  "lat": 39.9608853,
+  "lon": 116.4951171,
+  "tags": {
+    "addr:housenumber": "13",
+    "addr:street": "酒仙桥三街坊",
+    "amenity": "restaurant",
+    "name": "Green Cow 绿牛餐厅",
+    "phone": "64359561",
+    "website": "http://www.greencowfarm.com"
+  }
+},
+{
+  "type": "node",
+  "id": 10734201823,
+  "lat": 39.9262527,
+  "lon": 116.5948626,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:postcode": "100024",
+    "addr:province": "北京市",
+    "addr:street": "常营中路",
+    "amenity": "cafe",
+    "cuisine": "coffee_shop;sandwich",
+    "name": "Luckin",
+    "not:brand:wikidata": "Q56811344",
+    "opening_hours": "Mo-Sa 08:00-20:00"
+  }
+},
+{
+  "type": "node",
+  "id": 10734201825,
+  "lat": 39.9251641,
+  "lon": 116.5914451,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:postcode": "100024",
+    "addr:province": "北京市",
+    "addr:street": "朝阳北路",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:zh": "星巴克",
+    "cuisine": "coffee_shop",
+    "name": "星巴克",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "opening_hours": "Mo-Su 09:00-21:00",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 10734201826,
+  "lat": 39.9249251,
+  "lon": 116.5899655,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:postcode": "100024",
+    "addr:province": "北京市",
+    "addr:street": "朝阳北路",
+    "amenity": "restaurant",
+    "brand": "必胜客",
+    "brand:en": "Pizza Hut",
+    "brand:wikidata": "Q191615",
+    "brand:zh": "必胜客",
+    "cuisine": "pizza",
+    "name": "必胜客",
+    "name:en": "Pizza Hut",
+    "name:zh": "必胜客"
+  }
+},
+{
+  "type": "node",
+  "id": 10734201827,
+  "lat": 39.9251515,
+  "lon": 116.5916100,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:postcode": "100024",
+    "addr:province": "北京市",
+    "addr:street": "朝阳北路",
+    "amenity": "fast_food",
+    "brand": "麦当劳",
+    "brand:en": "McDonald's",
+    "brand:wikidata": "Q38076",
+    "brand:zh": "麦当劳",
+    "brand:zh-Hans": "麦当劳",
+    "cuisine": "burger",
+    "name": "麦当劳",
+    "name:en": "McDonald's",
+    "name:zh": "麦当劳",
+    "name:zh-Hans": "麦当劳",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 10734201831,
+  "lat": 39.9242076,
+  "lon": 116.5944946,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:postcode": "100024",
+    "addr:province": "北京市",
+    "addr:street": "朝阳北路",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:zh": "星巴克",
+    "cuisine": "coffee_shop",
+    "name": "星巴克",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "not:brand:wikidata": "Q37158",
+    "official_name": "Starbucks Coffee",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 10734201832,
+  "lat": 39.9242088,
+  "lon": 116.5948078,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:postcode": "100024",
+    "addr:province": "北京市",
+    "addr:street": "朝阳北路`",
+    "amenity": "fast_food",
+    "brand": "肯德基",
+    "brand:en": "KFC",
+    "brand:wikidata": "Q524757",
+    "brand:zh": "肯德基",
+    "cuisine": "chicken",
+    "name": "肯德基",
+    "name:en": "KFC",
+    "name:zh": "肯德基",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 10734201834,
+  "lat": 39.9240330,
+  "lon": 116.5920589,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:postcode": "100024",
+    "addr:province": "北京市",
+    "addr:street": "朝阳北路",
+    "amenity": "fast_food",
+    "brand": "汉堡王",
+    "brand:en": "Burger King",
+    "brand:wikidata": "Q177054",
+    "brand:zh": "汉堡王",
+    "cuisine": "burger",
+    "name": "汉堡王",
+    "name:en": "Burger King",
+    "name:zh": "汉堡王",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 4258251090,
+  "lat": 39.9933556,
+  "lon": 116.4042872,
+  "tags": {
+    "addr:housenumber": "安慧里2区4号楼",
+    "addr:postcode": "100101",
+    "addr:street": "慧忠路",
+    "amenity": "restaurant",
+    "brand": "Domino's",
+    "cuisine": "pizza",
+    "name": "达美乐比萨(慧忠路店)",
+    "name:en": "Domino’s Pizza (Huizhong Lu)",
+    "name:zh": "达美乐比萨(慧忠路店)",
+    "name:zh-Latn-pinyin": "Dá Měi Lè Bǐ Sà (Huì Zhōng Lù Diàn)",
+    "not:brand:wikidata": "Q839466",
+    "opening_hours": "24/7",
+    "payment:alipay": "yes",
+    "payment:cash": "yes",
+    "phone": "+86 400 159 7597"
+  }
+},
+{
+  "type": "node",
+  "id": 2602380215,
+  "lat": 39.9867057,
+  "lon": 116.4149952,
+  "tags": {
+    "addr:street": "北四环东路",
+    "amenity": "fast_food",
+    "brand": "吉野家",
+    "brand:en": "Yoshinoya",
+    "brand:ja": "吉野家",
+    "brand:wikidata": "Q776272",
+    "brand:wikipedia": "ja:吉野家",
+    "cuisine": "beef_bowl",
+    "name": "吉野家",
+    "name:en": "Yoshinoya",
+    "name:ja": "吉野家",
+    "name:zh": "吉野家",
+    "takeaway": "yes",
+    "website": "http://yos.com.cn"
+  }
+},
+{
+  "type": "node",
+  "id": 9300419404,
+  "lat": 39.9699190,
+  "lon": 116.4412480,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:country": "CN",
+    "addr:district": "朝阳区",
+    "addr:floor": "1",
+    "addr:full": "北京市太阳宫中路12号凯德MALL一层",
+    "addr:housename": "凯德MALL",
+    "addr:housenumber": "12",
+    "addr:province": "北京市",
+    "addr:street": "太阳宫中路",
+    "amenity": "fast_food",
+    "branch": "北京太阳宫店",
+    "brand": "DUNKIN唐恩都乐",
+    "brand:en": "Dunkin' Donuts",
+    "brand:wikidata": "Q847743",
+    "brand:wikipedia": "zh:唐恩都乐",
+    "brand:zh": "唐恩都乐",
+    "cuisine": "donut;coffee_shop",
+    "name": "DUNKIN唐恩都乐",
+    "name:en": "Dunkin' Donuts",
+    "name:zh": "唐恩都乐",
+    "opening_hours": "Mo-Su 10:00-21:30",
+    "phone": "+86 10 8443 0099",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 4264013095,
+  "lat": 39.9933892,
+  "lon": 116.4036679,
+  "tags": {
+    "addr:street": "慧忠路",
+    "amenity": "fast_food",
+    "cuisine": "beef_bowl;chinese;ramen;breakfast",
+    "name": "小豆面馆 Xiaodou Noodles",
+    "opening_hours": "24/7"
+  }
+},
+{
+  "type": "node",
+  "id": 2948819033,
+  "lat": 39.9938410,
+  "lon": 116.4063260,
+  "tags": {
+    "addr:street": "慧忠路",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "利莹饭庄",
+    "name:en": "Liying Restaurant",
+    "name:zh": "利莹饭庄",
+    "name:zh-Latn-pinyin": "Lì Yíng Fàn Zhuāng"
+  }
+},
+{
+  "type": "node",
+  "id": 4258234691,
+  "lat": 39.9934305,
+  "lon": 116.4084176,
+  "tags": {
+    "addr:housenumber": "安慧里1区1-4号",
+    "addr:postcode": "100101",
+    "addr:street": "慧忠路",
+    "amenity": "restaurant",
+    "cuisine": "chinese;beef_bowl;noodles",
+    "name": "百年锅贴(亚运村店)",
+    "name:en": "Bainian Dumplings (Asian Games Village)",
+    "name:zh": "百年锅贴(亚运村店)",
+    "name:zh-Latn-pinyin": "Bǎi Nián Guō Tiē (Yà Yùn Cūn Diàn)",
+    "opening_hours": "Mo-Su 09:00-21:00",
+    "phone": "+86 189 1127 0587",
+    "smoking": "no",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 4260218189,
+  "lat": 39.9939939,
+  "lon": 116.4114847,
+  "tags": {
+    "addr:street": "北苑路",
+    "amenity": "cafe",
+    "brand": "星巴克",
+    "brand:en": "Starbucks",
+    "brand:wikidata": "Q37158",
+    "brand:wikipedia": "zh:星巴克",
+    "brand:zh": "星巴克",
+    "cuisine": "coffee_shop",
+    "name": "星巴克",
+    "name:en": "Starbucks",
+    "name:zh": "星巴克",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 3634307170,
+  "lat": 39.9673927,
+  "lon": 116.4769799,
+  "tags": {
+    "addr:housenumber": "7",
+    "addr:street": "将台路芳园里9号院",
+    "amenity": "restaurant",
+    "name": "PHÓ 正宗越南粉",
+    "phone": "84578536"
+  }
+},
+{
+  "type": "node",
+  "id": 3634307169,
+  "lat": 39.9753654,
+  "lon": 116.4786030,
+  "tags": {
+    "addr:housenumber": "5",
+    "addr:street": "将台路商业街",
+    "amenity": "restaurant",
+    "cuisine": "ramen",
+    "name": "日出拉面",
+    "name:en": "Sunrise Noodle Restaurant",
+    "phone": "+86 10 6438 6892"
+  }
+},
+{
+  "type": "node",
+  "id": 4210563292,
+  "lat": 39.9835654,
+  "lon": 116.4741010,
+  "tags": {
+    "addr:housenumber": "4",
+    "addr:street": "酒仙桥路",
+    "amenity": "restaurant",
+    "name": "art Café",
+    "phone": "59789942"
+  }
+},
+{
+  "type": "node",
+  "id": 3308824804,
+  "lat": 39.9831983,
+  "lon": 116.4928527,
+  "tags": {
+    "addr:city": "北京",
+    "addr:district": "朝阳",
+    "addr:province": "北京",
+    "addr:street": "A9-1",
+    "air_conditioning": "yes",
+    "amenity": "cafe",
+    "branch": "751 D-Park Store",
+    "cuisine": "western;breakfast",
+    "name": "平白咖啡厅",
+    "name:en": "Cafe Flatwhite",
+    "name:zh": "平白咖啡厅",
+    "opening_hours": "Mo-Su 09:00-21:00",
+    "outdoor_seating": "yes",
+    "phone": "+86 10 5978 9067",
+    "website": "http://www.cafeflatwhite.com/"
+  }
+},
+{
+  "type": "node",
+  "id": 12759656576,
+  "lat": 40.0413913,
+  "lon": 116.4156092,
+  "tags": {
+    "addr:district": "朝阳区",
+    "addr:housenumber": "1",
+    "addr:province": "北京市",
+    "addr:street": "秋实街",
+    "amenity": "restaurant",
+    "brand": "南城香",
+    "brand:en": "BJNCX",
+    "brand:wikidata": "Q108483950",
+    "brand:zh": "南城香",
+    "cuisine": "chinese",
+    "level": "0",
+    "level:ref": "1",
+    "name": "南城香",
+    "name:en": "BJNCX",
+    "name:zh": "南城香",
+    "opening_hours": "Mo-Su 06:00-21:30"
+  }
+},
+{
+  "type": "node",
+  "id": 12759656578,
+  "lat": 40.0415191,
+  "lon": 116.4153456,
+  "tags": {
+    "addr:district": "朝阳区",
+    "addr:housenumber": "1",
+    "addr:province": "北京市",
+    "addr:street": "秋实街",
+    "amenity": "fast_food",
+    "brand": "赛百味",
+    "brand:en": "Subway",
+    "brand:wikidata": "Q244457",
+    "brand:zh": "赛百味",
+    "cuisine": "sandwich",
+    "level": "0",
+    "level:ref": "1",
+    "name": "赛百味",
+    "name:en": "Subway",
+    "name:zh": "赛百味",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 5033817137,
+  "lat": 40.0577302,
+  "lon": 116.4100246,
+  "tags": {
+    "addr:street": "立汤路",
+    "amenity": "fast_food",
+    "brand": "好伦哥",
+    "brand:en": "Origus",
+    "brand:wikidata": "Q21274949",
+    "brand:zh": "好伦哥",
+    "cuisine": "pizza",
+    "name": "好伦哥",
+    "name:en": "Origus",
+    "name:zh": "好伦哥",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 9300419402,
+  "lat": 40.0582029,
+  "lon": 116.4091995,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:country": "CN",
+    "addr:district": "昌平区",
+    "addr:floor": "1",
+    "addr:full": "立汤路186号-1龙德广场DB1-27铺",
+    "addr:housename": "龙德广场",
+    "addr:housenumber": "186-1",
+    "addr:province": "北京市",
+    "addr:room": "DB1-27",
+    "addr:street": "立汤路",
+    "amenity": "fast_food",
+    "branch": "北京立汤路店",
+    "brand": "DUNKIN唐恩都乐",
+    "brand:en": "Dunkin' Donuts",
+    "brand:wikidata": "Q847743",
+    "brand:wikipedia": "zh:唐恩都乐",
+    "brand:zh": "唐恩都乐",
+    "cuisine": "donut;coffee_shop",
+    "name": "DUNKIN唐恩都乐",
+    "name:en": "Dunkin' Donuts",
+    "name:zh": "唐恩都乐",
+    "opening_hours": "Mo-Su 10:00-21:30",
+    "phone": "+86 10 8436 0533",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 8024412385,
+  "lat": 40.0391724,
+  "lon": 116.5918200,
+  "tags": {
+    "addr:housenumber": "蓝海苑底商5号楼1层201",
+    "addr:street": "蓝海苑",
+    "amenity": "cafe",
+    "internet_access": "wlan",
+    "name": "蚂蚁洞咖啡馆",
+    "name:en": "Anthill Coffee and Thai milk tea",
+    "opening_hours": "Mo-Su 08:00-23:00"
+  }
+},
+{
+  "type": "node",
+  "id": 2233868900,
+  "lat": 40.0958295,
+  "lon": 116.2701688,
+  "tags": {
+    "addr:city": "Beijing",
+    "addr:housenumber": "7",
+    "addr:postcode": "102206",
+    "addr:street": "Science Park Road",
+    "amenity": "restaurant",
+    "cuisine": "chinese",
+    "name": "北京生命科学研究所小食堂"
+  }
+},
+{
+  "type": "node",
+  "id": 13046029445,
+  "lat": 40.0962173,
+  "lon": 116.2877364,
+  "tags": {
+    "addr:housenumber": "13",
+    "addr:street": "北清路1号院",
+    "amenity": "restaurant",
+    "check_date": "2025-08-03",
+    "cuisine": "barbecue",
+    "name": "苏小牛牛肉串",
+    "name:en": "Su Space",
+    "name:zh": "苏小牛牛肉串"
+  }
+},
+{
+  "type": "node",
+  "id": 9300419403,
+  "lat": 40.0857565,
+  "lon": 116.5316929,
+  "tags": {
+    "addr:city": "北京市",
+    "addr:country": "CN",
+    "addr:district": "顺义区",
+    "addr:floor": "1",
+    "addr:full": "安泰大街6号院11号楼1层103-a店铺",
+    "addr:housename": "安宁大街6号院祥云小镇",
+    "addr:housenumber": "6",
+    "addr:province": "北京市",
+    "addr:room": "103-A",
+    "addr:street": "安宁大街",
+    "amenity": "fast_food",
+    "branch": "北京祥云小镇店",
+    "brand": "DUNKIN唐恩都乐",
+    "brand:en": "Dunkin' Donuts",
+    "brand:wikidata": "Q847743",
+    "brand:wikipedia": "zh:唐恩都乐",
+    "brand:zh": "唐恩都乐",
+    "cuisine": "donut;coffee_shop",
+    "name": "DUNKIN唐恩都乐",
+    "name:en": "Dunkin' Donuts",
+    "name:zh": "唐恩都乐",
+    "opening_hours": "Mo-Su 09:00-21:45",
+    "phone": "+86 10 8047 6352",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 13094422001,
+  "lat": 40.0973836,
+  "lon": 116.5470651,
+  "tags": {
+    "addr:housenumber": "24",
+    "addr:street": "裕华路",
+    "amenity": "fast_food",
+    "brand": "赛百味",
+    "brand:en": "Subway",
+    "brand:wikidata": "Q244457",
+    "brand:zh": "赛百味",
+    "check_date": "2026-04-02",
+    "cuisine": "sandwich",
+    "drive_through": "no",
+    "level": "0",
+    "name": "赛百味",
+    "name:en": "Subway",
+    "name:zh": "赛百味",
+    "opening_hours": "Mo-Su 08:30-20:30",
+    "outdoor_seating": "no",
+    "phone": "+861057065996",
+    "self_service": "no",
+    "takeaway": "yes"
+  }
+},
+{
+  "type": "node",
+  "id": 13315913694,
+  "lat": 40.0999630,
+  "lon": 116.5110737,
+  "tags": {
+    "addr:housenumber": "3",
+    "addr:street": "罗马湖左堤路",
+    "amenity": "cafe",
+    "cuisine": "tea",
+    "name": "胤轩茶馆"
+  }
+},
+{
+  "type": "node",
+  "id": 13700378030,
+  "lat": 40.0989313,
+  "lon": 116.5322664,
+  "tags": {
+    "addr:housenumber": "20号7-209",
+    "addr:street": "裕庆路",
+    "amenity": "restaurant",
+    "check_date": "2026-04-02",
+    "cuisine": "american;breakfast",
+    "delivery": "yes",
+    "level": "1",
+    "name": "Steak & Eggs",
+    "name:en": "Steak & Eggs",
+    "name:zh": "保罗北美家常菜",
+    "opening_hours": "Mo-Fr 08:30-21:00; Sa-Su 08:00-21:00",
+    "outdoor_seating": "yes",
+    "phone": "+86 (10) 8042 2646"
+  }
+},
+{
+  "type": "way",
+  "id": 1263955813,
+  "center": {
+    "lat": 39.8820248,
+    "lon": 116.2992695
+  },
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "丰台区",
+    "addr:postcode": "100073",
+    "addr:province": "北京市",
+    "addr:street": "G4辅路",
+    "amenity": "restaurant",
+    "building": "yes",
+    "cuisine": "chinese",
+    "name": "砂锅居六里桥店"
+  }
+},
+{
+  "type": "way",
+  "id": 162359317,
+  "center": {
+    "lat": 39.8860439,
+    "lon": 116.3612945
+  },
+  "tags": {
+    "addr:housenumber": "19",
+    "addr:street": "教子胡同",
+    "amenity": "restaurant",
+    "building": "yes",
+    "name": "穆德楼"
+  }
+},
+{
+  "type": "way",
+  "id": 477760819,
+  "center": {
+    "lat": 39.8895991,
+    "lon": 116.3884137
+  },
+  "tags": {
+    "addr:housenumber": "83",
+    "addr:street": "珠市口西大街",
+    "amenity": "restaurant",
+    "building": "yes",
+    "cuisine": "chinese",
+    "name": "丰泽园"
+  }
+},
+{
+  "type": "way",
+  "id": 646169860,
+  "center": {
+    "lat": 39.9276342,
+    "lon": 116.2998291
+  },
+  "tags": {
+    "addr:city": "海淀区",
+    "addr:district": "八里庄街道",
+    "addr:housenumber": "105号",
+    "addr:postcode": "100048",
+    "addr:province": "北京市",
+    "addr:street": "西三环北路",
+    "amenity": "restaurant",
+    "building": "yes",
+    "building:levels": "3",
+    "name": "后勤集团饮食中心",
+    "name:zh": "后勤集团饮食中心",
+    "name:zh-Hans": "后勤集团饮食中心",
+    "name:zh-Hant": "後勤集團飲食中心"
+  }
+},
+{
+  "type": "way",
+  "id": 1445893630,
+  "center": {
+    "lat": 39.9904332,
+    "lon": 116.2202805
+  },
+  "tags": {
+    "addr:city": "香山街道",
+    "addr:district": "海淀区",
+    "addr:postcode": "1008",
+    "addr:province": "北京市",
+    "addr:street": "玉泉山路",
+    "amenity": "restaurant",
+    "building": "yes",
+    "name": "食堂"
+  }
+},
+{
+  "type": "way",
+  "id": 1154439133,
+  "center": {
+    "lat": 39.9777802,
+    "lon": 116.2992170
+  },
+  "tags": {
+    "addr:province": "Beijing",
+    "addr:street": "苏州街",
+    "amenity": "restaurant",
+    "building": "yes",
+    "cuisine": "japanese",
+    "name": "九扇",
+    "name:en": "Kyusen",
+    "opening_hours": "11:30-14:00,17:30-22:00"
+  }
+},
+{
+  "type": "way",
+  "id": 1150732408,
+  "center": {
+    "lat": 40.0399668,
+    "lon": 116.3615857
+  },
+  "tags": {
+    "addr:street": "宝盛路",
+    "amenity": "restaurant",
+    "cuisine": "kebab",
+    "diet:meat": "yes",
+    "name": "九十九顶毡房",
+    "name:en": "99 camps",
+    "name:zh": "九十九顶毡房"
+  }
+},
+{
+  "type": "way",
+  "id": 1476164307,
+  "center": {
+    "lat": 39.8890624,
+    "lon": 116.4065394
+  },
+  "tags": {
+    "addr:housenumber": "176",
+    "addr:street": "东晓市街",
+    "amenity": "restaurant",
+    "building": "yes",
+    "name": "尹三豆汁"
+  }
+},
+{
+  "type": "way",
+  "id": 1199680179,
+  "center": {
+    "lat": 39.8821479,
+    "lon": 116.4847482
+  },
+  "tags": {
+    "addr:district": "朝阳区",
+    "addr:housenumber": "16号",
+    "addr:street": "东四环南路",
+    "amenity": "restaurant",
+    "building": "yes",
+    "cuisine": "chinese;东北菜",
+    "name": "燕郊烧鸽子",
+    "opening_hours": "9：00-21：0",
+    "phone": "+86 10 5726 7393"
+  }
+},
+{
+  "type": "way",
+  "id": 378417349,
+  "center": {
+    "lat": 39.9281001,
+    "lon": 116.4112741
+  },
+  "tags": {
+    "addr:housenumber": "322号",
+    "addr:street": "东四北大街",
+    "amenity": "restaurant",
+    "building": "yes",
+    "name": "孔乙己（北京老店）"
+  }
+},
+{
+  "type": "way",
+  "id": 1197829023,
+  "center": {
+    "lat": 39.9327866,
+    "lon": 116.4535118
+  },
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:housenumber": "1-4",
+    "addr:province": "北京市",
+    "addr:street": "工人体育场北路",
+    "addr:street:short": "工体北路",
+    "amenity": "restaurant",
+    "cuisine": "middle_eastern",
+    "name": "一千零一夜",
+    "name:ar": "مطعم الف ليله وليله",
+    "name:en": "1001 Nights",
+    "name:zh": "一千零一夜"
+  }
+},
+{
+  "type": "way",
+  "id": 1197829024,
+  "center": {
+    "lat": 39.9327872,
+    "lon": 116.4538172
+  },
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:housenumber": "1-3",
+    "addr:province": "北京市",
+    "addr:street": "工人体育场北路",
+    "addr:street:short": "工体北路",
+    "amenity": "restaurant",
+    "cuisine": "iranian",
+    "name": "伊朗美食",
+    "name:en": "Iranian Delicacy",
+    "name:zh": "伊朗美食",
+    "opening_hours": "Mo-Su 10:00-26:00",
+    "was:name": "波斯波利斯",
+    "was:name:en": "Persepolis",
+    "was:name:zh": "波斯波利斯"
+  }
+},
+{
+  "type": "way",
+  "id": 1197829025,
+  "center": {
+    "lat": 39.9327879,
+    "lon": 116.4540943
+  },
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:housenumber": "1-2",
+    "addr:province": "北京市",
+    "addr:street": "工人体育场北路",
+    "addr:street:short": "工体北路",
+    "amenity": "restaurant",
+    "cuisine": "turkish",
+    "name": "土耳其妈妈",
+    "name:en": "Turkish Mum",
+    "name:zh": "土耳其妈妈",
+    "opening_hours": "Mo-Su 11:00-23:00"
+  }
+},
+{
+  "type": "way",
+  "id": 1197829026,
+  "center": {
+    "lat": 39.9327884,
+    "lon": 116.4543381
+  },
+  "tags": {
+    "addr:city": "北京市",
+    "addr:district": "朝阳区",
+    "addr:housenumber": "1-1",
+    "addr:province": "北京市",
+    "addr:street": "工人体育场北路",
+    "addr:street:short": "工体北路",
+    "amenity": "restaurant",
+    "cuisine": "western",
+    "name": "风格算法",
+    "name:en": "Algorithm",
+    "name:zh": "风格算法",
+    "was:cuisine": "iranian",
+    "was:name": "入迷",
+    "was:name:en": "RUMI",
+    "was:name:zh": "入迷"
+  }
+},
+{
+  "type": "way",
+  "id": 1348424058,
+  "center": {
+    "lat": 39.9506637,
+    "lon": 116.4936293
+  },
+  "tags": {
+    "addr:city": "北京",
+    "addr:district": "朝阳区",
+    "addr:housenumber": "16",
+    "addr:street": "星火西路",
+    "amenity": "cafe",
+    "building": "yes",
+    "dog": "yes",
+    "internet_access": "wlan",
+    "internet_access:fee": "no",
+    "internet_access:ssid": "ONSITEEE",
+    "name": "ONSITEEE",
+    "opening_hours": "Mo-Su 10:00-20:00",
+    "outdoor_seating": "yes",
+    "toilets": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 271954980,
+  "center": {
+    "lat": 39.9142708,
+    "lon": 116.5518737
+  },
+  "tags": {
+    "addr:city": "北京",
+    "addr:postcode": "100024",
+    "addr:street": "朝阳路",
+    "amenity": "cafe",
+    "building": "yes",
+    "cuisine": "coffee_shop",
+    "internet_access": "wlan",
+    "name": "Studying Cafe",
+    "smoking": "separated"
+  }
+}
+
+  ]
+}

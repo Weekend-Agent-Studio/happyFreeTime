@@ -1,14 +1,15 @@
 # Catalog data notice
 
-`pois.csv` contains a small, versioned Beijing POI snapshot derived from
-OpenStreetMap. Each row keeps the exact source object URL and collection time.
+`pois.json` is a generated Beijing POI snapshot derived from versioned
+Overpass queries and raw replay responses. Each record keeps the exact OSM
+object URL; the manifest keeps the OSM source snapshot time.
 
 - Data: © OpenStreetMap contributors, available under the Open Data Commons
   Open Database License 1.0 (ODbL): https://opendatacommons.org/licenses/odbl/1-0/
 - Attribution and license guidance: https://www.openstreetmap.org/copyright
-- Verification: rows are marked `unverified`; locally estimated or derived
-  fields are declared in the API's `CatalogSource` metadata.
+- Verification: records are marked `unverified`. Missing values remain unknown
+  and are not filled with random or fixture data.
 
-The one optional image reference is not copied into this repository. Its CSV
-row links to the Wikimedia Commons source page, author, attribution text and
-Creative Commons license URL. Remote image failure must not affect planning.
+Optional images are remote Wikimedia Commons references resolved through OSM
+Wikidata/Commons tags. The repository stores URLs and license metadata, not
+the image files. Remote image failure must not affect planning.

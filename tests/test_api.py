@@ -201,14 +201,16 @@ class ApiTest(unittest.TestCase):
         stop = regular.json()["data"]["plans"][0]["stops"][0]
         self.assertEqual(
             regular.json()["data"]["plans"][0]["price_status"],
-            "estimated",
+            "incomplete",
         )
         stop_source = stop["source"]
         self.assertEqual(stop_source["verification_status"], "unverified")
         self.assertTrue(stop_source["source_uri"].startswith("https://www.openstreetmap.org/"))
         self.assertEqual(stop_source["source_license"], "ODbL-1.0")
-        self.assertEqual(stop["price_kind"], "estimated")
+        self.assertEqual(stop["price_kind"], "unknown")
         self.assertIn("image", stop)
+        self.assertTrue(stop["category_tags"])
+        self.assertIn("catalog_warnings", regular.json()["data"])
 
     def test_get_session_restores_stable_conversation_and_plan_snapshot(self) -> None:
         session_id = self._create_session()

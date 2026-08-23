@@ -52,3 +52,4 @@ class AgentResponse(BaseModel):
     conflict: dict[str, Any] | None = None
     provider_facts: list[dict[str, Any]] = Field(default_factory=list)
     catalog_violations: list[dict[str, Any]] = Field(default_factory=list)
+    catalog_warnings: list[dict[str, Any]] = Field(default_factory=list)

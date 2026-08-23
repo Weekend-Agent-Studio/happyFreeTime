@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.catalog import (
     CatalogSource,
+    CatalogWarning,
     ConstraintViolation,
     ImageRef,
     PriceKind,
@@ -51,6 +52,7 @@ class Stop(BaseModel):
     duration_minutes: int = Field(gt=0)
     price: int = Field(default=0, ge=0)
     price_kind: PriceKind = PriceKind.UNKNOWN
+    category_tags: list[str] = Field(default_factory=list)
     image: ImageRef | None = None
     source: CatalogSource
 
@@ -110,3 +112,4 @@ class CandidateSet(BaseModel):
     conflict: ConstraintConflict | None = None
     provider_facts: list[WeatherFact] = Field(default_factory=list)
     catalog_violations: list[ConstraintViolation] = Field(default_factory=list)
+    catalog_warnings: list[CatalogWarning] = Field(default_factory=list)
