@@ -6,6 +6,7 @@ import {
   Clock3,
   Compass,
   History,
+  Image as ImageIcon,
   Map,
   MapPin,
   MessageSquareText,
@@ -113,7 +114,19 @@ function catalogSourceLabel(source: Plan["stops"][number]["source"]): string {
     unverified: "未核验",
     stale: "已过期",
   }[source.verification_status];
-  return `${source.source_name} · ${status}`;
+  return `${source.source_name} · ${source.source_license} · ${status}`;
+}
+
+function priceLabel(stop: Plan["stops"][number]): string {
+  if (stop.price_kind === "unknown") return "价格未知";
+  if (stop.price_kind === "free") return "免费";
+  return `¥${stop.price}${stop.price_kind === "estimated" ? "（估算）" : ""}`;
+}
+
+function planPriceLabel(plan: Plan): string {
+  if (plan.price_status === "incomplete") return `¥${plan.total_price} + 未知价格`;
+  if (plan.price_status === "estimated") return `约 ¥${plan.total_price}`;
+  return `¥${plan.total_price}`;
 }
 
 function App() {
@@ -350,7 +363,7 @@ function PlanCard({ plan, index, selected, onSelect }: { plan: Plan; index: numb
         <span className="strategy-badge">{strategyLabel(plan.strategy)}</span>
         <h3>{plan.title}</h3>
         <div className="plan-metrics">
-          <span><CircleDollarSign size={15} />¥{plan.total_price}</span>
+          <span><CircleDollarSign size={15} />{planPriceLabel(plan)}</span>
           <span><Clock3 size={15} />{plan.total_duration_minutes} 分钟</span>
         </div>
         <div className="stop-preview">
@@ -373,19 +386,45 @@ function TripPanel({ plan }: { plan?: Plan }) {
   if (!plan) return <DetailEmpty icon={<CalendarDays size={24} />} title="行程将在这里展开" text="生成方案后，可逐站查看时间、价格和路线来源。" />;
   return (
     <div className="trip-detail">
-      <div className="detail-title"><span className="eyebrow">当前查看</span><h2>{plan.title}</h2><p>总计 ¥{plan.total_price} · {plan.total_duration_minutes} 分钟</p></div>
+      <div className="detail-title"><span className="eyebrow">当前查看</span><h2>{plan.title}</h2><p>总计 {planPriceLabel(plan)} · {plan.total_duration_minutes} 分钟</p></div>
       <ol className="timeline">
         {plan.stops.map((stop, index) => (
           <li key={stop.resource_id}>
             <div className="timeline-time">{stop.start}<span>{stop.end}</span></div>
             <div className="timeline-marker">{index + 1}</div>
-            <div className="timeline-content"><span>{stop.type === "restaurant" ? "餐饮" : "活动"}</span><strong>{stop.name}</strong><small>{stop.duration_minutes} 分钟 · ¥{stop.price}</small><small>{catalogSourceLabel(stop.source)}{stop.source.dynamic_fields_mock.length ? " · 动态字段为 Mock" : ""}</small></div>
+            <div className="timeline-content">
+              <StopImage stop={stop} />
+              <span>{stop.type === "restaurant" ? "餐饮" : "活动"}</span>
+              <strong>{stop.name}</strong>
+              <small>{stop.duration_minutes} 分钟 · {priceLabel(stop)}</small>
+              <small>{catalogSourceLabel(stop.source)}{stop.source.dynamic_fields_mock.length ? " · 动态字段为 Mock" : ""}{stop.source.estimated_fields.length ? ` · 估算字段：${stop.source.estimated_fields.join("、")}` : ""}</small>
+              {stop.image ? <small>图片：{stop.image.attribution || stop.image.author || stop.image.license} · <a href={stop.image.license_uri} target="_blank" rel="noreferrer">许可</a></small> : null}
+            </div>
             {plan.route_legs[index + 1] ? <div className="route-note"><Route size={14} />下一程 {plan.route_legs[index + 1].distance_km}km · 约 {plan.route_legs[index + 1].duration_minutes} 分钟</div> : null}
           </li>
         ))}
       </ol>
       {plan.tradeoffs.length ? <div className="tradeoff"><strong>需要留意</strong><p>{plan.tradeoffs.slice(0, 2).join("；")}</p></div> : null}
     </div>
+  );
+}
+
+function StopImage({ stop }: { stop: Plan["stops"][number] }) {
+  const [failed, setFailed] = useState(false);
+  if (!stop.image || failed) {
+    return <div className="stop-image placeholder" aria-label={`${stop.name}暂无可靠图片`}><ImageIcon size={20} aria-hidden="true" /></div>;
+  }
+  return (
+    <a href={stop.image.source_uri} target="_blank" rel="noreferrer" aria-label={`查看${stop.name}图片来源`}>
+      <img
+        className="stop-image"
+        src={stop.image.url}
+        alt={stop.name}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    </a>
   );
 }
 

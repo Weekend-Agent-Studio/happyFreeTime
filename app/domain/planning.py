@@ -10,7 +10,12 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.catalog import CatalogSource, ConstraintViolation
+from app.domain.catalog import (
+    CatalogSource,
+    ConstraintViolation,
+    ImageRef,
+    PriceKind,
+)
 from app.domain.providers import (
     GeoPoint,
     ProviderMode,
@@ -28,6 +33,12 @@ class StopType(str, Enum):
     DESSERT = "dessert"
 
 
+class PlanPriceStatus(str, Enum):
+    KNOWN = "known"
+    ESTIMATED = "estimated"
+    INCOMPLETE = "incomplete"
+
+
 class Stop(BaseModel):
     """一个有明确起止时间和价格的行程停靠点。"""
     model_config = ConfigDict(extra="forbid")
@@ -39,6 +50,8 @@ class Stop(BaseModel):
     end: str
     duration_minutes: int = Field(gt=0)
     price: int = Field(default=0, ge=0)
+    price_kind: PriceKind = PriceKind.UNKNOWN
+    image: ImageRef | None = None
     source: CatalogSource
 
 
@@ -71,6 +84,7 @@ class Plan(BaseModel):
     strategy: str
     total_score: float = Field(ge=0)
     total_price: int = Field(ge=0)
+    price_status: PlanPriceStatus = PlanPriceStatus.KNOWN
     total_duration_minutes: int = Field(gt=0)
     stops: list[Stop]
     route_legs: list[RouteLeg]

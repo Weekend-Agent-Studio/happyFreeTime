@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from app.domain.catalog import (
     CatalogSource,
+    PriceKind,
     ResourceType,
     StopCandidate,
     VerificationStatus,
@@ -25,6 +26,7 @@ from app.services.catalog import InMemoryCatalog, LocalFixtureCatalog
 SOURCE = CatalogSource(
     source_name="HappyFreeTime local test fixture",
     source_uri="repo://tests/test_catalog.py",
+    source_license="project-test-fixture",
     collected_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
     verification_status=VerificationStatus.UNVERIFIED,
     dynamic_fields_mock=["avg_price"],
@@ -70,7 +72,8 @@ def constraints() -> NormalizedConstraints:
 def candidate(
     resource_id: str,
     *,
-    avg_price: int = 80,
+    avg_price: int | None = 80,
+    price_kind: PriceKind = PriceKind.KNOWN,
     max_party_size: int | None = 6,
     child_age_min: int | None = 3,
     child_age_max: int | None = 8,
@@ -85,6 +88,7 @@ def candidate(
         address="北京市朝阳区",
         location=GeoPoint(latitude=39.92, longitude=longitude),
         avg_price=avg_price,
+        price_kind=price_kind,
         duration_minutes=60,
         open_hours=open_hours or {"sat": "10:00-20:00"},
         max_party_size=max_party_size,
@@ -96,6 +100,36 @@ def candidate(
 
 
 class CatalogTest(unittest.TestCase):
+    def test_strict_budget_rejects_estimated_or_unknown_prices(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("known", avg_price=80, price_kind=PriceKind.KNOWN),
+                candidate("estimated", avg_price=60, price_kind=PriceKind.ESTIMATED),
+                candidate("unknown", avg_price=None, price_kind=PriceKind.UNKNOWN),
+            ]
+        )
+
+        result = catalog.recall(constraints())
+
+        self.assertEqual([item.resource_id for item in result.candidates], ["known"])
+        self.assertEqual(
+            {item.resource_id: item.code for item in result.violations},
+            {
+                "estimated": ViolationCode.SINGLE_RESOURCE_PRICE_UNVERIFIED,
+                "unknown": ViolationCode.SINGLE_RESOURCE_PRICE_UNVERIFIED,
+            },
+        )
+
+    def test_unknown_price_legacy_bridge_keeps_unknown_semantics(self) -> None:
+        record = candidate(
+            "unknown",
+            avg_price=None,
+            price_kind=PriceKind.UNKNOWN,
+        ).to_legacy_record()
+
+        self.assertEqual(record["avg_price"], 0)
+        self.assertEqual(record["price_kind"], "unknown")
+
     def test_candidate_without_source_metadata_is_rejected(self) -> None:
         payload = candidate("missing_source").model_dump(exclude={"source"})
 

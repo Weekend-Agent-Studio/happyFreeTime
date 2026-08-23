@@ -21,6 +21,7 @@ from app.domain.providers import (
     WeatherRequest,
 )
 from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
+from app.services.catalog import CsvCatalog, LocalFixtureCatalog
 from app.services.planning import PlanningService
 
 
@@ -92,7 +93,50 @@ def planning_constraints(
 
 
 class PlanningServiceTest(unittest.TestCase):
-    def test_catalog_prunes_before_combination_and_preserves_stop_source(self) -> None:
+    def test_default_catalog_uses_curated_csv_records(self) -> None:
+        result = PlanningService(
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
+        ).plan(planning_constraints(max_distance_km=30, time_end="22:00"))
+
+        self.assertGreaterEqual(len(result.plans), 1)
+        self.assertTrue(all(plan.price_status.value == "estimated" for plan in result.plans))
+        self.assertTrue(
+            all(
+                stop.resource_id.startswith("osm-")
+                for plan in result.plans
+                for stop in plan.stops
+            )
+        )
+
+    def test_curated_csv_catalog_runs_through_planning_and_route_verification_offline(self) -> None:
+        route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
+
+        result = PlanningService(
+            catalog=CsvCatalog(),
+            route_provider=route_provider,
+        ).plan(
+            planning_constraints(max_distance_km=30, time_end="22:00")
+        )
+
+        self.assertGreaterEqual(len(result.plans), 1)
+        self.assertIsNone(result.conflict)
+        self.assertTrue(
+            all(
+                stop.resource_id.startswith("osm-")
+                for plan in result.plans
+                for stop in plan.stops
+            )
+        )
+        self.assertTrue(
+            all(
+                stop.source.source_license == "ODbL-1.0"
+                for plan in result.plans
+                for stop in plan.stops
+            )
+        )
+        self.assertEqual(len(route_provider.requests), len(result.plans) * 2)
+
+    def test_strict_budget_rejects_unverified_csv_prices_before_combination(self) -> None:
         result = PlanningService().plan(
             planning_constraints(
                 budget=100,
@@ -102,30 +146,20 @@ class PlanningServiceTest(unittest.TestCase):
             )
         )
 
-        self.assertGreaterEqual(len(result.plans), 1)
-        pruned_ids = {item.resource_id for item in result.catalog_violations}
-        self.assertTrue({"act_004", "rest_003", "rest_004"}.issubset(pruned_ids))
-        self.assertTrue(
-            all(
-                item.code == ViolationCode.SINGLE_RESOURCE_BUDGET_EXCEEDED
-                for item in result.catalog_violations
-                if item.resource_id in {"act_004", "rest_003", "rest_004"}
-            )
+        self.assertEqual(result.plans, [])
+        self.assertEqual(result.conflict.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
+        self.assertIn(
+            ViolationCode.SINGLE_RESOURCE_PRICE_UNVERIFIED,
+            {item.code for item in result.catalog_violations},
         )
-        for plan in result.plans:
-            self.assertFalse(pruned_ids & {stop.resource_id for stop in plan.stops})
-            self.assertTrue(
-                all(
-                    stop.source.verification_status
-                    == VerificationStatus.UNVERIFIED
-                    for stop in plan.stops
-                )
-            )
 
     def test_finalist_routes_rebuild_stop_times_from_provider_durations(self) -> None:
         route_provider = FixedReplayRouteProvider()
 
-        result = PlanningService(route_provider=route_provider).plan(
+        result = PlanningService(
+            route_provider=route_provider,
+            catalog=LocalFixtureCatalog(),
+        ).plan(
             planning_constraints()
         )
 
@@ -152,7 +186,10 @@ class PlanningServiceTest(unittest.TestCase):
     def test_route_verification_eliminates_finalists_that_overrun_time_window(self) -> None:
         route_provider = FixedReplayRouteProvider(duration_minutes=60)
 
-        result = PlanningService(route_provider=route_provider).plan(
+        result = PlanningService(
+            route_provider=route_provider,
+            catalog=LocalFixtureCatalog(),
+        ).plan(
             planning_constraints()
         )
 
@@ -165,7 +202,10 @@ class PlanningServiceTest(unittest.TestCase):
     def test_route_verification_eliminates_finalists_with_an_overlong_leg(self) -> None:
         route_provider = FixedReplayRouteProvider(distance_km=12.0)
 
-        result = PlanningService(route_provider=route_provider).plan(
+        result = PlanningService(
+            route_provider=route_provider,
+            catalog=LocalFixtureCatalog(),
+        ).plan(
             planning_constraints()
         )
 
@@ -175,7 +215,9 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertEqual(result.conflict.fields, ["max_distance_km"])
 
     def test_builds_structured_two_stop_plans_from_the_mock_catalog(self) -> None:
-        result = PlanningService().plan(planning_constraints())
+        result = PlanningService(catalog=LocalFixtureCatalog()).plan(
+            planning_constraints()
+        )
 
         self.assertGreaterEqual(len(result.plans), 1)
         self.assertLessEqual(len(result.plans), 3)
@@ -238,7 +280,8 @@ class PlanningServiceTest(unittest.TestCase):
             weather_provider=ReplayWeatherProvider(
                 store=store,
                 clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
-            )
+            ),
+            catalog=LocalFixtureCatalog(),
         ).plan(constraints)
 
         self.assertGreaterEqual(len(result.plans), 1)

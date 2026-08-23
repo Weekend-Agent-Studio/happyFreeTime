@@ -12,7 +12,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | [`docs/canonical/`](docs/canonical/) | 已确认的 V2 架构基线和开发路线图 |
 | [`docs/learning/progress.md`](docs/learning/progress.md) | 学习进度；与代码完成度分开维护 |
 | [`docs/learning/milestones/m1_entry_loop.md`](docs/learning/milestones/m1_entry_loop.md) | M1 项目链路、关键设计、测试证据与面试表达 |
-| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气、路线与 Catalog C1 的领域契约、证据和限制 |
+| [`docs/learning/milestones/m2_trustworthy_planning.md`](docs/learning/milestones/m2_trustworthy_planning.md) | M2 天气、路线与 Catalog C1/C2 的领域契约、证据和限制 |
 | [`docs/product/product_idea_inbox.md`](docs/product/product_idea_inbox.md) | 尚未批准实现的临时想法 |
 | [`docs/collaboration/session_bootstrap.md`](docs/collaboration/session_bootstrap.md) | 新开 Codex 会话时的协作启动说明 |
 
@@ -36,8 +36,8 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | 修改假设值                | 未完成             | 当前只能查看假设，还没有点击编辑控件                     |
 | 天气事实与雨天可行性      | M2 切片 A 已完成   | 支持 mock/replay、live/record Adapter、缓存降级与来源展示；真实 Key 尚未验证 |
 | 路线复核与完整双站时间线  | M2 切片 B 已完成   | finalist 才复核路线并重建时间线；支持缓存、replay、本地估算降级；真实 Key 尚未验证 |
-| Catalog 来源与单资源剪枝  | M2 子切片 C1 已完成 | 现有 8 个 fixture 明确标为未核验；严格预算、人数、儿童年龄、基础营业和明显超出召回半径的资源在组合前剪枝 |
-| 真实 POI 与打车执行       | 未完成             | 30–50 个真实 POI、动态库存/价格和真实叫车仍是后续里程碑   |
+| Catalog 来源与单资源剪枝  | M2 切片 C 已完成   | 默认离线读取 36 条 OSM 北京 POI；来源、许可、采集时间、坐标系和核验状态可追溯，单资源硬约束在组合前剪枝 |
+| 动态 POI 与打车执行       | 未完成             | 当前 POI 是版本化静态快照且未现场核验；动态库存、可靠价格、实时 POI 检索和真实叫车仍未实现 |
 | 订单/预订执行             | 占位               | “订单”页签是 M4 产品闭环的入口，目前不能下单             |
 
 ## 推荐的前端验收场景
@@ -50,7 +50,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 6. **方案切换：** 生成多个候选后点击第二张方案卡，检查右侧行程和地图信息随之更新。
 7. **新建会话：** 点击左侧“新建规划”，当前界面清空；数据库中的旧会话不会被删除。
 
-Mock 目录中的营业时间和可用时段会影响结果，因此某些“今天”请求返回不可行冲突是预期业务结果，不代表接口失败。
+静态 Catalog 中的营业时间、距离和价格核验状态会影响结果，因此某些“今天”或严格预算请求返回不可行冲突是预期业务结果，不代表接口失败。
 
 ## 是否需要 API Key
 
@@ -69,7 +69,7 @@ LLM_API=your-api-key
 BASE_URL=https://api.deepseek.com
 ```
 
-`LLM_API` 只用于 RouterExtractor 的结构化语义抽取。活动与餐厅仍来自本地 Mock 目录；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德，不会因为配置 LLM Key 自动变成真实数据。
+`LLM_API` 只用于 RouterExtractor 的结构化语义抽取。活动与餐厅默认来自版本化的 `data/catalog/pois.csv`，不因配置 LLM Key 自动更新；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德。
 
 天气 Provider 独立使用后端环境变量；密钥不会返回前端或写入 fixture：
 
@@ -91,6 +91,14 @@ HFT_ROUTE_PROVIDER_MODE=mock
 ```
 
 天气和路线的 `record` 都只保存规范化事实，不保存请求 Key。`live/record` 失败时先使用可用缓存，再尝试 replay；无匹配路线回放时明确降级为本地估算。当前缓存尚未持久化，真实高德调用也尚未在仓库测试中验证。
+
+## POI Catalog、价格与图片边界
+
+- `data/catalog/pois.csv` 当前包含 36 条北京 POI：18 个活动、18 个餐厅，基础来源为 OpenStreetMap contributors，许可标记为 ODbL 1.0。
+- CSV 保存原始 WGS84 坐标；`CsvCatalog` 在 Adapter 内转换为供当前高德路线接口使用的 GCJ-02，避免静默混用坐标系。
+- 营业时间是采集时的静态基础时段，`verification_status=unverified`；C2 不表达节假日例外、多营业时段、过夜营业或实时闭店。
+- 价格区分 `known / estimated / free / unknown`。当前 36 条价格都是本地估算；非严格预算可使用并显示“估算”，严格预算只接受 `known/free`，因此可能如实返回无解。
+- 图片是可选远程引用。当前只收录许可可追溯的 Wikimedia Commons 图片；缺图或加载失败显示占位图，图片不参与召回、评分、硬约束或冲突判断，也不会下载到仓库。
 
 ## 启动前后端
 
@@ -159,8 +167,8 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 # Route Provider：高德 v5 契约、record/replay、TTL 和本地估算降级
 & $PYTHON -m unittest tests.test_route_provider -v
 
-# Catalog：来源元数据、单资源硬约束剪枝和来源缺失拒绝
-& $PYTHON -m unittest tests.test_catalog -v
+# Catalog：fixture/Csv Adapter、schema、许可、价格语义与单资源硬约束剪枝
+& $PYTHON -m unittest tests.test_catalog tests.test_csv_catalog -v
 
 # Persistence：user_id 会话隔离和消息持久化
 & $PYTHON -m unittest tests.test_persistence -v
@@ -193,8 +201,8 @@ pnpm run build
 - `app/services/demo_router.py`：不需要 Key 的离线抽取器。
 - `app/services/enrichment.py`：确定性规则、默认值和 provenance。
 - `app/services/question_gate.py`：阻断式反问策略。
-- `app/services/planning.py`：V2 规划接口和 V1 Mock 规划适配。
-- `app/services/catalog.py`：Catalog seam、本地 fixture Adapter 和单资源硬约束剪枝。
+- `app/services/planning.py`：V2 规划接口、默认 CSV Catalog 和 V1 组合器适配。
+- `app/services/catalog.py`：Catalog seam、CSV/fixture Adapter、schema 校验、坐标归一化和单资源硬约束剪枝。
 - `app/domain/catalog.py`：StopCandidate、CatalogSource 与 ConstraintViolation 契约。
 - `app/providers/weather.py`：天气 live/record/replay/mock Adapter、缓存与降级。
 - `app/providers/route.py`：路线 live/record/replay/mock Adapter、缓存与本地估算降级。

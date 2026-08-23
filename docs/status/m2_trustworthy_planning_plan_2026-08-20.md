@@ -38,15 +38,15 @@ M2 不一次重写 Planner，而是让每片都增加一条用户可观察、可
 
 ## C. Catalog 与单资源硬约束剪枝
 
-**实现状态：** 子切片 C1 已完成：领域契约、现有本地 fixture 来源标记、资源级剪枝、HTTP/UI 可观察性已实现。正式 C 尚未完成，仍缺 30–50 个许可明确且可追溯的真实北京 POI。
+**实现状态：** C1 与 C2 已完成：Catalog seam、资源级剪枝、36 条许可明确且可追溯的北京 OSM POI、CSV schema、价格证据语义、坐标归一化和 HTTP/UI 图片降级均已实现。动态 POI、可靠实时价格和现场核验不属于本切片；M2 整体仍未完成。
 
 **用户故事：** 进入组合器的每个 POI 已经在日期、人数、儿童年龄、预算、基础营业信息和召回距离下界上具备单资源可行性，并能追溯数据来源。
 
-**接口与契约：** 通用 `StopCandidate`；POI 元数据包含 `source_uri/source_name`、`collected_at`、`last_verified_at`、`verification_status`。Catalog 召回后返回候选及结构化 `ConstraintViolation[]` 剪枝摘要。
+**接口与契约：** 通用 `StopCandidate`；POI 元数据包含 `source_uri/source_name/source_license`、`collected_at`、`last_verified_at`、`verification_status`、坐标系、`PriceKind` 与可选 `ImageRef`。`CsvCatalog` 校验并归一化静态快照，Catalog 召回后返回候选及结构化 `ConstraintViolation[]` 剪枝摘要。
 
-**验收：** 30–50 个真实北京 POI 基础字段可追溯；动态价格/库存明确仍是 Mock；不适龄、不容纳人数、单资源已超预算或当天不营业的资源不进入组合。
+**验收：** 36 个真实北京 POI 基础字段可追溯；动态价格/库存明确仍未核验；不适龄、不容纳人数、单资源已超预算、价格证据不足或当天不营业的资源不进入严格组合。图片缺失/失败不影响规划。
 
-**测试：** 元数据 schema、日期/人数/年龄/预算/营业边界/直线距离下界、来源缺失拒绝、剪枝原因聚合。
+**测试：** 元数据 schema、重复 ID、坐标/营业时间/图片许可、日期/人数/年龄/预算证据/直线距离下界、来源缺失拒绝、剪枝原因聚合、离线 Planning/API 和前端生产构建。
 
 **不做：** 不抓取未确认许可的数据，不宣称动态库存真实，不做大规模语义检索。
 

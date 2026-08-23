@@ -119,6 +119,8 @@ h1, h2, h3, p { margin-top: 0; }
 .timeline-time { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }.timeline-time span { display: block; color: var(--text-muted); font-size: 10px; margin-top: 3px; font-weight: 400; }
 .timeline-marker { width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: white; display: grid; place-items: center; font-size: 11px; font-weight: 700; z-index: 1; }
 .timeline-content span, .timeline-content strong, .timeline-content small { display: block; }.timeline-content span { color: var(--primary); font-size: 10px; font-weight: 700; }.timeline-content strong { font-size: 13px; margin: 4px 0; }.timeline-content small { color: var(--text-muted); font-size: 11px; }
+.stop-image { width: 100%; height: 92px; object-fit: cover; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 9px; background: var(--surface-muted); }
+.stop-image.placeholder { display: grid; place-items: center; color: var(--text-muted); background: linear-gradient(135deg, var(--surface-muted), var(--primary-soft)); }
 .route-note { grid-column: 2 / 4; margin-top: 16px; display: flex; gap: 6px; align-items: center; color: var(--route); font-size: 11px; background: #eef6ff; padding: 7px 8px; border-radius: 5px; }
 .tradeoff { margin: 0 18px 22px; padding: 12px; background: #fff7e8; border: 1px solid #efd7a2; border-radius: 6px; }.tradeoff strong { font-size: 12px; }.tradeoff p { margin: 5px 0 0; color: #745c2c; font-size: 11px; line-height: 1.5; }
 .map-canvas { height: 230px; margin: 18px; position: relative; overflow: hidden; background: #edf2ef; border: 1px solid var(--border); border-radius: 7px; }

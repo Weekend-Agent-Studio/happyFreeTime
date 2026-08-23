@@ -5,12 +5,13 @@ from __future__ import annotations
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from app.domain.catalog import ResourceType, StopCandidate
+from app.domain.catalog import PriceKind, ResourceType, StopCandidate
 from app.domain.constraints import NormalizedConstraints
 from app.domain.planning import (
     CandidateSet,
     ConstraintConflict,
     Plan,
+    PlanPriceStatus,
     RouteLeg,
     RouteMode,
     RouteSource,
@@ -26,8 +27,7 @@ from app.domain.providers import (
 )
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
-from app.services.catalog import Catalog, LocalFixtureCatalog
-from services.catalog_service import get_resource_detail
+from app.services.catalog import Catalog, CsvCatalog
 from services.planning_service import generate_candidate_plans
 from services.scoring_service import compare_plans
 
@@ -47,7 +47,7 @@ class PlanningService:
     ) -> None:
         self._weather_provider = weather_provider or clear_mock_weather()
         self._route_provider = route_provider or LocalEstimateRouteProvider()
-        self._catalog = catalog or LocalFixtureCatalog()
+        self._catalog = catalog or CsvCatalog()
 
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         # 先把 V2 约束转换成冻结的 V1 字典输入，再将 V1 输出转回 V2 模型。
@@ -90,6 +90,7 @@ class PlanningService:
             product_candidates=[],
         )
         scored_plans = compare_plans(legacy_plans, legacy_constraints)
+        scored_plans = _apply_catalog_compatibility_score(scored_plans)
         local_finalists = [
             self._to_plan(plan, candidate_by_id)
             for plan in scored_plans
@@ -98,7 +99,11 @@ class PlanningService:
         plans = []
         route_failure_fields: set[str] = set()
         for plan in local_finalists:
-            verified = self._rebuild_route_timeline(plan, constraints)
+            verified = self._rebuild_route_timeline(
+                plan,
+                constraints,
+                candidate_by_id,
+            )
             if verified.stops[-1].end > constraints.time_window.value.end:
                 route_failure_fields.add("time_window")
                 continue
@@ -171,6 +176,7 @@ class PlanningService:
         self,
         plan: Plan,
         constraints: NormalizedConstraints,
+        candidate_by_id: dict[str, StopCandidate],
     ) -> Plan:
         location = constraints.location.value
         current_point = GeoPoint(
@@ -184,13 +190,10 @@ class PlanningService:
         rebuilt_legs: list[RouteLeg] = []
 
         for stop in plan.stops:
-            resource = get_resource_detail(stop.resource_id)
+            resource = candidate_by_id.get(stop.resource_id)
             if resource is None:
                 raise ValueError(f"route verification requires resource {stop.resource_id}")
-            destination = GeoPoint(
-                latitude=resource["lat"],
-                longitude=resource["lng"],
-            )
+            destination = resource.location
             route = self._route_provider.route(
                 RouteRequest(
                     origin=current_point,
@@ -345,6 +348,8 @@ class PlanningService:
                 end=item["end"],
                 duration_minutes=item["duration_minutes"],
                 price=item.get("price", 0),
+                price_kind=candidate.price_kind,
+                image=candidate.image,
                 source=candidate.source,
             )
             stops.append(stop)
@@ -356,12 +361,39 @@ class PlanningService:
             strategy=plan["plan_type"],
             total_score=plan.get("total_score", 0),
             total_price=plan.get("total_price", 0),
+            price_status=_plan_price_status(stops),
             total_duration_minutes=plan.get("total_duration_minutes", 0),
             stops=stops,
             route_legs=route_legs,
             highlights=plan.get("highlights", []),
             tradeoffs=plan.get("tradeoffs", []),
         )
+
+
+def _apply_catalog_compatibility_score(plans: list[dict]) -> list[dict]:
+    """Keep new Catalog IDs usable until the V1 scorer is replaced in slice E.
+
+    The legacy scorer only knows IDs from its bundled JSON fixtures.  Catalog
+    hard pruning has already established feasibility, so an entirely unscored
+    result set receives an explicit neutral score at this adapter boundary.
+    """
+    if not plans or any(plan.get("total_score", 0) > 0 for plan in plans):
+        return plans
+
+    compatible: list[dict] = []
+    for plan in plans:
+        plan_copy = dict(plan)
+        plan_copy["total_score"] = 60.0
+        plan_copy["highlights"] = list(dict.fromkeys([
+            *plan.get("highlights", []),
+            "已通过 Catalog 单资源硬约束筛选",
+        ]))
+        plan_copy["tradeoffs"] = list(dict.fromkeys([
+            *plan.get("tradeoffs", []),
+            "当前为兼容层中性评分，完整多策略质量评分尚未实现",
+        ]))
+        compatible.append(plan_copy)
+    return compatible
 
 
 def _beijing_weather_adcode(district: str) -> str:
@@ -386,6 +418,15 @@ def _route_source(fact: RouteFact) -> RouteSource:
         ProviderSource.LOCAL_ESTIMATE: RouteSource.LOCAL_ESTIMATE,
     }
     return sources[fact.source]
+
+
+def _plan_price_status(stops: list[Stop]) -> PlanPriceStatus:
+    kinds = {stop.price_kind for stop in stops}
+    if PriceKind.UNKNOWN in kinds:
+        return PlanPriceStatus.INCOMPLETE
+    if PriceKind.ESTIMATED in kinds:
+        return PlanPriceStatus.ESTIMATED
+    return PlanPriceStatus.KNOWN
 
 
 def _time_to_minutes(value: str) -> int:

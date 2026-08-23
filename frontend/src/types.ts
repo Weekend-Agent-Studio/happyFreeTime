@@ -19,10 +19,23 @@ export type ConstraintSummaryItem = {
 export type CatalogSource = {
   source_name: string;
   source_uri: string;
+  source_license: string;
+  coordinate_system: "WGS84" | "GCJ02";
   collected_at: string;
   last_verified_at: string | null;
   verification_status: "verified" | "unverified" | "stale";
   dynamic_fields_mock: string[];
+  estimated_fields: string[];
+  derived_fields: string[];
+};
+
+export type ImageRef = {
+  url: string;
+  source_uri: string;
+  author: string | null;
+  license: string;
+  license_uri: string;
+  attribution: string | null;
 };
 
 export type Stop = {
@@ -33,6 +46,8 @@ export type Stop = {
   end: string;
   duration_minutes: number;
   price: number;
+  price_kind: "known" | "estimated" | "free" | "unknown";
+  image: ImageRef | null;
   source: CatalogSource;
 };
 
@@ -68,6 +83,7 @@ export type Plan = {
   strategy: string;
   total_score: number;
   total_price: number;
+  price_status: "known" | "estimated" | "incomplete";
   total_duration_minutes: number;
   stops: Stop[];
   route_legs: RouteLeg[];

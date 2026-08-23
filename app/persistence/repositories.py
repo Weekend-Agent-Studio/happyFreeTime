@@ -2,12 +2,19 @@
 
 import json
 import uuid
+from datetime import timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import sessionmaker
 
 from app.domain.planning import Plan
-from app.persistence.models import MessageRecord, PlanRecord, SessionRecord, UserRecord
+from app.persistence.models import (
+    MessageRecord,
+    PlanRecord,
+    SessionRecord,
+    UserRecord,
+    utc_now,
+)
 
 
 class SessionRepository:
@@ -81,6 +88,7 @@ class SessionRepository:
         """用本轮候选整体替换旧候选，避免不同规划轮次的结果混在一起。"""
         if self.get_session(user_id, session_id) is None:
             raise LookupError("session not found")
+        snapshot_at = utc_now()
         with self._session_factory.begin() as database:
             database.execute(
                 delete(PlanRecord).where(
@@ -95,8 +103,9 @@ class SessionRepository:
                         user_id=user_id,
                         session_id=session_id,
                         payload_json=plan.model_dump_json(),
+                        created_at=snapshot_at + timedelta(microseconds=index),
                     )
-                    for plan in plans
+                    for index, plan in enumerate(plans)
                 ]
             )
 

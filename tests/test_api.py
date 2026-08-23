@@ -185,9 +185,11 @@ class ApiTest(unittest.TestCase):
         body = response.json()["data"]
         self.assertTrue(body["catalog_violations"])
         self.assertIn(
-            "single_resource_budget_exceeded",
+            "single_resource_price_unverified",
             {item["code"] for item in body["catalog_violations"]},
         )
+        self.assertEqual(body["plans"], [])
+        self.assertEqual(body["conflict"]["code"], "NO_PLAN_WITHIN_STRICT_BUDGET")
 
         regular_session = self._create_session()
         regular = self.client.post(
@@ -196,9 +198,17 @@ class ApiTest(unittest.TestCase):
             json={"content": "今天下午出去玩"},
         )
         self.assertEqual(regular.status_code, 200, regular.text)
-        stop_source = regular.json()["data"]["plans"][0]["stops"][0]["source"]
+        stop = regular.json()["data"]["plans"][0]["stops"][0]
+        self.assertEqual(
+            regular.json()["data"]["plans"][0]["price_status"],
+            "estimated",
+        )
+        stop_source = stop["source"]
         self.assertEqual(stop_source["verification_status"], "unverified")
-        self.assertTrue(stop_source["source_uri"].startswith("repo://data/"))
+        self.assertTrue(stop_source["source_uri"].startswith("https://www.openstreetmap.org/"))
+        self.assertEqual(stop_source["source_license"], "ODbL-1.0")
+        self.assertEqual(stop["price_kind"], "estimated")
+        self.assertIn("image", stop)
 
     def test_get_session_restores_stable_conversation_and_plan_snapshot(self) -> None:
         session_id = self._create_session()
@@ -288,7 +298,11 @@ class ApiTest(unittest.TestCase):
         )
 
         self.assertEqual(second.json()["data"]["status"], "completed")
-        self.assertGreaterEqual(len(second.json()["data"]["plans"]), 1)
+        self.assertEqual(second.json()["data"]["plans"], [])
+        self.assertEqual(
+            second.json()["data"]["conflict"]["code"],
+            "NO_PLAN_WITHIN_STRICT_BUDGET",
+        )
 
     def test_other_user_cannot_read_or_write_the_session(self) -> None:
         session_id = self._create_session()
