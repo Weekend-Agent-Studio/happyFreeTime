@@ -43,6 +43,10 @@ A condition that a feasible Plan must satisfy. A candidate with a Constraint Vio
 **Planning Preference**:
 A desired but relaxable condition that influences retrieval, scoring, ranking, or a reported Tradeoff. Avoid treating every user-explicit expression as automatically hard.
 
+**Planning Intent**:
+An evidence-linked description of desired role coverage, precedence, stop-count range, pace, and themes. It guides candidate generation and semantic ranking but does not prove feasibility or determine Constraint Strength.
+_Avoid_: LLM plan, free-form itinerary
+
 **Assumption**:
 A system-selected, user-editable value used when a non-blocking constraint is absent. Assumptions must be visible to the user and are distinct from evidence-based user inference.
 
@@ -52,8 +56,19 @@ Missing or ambiguous information that prevents the current action from proceedin
 **Stop Candidate**:
 A single activity, restaurant, or other place-based resource eligible for inclusion in a Plan after retrieval and initial checks.
 
+**Stop Role**:
+The purpose a Stop fulfills within a Plan, such as activity, lunch, dinner, or break. It is distinct from resource category: one restaurant may fulfill lunch or dinner, and one cafe may fulfill a break.
+
+**Plan Skeleton**:
+A bounded structural shape for a Plan, defined by ordered or partially ordered Stop Roles, required or optional roles, and a stop-count range, without selecting concrete resources.
+_Avoid_: route, Plan Strategy, fixed POI template
+
 **Plan**:
 A feasible itinerary composed of ordered Stops and Route Legs, with costs, evidence, scores, and execution actions.
+
+**Plan Composition Fingerprint**:
+A stable identifier for the ordered Plan Skeleton and concrete resources of a Plan. It supports candidate deduplication but is not a Plan's identity and may recur across Sessions or Planning Runs.
+_Avoid_: Plan ID, persistence ID
 
 **Plan Version**:
 An immutable planning outcome produced by one Planning Run under one constraint snapshot. A later successful run may supersede it without rewriting its history.
@@ -62,10 +77,10 @@ An immutable planning outcome produced by one Planning Run under one constraint 
 A candidate explicitly confirmed by an Actor for downstream execution. The Plan currently open in the interface is not selected merely because it is being viewed.
 
 **Plan Strategy**:
-The named optimization emphasis of a Plan, such as lower cost or shorter travel. It is not a substitute for the Plan's structured Stops, Route Legs, timeline, and totals.
+The named optimization emphasis of a Plan, such as lower cost or shorter travel. It changes ranking priorities but does not define the Plan Skeleton or replace the Plan's structured Stops, Route Legs, timeline, and totals.
 
 **Stop**:
-A place-based activity in a Plan, such as an attraction, restaurant, cafe, or dessert venue.
+A scheduled visit to a place-based resource that fulfills a Stop Role in a Plan, such as an attraction, restaurant, cafe, or dessert venue.
 
 **Route Leg**:
 Travel between two adjacent Stops, including mode, distance, duration, source, and degradation status.

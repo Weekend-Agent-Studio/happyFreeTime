@@ -24,6 +24,7 @@ from app.domain.catalog import (
 )
 from app.domain.providers import GeoPoint
 from app.domain.constraints import NormalizedConstraints
+from app.services.opening_hours import opening_hours_overlap, parse_basic_intervals
 
 
 class Catalog(Protocol):
@@ -137,6 +138,9 @@ class SnapshotCatalog:
                         location=GeoPoint(latitude=latitude, longitude=longitude),
                         coordinate_system=CoordinateSystem.GCJ02,
                         category_tags=record.get("category_tags", []),
+                        preference_tags=record.get("preference_tags", []),
+                        diet_tags=record.get("diet_tags", []),
+                        scene_tags=record.get("scene_tags", []),
                         avg_price=record.get("avg_price_yuan"),
                         price_kind=record.get("price_kind", "unknown"),
                         duration_minutes=record["duration_minutes"],
@@ -277,7 +281,8 @@ def _warnings_for(
         weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
             constraints.date.value.weekday()
         ]
-        if not candidate.open_hours.get(weekday):
+        hours = candidate.open_hours.get(weekday)
+        if not hours or parse_basic_intervals(hours) is None:
             warnings.append(
                 _warning(
                     candidate,
@@ -298,19 +303,8 @@ def _supports_child_age(candidate: StopCandidate, child_age: int) -> bool:
 
 
 def _overlaps(hours: str, window_start: str, window_end: str) -> bool:
-    try:
-        open_time, close_time = hours.split("-", 1)
-        return max(_minutes(open_time), _minutes(window_start)) < min(
-            _minutes(close_time),
-            _minutes(window_end),
-        )
-    except (TypeError, ValueError):
-        return False
-
-
-def _minutes(value: str) -> int:
-    hour, minute = (int(part) for part in value.split(":"))
-    return hour * 60 + minute
+    # Unsupported expressions are unknown facts, not proof that a place is closed.
+    return opening_hours_overlap(hours, window_start, window_end) is not False
 
 
 def _haversine_km(
@@ -382,6 +376,9 @@ def _normalize_record(
             longitude=record["lng"],
         ),
         avg_price=record.get("avg_price", 0),
+        preference_tags=record.get("tags", []),
+        diet_tags=record.get("diet_tags", []),
+        scene_tags=record.get("scene_tags", []),
         price_kind=PriceKind.ESTIMATED,
         duration_minutes=record.get("duration_minutes", 60),
         open_hours=record.get("open_hours", {}),

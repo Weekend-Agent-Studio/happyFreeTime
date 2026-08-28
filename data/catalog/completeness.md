@@ -7,7 +7,7 @@
 
 | Field | Count | Coverage |
 | --- | ---: | ---: |
-| address | 99 | 49.5% |
+| address | 104 | 52.0% |
 | opening_hours | 110 | 55.0% |
 | image | 72 | 36.0% |
 | known_or_free_price | 0 | 0.0% |

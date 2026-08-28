@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -154,14 +155,138 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()["data"]["session_id"]
 
+    def _send_message(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        request_id: str | None = None,
+        headers: dict[str, str] | None = None,
+    ):
+        return self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=headers or self.headers,
+            json={"request_id": request_id or uuid.uuid4().hex, "content": content},
+        )
+
+    def test_map_config_reports_disabled_without_browser_credentials(self) -> None:
+        response = self.client.get("/api/config/map")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json()["data"],
+            {
+                "enabled": False,
+                "provider": "none",
+                "js_api_key": None,
+                "version": None,
+                "service_host_path": None,
+            },
+        )
+
+    def test_same_plan_composition_can_be_saved_in_two_sessions(self) -> None:
+        first_session = self._create_session()
+        second_session = self._create_session()
+
+        first = self._send_message(first_session, "今天下午出去玩")
+        second = self._send_message(second_session, "今天下午出去玩")
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        first_plans = first.json()["data"]["plans"]
+        second_plans = second.json()["data"]["plans"]
+        self.assertEqual(
+            [plan["composition_fingerprint"] for plan in first_plans],
+            [plan["composition_fingerprint"] for plan in second_plans],
+        )
+        self.assertTrue(
+            set(plan["plan_id"] for plan in first_plans).isdisjoint(
+                plan["plan_id"] for plan in second_plans
+            )
+        )
+
+    def test_duplicate_request_id_returns_the_stored_run_without_duplicate_messages(
+        self,
+    ) -> None:
+        session_id = self._create_session()
+        payload = {
+            "request_id": "request-idempotency-001",
+            "content": "今天下午出去玩",
+        }
+
+        first = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json=payload,
+        )
+        second = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json=payload,
+        )
+        restored = self.client.get(
+            f"/api/sessions/{session_id}",
+            headers=self.headers,
+        )
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json(), first.json())
+        self.assertEqual(len(restored.json()["data"]["messages"]), 2)
+
+    def test_request_id_cannot_be_reused_for_different_content(self) -> None:
+        session_id = self._create_session()
+        request_id = "request-idempotency-conflict"
+
+        first = self._send_message(
+            session_id,
+            "今天下午出去玩",
+            request_id=request_id,
+        )
+        conflict = self._send_message(
+            session_id,
+            "换一个完全不同的请求",
+            request_id=request_id,
+        )
+        restored = self.client.get(f"/api/sessions/{session_id}", headers=self.headers)
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        self.assertEqual(len(restored.json()["data"]["messages"]), 2)
+
+    def test_recent_sessions_list_is_bounded_and_orders_non_empty_sessions(self) -> None:
+        hidden_empty_session = self._create_session()
+        first_session = self._create_session()
+        second_session = self._create_session()
+        for session_id, request_id, content in (
+            (first_session, "request-history-001", "今天下午出去玩"),
+            (second_session, "request-history-002", "周六和朋友聚一下，人均150"),
+        ):
+            response = self._send_message(
+                session_id,
+                content,
+                request_id=request_id,
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+        response = self.client.get(
+            "/api/sessions",
+            headers=self.headers,
+            params={"limit": 1},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        sessions = response.json()["data"]["sessions"]
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["session_id"], second_session)
+        self.assertEqual(sessions[0]["title"], "周六和朋友聚一下，人均150")
+        self.assertEqual(sessions[0]["last_message_preview"], "已生成 3 个候选方案。")
+        self.assertNotEqual(sessions[0]["session_id"], hidden_empty_session)
+
     def test_message_exposes_route_source_and_verified_timeline(self) -> None:
         session_id = self._create_session()
 
-        response = self.client.post(
-            f"/api/sessions/{session_id}/messages",
-            headers=self.headers,
-            json={"content": "今天下午出去玩"},
-        )
+        response = self._send_message(session_id, "今天下午出去玩")
 
         self.assertEqual(response.status_code, 200, response.text)
         plan = response.json()["data"]["plans"][0]
@@ -171,15 +296,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(first_leg["verified_at"], "2026-08-15T08:05:00Z")
         self.assertFalse(first_leg["degraded"])
         self.assertEqual(first_leg["end"], plan["stops"][0]["start"])
+        self.assertEqual(plan["skeleton_id"], "activity-meal-v1")
+        self.assertEqual(
+            [stop["role"] for stop in plan["stops"]],
+            ["activity", "meal"],
+        )
+        self.assertTrue(plan["score_breakdown"])
+        self.assertAlmostEqual(
+            sum(item["points"] for item in plan["score_breakdown"]),
+            plan["total_score"],
+        )
+        self.assertTrue(
+            all(item["rule_id"] and item["evidence"] for item in plan["score_breakdown"])
+        )
 
     def test_message_exposes_catalog_source_and_pruning_violations(self) -> None:
         session_id = self._create_session()
 
-        response = self.client.post(
-            f"/api/sessions/{session_id}/messages",
-            headers=self.headers,
-            json={"content": "今天下午出去玩，人均100"},
-        )
+        response = self._send_message(session_id, "今天下午出去玩，人均100")
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()["data"]
@@ -192,11 +326,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(body["conflict"]["code"], "NO_PLAN_WITHIN_STRICT_BUDGET")
 
         regular_session = self._create_session()
-        regular = self.client.post(
-            f"/api/sessions/{regular_session}/messages",
-            headers=self.headers,
-            json={"content": "今天下午出去玩"},
-        )
+        regular = self._send_message(regular_session, "今天下午出去玩")
         self.assertEqual(regular.status_code, 200, regular.text)
         stop = regular.json()["data"]["plans"][0]["stops"][0]
         self.assertEqual(
@@ -216,11 +346,7 @@ class ApiTest(unittest.TestCase):
         session_id = self._create_session()
         content = "今天下午出去玩"
 
-        response = self.client.post(
-            f"/api/sessions/{session_id}/messages",
-            headers=self.headers,
-            json={"content": content},
-        )
+        response = self._send_message(session_id, content)
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()["data"]
@@ -243,16 +369,16 @@ class ApiTest(unittest.TestCase):
             [("user", content), ("assistant", body["reply"])],
         )
         self.assertEqual(restored["plans"], body["plans"])
+        self.assertEqual(restored["latest_response"], body)
+        self.assertIn("created_at", restored)
+        self.assertIn("updated_at", restored)
+        self.assertTrue(all("created_at" in message for message in restored["messages"]))
         self.assertEqual(second_read.json()["data"], restored)
 
     def test_message_exposes_inferred_party_as_an_editable_constraint(self) -> None:
         session_id = self._create_session()
 
-        response = self.client.post(
-            f"/api/sessions/{session_id}/messages",
-            headers=self.headers,
-            json={"content": "安排一个轻松的约会，想吃甜品"},
-        )
+        response = self._send_message(session_id, "安排一个轻松的约会，想吃甜品")
 
         self.assertEqual(response.status_code, 200, response.text)
         summary = response.json()["data"]["constraint_summary"]
@@ -266,11 +392,7 @@ class ApiTest(unittest.TestCase):
     def test_message_exposes_weather_source_and_degradation_state(self) -> None:
         session_id = self._create_session()
 
-        response = self.client.post(
-            f"/api/sessions/{session_id}/messages",
-            headers=self.headers,
-            json={"content": "今天下午出去玩"},
-        )
+        response = self._send_message(session_id, "今天下午出去玩")
 
         self.assertEqual(response.status_code, 200, response.text)
         facts = response.json()["data"]["provider_facts"]
@@ -284,20 +406,12 @@ class ApiTest(unittest.TestCase):
     def test_blocking_question_resumes_on_the_next_message(self) -> None:
         session_id = self._create_session()
 
-        first = self.client.post(
-            f"/api/sessions/{session_id}/messages",
-            headers=self.headers,
-            json={"content": "今天下午出去玩，别超预算"},
-        )
+        first = self._send_message(session_id, "今天下午出去玩，别超预算")
 
         self.assertEqual(first.json()["data"]["status"], "needs_input")
         self.assertEqual(first.json()["data"]["question"]["field"], "budget_per_person")
 
-        second = self.client.post(
-            f"/api/sessions/{session_id}/messages",
-            headers=self.headers,
-            json={"content": "人均200"},
-        )
+        second = self._send_message(session_id, "人均200")
 
         self.assertEqual(second.json()["data"]["status"], "completed")
         self.assertEqual(second.json()["data"]["plans"], [])
@@ -312,10 +426,10 @@ class ApiTest(unittest.TestCase):
         read = self.client.get(
             f"/api/sessions/{session_id}", headers={"X-User-Id": "other-user"}
         )
-        write = self.client.post(
-            f"/api/sessions/{session_id}/messages",
+        write = self._send_message(
+            session_id,
+            "测试",
             headers={"X-User-Id": "other-user"},
-            json={"content": "测试"},
         )
 
         self.assertEqual(read.status_code, 404)

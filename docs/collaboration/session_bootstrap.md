@@ -13,7 +13,7 @@ _用于让新会话快速理解项目状态、用户学习进度和协作边界_
 3. [`../canonical/architecture_v2.md`](../canonical/architecture_v2.md)：目标架构
 4. [`../canonical/v2_roadmap.md`](../canonical/v2_roadmap.md)：当前里程碑边界
 5. [`../learning/progress.md`](../learning/progress.md)：用户已经学到哪里
-6. 当前里程碑复盘，例如 [`../learning/milestones/m1_entry_loop.md`](../learning/milestones/m1_entry_loop.md)
+6. 当前里程碑的计划与复盘；继续 M2 时读取 [`../status/m2_trustworthy_planning_plan_2026-08-20.md`](../status/m2_trustworthy_planning_plan_2026-08-20.md) 和 [`../learning/milestones/m2_trustworthy_planning.md`](../learning/milestones/m2_trustworthy_planning.md)
 7. [`../product/product_idea_inbox.md`](../product/product_idea_inbox.md)：只识别未决想法，不自动实现
 
 除非要追溯设计演进，否则不要先读 `archive/`。除非当前任务是面试复习，否则不要先加载全部 `interview/`。
@@ -50,7 +50,7 @@ _用于让新会话快速理解项目状态、用户学习进度和协作边界_
 - docs/README.md
 - docs/collaboration/session_bootstrap.md
 - docs/learning/progress.md
-- [当前里程碑复盘]
+- [当前里程碑计划与复盘；M2 使用 docs/status/m2_trustworthy_planning_plan_2026-08-20.md]
 
 先输出：
 1. 当前代码进展

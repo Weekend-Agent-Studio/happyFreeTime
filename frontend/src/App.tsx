@@ -1,4 +1,4 @@
-import { FormEvent, type ReactNode, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   ChevronRight,
@@ -19,8 +19,9 @@ import {
   CloudRain,
 } from "lucide-react";
 
-import { createSession, sendMessage } from "./api";
-import type { AgentResponse, Assumption, ChatMessage, ConstraintSummaryItem, Plan, ProviderFact } from "./types";
+import { createSession, getSession, listSessions, sendMessage } from "./api";
+import { AmapPlanMap } from "./AmapPlanMap";
+import type { AgentResponse, Assumption, ChatMessage, ConstraintSummaryItem, Plan, ProviderFact, SessionSummary, SessionView } from "./types";
 
 const SUGGESTIONS = [
   "今天下午出去玩，别太远",
@@ -35,6 +36,48 @@ const ASSUMPTION_LABELS: Record<string, string> = {
   budget_per_person: "预算",
   party: "同行人",
 };
+
+const SESSION_QUERY_KEY = "session";
+
+function sessionIdFromUrl(): string | null {
+  return new URL(window.location.href).searchParams.get(SESSION_QUERY_KEY);
+}
+
+function updateSessionUrl(sessionId: string | null, replace = false) {
+  const url = new URL(window.location.href);
+  if (sessionId) url.searchParams.set(SESSION_QUERY_KEY, sessionId);
+  else url.searchParams.delete(SESSION_QUERY_KEY);
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function statusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    active: "等待开始",
+    running: "规划中",
+    needs_input: "待补充信息",
+    completed: "已生成方案",
+    failed: "上次失败",
+  };
+  return labels[status] ?? status;
+}
+
+function responseFromSession(view: SessionView): AgentResponse | null {
+  if (view.latest_response) return view.latest_response;
+  if (!view.plans.length) return null;
+  return {
+    status: "completed",
+    reply: "",
+    question: null,
+    assumptions: [],
+    constraint_summary: [],
+    plans: view.plans,
+    conflict: null,
+    provider_facts: [],
+    catalog_violations: [],
+    catalog_warnings: [],
+  };
+}
 
 function displayAssumption(assumption: Assumption): string {
   // API 保留通用 value 类型；展示层在这里把已知领域字段格式化为用户语言。
@@ -130,38 +173,109 @@ function planPriceLabel(plan: Plan): string {
 }
 
 function App() {
-  // M1 在组件内只维护一个活跃会话。后端已经支持多个隔离会话，但“加载历史
-  // 会话列表”属于后续前端切片，所以当前新建按钮只重置本地活跃状态。
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<"trip" | "map" | "orders">("trip");
+  const [failedRequest, setFailedRequest] = useState<{
+    sessionId: string;
+    content: string;
+    requestId: string;
+  } | null>(null);
 
   const selectedPlan = useMemo(
     () => response?.plans.find((plan) => plan.plan_id === selectedPlanId) ?? response?.plans[0],
     [response, selectedPlanId],
   );
 
+  const refreshRecentSessions = useCallback(async () => {
+    try {
+      setRecentSessions(await listSessions(5));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "历史会话加载失败");
+    }
+  }, []);
+
+  const openSession = useCallback(async (nextSessionId: string, navigate = true) => {
+    setRestoring(true);
+    setError("");
+    setFailedRequest(null);
+    try {
+      const view = await getSession(nextSessionId);
+      const restoredResponse = responseFromSession(view);
+      setSessionId(view.session_id);
+      setMessages(view.messages);
+      setResponse(restoredResponse);
+      setSelectedPlanId(restoredResponse?.plans[0]?.plan_id ?? null);
+      setRightTab("trip");
+      if (navigate && sessionIdFromUrl() !== view.session_id) {
+        updateSessionUrl(view.session_id);
+      }
+    } catch (reason) {
+      setSessionId(null);
+      setMessages([]);
+      setResponse(null);
+      setSelectedPlanId(null);
+      if (sessionIdFromUrl() === nextSessionId) updateSessionUrl(null, true);
+      setError(reason instanceof Error ? reason.message : "会话恢复失败");
+    } finally {
+      setRestoring(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRecentSessions();
+    const initialSessionId = sessionIdFromUrl();
+    if (initialSessionId) void openSession(initialSessionId, false);
+
+    const handlePopState = () => {
+      const nextSessionId = sessionIdFromUrl();
+      if (nextSessionId) void openSession(nextSessionId, false);
+      else {
+        setSessionId(null);
+        setMessages([]);
+        setResponse(null);
+        setSelectedPlanId(null);
+        setFailedRequest(null);
+        setError("");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [openSession, refreshRecentSessions]);
+
   async function submit(content: string) {
     const trimmed = content.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || loading || restoring) return;
     setLoading(true);
     setError("");
-    setMessages((current) => [
-      ...current,
-      { id: crypto.randomUUID(), role: "user", content: trimmed },
-    ]);
     setInput("");
+    let activeSession = sessionId;
     try {
       // 懒创建后端会话：只打开页面不会生成空数据库记录。反问答案继续复用
       // activeSession，因此后端能通过同一个 thread_id 恢复 checkpoint。
-      const activeSession = sessionId ?? (await createSession());
-      if (!sessionId) setSessionId(activeSession);
-      const nextResponse = await sendMessage(activeSession, trimmed);
+      if (!activeSession) {
+        activeSession = await createSession();
+        setSessionId(activeSession);
+        updateSessionUrl(activeSession);
+      }
+      const isRetry = failedRequest?.sessionId === activeSession && failedRequest.content === trimmed;
+      const requestId = isRetry ? failedRequest.requestId : crypto.randomUUID();
+      if (!isRetry) {
+        setMessages((current) => [
+          ...current,
+          { id: crypto.randomUUID(), role: "user", content: trimmed },
+        ]);
+      }
+      setFailedRequest({ sessionId: activeSession, content: trimmed, requestId });
+      const nextResponse = await sendMessage(activeSession, trimmed, requestId);
+      setFailedRequest(null);
       setResponse(nextResponse);
       // plans、question、conflict 共用一个响应契约。有新方案时默认选择第一项，
       // 保证右侧详情面板始终有确定内容；用户之后可以点击其他方案切换。
@@ -179,8 +293,10 @@ function App() {
           { id: crypto.randomUUID(), role: "assistant", content: assistantText },
         ]);
       }
+      await refreshRecentSessions();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "请求失败，请稍后重试");
+      if (activeSession) await refreshRecentSessions();
     } finally {
       setLoading(false);
     }
@@ -192,12 +308,14 @@ function App() {
   }
 
   function resetSession() {
-    // 这里只结束前端当前会话，不删除 SQLite 中的旧记录；未来历史列表可恢复它。
+    // 新建规划只切换活跃会话，不删除历史；空会话仍采用首次提交时懒创建。
     setSessionId(null);
     setMessages([]);
     setResponse(null);
     setSelectedPlanId(null);
+    setFailedRequest(null);
     setError("");
+    updateSessionUrl(null);
   }
 
   return (
@@ -216,14 +334,26 @@ function App() {
           新建规划
         </button>
         <div className="sidebar-section-label"><History size={14} aria-hidden="true" />最近会话</div>
-        <button className="session-row active" type="button">
-          <MessageSquareText size={16} aria-hidden="true" />
-          <span>
-            <strong>{messages[0]?.content.slice(0, 16) || "新的周末计划"}</strong>
-            <small>{sessionId ? "进行中" : "等待开始"}</small>
-          </span>
-          <ChevronRight size={15} aria-hidden="true" />
-        </button>
+        <div className="session-history-list">
+          {recentSessions.map((session) => (
+            <button
+              className={`session-row ${session.session_id === sessionId ? "active" : ""}`}
+              type="button"
+              key={session.session_id}
+              aria-current={session.session_id === sessionId ? "page" : undefined}
+              onClick={() => void openSession(session.session_id)}
+            >
+              <MessageSquareText size={16} aria-hidden="true" />
+              <span>
+                <strong>{session.title}</strong>
+                <small>{statusLabel(session.status)} · {session.last_message_preview}</small>
+              </span>
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+          ))}
+          {!recentSessions.length ? <p className="session-history-empty">完成一次规划后会显示在这里</p> : null}
+        </div>
+        <div className="sidebar-lower-slot" aria-hidden="true" />
         <div className="sidebar-footer">
           <span className="status-dot" />
           本地演示模式
@@ -339,9 +469,9 @@ function App() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={response?.question?.question ?? "例如：周六下午和朋友出去玩，人均150"}
-              disabled={loading}
+              disabled={loading || restoring}
             />
-            <button type="submit" disabled={loading || !input.trim()} aria-label="发送需求">
+            <button type="submit" disabled={loading || restoring || !input.trim()} aria-label="发送需求">
               <Send size={18} aria-hidden="true" />
             </button>
           </div>
@@ -444,11 +574,7 @@ function MapPanel({ plan }: { plan?: Plan }) {
   const sourceSummary = sources.length === 1 ? sources[0] : sources.length > 1 ? "多来源路线" : "路线摘要";
   return (
     <div className="map-detail">
-      <div className="map-canvas" aria-label="M1 本地路线示意图">
-        <div className="road road-a" /><div className="road road-b" /><div className="road road-c" />
-        <div className="route-line" />
-        <span className="map-marker start">起</span><span className="map-marker stop-one">1</span><span className="map-marker stop-two">2</span>
-      </div>
+      {plan ? <AmapPlanMap plan={plan} /> : <div className="map-canvas amap-map-status disabled">生成方案后显示地图路线</div>}
       <div className="detail-title"><span className="eyebrow">路线来源</span><h2>{sourceSummary}</h2><p>{plan ? `${plan.route_legs.reduce((sum, leg) => sum + leg.distance_km, 0).toFixed(1)} km · 已按路线耗时重建时间线` : "生成方案后显示路线摘要"}</p></div>
       {plan?.route_legs.map((leg, index) => <div className="route-row" key={`${leg.destination_name}-${index}`}><Route size={17} /><span><strong>{leg.destination_name}</strong><small>{leg.start}–{leg.end} · {leg.distance_km}km · {leg.duration_minutes} 分钟 · {routeSourceLabel(leg.source)}{leg.degraded ? ` · 已降级：${leg.degraded_reason}` : ""}</small></span></div>)}
     </div>

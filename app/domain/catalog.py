@@ -95,6 +95,9 @@ class StopCandidate(BaseModel):
     location: GeoPoint
     coordinate_system: CoordinateSystem = CoordinateSystem.GCJ02
     category_tags: list[str] = Field(default_factory=list)
+    preference_tags: list[str] = Field(default_factory=list)
+    diet_tags: list[str] = Field(default_factory=list)
+    scene_tags: list[str] = Field(default_factory=list)
     avg_price: int | None = Field(default=None, ge=0)
     price_kind: PriceKind = PriceKind.UNKNOWN
     duration_minutes: int = Field(gt=0)
@@ -116,6 +119,9 @@ class StopCandidate(BaseModel):
             "type": self.resource_type.value,
             "name": self.name,
             "category": self.category_tags,
+            "tags": self.preference_tags,
+            "diet_tags": self.diet_tags,
+            "scene_tags": self.scene_tags,
             "district": self.district,
             "address": self.address,
             "lat": self.location.latitude,

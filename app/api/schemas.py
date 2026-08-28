@@ -1,6 +1,7 @@
 """HTTP 层的数据契约；负责稳定前后端接口，不承载规划业务规则。"""
 
-from typing import Any, Generic, TypeVar
+from datetime import datetime
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,7 +20,28 @@ class MessageRequest(BaseModel):
     """用户发送的一条消息；长度限制用于尽早拒绝异常请求。"""
     model_config = ConfigDict(extra="forbid")
 
+    request_id: str = Field(min_length=8, max_length=64)
     content: str = Field(min_length=1, max_length=4000)
+
+
+class SessionSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    title: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    last_message_preview: str
+
+
+class SessionMessageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
 
 
 class ConstraintSummaryItem(BaseModel):

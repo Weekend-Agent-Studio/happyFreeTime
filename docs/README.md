@@ -1,6 +1,6 @@
 # HappyFreeTime 文档中心
 
-_当前实现、架构基线、学习记录、面试材料和历史设计的统一入口 · 2026-08-24_
+_当前实现、架构基线、学习记录、面试材料和历史设计的统一入口 · 2026-08-26_
 
 ---
 
@@ -28,6 +28,9 @@ Catalog C2 是已被 C3 替代的历史快照；当前采集、replay、Unknown 
 请先阅读 README.md、docs/README.md 和 docs/collaboration/session_bootstrap.md。
 如果本次继续 M1 学习，再阅读 docs/learning/progress.md 与
 docs/learning/milestones/m1_entry_loop.md。
+如果本次继续 M2 设计或实现，再阅读
+docs/status/m2_trustworthy_planning_plan_2026-08-20.md 与
+docs/learning/milestones/m2_trustworthy_planning.md。
 
 先说明你理解的当前代码进展、我的学习进展和本次切片边界。
 不要自动实现 product_idea_inbox 或 archive 中的内容。

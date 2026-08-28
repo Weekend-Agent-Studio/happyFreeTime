@@ -24,7 +24,7 @@ from app.domain.constraints import (
     Interpretation,
     QuestionDecision,
 )
-from app.domain.planning import CandidateSet
+from app.domain.planning import CandidateSet, PlanPriceStatus, StopRole, StopType
 from app.domain.providers import (
     GeoPoint,
     ProviderMode,
@@ -35,8 +35,10 @@ from app.domain.providers import (
     WeatherFact,
 )
 from app.domain.catalog import (
+    CatalogWarningCode,
     CatalogSource,
     ConstraintViolation,
+    PriceKind,
     VerificationStatus,
     ViolationCode,
 )
@@ -224,6 +226,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
         allowed_msgpack_modules=[
             ActorContext,
             CandidateSet,
+            CatalogWarningCode,
             CatalogSource,
             ConstraintViolation,
             ConstraintSource,
@@ -231,6 +234,8 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             IdentityType,
             Intent,
             Interpretation,
+            PlanPriceStatus,
+            PriceKind,
             QuestionDecision,
             ProviderMode,
             ProviderSource,
@@ -238,6 +243,8 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             RouteFact,
             RouteMode,
             RouteSource,
+            StopRole,
+            StopType,
             WeatherFact,
             VerificationStatus,
             ViolationCode,

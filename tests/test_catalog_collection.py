@@ -9,6 +9,53 @@ COLLECTED_AT = datetime(2026, 8, 24, 9, 0, tzinfo=timezone.utc)
 
 
 class CatalogCollectionTest(unittest.TestCase):
+    def test_unsupported_opening_hours_exceptions_do_not_become_partial_truth(self) -> None:
+        snapshot = CatalogCollector(max_records=20).build(
+            {
+                "elements": [
+                    {
+                        "type": "node",
+                        "id": 405,
+                        "lat": 39.9,
+                        "lon": 116.4,
+                        "tags": {
+                            "name": "节假日例外餐厅",
+                            "amenity": "restaurant",
+                            "opening_hours": "Mo-Su 09:00-18:00; PH off",
+                        },
+                    }
+                ]
+            },
+            collected_at=COLLECTED_AT,
+        )
+
+        self.assertEqual(snapshot["records"][0]["open_hours"], {})
+
+    def test_preserves_multiple_opening_intervals_for_each_day(self) -> None:
+        snapshot = CatalogCollector(max_records=20).build(
+            {
+                "elements": [
+                    {
+                        "type": "node",
+                        "id": 404,
+                        "lat": 39.9,
+                        "lon": 116.4,
+                        "tags": {
+                            "name": "分时段营业餐厅",
+                            "amenity": "restaurant",
+                            "opening_hours": "Mo-Su 11:00-14:00,16:00-20:00",
+                        },
+                    }
+                ]
+            },
+            collected_at=COLLECTED_AT,
+        )
+
+        self.assertEqual(
+            snapshot["records"][0]["open_hours"]["sat"],
+            "11:00-14:00,16:00-20:00",
+        )
+
     def test_same_osm_object_from_multiple_queries_is_emitted_once(self) -> None:
         element = {
             "type": "node",

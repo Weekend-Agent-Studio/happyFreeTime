@@ -41,6 +41,8 @@ graph LR
 
 建议周期：3-5 个有效开发日。
 
+**实现检查点（2026-08-28）：** 核心入口、SQLite checkpoint、业务 Session View、最近会话侧栏和 URL 刷新恢复已经闭环。消息接口已引入客户端 Request ID 与持久化 Planning Run；Plan 实例 ID 和组合指纹已分离，消除了跨会话相同方案组合的主键冲突。公开部署前仍需把固定 Demo 用户升级为匿名 Cookie 身份，并补可重复执行的浏览器 E2E 文件。
+
 ### 3.1 范围
 
 **Domain**
@@ -70,7 +72,7 @@ graph LR
 
 **Persistence / Eval**
 
-- SQLite 保存 users、sessions、messages、plans 和 trace events。
+- SQLite 保存 users、sessions、messages、planning runs、plans 和 trace events。
 - 使用 SQLite checkpointer，验证 interrupt 后可恢复。
 - 建立 5-8 个 `EvalCase` smoke cases 与 JSON/Markdown 报告骨架。
 
@@ -80,7 +82,9 @@ graph LR
 - 缺普通预算或距离时不反问，并在方案中展示默认假设。
 - 严格预算无金额、执行无选择等阻塞情况会正确反问。
 - 相对日期和“下午”“别太远”由 Enrichment 规则解析。
-- 刷新或重启后，可以继续一个被 interrupt 的会话。
+- 刷新或重启后，可以恢复完整 Session View，并继续一个被 interrupt 的会话。
+- 最近非空会话可以在左栏切换；刷新和浏览器前进/后退保持 URL 与活跃会话一致。
+- 相同 Request ID 的重试不重复写消息或规划，相同方案组合可以合法出现在不同会话。
 - 前端能够完成“输入 -> 约束 -> 方案/反问”的完整交互。
 - smoke eval 可以在无高德、无网络模式稳定运行。
 
@@ -91,6 +95,7 @@ graph LR
 - Gate 的 blocking/non-blocking 参数化测试。
 - Graph interrupt/resume 集成测试。
 - API 用户与会话隔离测试。
+- Request ID 重试、内容冲突、跨会话相同方案组合和 Session View 恢复测试。
 - 一个 Playwright 主路径截图测试。
 
 ### 3.4 明确不做
@@ -104,23 +109,27 @@ graph LR
 
 建议周期：6-9 个有效开发日。
 
+**实现检查点（2026-08-26）：** A/B/C1-C3/S0/D0-D3 已实现首版，D4 已完成总预算与 24 Route Leg 公平复核预算；四个显式骨架覆盖 2/3/4 站，多站每角色最多 8 个候选后完整枚举。M2 尚未完成；下一优先级是餐时锚点、返程/独立全程距离、集合级多样化与对应 eval。详细边界见 `docs/status/m2_trustworthy_planning_plan_2026-08-20.md`。
+
 ### 4.1 范围
 
 **数据与 Provider**
 
 - 整理首批 30-50 个北京真实 POI 基础数据。
 - 增加来源、采集时间、验证状态和动态 Mock 字段。
-- 实现高德 Geocoding、Weather、Route、MapGeometry Provider。
+- 实现高德 Geocoding、Weather、Route Provider；浏览器地图通过独立 WebMap 配置/安全代理和前端 Adapter 消费 `RouteLeg.geometry`，不重复请求路线。
 - 实现缓存和 `live/record/replay/mock` 模式。
 - 实现高德 -> 缓存 -> 本地估算的降级链。
 
 **规划引擎**
 
 - 统一通用 `StopCandidate`、`Stop` 和 `RouteLeg`。
-- 支持短时、半日、一日骨架，最多 4 个核心停靠点。
-- 每类召回、硬约束剪枝、组合、策略评分和完整 verifier。
+- 定义 `PlanningIntent`、`StopRole` 和 `PlanSkeleton`；M2 先提供确定性构造与版本化显式骨架，LLM Adapter 不作为可信基线的前置条件。
+- 支持短时、半日、一日的 2/3/4 站骨架；时长只是资格与先验信号，不硬映射唯一站数。
+- 根据已判定为 hard 的站数/角色/先后关系、时间锚点、最低停留与路线下界先硬筛骨架，再按需求覆盖、节奏、时间利用、缓冲和资源可得性计算结构分，并保留多个骨架进入组合。
+- 先用通用有界序列组合器完整枚举最多 4 站的空间；每类召回、单资源硬剪枝、部分行程估分、完整方案重评分和完整 Verifier 分层实现。
 - 动态选择 `balanced`、`low_cost`、`low_travel`、`experience`、`family_safe`、`weather_safe`。
-- 生成 3 个都满足硬约束且具备实际差异的方案。
+- 从全部可行候选中生成最多 3 个具备实际差异的方案，不机械复制总分最高的近似组合。
 - 只对 finalist 路段调用高德；失败时最多局部重规划 2 次。
 - 无解时返回结构化冲突与放宽选项。
 
@@ -133,6 +142,8 @@ graph LR
 ### 4.2 验收标准
 
 - 支持 2、3、4 核心停靠点的合法时间线。
+- 同一可用时长可以保留不同站数或不同顺序的骨架；强度为 hard 的站数、角色和先后关系不会被结构分覆盖，其他用户表达按 Planning Preference 排序。
+- 骨架结构分、单站角色分、部分行程启发分和完整方案分职责清楚；真实路线返回后必须重新计算完整方案分，长行程不会因简单累加单站分天然胜出。
 - 方案硬约束通过率在 smoke eval 中达到预设门槛，建议先以 95% 为目标。
 - 三方案不会只是标题不同，至少在策略、成本、路程、类别或 POI 上存在显著差异。
 - 高德不可用时仍能完成规划，且结果明确标记降级来源。
@@ -142,7 +153,8 @@ graph LR
 ### 4.3 必须测试
 
 - Provider contract、缓存 TTL、失败短缓存和 replay 测试。
-- 组合器的硬约束剪枝和边界时间测试。
+- 骨架资格、结构评分、显式顺序、跨站数比较和候选资源不足测试。
+- 通用组合器的硬约束剪枝、部分行程未来可完成性和边界时间测试。
 - finalist 路线复核后的时间线重建测试。
 - 多样性与重复方案测试。
 - 无解及放宽建议测试。
@@ -253,6 +265,14 @@ graph LR
 - Docker、本地一键启动、环境模板、种子数据和运维说明。
 - 无 LLM 演示模式和稳定录屏脚本。
 
+**混合智能规划演进**
+
+- 在 `PlanningIntent` 稳定契约后增加可选 LLM Adapter：模型只提出带证据的角色覆盖、先后关系、站数范围、节奏和主题，确定性构造器仍决定合法骨架与 Constraint Strength。
+- 对少量已通过 Verifier 的候选增加可选 `PlanCritic`，用结构化分数评价语义匹配与体验连贯性；它可以重排可行候选，不能复活违规候选。
+- Presenter 基于结构化分数、事实、warning、tradeoff 和 assumption 解释站数、顺序与地点选择；模板路径始终完整可用。
+- 将显式骨架逐步推广为有限角色状态机或规划语法，支持必选/可选角色、先后关系、站数范围和显式 `FINISH`；内部演进不改变 `PlanningService.plan(...)` 外部接口。
+- 只有组合量、延迟或调用成本指标证明穷举成为瓶颈后，才把内部组合器替换为 Beam Search；外部 Provider 按 Route Leg 预算限制，禁止无界搜索。
+
 **评测**
 
 - 扩充到 20-30 个核心 cases，并为关键 case 增加语言变体。
@@ -275,6 +295,8 @@ graph LR
 - 桌面和移动主路径无明显溢出、遮挡和不可操作状态。
 - 评测可一条命令运行并生成报告，结果包含代码、Prompt、规则和数据集版本。
 - V2 在主要成功率、硬约束、无效反问和 LLM 调用数上相对 V1 有可解释提升。
+- LLM PlanningIntent/PlanCritic 相对确定性基线在语义偏好匹配上有可复现实验收益；关闭或调用失败时结果仍可规划、可验证、可解释。
+- LLM 影响的每个候选顺序都能追溯模型、Prompt、输入证据和结构化输出，且不会改变 Verifier 结论。
 - README 能让面试官在数分钟内理解问题、架构、取舍、量化结果和演示入口。
 
 ## 8. 评测布局
@@ -339,9 +361,9 @@ POI 名称精确匹配只用于 Provider fixture 或特定回归，不作为通�
 
 | 优先级 | 必须保留 | 可以后置 |
 | --- | --- | --- |
-| P0 | Router/Enrichment/Gate、Pydantic、确定性规划、真实路线降级、前端主路径 | Beam Search |
+| P0 | Router/Enrichment/Gate、Pydantic、显式骨架与确定性规划、真实路线降级、前端主路径 | 角色状态机、Beam Search |
 | P1 | 方案修改、确认快照、幂等、Saga、轨迹、基础评测 | 完整长期记忆 |
-| P1 | Docker、本地一键运行、演示视频、V1/V2 对比 | 公网长期运行 |
-| P2 | 轻登录、MCP、评测 UI、更多城市 | 微调或强化学习 |
+| P1 | 证据化方案解释、Docker、本地一键运行、演示视频、V1/V2 对比 | 公网长期运行 |
+| P2 | LLM PlanCritic、轻登录、MCP、评测 UI、更多城市 | 微调或强化学习 |
 
 一个真正有竞争力的最小终态是：能从自然语言生成可信多站计划，允许局部修改，接入真实路线并可降级，经过确认完成有状态 Mock 交易，在失败时补偿，并能用评测与 trace 证明其稳定性。这个闭环比堆叠更多 Agent 名称或训练方法更能体现工程能力。

@@ -100,6 +100,21 @@ def candidate(
 
 
 class CatalogTest(unittest.TestCase):
+    def test_unsupported_opening_hours_are_kept_with_an_unverified_warning(self) -> None:
+        unsupported = candidate(
+            "seasonal-hours",
+            open_hours={"sat": "sunrise-sunset"},
+        )
+
+        result = InMemoryCatalog([unsupported]).recall(constraints())
+
+        self.assertEqual([item.resource_id for item in result.candidates], ["seasonal-hours"])
+        self.assertEqual(result.violations, [])
+        self.assertEqual(
+            [warning.code for warning in result.warnings],
+            [CatalogWarningCode.OPENING_HOURS_UNVERIFIED],
+        )
+
     def test_unknown_hours_and_child_suitability_are_warnings_not_mocked_or_pruned(self) -> None:
         unknown = candidate("unknown-facts").model_copy(
             update={"children_allowed": None, "open_hours": {}}

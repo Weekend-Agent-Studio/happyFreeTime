@@ -1,6 +1,6 @@
 # HappyFreeTime V2 总体架构设计
 
-> 状态：已确认的 V2 设计基线 | 更新日期：2026-08-12 | 适用范围：后续架构、接口、数据模型和实施决策 | 当前实现进展以根目录 `README.md` 和自动测试为准
+> 状态：已确认的 V2 设计基线 | 更新日期：2026-08-24 | 适用范围：后续架构、接口、数据模型和实施决策 | 当前实现进展以根目录 `README.md` 和自动测试为准
 
 ---
 
@@ -122,7 +122,7 @@ MainGraph 负责产品级控制流，建议节点如下：
 | `enrichment` | 确定性代码 + Provider | 原始约束、ActorContext | `NormalizedConstraints` |
 | `need_question_gate` | 确定性代码 | 约束、意图、当前资源 | `QuestionDecision` |
 | `ask_question` | Graph interrupt | 单个最重要问题 | resume 后的新输入 |
-| `planning_subgraph` | 确定性工作流 | 规范化约束 | `CandidateSet`、`Plan[]` |
+| `planning_subgraph` | 确定性主流程 + 可选有界 LLM 启发 | 规范化约束 | `CandidateSet`、`Plan[]` |
 | `presenter` | 模板，允许 1 次可选 LLM | 已验证方案与证据 | 展示模型 |
 | `permission_gate` | 确定性代码 | 已选方案、执行预览 | 确认快照 |
 | `execution_subgraph` | 确定性状态机 | 确认快照、ActorContext | `Order`、事件 |
@@ -135,20 +135,24 @@ MainGraph 负责产品级控制流，建议节点如下：
 ```mermaid
 graph LR
 
-    policy[选择行程骨架] --> retrieve[分类型召回]
+    intent[形成 PlanningIntent<br/>规则默认/可选 LLM] --> policy[生成并初筛多个行程骨架]
+    policy --> retrieve[按 Stop Role 召回]
     retrieve --> prune[硬约束剪枝]
-    prune --> combine[组合候选方案]
-    combine --> score[多策略评分]
-    score --> diversify[去重与多样化]
-    diversify --> verify[真实路线验证]
-    verify --> feasible{全部可行?}
-    feasible -->|是| plans([输出 3 个方案])
+    prune --> combine[穷举或 Beam 组合部分行程]
+    combine --> score[局部估算与分层评分]
+    score --> verify[finalist 真实路线与完整 Verifier]
+    verify --> feasible{存在可行候选?}
+    feasible -->|是| critic[可选 LLM PlanCritic<br/>只做语义重排]
+    critic --> diversify[去重与多样化]
+    diversify --> plans([输出最多 3 个方案])
     feasible -->|否| replan[局部替换或重排]
     replan -->|最多 2 次| verify
     replan -->|仍失败| conflict([输出约束冲突])
 ```
 
-规划不是由 Planner Agent 临场编写日程。LLM 负责理解用户想要什么，确定性引擎负责从可信候选中搜索“什么能做、何时能做、为何这样排”。
+规划不是由 Planner Agent 临场编写自由文本日程。LLM 可以形成带证据的 `PlanningIntent`，提出角色覆盖、先后关系、站数范围和节奏偏好，也可以在已验证候选之间评价语义匹配与体验连贯性；确定性引擎仍负责枚举、路线、时间、预算、营业、硬约束和最终可行性。LLM 的建议是启发和有界评分信号，不是事实来源，也不能让不可行方案通过。
+
+M2 第一版默认跳过可选 LLM `PlanCritic`，先用显式 `PlanSkeleton`、确定性搜索和模板 Presenter 建立可复现基线。后续增加 LLM 启发或替换内部搜索算法时，保持 `PlanningService.plan(NormalizedConstraints) -> CandidateSet` 的外部接口不变。
 
 ### 5.3 ExecutionSubgraph
 
@@ -164,8 +168,10 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | --- | --- |
 | `user_id` | 用户或匿名主体标识 |
 | `session_id` | 会话标识，同时作为 LangGraph `thread_id` |
-| `run_id` | 一次用户输入触发的完整运行 |
-| `plan_id` | 一个可选或已选方案 |
+| `request_id` | 客户端为一次逻辑消息提交生成；同一次重试复用 |
+| `planning_run_id` | 服务端一次逻辑提交处理生命周期的内部标识；`user_id + session_id + request_id` 唯一 |
+| `plan_id` | 一个 Planning Run 产生的候选实例标识，不从方案内容派生 |
+| `composition_fingerprint` | 骨架与有序资源组合的稳定指纹；用于候选去重，可跨会话重复 |
 | `order_id` | 一次执行事务的业务主键 |
 
 ### 6.2 关键模型
@@ -179,6 +185,8 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | `ConstraintValue[T]` | 单字段审计信息 | value、source、raw text、confidence、rule id |
 | `Assumption` | 默认值说明 | 字段、默认值、原因、是否可修改 |
 | `QuestionDecision` | Gate 输出 | need question、field、question、severity |
+| `PlanningIntent` | 规划语义输入 | required/optional roles、precedence、count range、pace、themes、evidence |
+| `PlanSkeleton` | 不含具体 POI 的结构候选 | ordered/partial roles、required/optional、count range、eligibility、structure score |
 | `Stop` | 通用停靠点 | resource、arrival、start、end、cost、evidence |
 | `RouteLeg` | 停靠点间路线 | mode、distance、duration、geometry、source、degraded |
 | `Plan` | 完整方案 | stops、route legs、score breakdown、tradeoffs、execution actions |
@@ -270,28 +278,54 @@ Gate 只问会阻止当前动作继续的问题，每轮最多问一个最重要
 
 ### 8.1 行程骨架
 
-代码根据可用时长和用户显式必选项选择最小满足骨架：
+`Stop Role` 表示一站在行程中的语义作用，例如 `ACTIVITY`、`LUNCH`、`DINNER` 或 `BREAK`；它不等于资源类别，同一家餐厅可以承担午餐或晚餐。`PlanSkeleton` 只定义有序或部分有序的角色、必选/可选角色和站数范围，不预先锁定具体 POI，也不等于 `PlanStrategy`。
 
-| 时长 | 默认骨架 | 核心停靠点上限 |
+第一版使用少量版本化的显式骨架，示例包括：
+
+| 站数 | 示例骨架 | 典型适用条件 |
 | --- | --- | --- |
-| 2-4 小时 | 活动 + 餐饮 | 2 |
-| 4-6 小时 | 活动 + 餐饮/咖啡 + 可选活动 | 3 |
-| 8-12 小时 | 上午活动 + 午餐 + 下午活动 + 晚餐 | 4 |
+| 2 | `ACTIVITY -> MEAL`、`MEAL -> ACTIVITY` | 短时窗口或轻松节奏；具体餐次由时间与用户表达决定 |
+| 3 | `LUNCH -> ACTIVITY -> DINNER` | 时间窗口覆盖午餐与晚餐，且两餐均有需求或合理偏好 |
+| 3 | `ACTIVITY -> BREAK -> DINNER`、`ACTIVITY -> ACTIVITY -> MEAL` | 下午至晚间、休息偏好或丰富度偏好 |
+| 4 | `ACTIVITY -> LUNCH -> ACTIVITY -> DINNER` | 一日窗口且最低停留、交通与缓冲均可容纳 |
 
-用户明确要求的停靠点优先。骨架只规定类型与数量，不预先锁定具体 POI。
+时长区间只作为骨架资格和先验的一个信号，不再硬映射为唯一站数。骨架选择遵循：
+
+1. 带“必须”“只去”“至少”“先……再……”等强约束语义或经用户确认的站数、角色、地点和先后关系转成 Hard Constraint；其余表达按证据与语义成为 Planning Preference，不能仅因来源是用户显式表达就自动设为 hard。
+2. 用各角色最低停留时间、路线下界、必要缓冲和显式返程要求淘汰不可能骨架。
+3. 对合法骨架按需求覆盖、时间锚点、节奏匹配、时间利用、缓冲风险和候选资源可得性计算结构分。
+4. 保留少量不同站数或不同顺序的非支配骨架继续填充，避免在看到真实 POI 与路线前过早只选一个。
+5. 未明确返程时不得把返程悄悄计入或排除“总距离/结束时间”；若用户表达 `return_by`，返程必须进入 Hard Constraint 和时间线。
+
+骨架结构分只是先验，不直接保证最终 Plan 更优。具体 POI、真实路线和完整时间线生成后必须重新计算完整方案分数。不同站数不能简单累加单站分数，否则长行程会天然占优。
 
 ### 8.2 搜索和排序
 
-推荐初始规模：
+第一版搜索流程：
 
-1. 每种资源召回 10-15 个候选。
-2. 本地过滤并保留每类 5-8 个。
-3. 组合 20-50 个候选行程。
-4. 按策略评分、硬约束验证和多样化，输出 3 个。
+1. 为每个骨架中的 Stop Role 召回 10-15 个资源，并按角色、时间和用户语义本地过滤到 5-8 个。
+2. 对当前最多 4 站的小规模空间优先完整枚举，并用硬约束下界和支配关系提前剪枝。
+3. 只保留 20-50 个高质量组合进入昂贵验证；路线返回后重建完整时间线并重新评分。
+4. 从全部可行候选中做集合级多样化，输出最多 3 个，而不是机械返回数值分最高但内容近似的三个。
+
+评分分四层，且 Hard Constraint 始终独立于评分：
+
+| 层次 | 用途 | 主要信号 |
+| --- | --- | --- |
+| 单站角色分 | 召回后缩小候选池 | 角色适配、兴趣、价格证据、营业、天气、亲子与数据可信度 |
+| 部分行程分 | 搜索剪枝或 Beam 保留 | 已有站点价值、出发地/相邻通勤估算、需求覆盖、剩余必选角色可完成性、剩余缓冲 |
+| 完整方案分 | 真实路线和 Verifier 后最终排序 | 总交通、预算、时间利用、用餐对齐、主题连贯、风险、tradeoffs 与策略权重 |
+| 候选集合分 | 选择最终三个方案 | POI/区域/骨架/策略重叠、成本与路程差异、用户可感知差异 |
+
+部分行程分是便宜的启发估计，不能直接冒充完整方案分；完整方案必须基于 Provider 事实重新计算，并避免节点、边和全局指标重复计分。显式硬约束失败直接淘汰，不使用“足够大的负分”代替验证。
 
 策略集合按场景动态选择：`balanced`、`low_cost`、`low_travel`、`experience`、`family_safe`、`weather_safe`。三个输出必须都满足硬约束，并在 POI 重叠、成本、距离、类别或策略上具有实际差异。
 
 评分维度固定，权重按策略变化。每个维度保留分数、证据、奖励和惩罚原因，Presenter 只能总结这些已存在的事实。
+
+首期不因算法名提前引入 Beam Search。若评测证明完整枚举出现组合或延迟瓶颈，内部组合器可按角色逐层扩展，每层只保留宽度 `K` 的部分行程。部分状态必须包含当前位置、当前时间、已覆盖角色、剩余必选角色、预算、缓冲和 `FINISH` 动作；不能以“时间未满就继续加站”作为停止规则。
+
+目标形态把显式骨架推广为有限的角色状态机或规划语法：`PlanningIntent` 提供必选/可选角色、先后关系和站数范围，确定性代码将其编译为合法路径。该演进改变内部实现，不改变 `PlanningService.plan(...)` 外部接口。Beam Search 是组合规模扩大后的可替换实现，不是该目标形态成立的前提。
 
 ### 8.3 可行性验证
 
@@ -301,7 +335,19 @@ Gate 只问会阻止当前动作继续的问题，每轮最多问一个最重要
 - 违反硬约束时局部替换或重排，最多重规划 2 次。
 - 仍无解时返回 `ConstraintConflict` 与可解释的放宽选项，禁止静默放宽硬约束。
 
-Beam Search 作为 P2 优化：当 POI 和多站组合扩大、穷举成本明显上升后引入，但保持 `PlanningService` 的输入输出不变。
+双站阶段可以用“候选组合数”限制外部路线复核；扩展到 3/4 站后改用“Route Leg 调用预算”，因为同样 12 个候选在不同站数下产生的外部调用数量不同。预算耗尽必须产生可观测原因，不得进入无界搜索。
+
+### 8.4 LLM 在规划中的职责
+
+LLM 可以实质影响规划，但只通过结构化、有证据、可降级的接口：
+
+- `PlanningIntent`：从模糊表达中提出角色覆盖、先后关系、站数范围、节奏和主题；确定性规则负责 Constraint Strength、合法骨架和可行性。
+- 语义候选分：评价“有设计感”“适合聊天”“松弛”等难以规则化的偏好，可用于召回、部分行程启发或已验证候选的有界加分。
+- `PlanCritic`：只对少量已通过 Verifier 的候选评价偏好匹配与体验连贯性，输出结构化分数、理由和证据引用；它可以改变可行候选之间的顺序，但不能复活违规候选。
+- Presenter：根据 Plan、Score Breakdown、Source Facts、Warnings、Tradeoffs 和 Assumptions 解释为何选择该站数、顺序和地点，并比较方案差异。
+- 后续有界修复：面对结构化 violation，只能从替换站点、选择其他骨架、改变软策略或向用户提问等允许动作中选择，随后必须重新验证且最多两轮。
+
+LLM 不计算或裁决路线、时间、预算、营业、库存和 Hard Constraint，不发明 POI 或来源事实，不静默放宽约束，也不运行无界规划循环。所有可选 LLM 步骤必须有确定性回退，记录模型、Prompt、规则和输出版本，并通过离线评测证明相对规则基线的收益。
 
 ## 9. Provider 与降级
 
@@ -310,12 +356,12 @@ Beam Search 作为 P2 优化：当 POI 和多站组合扩大、穷举成本明�
 - `GeocodingProvider`
 - `WeatherProvider`
 - `RouteProvider`
-- `MapGeometryProvider`
+- `WebMapProvider`（只负责浏览器安全配置与固定上游代理；路线几何复用 `RouteProvider` 的 `RouteFact.geometry`）
 - `CatalogProvider`
 - `AvailabilityProvider`
 - `BookingProvider`
 
-高德实现可以共享底层客户端，但领域接口保持分离。首期直接在后端使用 Provider，不通过 MCP 增加额外协议层；后期可在稳定 Service 上增加轻量、只读 MCP 适配器。
+高德实现可以共享底层客户端，但领域接口保持分离。前端 Map Adapter 只渲染已复核的 `RouteLeg.geometry`，不再次执行路线搜索，避免同一 Plan 出现两份路线事实和重复外部调用。首期直接在后端使用 Provider，不通过 MCP 增加额外协议层；后期可在稳定 Service 上增加轻量、只读 MCP 适配器。
 
 ### 9.2 运行模式
 
@@ -392,7 +438,7 @@ graph TB
 - 业务事务先提交，再推进 checkpoint；幂等机制防止恢复时重复执行。
 - `orders` 和 `order_events` 是交易事实来源，checkpoint 不能替代业务审计。
 
-核心表：`users`、`sessions`、`messages`、`plans`、`orders`、`order_events`、`user_profiles`、`memories`、`trace_events`、`provider_cache`。
+核心表：`users`、`sessions`、`messages`、`planning_runs`、`plans`、`orders`、`order_events`、`user_profiles`、`memories`、`trace_events`、`provider_cache`。
 
 除公共 Provider 缓存外，业务表从第一天包含 `user_id`。
 
@@ -405,6 +451,8 @@ graph TB
 `ActorContext.identity_type` 支持 `demo`、`anonymous`、`registered`。所有资源读取必须同时按资源 ID 与当前 `user_id` 过滤，不能只凭可猜测 ID 获取数据。
 
 一个用户可拥有多个会话；同一会话同一时刻只允许一个活跃 run，不同会话可以并行。删除会话时清理消息、计划、checkpoint 和普通轨迹；订单审计按规则保留或匿名化。
+
+一次消息提交先以 `(user_id, session_id, request_id)` 获取或创建 `Planning Run`。已完成的重复请求直接返回持久化响应；相同 Request ID 携带不同内容必须拒绝。成功时，助手消息、不可变 Plan Version 与完整响应快照在同一业务事务中提交。Checkpoint 只恢复 Graph 控制流，Session View 不直接暴露或依赖其内部结构。
 
 ### 11.3 记忆
 
@@ -425,6 +473,7 @@ FastAPI 是系统边界，建议首批端点：
 ```text
 POST   /api/sessions
 GET    /api/sessions
+GET    /api/sessions/{session_id}
 POST   /api/sessions/{session_id}/messages
 PATCH  /api/sessions/{session_id}/constraints
 POST   /api/sessions/{session_id}/plans/{plan_id}/select
@@ -436,11 +485,13 @@ GET    /api/sessions/{session_id}/events
 
 所有普通响应使用 `ResponseEnvelope`，流式事件使用版本化 `AgentEvent`。外部 I/O 使用 async，规划核心保持同步纯函数，必要时放入 worker thread。
 
+`POST .../messages` 要求客户端传入 `request_id`；`GET /api/sessions` 默认只返回少量最近非空会话，`GET .../{session_id}` 返回稳定的 Session View，包括完整消息和最近一次规划响应。前端以 URL 中的 `session` 定位当前会话，并用 History API 同步点击切换、刷新与前进/后退。
+
 ### 12.2 前端工作区
 
 前端采用 React + Vite，首屏直接进入工作区，不制作营销落地页。
 
-- 左栏：历史会话和新建会话。
+- 左栏：有界最近会话和新建会话；历史区限制高度，下部保留给记忆管理。
 - 中栏：对话、约束面板、方案对比、确认操作。
 - 右栏：行程、地图、订单 Tab。
 - 底部抽屉：公开的运行阶段、Provider 来源与调试轨迹。

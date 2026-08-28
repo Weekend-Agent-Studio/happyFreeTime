@@ -10,6 +10,7 @@ from app.domain.providers import ProviderMode
 from app.orchestration.entry_graph import default_environment_provider
 from app.providers.weather import build_weather_provider
 from app.providers.route import build_route_provider
+from app.providers.web_map import build_web_map_provider
 from app.services.demo_router import DemoRouter
 from app.services.router_extractor import build_default_router_extractor
 
@@ -81,10 +82,16 @@ def build_default_route_provider():
 
 route_provider = build_default_route_provider()
 
+web_map_provider = build_web_map_provider(
+    js_api_key=os.getenv("AMAP_JS_API_KEY"),
+    security_code=os.getenv("AMAP_JS_SECURITY_CODE"),
+)
+
 app = create_app(
     database_path=Path("data/happy_free_time_v2.db"),
     router=router,
     environment_provider=default_environment_provider,
     weather_provider=weather_provider,
     route_provider=route_provider,
+    web_map_provider=web_map_provider,
 )

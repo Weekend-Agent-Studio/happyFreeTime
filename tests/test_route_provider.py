@@ -70,6 +70,25 @@ class MutableClock:
 
 
 class RouteProviderContractTest(unittest.TestCase):
+    def test_live_adapter_reports_amap_error_code_without_exposing_key(self) -> None:
+        provider = AmapRouteProvider(
+            api_key="backend-secret",
+            fetch_json=lambda _: {
+                "status": "0",
+                "info": "INVALID_USER_KEY",
+                "infocode": "10001",
+            },
+            clock=lambda: NOW,
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"INVALID_USER_KEY \(10001\)",
+        ) as raised:
+            provider.route(REQUEST)
+
+        self.assertNotIn("backend-secret", str(raised.exception))
+
     def test_live_adapter_parses_amap_v5_route_without_exposing_key(self) -> None:
         urls: list[str] = []
 

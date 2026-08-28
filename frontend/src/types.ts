@@ -34,9 +34,20 @@ export type ImageRef = {
   attribution: string | null;
 };
 
+export type WebMapConfig = {
+  enabled: boolean;
+  provider: "none" | "amap";
+  js_api_key: string | null;
+  version: string | null;
+  service_host_path: string | null;
+};
+
+export type StopRole = "activity" | "meal" | "lunch" | "dinner" | "break";
+
 export type Stop = {
   resource_id: string;
   type: "activity" | "restaurant" | "cafe" | "dessert";
+  role: StopRole | null;
   name: string;
   start: string;
   end: string;
@@ -76,8 +87,18 @@ export type RouteLeg = {
   degraded_reason: string | null;
 };
 
+export type ScoreContribution = {
+  rule_id: string;
+  dimension: string;
+  points: number;
+  message: string;
+  evidence: string[];
+};
+
 export type Plan = {
   plan_id: string;
+  composition_fingerprint: string;
+  skeleton_id: string | null;
   title: string;
   strategy: string;
   total_score: number;
@@ -86,6 +107,7 @@ export type Plan = {
   total_duration_minutes: number;
   stops: Stop[];
   route_legs: RouteLeg[];
+  score_breakdown: ScoreContribution[];
   highlights: string[];
   tradeoffs: string[];
 };
@@ -130,4 +152,25 @@ export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  created_at?: string;
+};
+
+export type SessionSummary = {
+  session_id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  last_message_preview: string;
+};
+
+export type SessionView = {
+  session_id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  messages: ChatMessage[];
+  plans: Plan[];
+  latest_response: AgentResponse | null;
 };

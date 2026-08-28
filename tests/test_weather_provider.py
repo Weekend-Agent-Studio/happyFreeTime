@@ -67,6 +67,25 @@ class MutableClock:
 
 
 class WeatherProviderContractTest(unittest.TestCase):
+    def test_live_adapter_reports_amap_error_code_without_exposing_key(self) -> None:
+        provider = AmapWeatherProvider(
+            api_key="backend-secret",
+            fetch_json=lambda _: {
+                "status": "0",
+                "info": "SERVICE_NOT_AVAILABLE",
+                "infocode": "10002",
+            },
+            clock=lambda: NOW,
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"SERVICE_NOT_AVAILABLE \(10002\)",
+        ) as raised:
+            provider.get_weather(REQUEST)
+
+        self.assertNotIn("backend-secret", str(raised.exception))
+
     def test_live_adapter_uses_the_requested_forecast_date_without_exposing_the_key(self) -> None:
         urls: list[str] = []
 

@@ -10,6 +10,7 @@ from typing import Callable, Protocol
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from app.providers.amap import AmapResponseError, require_amap_success
 from app.domain.providers import (
     ProviderMode,
     ProviderSource,
@@ -173,14 +174,15 @@ class AmapWeatherProvider:
             payload = self._fetch_json(
                 f"https://restapi.amap.com/v3/weather/weatherInfo?{query}"
             )
-            if str(payload.get("status")) != "1":
-                raise ValueError("provider status is not successful")
+            require_amap_success(payload, operation="weather")
             forecast = payload["forecasts"][0]
             cast = next(
                 item
                 for item in forecast["casts"]
                 if item.get("date") == request.date.isoformat()
             )
+        except AmapResponseError:
+            raise
         except Exception as error:
             raise RuntimeError("amap weather request failed") from error
 

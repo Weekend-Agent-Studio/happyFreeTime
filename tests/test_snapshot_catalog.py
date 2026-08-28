@@ -49,6 +49,13 @@ class SnapshotCatalogTest(unittest.TestCase):
         self.assertEqual(sum(item.resource_type.value == "restaurant" for item in candidates), 100)
         self.assertGreaterEqual(sum(bool(item.address) for item in candidates), 90)
         self.assertGreaterEqual(sum(item.image is not None for item in candidates), 65)
+        self.assertGreaterEqual(
+            sum(
+                any("," in hours for hours in item.open_hours.values())
+                for item in candidates
+            ),
+            5,
+        )
         self.assertTrue(all(item.source.source_license == "ODbL-1.0" for item in candidates))
         self.assertTrue(all(item.avg_price is None for item in candidates))
         self.assertTrue(all(item.category_tags for item in candidates))

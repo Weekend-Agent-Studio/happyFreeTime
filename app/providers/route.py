@@ -11,6 +11,7 @@ from typing import Callable, Protocol
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from app.providers.amap import AmapResponseError, require_amap_success
 from app.domain.providers import (
     GeoPoint,
     ProviderMode,
@@ -192,8 +193,7 @@ class AmapRouteProvider:
             payload = self._fetch_json(
                 f"https://restapi.amap.com/v5/direction/driving?{query}"
             )
-            if str(payload.get("status")) != "1":
-                raise ValueError("provider status is not successful")
+            require_amap_success(payload, operation="route")
             path = payload["route"]["paths"][0]
             distance_km = float(path["distance"]) / 1000
             duration_minutes = max(
@@ -201,6 +201,8 @@ class AmapRouteProvider:
                 math.ceil(float(path["cost"]["duration"]) / 60),
             )
             geometry = _parse_geometry(path.get("steps", []))
+        except AmapResponseError:
+            raise
         except Exception as error:
             raise RuntimeError("amap route request failed") from error
         return RouteFact(

@@ -11,8 +11,8 @@
     "record_count": 200,
     "completeness": {
       "address": {
-        "count": 99,
-        "percent": 49.5
+        "count": 104,
+        "percent": 52.0
       },
       "opening_hours": {
         "count": 110,
@@ -3574,6 +3574,38 @@
       "image": null
     },
     {
+      "resource_id": "osm-node-1688751294",
+      "resource_type": "restaurant",
+      "name": "秀儿四九城·新京菜",
+      "category_tags": [
+        "chinese"
+      ],
+      "district": "海淀区",
+      "address": "金沟河路19",
+      "latitude": 39.9167318,
+      "longitude": 116.2548811,
+      "duration_minutes": 60,
+      "weather_sensitive": false,
+      "avg_price_yuan": null,
+      "price_kind": "unknown",
+      "open_hours": {
+        "mon": "11:00-14:00,17:00-21:00",
+        "tue": "11:00-14:00,17:00-21:00",
+        "wed": "11:00-14:00,17:00-21:00",
+        "thu": "11:00-14:00,17:00-21:00",
+        "fri": "11:00-14:00,17:00-21:00",
+        "sat": "11:00-14:00,17:00-21:00",
+        "sun": "11:00-14:00,17:00-21:00"
+      },
+      "booking_required": false,
+      "reservation_required": false,
+      "source_uri": "https://www.openstreetmap.org/node/1688751294",
+      "verification_status": "unverified",
+      "wikidata": null,
+      "wikimedia_commons": null,
+      "image": null
+    },
+    {
       "resource_id": "osm-node-2425571714",
       "resource_type": "restaurant",
       "name": "Cafe de la Poste",
@@ -4122,6 +4154,38 @@
       "image": null
     },
     {
+      "resource_id": "osm-node-4832607821",
+      "resource_type": "restaurant",
+      "name": "惠丰饺子楼",
+      "category_tags": [
+        "chinese"
+      ],
+      "district": "",
+      "address": "西四北大街199",
+      "latitude": 39.9245258,
+      "longitude": 116.3669593,
+      "duration_minutes": 60,
+      "weather_sensitive": false,
+      "avg_price_yuan": null,
+      "price_kind": "unknown",
+      "open_hours": {
+        "mon": "06:00-09:00,11:00-21:00",
+        "tue": "06:00-09:00,11:00-21:00",
+        "wed": "06:00-09:00,11:00-21:00",
+        "thu": "06:00-09:00,11:00-21:00",
+        "fri": "06:00-09:00,11:00-21:00",
+        "sat": "06:00-09:00,11:00-21:00",
+        "sun": "06:00-09:00,11:00-21:00"
+      },
+      "booking_required": false,
+      "reservation_required": false,
+      "source_uri": "https://www.openstreetmap.org/node/4832607821",
+      "verification_status": "unverified",
+      "wikidata": null,
+      "wikimedia_commons": null,
+      "image": null
+    },
+    {
       "resource_id": "osm-node-4911081323",
       "resource_type": "restaurant",
       "name": "三大炖",
@@ -4348,6 +4412,38 @@
       "image": null
     },
     {
+      "resource_id": "osm-node-5580724321",
+      "resource_type": "restaurant",
+      "name": "炸酱面",
+      "category_tags": [
+        "restaurant"
+      ],
+      "district": "",
+      "address": "方砖厂胡同69",
+      "latitude": 39.9368267,
+      "longitude": 116.3906668,
+      "duration_minutes": 60,
+      "weather_sensitive": false,
+      "avg_price_yuan": null,
+      "price_kind": "unknown",
+      "open_hours": {
+        "mon": "11:00-13:00,16:00-17:00",
+        "tue": "11:00-13:00,16:00-17:00",
+        "wed": "11:00-13:00,16:00-17:00",
+        "thu": "11:00-13:00,16:00-17:00",
+        "fri": "11:00-13:00,16:00-17:00",
+        "sat": "11:00-13:00,16:00-17:00",
+        "sun": "11:00-13:00,16:00-17:00"
+      },
+      "booking_required": false,
+      "reservation_required": false,
+      "source_uri": "https://www.openstreetmap.org/node/5580724321",
+      "verification_status": "unverified",
+      "wikidata": null,
+      "wikimedia_commons": null,
+      "image": null
+    },
+    {
       "resource_id": "osm-node-5924067997",
       "resource_type": "restaurant",
       "name": "老石水饺",
@@ -4374,6 +4470,71 @@
       "booking_required": false,
       "reservation_required": false,
       "source_uri": "https://www.openstreetmap.org/node/5924067997",
+      "verification_status": "unverified",
+      "wikidata": null,
+      "wikimedia_commons": null,
+      "image": null
+    },
+    {
+      "resource_id": "osm-node-6340045885",
+      "resource_type": "restaurant",
+      "name": "Bleu Marine",
+      "category_tags": [
+        "steak_house",
+        "french"
+      ],
+      "district": "",
+      "address": "光华路22",
+      "latitude": 39.9116773,
+      "longitude": 116.4467524,
+      "duration_minutes": 60,
+      "weather_sensitive": false,
+      "avg_price_yuan": null,
+      "price_kind": "unknown",
+      "open_hours": {
+        "mon": "11:00-14:00,17:00-22:30",
+        "tue": "11:00-14:00,17:00-22:30",
+        "wed": "11:00-14:00,17:00-22:30",
+        "thu": "11:00-14:00,17:00-22:30",
+        "fri": "11:00-14:00,17:00-22:30",
+        "sat": "11:00-14:00,17:00-22:30",
+        "sun": "11:00-14:00,17:00-22:30"
+      },
+      "booking_required": false,
+      "reservation_required": false,
+      "source_uri": "https://www.openstreetmap.org/node/6340045885",
+      "verification_status": "unverified",
+      "wikidata": null,
+      "wikimedia_commons": null,
+      "image": null
+    },
+    {
+      "resource_id": "osm-node-6390479986",
+      "resource_type": "restaurant",
+      "name": "素虎净素",
+      "category_tags": [
+        "asian"
+      ],
+      "district": "",
+      "address": "前门西大街",
+      "latitude": 39.8983513,
+      "longitude": 116.3869367,
+      "duration_minutes": 60,
+      "weather_sensitive": false,
+      "avg_price_yuan": null,
+      "price_kind": "unknown",
+      "open_hours": {
+        "mon": "11:00-14:00,17:00-20:30",
+        "tue": "11:00-14:00,17:00-20:30",
+        "wed": "11:00-14:00,17:00-20:30",
+        "thu": "11:00-14:00,17:00-20:30",
+        "fri": "11:00-14:00,17:00-20:30",
+        "sat": "11:00-14:00,17:00-20:30",
+        "sun": "11:00-14:00,17:00-20:30"
+      },
+      "booking_required": false,
+      "reservation_required": false,
+      "source_uri": "https://www.openstreetmap.org/node/6390479986",
       "verification_status": "unverified",
       "wikidata": null,
       "wikimedia_commons": null,
@@ -4881,13 +5042,13 @@
       "avg_price_yuan": null,
       "price_kind": "unknown",
       "open_hours": {
-        "mon": "06:45-09:00",
-        "tue": "06:45-09:00",
-        "wed": "06:45-09:00",
-        "thu": "06:45-09:00",
-        "fri": "06:45-09:00",
-        "sat": "06:45-09:00",
-        "sun": "06:45-09:00"
+        "mon": "06:45-09:00,11:15-14:00,17:15-20:30",
+        "tue": "06:45-09:00,11:15-14:00,17:15-20:30",
+        "wed": "06:45-09:00,11:15-14:00,17:15-20:30",
+        "thu": "06:45-09:00,11:15-14:00,17:15-20:30",
+        "fri": "06:45-09:00,11:15-14:00,17:15-20:30",
+        "sat": "06:45-09:00,11:15-14:00,17:15-20:30",
+        "sun": "06:45-09:00,11:15-14:00,17:15-20:30"
       },
       "booking_required": false,
       "reservation_required": false,
@@ -5091,13 +5252,13 @@
       "avg_price_yuan": null,
       "price_kind": "unknown",
       "open_hours": {
-        "mon": "11:00-14:00",
-        "tue": "11:00-14:00",
-        "wed": "11:00-14:00",
-        "thu": "11:00-14:00",
-        "fri": "11:00-14:00",
-        "sat": "11:00-14:00",
-        "sun": "11:00-14:00"
+        "mon": "11:00-14:00,17:00-21:00",
+        "tue": "11:00-14:00,17:00-21:00",
+        "wed": "11:00-14:00,17:00-21:00",
+        "thu": "11:00-14:00,17:00-21:00",
+        "fri": "11:00-14:00,17:00-21:00",
+        "sat": "11:00-14:00,17:00-21:00",
+        "sun": "11:00-14:00,17:00-21:00"
       },
       "booking_required": false,
       "reservation_required": false,
@@ -5123,13 +5284,13 @@
       "avg_price_yuan": null,
       "price_kind": "unknown",
       "open_hours": {
-        "mon": "06:30-09:00",
-        "tue": "06:30-09:00",
-        "wed": "06:30-09:00",
-        "thu": "06:30-09:00",
-        "fri": "06:30-09:00",
-        "sat": "06:30-09:00",
-        "sun": "06:30-09:00"
+        "mon": "06:30-09:00,11:00-13:00,17:00-19:00",
+        "tue": "06:30-09:00,11:00-13:00,17:00-19:00",
+        "wed": "06:30-09:00,11:00-13:00,17:00-19:00",
+        "thu": "06:30-09:00,11:00-13:00,17:00-19:00",
+        "fri": "06:30-09:00,11:00-13:00,17:00-19:00",
+        "sat": "06:30-09:00,11:00-13:00,17:00-19:00",
+        "sun": "06:30-09:00,11:00-13:00,17:00-19:00"
       },
       "booking_required": false,
       "reservation_required": false,
@@ -5155,13 +5316,13 @@
       "avg_price_yuan": null,
       "price_kind": "unknown",
       "open_hours": {
-        "mon": "07:00-08:50",
-        "tue": "07:00-08:50",
-        "wed": "07:00-08:50",
-        "thu": "07:00-08:50",
-        "fri": "07:00-08:50",
-        "sat": "07:00-08:50",
-        "sun": "07:00-08:50"
+        "mon": "07:00-08:50,11:00-13:00,17:00-19:00",
+        "tue": "07:00-08:50,11:00-13:00,17:00-19:00",
+        "wed": "07:00-08:50,11:00-13:00,17:00-19:00",
+        "thu": "07:00-08:50,11:00-13:00,17:00-19:00",
+        "fri": "07:00-08:50,11:00-13:00,17:00-19:00",
+        "sat": "07:00-08:50,11:00-13:00,17:00-19:00",
+        "sun": "07:00-08:50,11:00-13:00,17:00-19:00"
       },
       "booking_required": false,
       "reservation_required": false,
@@ -5673,32 +5834,6 @@
       "image": null
     },
     {
-      "resource_id": "osm-node-11992333146",
-      "resource_type": "restaurant",
-      "name": "来个烧饼",
-      "category_tags": [
-        "chinese"
-      ],
-      "district": "",
-      "address": "",
-      "latitude": 39.9240509,
-      "longitude": 116.3676216,
-      "duration_minutes": 60,
-      "weather_sensitive": false,
-      "avg_price_yuan": null,
-      "price_kind": "unknown",
-      "open_hours": {
-        "mon": "10:00-14:00"
-      },
-      "booking_required": false,
-      "reservation_required": false,
-      "source_uri": "https://www.openstreetmap.org/node/11992333146",
-      "verification_status": "unverified",
-      "wikidata": null,
-      "wikimedia_commons": null,
-      "image": null
-    },
-    {
       "resource_id": "osm-node-11992333152",
       "resource_type": "restaurant",
       "name": "聚德华天柳泉居饭庄",
@@ -5778,13 +5913,13 @@
       "avg_price_yuan": null,
       "price_kind": "unknown",
       "open_hours": {
-        "mon": "11:00-14:00",
-        "tue": "11:00-14:00",
-        "wed": "11:00-14:00",
-        "thu": "11:00-14:00",
-        "fri": "11:00-14:00",
-        "sat": "11:00-14:00",
-        "sun": "11:00-14:00"
+        "mon": "11:00-14:00,14:30-16:30,17:00-20:00",
+        "tue": "11:00-14:00,14:30-16:30,17:00-20:00",
+        "wed": "11:00-14:00,14:30-16:30,17:00-20:00",
+        "thu": "11:00-14:00,14:30-16:30,17:00-20:00",
+        "fri": "11:00-14:00,14:30-16:30,17:00-20:00",
+        "sat": "11:00-14:00,14:30-16:30,17:00-20:00",
+        "sun": "11:00-14:00,14:30-16:30,17:00-20:00"
       },
       "booking_required": false,
       "reservation_required": false,
@@ -6106,135 +6241,6 @@
       "booking_required": false,
       "reservation_required": false,
       "source_uri": "https://www.openstreetmap.org/node/12713909646",
-      "verification_status": "unverified",
-      "wikidata": null,
-      "wikimedia_commons": null,
-      "image": null
-    },
-    {
-      "resource_id": "osm-node-12713909647",
-      "resource_type": "restaurant",
-      "name": "留学生第一餐厅",
-      "category_tags": [
-        "chinese",
-        "burger"
-      ],
-      "district": "",
-      "address": "",
-      "latitude": 39.9668944,
-      "longitude": 116.3094562,
-      "duration_minutes": 60,
-      "weather_sensitive": false,
-      "avg_price_yuan": null,
-      "price_kind": "unknown",
-      "open_hours": {
-        "mon": "08:00-23:00",
-        "tue": "08:00-23:00",
-        "wed": "08:00-23:00",
-        "thu": "08:00-23:00",
-        "fri": "08:00-23:00",
-        "sat": "08:00-23:00",
-        "sun": "08:00-23:00"
-      },
-      "booking_required": false,
-      "reservation_required": false,
-      "source_uri": "https://www.openstreetmap.org/node/12713909647",
-      "verification_status": "unverified",
-      "wikidata": null,
-      "wikimedia_commons": null,
-      "image": null
-    },
-    {
-      "resource_id": "osm-node-12713909653",
-      "resource_type": "restaurant",
-      "name": "伊兰小馆",
-      "category_tags": [
-        "chinese"
-      ],
-      "district": "",
-      "address": "",
-      "latitude": 39.9671927,
-      "longitude": 116.3054681,
-      "duration_minutes": 60,
-      "weather_sensitive": false,
-      "avg_price_yuan": null,
-      "price_kind": "unknown",
-      "open_hours": {
-        "mon": "08:00-22:00",
-        "tue": "08:00-22:00",
-        "wed": "08:00-22:00",
-        "thu": "08:00-22:00",
-        "fri": "08:00-22:00",
-        "sat": "08:00-22:00",
-        "sun": "08:00-22:00"
-      },
-      "booking_required": false,
-      "reservation_required": false,
-      "source_uri": "https://www.openstreetmap.org/node/12713909653",
-      "verification_status": "unverified",
-      "wikidata": null,
-      "wikimedia_commons": null,
-      "image": null
-    },
-    {
-      "resource_id": "osm-node-12715030040",
-      "resource_type": "restaurant",
-      "name": "瑞幸咖啡",
-      "category_tags": [
-        "coffee_shop"
-      ],
-      "district": "",
-      "address": "",
-      "latitude": 39.9688788,
-      "longitude": 116.3014911,
-      "duration_minutes": 60,
-      "weather_sensitive": false,
-      "avg_price_yuan": null,
-      "price_kind": "unknown",
-      "open_hours": {
-        "mon": "08:00-22:00",
-        "tue": "08:00-22:00",
-        "wed": "08:00-22:00",
-        "thu": "08:00-22:00",
-        "fri": "08:00-22:00",
-        "sat": "08:00-22:00",
-        "sun": "08:00-22:00"
-      },
-      "booking_required": false,
-      "reservation_required": false,
-      "source_uri": "https://www.openstreetmap.org/node/12715030040",
-      "verification_status": "unverified",
-      "wikidata": null,
-      "wikimedia_commons": null,
-      "image": null
-    },
-    {
-      "resource_id": "osm-node-12715030041",
-      "resource_type": "restaurant",
-      "name": "醉面",
-      "category_tags": [
-        "noodle"
-      ],
-      "district": "",
-      "address": "",
-      "latitude": 39.9698874,
-      "longitude": 116.3013729,
-      "duration_minutes": 60,
-      "weather_sensitive": false,
-      "avg_price_yuan": null,
-      "price_kind": "unknown",
-      "open_hours": {
-        "mon": "08:00-22:00",
-        "tue": "08:00-22:00",
-        "wed": "08:00-22:00",
-        "thu": "08:00-22:00",
-        "fri": "08:00-22:00",
-        "sat": "08:00-22:00",
-        "sun": "08:00-22:00"
-      },
-      "booking_required": false,
-      "reservation_required": false,
-      "source_uri": "https://www.openstreetmap.org/node/12715030041",
       "verification_status": "unverified",
       "wikidata": null,
       "wikimedia_commons": null,

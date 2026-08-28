@@ -7,6 +7,8 @@ from html import unescape
 import re
 from typing import Any, Callable
 
+from app.services.opening_hours import parse_basic_intervals
+
 
 _DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 _OSM_DAYS = {name: index for index, name in enumerate(("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"))}
@@ -288,15 +290,23 @@ def _parse_opening_hours(raw: str) -> dict[str, str]:
         return {day: "00:00-23:59" for day in _DAYS}
     parsed: dict[str, str] = {}
     for segment in raw.split(";"):
-        parts = segment.strip().split()
-        if len(parts) != 2 or parts[1].lower() in {"off", "closed"}:
-            continue
+        parts = segment.strip().split(maxsplit=1)
+        if len(parts) != 2:
+            return {}
         days = _expand_days(parts[0])
-        time_range = parts[1].split(",", 1)[0]
-        if not days or not _valid_time_range(time_range):
+        if not days:
+            return {}
+        if parts[1].lower() in {"off", "closed"}:
+            for day in days:
+                parsed.pop(day, None)
             continue
+        time_range = parts[1].replace(" ", "")
+        if not _valid_time_range(time_range):
+            return {}
         for day in days:
-            parsed[day] = time_range
+            parsed[day] = ",".join(
+                value for value in (parsed.get(day), time_range) if value
+            )
     return parsed
 
 
@@ -321,15 +331,7 @@ def _expand_days(expression: str) -> list[str]:
 
 
 def _valid_time_range(value: str) -> bool:
-    try:
-        start, end = value.split("-", 1)
-        for point in (start, end):
-            hour, minute = (int(part) for part in point.split(":"))
-            if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-                return False
-        return start < end
-    except (TypeError, ValueError):
-        return False
+    return parse_basic_intervals(value) is not None
 
 
 def _balanced_records(records: list[dict[str, Any]], maximum: int) -> list[dict[str, Any]]:

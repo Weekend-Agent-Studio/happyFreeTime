@@ -187,11 +187,15 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertEqual(first.route_legs[0].start, "14:00")
         self.assertEqual(first.route_legs[0].end, "14:20")
         self.assertEqual(first.stops[0].start, "14:20")
-        self.assertEqual(first.route_legs[1].start, "15:50")
-        self.assertEqual(first.route_legs[1].end, "16:10")
-        self.assertEqual(first.stops[1].start, "16:10")
+        self.assertEqual(first.route_legs[1].start, first.stops[0].end)
+        self.assertEqual(first.stops[1].start, first.route_legs[1].end)
         self.assertEqual(first.stops[1].end, "17:40")
         self.assertEqual(first.total_duration_minutes, 220)
+        self.assertEqual(
+            first.total_duration_minutes,
+            sum(stop.duration_minutes for stop in first.stops)
+            + sum(leg.duration_minutes for leg in first.route_legs),
+        )
         self.assertTrue(
             all(leg.source == RouteSource.REPLAY for leg in first.route_legs)
         )
@@ -217,6 +221,18 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertEqual(result.conflict.fields, ["time_window"])
         self.assertGreater(len(route_provider.requests), 0)
 
+    def test_route_verification_reports_next_day_departure_as_a_conflict(self) -> None:
+        route_provider = FixedReplayRouteProvider(duration_minutes=5000)
+
+        result = PlanningService(
+            route_provider=route_provider,
+            catalog=LocalFixtureCatalog(),
+        ).plan(planning_constraints())
+
+        self.assertEqual(result.plans, [])
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
+        self.assertEqual(result.conflict.fields, ["time_window"])
+
     def test_route_verification_eliminates_finalists_with_an_overlong_leg(self) -> None:
         route_provider = FixedReplayRouteProvider(distance_km=12.0)
 
@@ -241,7 +257,10 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertLessEqual(len(result.plans), 3)
         self.assertIsNone(result.conflict)
         for plan in result.plans:
-            self.assertEqual([stop.type for stop in plan.stops], [StopType.ACTIVITY, StopType.RESTAURANT])
+            self.assertEqual(
+                [stop.type for stop in plan.stops],
+                [StopType.ACTIVITY, StopType.RESTAURANT],
+            )
             self.assertEqual(len(plan.route_legs), 2)
             self.assertTrue(
                 all(leg.source == RouteSource.LOCAL_ESTIMATE for leg in plan.route_legs)
@@ -259,6 +278,7 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertIsNotNone(result.conflict)
         self.assertEqual(result.conflict.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
         self.assertIn("预算", result.conflict.message)
+        self.assertNotIn("双站", result.conflict.message)
         self.assertTrue(result.conflict.relaxation_options)
 
     def test_rain_eliminates_weather_sensitive_outdoor_stops_but_keeps_indoor_stops(self) -> None:

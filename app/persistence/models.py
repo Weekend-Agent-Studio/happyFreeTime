@@ -6,7 +6,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.persistence.database import Base
@@ -64,9 +64,17 @@ class MessageRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
-class PlanRecord(Base):
-    """当前会话最新候选方案的 JSON 快照。"""
-    __tablename__ = "plans"
+class PlanningRunRecord(Base):
+    """一次逻辑消息提交的持久化生命周期和可恢复响应。"""
+    __tablename__ = "planning_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "session_id",
+            "request_id",
+            name="uq_planning_run_request",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -76,6 +84,44 @@ class PlanRecord(Base):
         nullable=False,
         index=True,
     )
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_content: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="running")
+    response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class PlanRecord(Base):
+    """一个 Planning Run 产生的不可变候选方案快照。"""
+    __tablename__ = "plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "planning_run_id",
+            "composition_fingerprint",
+            name="uq_run_plan_composition",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("sessions.id"),
+        nullable=False,
+        index=True,
+    )
+    planning_run_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("planning_runs.id"),
+        nullable=True,
+        index=True,
+    )
+    composition_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

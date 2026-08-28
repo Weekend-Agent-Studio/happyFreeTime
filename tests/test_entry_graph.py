@@ -196,14 +196,18 @@ class EntryGraphTest(unittest.TestCase):
             identity_type=IdentityType.DEMO,
         )
 
-        result = graph.invoke(
-            {"user_input": "今天下午出去玩，别太远", "actor": actor},
-            config={"configurable": {"thread_id": actor.session_id}},
-        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        with self.assertNoLogs(level="WARNING"):
+            result = graph.invoke(
+                {"user_input": "今天下午出去玩，别太远", "actor": actor},
+                config=config,
+            )
+            restored = graph.get_state(config).values["candidate_set"]
 
         self.assertTrue(result["ready_for_planning"])
         self.assertGreaterEqual(len(result["candidate_set"].plans), 1)
         self.assertEqual(len(result["candidate_set"].plans[0].stops), 2)
+        self.assertEqual(restored, result["candidate_set"])
 
 
 if __name__ == "__main__":
