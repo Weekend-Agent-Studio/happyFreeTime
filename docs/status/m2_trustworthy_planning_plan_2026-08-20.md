@@ -1,6 +1,6 @@
 # M2“可信规划”纵向切片计划
 
-_状态快照与实施计划 · 创建于 2026-08-20，更新于 2026-08-26；路线图仍以 `docs/canonical/v2_roadmap.md` 为准_
+_状态快照与实施计划 · 创建于 2026-08-20，更新于 2026-08-28；路线图仍以 `docs/canonical/v2_roadmap.md` 为准_
 
 ## 基线与差距
 
@@ -117,7 +117,17 @@ M2 对最多 4 站优先完整枚举与早期剪枝。当前多站角色池上�
 
 **不做：** 不把 build 或单元测试称为 E2E，不把底层隐式推理暴露给 UI，不在 M2 顺手补 M1 刷新恢复。
 
-## Inbox 分析（均未获准实现）
+## 与 M2.5、M3 和 M3.5 的边界
+
+2026-08-28 竞品评审后，canonical 路线图已增加 M2.5 产品呈现与 M3.5 可控记忆，但 M2 的完成顺序不变：先完成 D4 餐时/返程/独立全程距离、E 集合级多样化和 F 的 M2 eval/地图时间线基础验收。
+
+- M2 可以完成模板 Presenter 和地图时间线的可信事实展示；不在此阶段重做完整视觉层级、POI 详情抽屉和管家式对话。
+- M2.5 只消费 M2 已稳定的 Plan、RouteLeg、facts、warnings 和 score breakdown，不修改 `PlanningService.plan(...)` 的可行性语义。
+- M3 才实现约束 Patch、锁定、PlanDiff、Plan Version、局部重规划和撤销。
+- M3.5 才实现 `MemoryService`、本人/家庭 scope、反馈写入、记忆控制和 `MemoryInfluence`；M2 当前的 `ConstraintSource.MEMORY` 只是契约预留，不代表长期记忆已实现。
+- LLM PlanningIntent、PlanCritic 和记忆候选提取仍是可选增强，必须在确定性基线和对应 eval 后进入，不能成为上述切片的前置条件。
+
+## Inbox 分析与相邻已晋升需求
 
 ### IDEA-007：时间语义、来源与强度
 
@@ -134,7 +144,7 @@ M2 对最多 4 站优先完整枚举与早期剪枝。当前多站角色池上�
 ### 其他相关想法
 
 - `IDEA-002`：与 F 的 Provider/Router 能力徽标相邻，适合在 F 统一设计；A 只显示本次天气事实，不实现全局运行模式徽标。
-- `IDEA-004`：更适合 M3 约束编辑交互，不在 M2 天气切片改约束摘要。
+- `IDEA-004`：已晋升到 M2.5；不在 M2 未完成时提前改约束摘要。
 - `IDEA-005`：会影响 C/D 的人数与儿童剪枝，但 `minimum_people` 与 `exact_people` 尚无验收标准，不能自动实现。
 - `IDEA-003`：不实现前端 Key 配置；所有 Key 仅来自后端环境。
 

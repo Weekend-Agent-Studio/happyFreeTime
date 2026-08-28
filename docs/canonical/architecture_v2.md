@@ -1,6 +1,6 @@
 # HappyFreeTime V2 总体架构设计
 
-> 状态：已确认的 V2 设计基线 | 更新日期：2026-08-24 | 适用范围：后续架构、接口、数据模型和实施决策 | 当前实现进展以根目录 `README.md` 和自动测试为准
+> 状态：已确认的 V2 设计基线 | 更新日期：2026-08-28 | 适用范围：后续架构、接口、数据模型和实施决策 | 当前实现进展以根目录 `README.md` 和自动测试为准
 
 ---
 
@@ -10,11 +10,23 @@
 
 当本文档与早期的 [`mock_design.md`](../archive/v1/mock_design.md)、[`router_extractor_design_v2_draft.md`](../archive/router/router_extractor_design_v2_draft.md) 或实验代码冲突时，以本文档为准。早期文档保留为设计演进记录，不再作为实现契约。
 
-项目目标不是制作只能跑固定故事的聊天 Demo，而是完成一个可修改、可执行、可恢复、可观测、可评测的本地生活规划产品闭环，并展示 AI Agent 应用开发中的工程判断。
+项目目标不是制作只能跑固定故事的聊天 Demo，而是完成一个可修改、会记住家庭偏好、可执行、可恢复、可观测、可评测的本地生活规划产品闭环，并展示 AI Agent 应用开发中的工程判断。
 
 ## 2. 产品范围
 
-### 2.1 首期范围
+### 2.1 产品承诺与竞争定位
+
+HappyFreeTime 的产品承诺是：**记住同行人的稳定需求，基于可追溯事实生成可信方案，用户改变主意时只重排必要部分，并解释每次取舍和记忆影响。**
+
+项目不以“更多 Agent 名称”或“让 LLM 自由排行程”为差异化，而以三个可验证能力形成主线：
+
+1. **可信规划：** POI、天气、路线、营业和价格证据有来源、核验状态与降级语义；未知事实不能被 LLM 补写。
+2. **克制修改：** 约束、锁定站点、Plan Version 和 `PlanDiff` 共同支持局部重规划；修改一处不无理由改变全部行程。
+3. **可控记忆：** 记忆属于明确的人或同行范围，带证据、置信度、有效期和权限；用户可以查看、纠正、删除，并知道哪条记忆影响了方案。
+
+对外产品表达是“可信、会记住一家人的周末管家”；“Stateful Agent / Graph Engineering”是技术实现与面试证据，不是用户价值本身。Graph 用于控制流和恢复，计划路线图用于可行性，家庭与记忆关系用于个性化；三者不能只因都可画成图就混为同一种实现。
+
+### 2.2 首期范围
 
 - 城市固定为北京，数据模型保留扩展到其他城市的能力。
 - 支持短时、半日和一日规划，最多 4 个核心停靠点。
@@ -23,26 +35,31 @@
 - 支持约束修改、局部替换、锁定停靠点和重新规划。
 - 支持预览、确认、模拟订票、订座、取消与失败补偿。
 - 接入真实天气、地理编码、路线时间和路线几何信息。
+- 支持本人、家庭成员和临时同行范围的轻量长期记忆，并提供查看、纠正与删除。
 - 提供完整前端、会话持久化、运行轨迹和基础评测。
 
-### 2.2 数据真实性边界
+### 2.3 数据真实性边界
 
 | 数据类别 | 首期来源 | 要求 |
 | --- | --- | --- |
-| POI 名称、地址、坐标、类别 | 人工整理的真实北京 POI | 保存来源、采集时间、最后验证时间 |
+| POI 名称、地址、坐标、类别 | 可重建 OSM 快照及后续审核数据 | 保存来源、许可、采集时间、最后验证时间和坐标系 |
 | 天气、地理编码、路线 | 高德 Provider | 失败时允许缓存或本地估算降级 |
+| 兴趣、亲子、场景适配等派生特征 | 版本化规则或受限模型推导 | 保存 derivation rule/model、输入事实、置信度；不能冒充来源事实 |
 | 价格、库存、排队、套餐、可预约状态 | 确定性 Mock | UI 明确标识为模拟业务数据 |
 | 订单与履约 | 本地模拟交易系统 | 有状态、幂等、可取消、可审计 |
 
 Mock 不是“工具层”的同义词。Provider 负责外部事实，Mock 负责当前无法接入的业务环境，Tool 或 Service 只是统一能力入口。真实 API、回放数据和 Mock 实现必须遵循同一领域契约。
 
-### 2.3 暂不进入首期
+数据在领域内进一步区分为 `SourceFact`、`DerivedFeature` 和 `SimulatedState`。三类数据可以共同参与规划，但评分与 Presenter 必须保留其不同可信等级；模拟排队或人为概率不能包装成真实发生概率。POI 展示所需的图片、标签、营业摘要和详情组织在独立 `PoiPresentation` 中，规划内核仍只消费完成可行性判断所需的 `StopCandidate`，避免为了 UI 丰富度扩大规划接口。
+
+### 2.4 暂不进入首期
 
 - 全国多城市数据和大规模商家抓取。
 - 真实支付、真实出票、真实网约车派单。
 - 复杂注册、OAuth 和多角色权限系统。
 - 为使用 MCP、微调、强化学习或 Beam Search 而提前增加复杂度。
 - 让 LLM 自由调用有副作用工具。
+- 为展示概念而把确定性 Planner、Verifier 或成员评分器包装成多个 LLM Agent。
 
 ## 3. 架构定位
 
@@ -56,6 +73,8 @@ V2 定位为 **基于 LangGraph 的有状态垂直 Agent Harness**，采用“LL
 - 让关键业务阶段能够独立追踪、测试和评测。
 
 普通解析、过滤、评分和数据访问仍然是函数或 Service。只有具备业务阶段、条件路由、重试降级、人工确认或独立观测价值的步骤才进入 Graph。
+
+模块设计遵循“外部接口小、内部实现深”：`PlanningService.plan(...)`、`MemoryService` 和后续 `ExecutionService` 分别作为规划、记忆与执行的稳定 seam。外部调用者只学习领域输入、输出、不变量和错误模式；搜索算法、记忆冲突消解、衰减和补偿编排保持内部 locality。真实外部依赖通过至少一个生产 Adapter 和一个测试 Adapter 进入模块，避免只有单实现的假设性 seam。
 
 ## 4. 系统全景
 
@@ -74,6 +93,8 @@ graph TB
         command{用户命令}
         permission[Permission Gate]
         execution[ExecutionSubgraph]
+        feedback[反馈与完成记录]
+        memory[记忆候选/确认]
 
         router --> enrich --> gate
         gate -->|缺阻塞字段| question
@@ -82,6 +103,8 @@ graph TB
         planning --> present --> command
         command -->|修改| planning
         command -->|执行| permission --> execution
+        command -->|评价/记住| feedback --> memory
+        execution --> feedback
     end
 
     api --> router
@@ -93,9 +116,12 @@ graph TB
     providers --> planning
     persistence[(SQLite Persistence)] --> api
     persistence --> execution
+    memory_store[(Memory Module)] --> enrich
+    memory --> memory_store
     router --> trace[(Trace and Eval)]
     planning --> trace
     execution --> trace
+    memory --> trace
 ```
 
 ### 4.1 分层职责
@@ -106,6 +132,7 @@ graph TB
 | Orchestration | Graph 状态、路由、中断、恢复、降级 | 商家事实和评分细节 |
 | Domain | Pydantic 契约、领域规则、状态机 | HTTP、数据库连接、LLM SDK |
 | Services | 补全、召回、组合、评分、验证、执行策略 | 自由生成事实 |
+| Memory | 记忆召回、候选提取、冲突消解、确认、影响证据和撤销 | 从一次行为直接制造长期硬约束 |
 | Providers | 高德、天气、Mock 业务能力、缓存和回放 | 用户意图判断 |
 | Persistence | 业务事实、会话、订单、轨迹和 checkpoint | 决策逻辑 |
 | Observability / Eval | 事件、指标、回放、评测报告 | 修改业务结果 |
@@ -127,6 +154,7 @@ MainGraph 负责产品级控制流，建议节点如下：
 | `permission_gate` | 确定性代码 | 已选方案、执行预览 | 确认快照 |
 | `execution_subgraph` | 确定性状态机 | 确认快照、ActorContext | `Order`、事件 |
 | `persist_and_emit` | 基础设施 | 状态变化 | 数据库记录、`AgentEvent` |
+| `feedback_and_memory` | 确定性主流程 + 可选 LLM 提取 | 完成/跳过/评分/纠正、Plan Version | `MemoryCandidate[]`、用户确认或丢弃结果 |
 
 路由由代码决定。LLM 可以识别 `plan`、`refine`、`select`、`execute`、`cancel`、`chitchat` 等命令，但不能决定是否绕过确认或直接执行写操作。
 
@@ -193,6 +221,12 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | `ConstraintConflict` | 无解结果 | 冲突字段、证据、可接受的放宽选项 |
 | `ExecutionPlan` | 执行预览 | actions、price、risk、compensation policy、snapshot hash |
 | `Order` / `OrderEvent` | 交易事实 | 状态、动作结果、错误、补偿和审计事件 |
+| `PartyProfile` | 本次同行上下文 | 本人、家庭成员、临时同行人、关系和授权范围 |
+| `MemoryItem` | 一条长期记忆事实 | subject、scope、kind、value、polarity、confidence、evidence、validity、sensitivity、status |
+| `MemoryContext` | 本次允许注入的有界记忆 | selected memories、conflicts、omissions、retrieval version |
+| `MemoryInfluence` | 记忆对结果的可解释影响 | memory id、plan/score/constraint target、direction、reason |
+| `MemoryCandidate` | 尚未提交的记忆提议 | proposed item、source event、confirmation requirement、risk |
+| `MemoryDecision` | 用户对记忆候选的处理结果 | accepted/rejected、resulting memory id、reason、decided at |
 | `AgentEvent` | SSE 事件 | event id、run、stage、status、public payload、timestamp |
 
 ### 6.3 字段来源
@@ -456,13 +490,48 @@ graph TB
 
 ### 11.3 记忆
 
-记忆分为三层：
+记忆按生命周期分为三层：
 
-- Turn：当前输入和抽取结果。
-- Session：本次规划中确认的约束、选中方案和修改历史。
-- User：明确要求长期保存、重复出现或再次确认的稳定偏好。
+- **Turn：** 当前输入、抽取结果和低置信度临时信号，只参与本轮。
+- **Session：** 本次规划中确认的约束、同行人、选中方案、修改历史和实际完成情况。
+- **Long-term：** 经明确保存、重复证据支持或再次确认的稳定偏好、约束、经历和承诺。
 
-长期记忆只保存常用位置、预算区间、同行结构、饮食限制、交通偏好和明确喜恶，并提供查看与删除能力。精确当前位置默认只在当前会话使用。
+长期记忆不能只是一个反复重写的自由文本画像。`MemoryItem` 至少包含：
+
+```text
+memory_id
+owner_user_id
+subject_id                 # 本人、伴侣、孩子或家庭/临时同行组
+scope                      # user | household | group
+kind                       # preference | avoidance | constraint | fact | episode | promise
+value / polarity
+strength / confidence
+source / evidence_ref
+valid_from / expires_at / last_confirmed_at
+sensitivity
+status                     # proposed | active | disputed | deleted | expired
+```
+
+稳定的 `MemoryService` seam 对调用者只公开三类行为：
+
+```text
+recall(actor, planning_context) -> MemoryContext
+propose(actor, feedback_or_events) -> MemoryCandidate[]
+decide(actor, candidate_id, decision) -> MemoryDecision
+```
+
+召回过滤、相关性排序、置信度衰减、冲突检测、去重和摘要属于模块内部实现。SQLite Adapter 负责生产持久化，In-memory Adapter 负责接口测试；Planner 只消费有界 `MemoryContext`，不读取记忆表或向量库内部结构。
+
+写入与使用规则：
+
+1. 用户明确说“以后记住”可以直接形成高置信度候选；过敏、儿童安全等敏感硬约束仍需明确主体和确认。
+2. 一次点击、一次未完成或一次地点选择只能形成低置信度候选，不能自动升级为长期硬约束。
+3. 当前用户明确要求始终高于长期记忆；发生冲突时记录 `disputed` 或降低置信度，不静默覆盖当前输入。
+4. “喜欢安静”一类记忆默认只影响软排序；只有明确、可审计的安全/业务约束才能作为 hard input。
+5. 精确当前位置、原始对话和不必要的 PII 默认不进入长期记忆；用户可以逐条查看、纠正、冻结和删除。
+6. 每次规划返回 `MemoryInfluence[]`，Presenter 可以解释“因为哪条记忆做了什么”，但不能用自由文案制造不存在的影响。
+
+首版使用 SQLite 结构化查询即可；向量检索只在叙事型经历数量和评测证明有需要后作为内部 Adapter 增强，不能成为硬约束召回的唯一方式。
 
 ## 12. API 与前端
 
@@ -477,6 +546,10 @@ GET    /api/sessions/{session_id}
 POST   /api/sessions/{session_id}/messages
 PATCH  /api/sessions/{session_id}/constraints
 POST   /api/sessions/{session_id}/plans/{plan_id}/select
+POST   /api/sessions/{session_id}/feedback
+GET    /api/memories
+PATCH  /api/memories/{memory_id}
+DELETE /api/memories/{memory_id}
 POST   /api/sessions/{session_id}/execution/preview
 POST   /api/sessions/{session_id}/execution/confirm
 POST   /api/orders/{order_id}/cancel
@@ -491,12 +564,14 @@ GET    /api/sessions/{session_id}/events
 
 前端采用 React + Vite，首屏直接进入工作区，不制作营销落地页。
 
-- 左栏：有界最近会话和新建会话；历史区限制高度，下部保留给记忆管理。
-- 中栏：对话、约束面板、方案对比、确认操作。
-- 右栏：行程、地图、订单 Tab。
+- 左栏：有界最近会话和新建会话；历史区限制高度，下部为本人/家庭记忆入口，不把全部记忆长期展开占满侧栏。
+- 中栏：家庭管家式对话、渐进披露的约束摘要、方案对比和确认操作。默认只展示用户最关心的假设、风险和差异，完整来源与置信度进入详情抽屉。
+- 右栏：行程、地图、订单 Tab；POI 详情使用抽屉或独立详情层，不把来源许可、调试字段和主要行动混在同一视觉层级。
 - 底部抽屉：公开的运行阶段、Provider 来源与调试轨迹。
 
-桌面端并排对比 3 个方案；移动端改为滑动方案和 Tab。地图 marker 与时间线双向联动，每个停靠点支持替换、锁定和查看依据。
+桌面端并排对比 3 个方案；移动端改为滑动方案和 Tab。方案卡先突出主题、总时长、总路程、预算、风险和关键取舍，再展开完整时间线。地图 marker、时间线和 Route Leg 双向联动；每个停靠点支持查看标签、营业摘要、评分证据、替换、锁定和打开地图导航。
+
+规划等待态使用阶段化动效表达“理解需求、筛选地点、复核路线、比较方案”，不展示 chain-of-thought，也不伪造尚未执行的工具结果。Presenter 默认生成简短管家式说明，约束与证据采用渐进披露，避免把系统内部状态平铺成用户必须逐项阅读的表单。
 
 按钮、约束面板和方案操作直接发送结构化命令，不经过 LLM；只有自然语言输入才进入 RouterExtractor。SSE 只发布有用户价值的阶段事件，不暴露模型隐式推理过程。
 
@@ -528,6 +603,8 @@ GET    /api/sessions/{session_id}/events
 
 最终可用于简历的候选指标包括：任务成功率、硬约束通过率、无效反问率、抽取 F1、`pass^3`、降级完成率、补偿成功率、P50/P95 延迟、平均 LLM 调用次数和 token 成本。
 
+记忆还需单独评测：同一请求在有/无记忆下的可解释差异、相关记忆命中率、错误记忆影响率、当前用户覆盖长期记忆成功率、跨用户隔离、过期/冲突处理和删除后不再生效。不能用预置“记忆等级”直接制造越来越准的曲线；任何提升都必须来自真实写入、召回和规划结果的可复现对照。
+
 ## 14. 配置、安全与部署
 
 - 使用 `pydantic-settings` 管理模型、Provider、缓存、数据模式和功能开关。
@@ -545,6 +622,7 @@ app/
   orchestration/       # MainGraph and subgraphs
   domain/              # Pydantic models, enums, domain errors
   services/            # enrichment, planning, scoring, execution policy
+  memory/              # recall/propose/decide module and influence evidence
   providers/           # amap, mock, replay, cache
   persistence/         # SQLAlchemy, repositories, migrations
   prompts/             # versioned Router and Presenter prompts
@@ -563,8 +641,10 @@ docs/                  # canonical design and runbooks
 | 主题 | V2 决策 |
 | --- | --- |
 | Agent 形态 | 有状态垂直 Agent Harness，不采用自由工具主循环 |
+| 产品定位 | 可信、可修改、会记住一家人的周末管家 |
 | LLM 数量 | Router 必需 1 次，Presenter 可选 1 次 |
 | LLM 工具 | 首期不向 LLM 暴露工具 |
+| 多 Agent | 不为展示概念拆分；成员公平先使用可测试的确定性评分与约束模型 |
 | 规划 | 确定性召回、组合、评分、验证和局部重规划 |
 | Graph | MainGraph + PlanningSubgraph + ExecutionSubgraph |
 | 数据契约 | Pydantic 跨节点契约，拒绝自由 dict 漂移 |
@@ -572,5 +652,7 @@ docs/                  # canonical design and runbooks
 | 执行 | 预览、快照确认、幂等、订单状态机、Saga 补偿 |
 | 持久化 | SQLite + SQLAlchemy/Alembic + SQLite checkpointer |
 | 身份 | Demo user 起步，匿名 Cookie 和轻登录后置 |
+| 记忆 | 结构化、分主体/范围、证据化、可确认与撤销；Planner 只消费有界 MemoryContext |
+| 前端 | 管家式对话 + 渐进披露约束 + POI/路线详情 + 地图时间线联动 |
 | 评测 | 从 M1 建基础，结果导向，record/replay，可回归 |
 | MCP | 后期在稳定 Service 上增加轻量只读适配器 |

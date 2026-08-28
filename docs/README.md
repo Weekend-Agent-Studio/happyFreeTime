@@ -1,6 +1,6 @@
 # HappyFreeTime 文档中心
 
-_当前实现、架构基线、学习记录、面试材料和历史设计的统一入口 · 2026-08-26_
+_当前实现、架构基线、学习记录、面试材料和历史设计的统一入口 · 2026-08-28_
 
 ---
 
@@ -21,6 +21,8 @@ _当前实现、架构基线、学习记录、面试材料和历史设计的统�
 继续 M2 时同时阅读 [`status/m2_trustworthy_planning_plan_2026-08-20.md`](status/m2_trustworthy_planning_plan_2026-08-20.md) 与 [`learning/milestones/m2_trustworthy_planning.md`](learning/milestones/m2_trustworthy_planning.md)。前者是切片计划快照，不高于 canonical 路线图；后者区分代码证据与个人学习状态。
 
 Catalog C2 是已被 C3 替代的历史快照；当前采集、replay、Unknown 与 Fixture 隔离边界见 [`status/m2_catalog_c3_2026-08-24.md`](status/m2_catalog_c3_2026-08-24.md)。
+
+2026-08-28 的相近项目代码与产品评审见 [`status/competitive_review_2026-08-28.md`](status/competitive_review_2026-08-28.md)。已经确认的结论已进入 canonical：路线图在 M2 后增加 M2.5 产品呈现，在 M3 后增加 M3.5 可控记忆；竞品分析本身仍只是带日期的证据快照。
 
 可以把下面这段直接发给新会话：
 
