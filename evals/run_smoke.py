@@ -4,7 +4,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.domain.constraints import GeoLocation
-from app.evaluation.smoke import load_cases, run_smoke_cases
+from app.evaluation.smoke import (
+    HARD_CONSTRAINT_RATE_THRESHOLD,
+    load_cases,
+    run_smoke_cases,
+)
 from app.services.enrichment import EnvironmentContext
 
 
@@ -22,9 +26,15 @@ def main() -> int:
     )
     report = run_smoke_cases(load_cases(cases_path), environment)
     print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
-    return 0 if report.passed == report.total else 1
+    return (
+        0
+        if (
+            report.passed == report.total
+            and report.hard_constraint_rate >= HARD_CONSTRAINT_RATE_THRESHOLD
+        )
+        else 1
+    )
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -14,6 +14,8 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.providers import GeocodingFact
+
 
 class Intent(str, Enum):
     """当前支持的顶层用户意图，也是 Graph 分流的主要依据。"""
@@ -65,6 +67,9 @@ class GeoLocation(BaseModel):
     address: str
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+    # 行政区编码来自地理编码事实。默认出发地也可以由系统上下文给出；Planner
+    # 不再维护地点文本或行政区到天气编码的私有映射。
+    adcode: str | None = Field(default=None, pattern=r"^\d{6}$")
 
 
 class PartyProfile(BaseModel):
@@ -103,6 +108,10 @@ class RawConstraints(BaseModel):
     diet_tags: list[str] = Field(default_factory=list)
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
+    return_by_text: str | None = None
+    return_by: str | None = None
+    total_distance_text: str | None = None
+    total_distance_km: float | None = Field(default=None, gt=0)
 
 
 class Interpretation(BaseModel):
@@ -196,6 +205,25 @@ class NormalizedConstraints(BaseModel):
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
     strict_budget: bool = False
+    return_by: ConstraintValue[str] | None = None
+    total_distance_km: ConstraintValue[float] | None = None
+
+    @field_validator("return_by")
+    @classmethod
+    def validate_return_by(cls, value: ConstraintValue[str] | None) -> ConstraintValue[str] | None:
+        """Planner only receives a canonical same-day clock deadline."""
+        if value is None:
+            return None
+        parts = value.value.split(":")
+        if len(parts) != 2:
+            raise ValueError("return_by must use HH:MM")
+        try:
+            hour, minute = (int(part) for part in parts)
+        except ValueError as error:
+            raise ValueError("return_by must use HH:MM") from error
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            raise ValueError("return_by must be a valid 24-hour clock value")
+        return value.model_copy(update={"value": f"{hour:02d}:{minute:02d}"})
 
 
 class Assumption(BaseModel):
@@ -215,6 +243,7 @@ class EnrichmentResult(BaseModel):
 
     constraints: NormalizedConstraints
     assumptions: list[Assumption] = Field(default_factory=list)
+    geocoding_fact: GeocodingFact | None = None
 
 
 class QuestionDecision(BaseModel):

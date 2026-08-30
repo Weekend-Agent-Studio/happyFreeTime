@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.api.application import create_app
 from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints
 from app.domain.providers import (
+    AvailabilityStatus,
     ProviderMode,
     ProviderSource,
     RouteFact,
@@ -17,9 +18,14 @@ from app.domain.providers import (
     WeatherFact,
     WeatherRequest,
 )
+from app.providers.availability import MockAvailabilityProvider
+from app.providers.geocoding import MockGeocodingProvider
 from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
 from app.services.enrichment import EnvironmentContext
+from app.services.catalog import InMemoryCatalog
 from app.services.router_extractor import RouterContext
+from tests.test_native_planning import candidate
+from app.domain.catalog import ResourceType
 
 
 class RuleRouter:
@@ -63,6 +69,19 @@ class RuleRouter:
                     strict_budget=True,
                 ),
             )
+        if "返程距离" in user_input:
+            return Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(
+                    date_text="今天",
+                    time_text="下午",
+                    return_by_text="最晚23:00到家",
+                    return_by="23:00",
+                    total_distance_text="全程不超过50公里",
+                    total_distance_km=50,
+                ),
+            )
         if "别超预算" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
@@ -78,6 +97,19 @@ class RuleRouter:
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
             raw_constraints=RawConstraints(date_text="今天", time_text="下午"),
+        )
+
+
+class LocationRuleRouter:
+    def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        return Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                date_text="今天",
+                time_text="下午",
+                location_text="国贸",
+            ),
         )
 
 
@@ -280,7 +312,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]["session_id"], second_session)
         self.assertEqual(sessions[0]["title"], "周六和朋友聚一下，人均150")
-        self.assertEqual(sessions[0]["last_message_preview"], "已生成 3 个候选方案。")
+        self.assertIn("已筛出 3 个可行方案", sessions[0]["last_message_preview"])
         self.assertNotEqual(sessions[0]["session_id"], hidden_empty_session)
 
     def test_message_exposes_route_source_and_verified_timeline(self) -> None:
@@ -389,6 +421,20 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(party["confidence"], 0.85)
         self.assertTrue(party["user_editable"])
 
+    def test_message_exposes_return_and_total_distance_constraints(self) -> None:
+        session_id = self._create_session()
+
+        response = self._send_message(session_id, "返程距离")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        fields = {
+            item["field"]: item
+            for item in response.json()["data"]["constraint_summary"]
+        }
+        self.assertEqual(fields["return_by"]["value"], "23:00")
+        self.assertEqual(fields["total_distance_km"]["value"], 50.0)
+        self.assertIn("可行方案", response.json()["data"]["reply"])
+
     def test_message_exposes_weather_source_and_degradation_state(self) -> None:
         session_id = self._create_session()
 
@@ -396,12 +442,12 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         facts = response.json()["data"]["provider_facts"]
-        self.assertEqual(len(facts), 1)
-        self.assertEqual(facts[0]["kind"], "weather")
-        self.assertEqual(facts[0]["condition"], "中雨")
-        self.assertEqual(facts[0]["source"], "replay")
-        self.assertFalse(facts[0]["degraded"])
-        self.assertIsNone(facts[0]["degraded_reason"])
+        weather = next(fact for fact in facts if fact["kind"] == "weather")
+        self.assertEqual(weather["condition"], "中雨")
+        self.assertEqual(weather["source"], "replay")
+        self.assertFalse(weather["degraded"])
+        self.assertIsNone(weather["degraded_reason"])
+        self.assertTrue(any(fact["kind"] == "availability" for fact in facts))
 
     def test_blocking_question_resumes_on_the_next_message(self) -> None:
         session_id = self._create_session()
@@ -434,6 +480,100 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(read.status_code, 404)
         self.assertEqual(write.status_code, 404)
+
+    def test_offline_http_sqlite_path_carries_geocoding_weather_availability_and_warnings(self) -> None:
+        weather_store = InMemoryWeatherReplayStore()
+        weather_store.save(
+            WeatherRequest(city="北京市", district="朝阳区", adcode="110105", date=date(2026, 8, 15)),
+            WeatherFact(
+                city="北京市", district="朝阳区", date=date(2026, 8, 15),
+                condition="晴", source=ProviderSource.REPLAY, mode=ProviderMode.REPLAY,
+                observed_at=datetime(2026, 8, 15, 8, tzinfo=timezone.utc),
+                verified_at=datetime(2026, 8, 15, 8, tzinfo=timezone.utc),
+            ),
+        )
+        app = create_app(
+            database_path=Path(self.temp_dir.name) / "m2-e2e.db",
+            router=LocationRuleRouter(),
+            environment_provider=lambda _: EnvironmentContext(
+                now=datetime(2026, 8, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+                default_location=GeoLocation(
+                    city="北京市", district="朝阳区", address="北京市朝阳区",
+                    latitude=39.9219, longitude=116.4436, adcode="110105",
+                ),
+            ),
+            weather_provider=ReplayWeatherProvider(
+                store=weather_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+            geocoding_provider=MockGeocodingProvider.from_locations(
+                {("北京市", "国贸"): (39.9087, 116.4615, "朝阳区", "110105", "北京市朝阳区国贸")},
+                clock=lambda: datetime(2026, 8, 15, tzinfo=timezone.utc),
+            ),
+            availability_provider=MockAvailabilityProvider(
+                statuses={}, clock=lambda: datetime(2026, 8, 15, tzinfo=timezone.utc)
+            ),
+        )
+        with TestClient(app) as client:
+            session = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            response = client.post(
+                f"/api/sessions/{session}/messages",
+                headers=self.headers,
+                json={"request_id": "m2-offline-e2e-001", "content": "国贸附近今天下午出去玩"},
+            )
+            restored = client.get(f"/api/sessions/{session}", headers=self.headers)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()["data"]
+        self.assertTrue(body["plans"])
+        self.assertIn("已筛出", body["reply"])
+        self.assertEqual(
+            {fact["kind"] for fact in body["provider_facts"]},
+            {"geocoding", "weather", "availability"},
+        )
+        self.assertEqual(
+            next(item for item in body["constraint_summary"] if item["field"] == "location")["value"]["address"],
+            "北京市朝阳区国贸",
+        )
+        self.assertTrue(any(item["code"] == "availability_unconfirmed" for item in body["warnings"]))
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertEqual(restored.json()["data"]["latest_response"]["provider_facts"], body["provider_facts"])
+
+    def test_offline_http_path_replans_after_verified_unavailable_finalist(self) -> None:
+        app = create_app(
+            database_path=Path(self.temp_dir.name) / "m2-replan-e2e.db",
+            router=LocationRuleRouter(),
+            environment_provider=lambda _: EnvironmentContext(
+                now=datetime(2026, 8, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+                default_location=GeoLocation(city="北京市", district="朝阳区", address="北京市朝阳区", latitude=39.9219, longitude=116.4436, adcode="110105"),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+            geocoding_provider=MockGeocodingProvider.from_locations(
+                {("北京市", "国贸"): (39.9087, 116.4615, "朝阳区", "110105", "北京市朝阳区国贸")}
+            ),
+            availability_provider=MockAvailabilityProvider(
+                statuses={"meal-a": AvailabilityStatus.UNAVAILABLE, "meal-b": AvailabilityStatus.AVAILABLE}
+            ),
+            catalog=InMemoryCatalog([
+                candidate("activity-a", ResourceType.ACTIVITY, "展览", ["展览"]),
+                candidate("meal-a", ResourceType.RESTAURANT, "餐厅 A", ["餐厅"]),
+                candidate("meal-b", ResourceType.RESTAURANT, "餐厅 B", ["餐厅"]),
+            ]),
+        )
+        with TestClient(app) as client:
+            session = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            response = client.post(
+                f"/api/sessions/{session}/messages",
+                headers=self.headers,
+                json={"request_id": "m2-local-replan-e2e", "content": "国贸附近今天下午出去玩"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        plans = response.json()["data"]["plans"]
+        self.assertTrue(plans)
+        self.assertTrue(all("meal-a" not in {stop["resource_id"] for stop in plan["stops"]} for plan in plans))
+        self.assertTrue(any([stop["resource_id"] for stop in plan["stops"]] == ["activity-a", "meal-b"] for plan in plans))
 
 
 if __name__ == "__main__":

@@ -75,3 +75,5 @@ class AgentResponse(BaseModel):
     provider_facts: list[dict[str, Any]] = Field(default_factory=list)
     catalog_violations: list[dict[str, Any]] = Field(default_factory=list)
     catalog_warnings: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+    poi_presentations: list[dict[str, Any]] = Field(default_factory=list)

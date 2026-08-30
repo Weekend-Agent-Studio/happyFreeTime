@@ -4,6 +4,12 @@
     "intent": "plan_outing",
     "raw_constraints": {},
     "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "max_total_distance_km": 30,
+      "max_route_leg_distance_km": 8,
+      "route_sources": ["local_estimate"],
+      "weather_sources": ["mock"]
+    },
     "tags": ["defaults", "offline"]
   },
   {
@@ -15,7 +21,7 @@
     },
     "expected_outcome": "question",
     "expected_question_field": "budget_per_person",
-    "tags": ["gate", "budget"]
+    "tags": ["gate", "budget", "hard_constraint"]
   },
   {
     "case_id": "ambiguous_explicit_date",
@@ -47,7 +53,210 @@
     },
     "expected_outcome": "conflict",
     "expected_conflict_code": "NO_PLAN_WITHIN_STRICT_BUDGET",
-    "tags": ["planning", "conflict"]
+    "tags": ["planning", "conflict", "hard_constraint"]
+  },
+  {
+    "case_id": "return_by_generous_deadline_plan",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "return_by_text": "最晚23:00到家"
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "return_to_origin": true,
+      "latest_return_time": "23:00",
+      "max_total_distance_km": 30,
+      "max_route_leg_distance_km": 8,
+      "route_sources": ["local_estimate"],
+      "weather_sources": ["mock"]
+    },
+    "tags": ["planning", "return_by", "hard_constraint"]
+  },
+  {
+    "case_id": "return_by_impossible_deadline_conflict",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "return_by_text": "最晚14:10到家"
+    },
+    "expected_outcome": "conflict",
+    "expected_conflict_code": "NO_FEASIBLE_PLAN",
+    "expected_conflict_fields": ["return_by"],
+    "tags": ["planning", "return_by", "conflict", "hard_constraint"]
+  },
+  {
+    "case_id": "unresolved_return_deadline_question",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "return_by_text": "最晚十八点回家"
+    },
+    "expected_outcome": "question",
+    "expected_question_field": "return_by",
+    "tags": ["gate", "return_by", "hard_constraint"]
+  },
+  {
+    "case_id": "total_distance_hard_conflict",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "total_distance_text": "全程不超过0.1公里",
+      "total_distance_km": 0.1
+    },
+    "expected_outcome": "conflict",
+    "expected_conflict_code": "NO_FEASIBLE_PLAN",
+    "expected_conflict_fields": ["total_distance_km"],
+    "tags": ["planning", "total_distance", "conflict", "hard_constraint"]
+  },
+  {
+    "case_id": "unresolved_total_distance_question",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "total_distance_text": "全程别太远"
+    },
+    "expected_outcome": "question",
+    "expected_question_field": "total_distance_km",
+    "tags": ["gate", "total_distance", "hard_constraint"]
+  },
+  {
+    "case_id": "single_route_leg_hard_conflict",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "max_distance_text": "每段不超过0.1公里",
+      "max_distance_km": 0.1
+    },
+    "expected_outcome": "conflict",
+    "expected_conflict_code": "NO_FEASIBLE_PLAN",
+    "expected_conflict_fields": ["max_distance_km"],
+    "tags": ["planning", "max_distance", "hard_constraint"]
+  },
+  {
+    "case_id": "rainy_child_plan_uses_safe_recalled_resources",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "children": 1,
+      "child_age": 6
+    },
+    "weather": {
+      "condition": "中雨",
+      "is_adverse": true
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "children_allowed": true,
+      "no_weather_sensitive_activities": true,
+      "weather_sources": ["replay"]
+    },
+    "tags": ["planning", "weather", "children", "hard_constraint"]
+  },
+  {
+    "case_id": "night_plan_respects_opening_boundaries",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "time_text": "晚上"
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "opening_hours_valid": true,
+      "route_sources": ["local_estimate"]
+    },
+    "tags": ["planning", "opening_hours", "hard_constraint"]
+  },
+  {
+    "case_id": "replay_geocoding_resolves_explicit_location",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "location_text": "国贸"
+    },
+    "geocoding": {
+      "resolution": "resolved",
+      "city": "北京市",
+      "district": "朝阳区",
+      "address": "北京市朝阳区国贸",
+      "latitude": 39.9087,
+      "longitude": 116.4615,
+      "adcode": "110105"
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "provider_fact_kinds": ["geocoding", "weather", "availability"]
+    },
+    "tags": ["geocoding", "offline"]
+  },
+  {
+    "case_id": "replay_geocoding_not_found_questions_location",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "location_text": "不存在地标"
+    },
+    "geocoding": {
+      "resolution": "not_found"
+    },
+    "expected_outcome": "question",
+    "expected_question_field": "location",
+    "tags": ["geocoding", "gate", "hard_constraint"]
+  },
+  {
+    "case_id": "replay_geocoding_ambiguous_questions_location",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "location_text": "万达"
+    },
+    "geocoding": {
+      "resolution": "ambiguous"
+    },
+    "expected_outcome": "question",
+    "expected_question_field": "location",
+    "tags": ["geocoding", "gate"]
+  },
+  {
+    "case_id": "verified_unavailable_resource_is_repaired",
+    "intent": "plan_outing",
+    "raw_constraints": {},
+    "availability": {
+      "statuses": {
+        "osm-node-5821294053": "unavailable"
+      },
+      "default_status": "available"
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "excluded_resource_ids": ["osm-node-5821294053"],
+      "provider_fact_kinds": ["weather", "availability"]
+    },
+    "tags": ["availability", "repair", "hard_constraint"]
+  },
+  {
+    "case_id": "unknown_availability_returns_warning",
+    "intent": "plan_outing",
+    "raw_constraints": {},
+    "availability": {
+      "statuses": {},
+      "default_status": "unknown"
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "required_warning_codes": ["availability_unconfirmed"]
+    },
+    "tags": ["availability", "warning"]
+  },
+  {
+    "case_id": "route_leg_repair_excludes_far_destination",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "max_distance_text": "每段不超过40公里",
+      "max_distance_km": 40
+    },
+    "route": {
+      "distance_by_resource_id": {
+        "osm-node-5821294053": 50
+      },
+      "default_distance_km": 1,
+      "duration_minutes": 5
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "excluded_resource_ids": ["osm-node-5821294053"],
+      "max_route_leg_distance_km": 40,
+      "route_sources": ["replay"]
+    },
+    "tags": ["route", "repair", "hard_constraint"]
   }
 ]
-

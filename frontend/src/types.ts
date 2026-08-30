@@ -59,6 +59,41 @@ export type Stop = {
   source: CatalogSource;
 };
 
+export type PoiGalleryItem = {
+  url: string;
+  alt: string;
+  kind: "source" | "illustrative";
+  attribution: string | null;
+  license: string | null;
+};
+
+/** Rich display data is deliberately separate from a planning Stop. */
+export type PoiPresentation = {
+  resource_id: string;
+  name: string;
+  category_label: string;
+  business_area: string;
+  address: string;
+  description: string;
+  scene_tags: string[];
+  facility_tags: string[];
+  indoor: boolean;
+  weather_suitability: string;
+  child_suitability: string;
+  reference_avg_price: number | null;
+  demo_rating: number;
+  demo_review_count: number;
+  opening_hours_display: string;
+  opening_status: string;
+  suggested_duration_minutes: number;
+  reservation_requirement: string;
+  queue_profile: string;
+  risk_tips: string[];
+  booking_mode: string;
+  gallery: PoiGalleryItem[];
+  data_notice: string;
+};
+
 export type CatalogViolation = {
   resource_id: string;
   resource_name: string;
@@ -112,7 +147,16 @@ export type Plan = {
   tradeoffs: string[];
 };
 
-export type ProviderFact = {
+type ProviderFactBase = {
+  source: "amap_live" | "cache" | "replay" | "mock" | "local_estimate";
+  mode: "live" | "record" | "replay" | "mock";
+  observed_at: string;
+  verified_at: string;
+  degraded: boolean;
+  degraded_reason: string | null;
+};
+
+export type ProviderFact = ({
   kind: "weather";
   city: string;
   district: string;
@@ -121,13 +165,33 @@ export type ProviderFact = {
   temperature_c: number | null;
   precipitation_mm: number;
   is_adverse: boolean;
-  source: "amap_live" | "cache" | "replay" | "mock" | "local_estimate";
-  mode: "live" | "record" | "replay" | "mock";
-  observed_at: string;
-  verified_at: string;
-  degraded: boolean;
-  degraded_reason: string | null;
   cache_age_seconds: number | null;
+} | {
+  kind: "geocoding";
+  request: { location_text: string; city: string | null };
+  resolution: "resolved" | "not_found" | "ambiguous" | "unavailable";
+  city: string | null;
+  district: string | null;
+  address: string | null;
+  verified: boolean;
+} | {
+  kind: "availability";
+  resource_id: string;
+  status: "available" | "unavailable" | "unknown";
+  verified: boolean;
+  stale: boolean;
+  reason: string | null;
+}) & ProviderFactBase;
+
+export type PlanWarning = {
+  code: string;
+  message: string;
+  plan_id: string | null;
+  resource_id: string | null;
+  route_leg_index: number | null;
+  source: string | null;
+  degraded: boolean;
+  stale: boolean;
 };
 
 export type AgentResponse = {
@@ -146,6 +210,8 @@ export type AgentResponse = {
   provider_facts: ProviderFact[];
   catalog_violations: CatalogViolation[];
   catalog_warnings: CatalogWarning[];
+  warnings?: PlanWarning[];
+  poi_presentations: PoiPresentation[];
 };
 
 export type ChatMessage = {

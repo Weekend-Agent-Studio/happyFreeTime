@@ -4,7 +4,7 @@ _代码切片与个人学习状态分开维护 · 2026-08-26_
 
 ## 当前状态
 
-代码已完成切片 A、B、C1-C3、S0 和 D0-D3 的首版，并完成 D4 的第一批多站切片：四个版本化显式骨架覆盖 2/3/4 站，Route 调用改为按 Leg 计费且在骨架间公平分配。餐时锚点、返程、独立全程距离约束、库存和集合级多样化仍未完成，因此 M2 整体未完成。学习状态仍为 `L0 未开始`，因为尚未完成用户复述、变体实验或独立修改测试。
+代码已完成 M2 的 A-F 与最终可信规划收口。D4 补齐餐时锚点（`LUNCH/DINNER` 到店窗口）、`return_by` 的返程段存在/终点/截止校验与独立 `total_distance_km` 全程距离校验；Graph 可以把“最晚十八点回家”后的 `18:00` 在同会话恢复。E 从不超过 24 个 Route Leg 的可行候选池中按 POI 重叠、成本和路程贪心选出最多 3 个差异方案，Unknown 价格不参与 `low_cost`。F 已有 RouteLeg 索引联动、Vitest/RTL 和离线桌面/375px Playwright 主路径。GeocodingProvider 使显式位置只在得到规范化事实后进入 Planner；AvailabilityProvider 用受预算的批量请求验证 finalist，verified unavailable 才淘汰，Unknown/陈旧/降级只告警。统一 Repair Contract 按归因处理 availability、营业、单段路线和返程超时：同一 root chain 最多两次替换，完成后重建路线、复查可用性并执行完整 Verifier；无法可靠归因的失败转向独立 finalist，天气仍在组合前剪枝。19 条声明式 smoke 已覆盖地点解析、动态可用性 warning/替补与路线 repair。学习状态仍为 `L0 未开始`，因为尚未完成用户复述、变体实验或独立修改测试。
 
 ## 切片 A 链路
 
@@ -133,7 +133,7 @@ NormalizedConstraints
 
 当前四个骨架是 `ACTIVITY -> MEAL`、`LUNCH -> ACTIVITY -> DINNER`、`ACTIVITY -> BREAK -> DINNER` 和 `ACTIVITY -> LUNCH -> ACTIVITY -> DINNER`。`StopRole` 与资源类型分离：一般 `MEAL` 可由餐厅、咖啡或甜品承担，`BREAK` 可由咖啡或甜品承担，明确的 `LUNCH/DINNER` 当前只由餐厅承担。多站每个角色最多保留 8 个候选，四站两个活动/两个餐饮角色的唯一排列上限约 3,136 个；双站不截断，从而保持 S0 行为。
 
-`PlanningIntent` 当前由确定性规则构造，LLM 仍只在 RouterExtractor 做需求抽取。时间窗只决定某个骨架有没有资格，并不把时长硬映射成唯一站数；真实 POI、路线和完整 Verifier 决定最终可行性。尚未实现的餐时锚点意味着 `LUNCH/DINNER` 目前表达顺序角色，不保证到达时间落在独立午餐/晚餐窗口，这一点不能在面试或 README 中夸大。
+`PlanningIntent` 当前由确定性规则构造，LLM 仍只在 RouterExtractor 做需求抽取。时间窗只决定某个骨架有没有资格，并不把时长硬映射成唯一站数；真实 POI、路线和完整 Verifier 决定最终可行性。`LUNCH/DINNER` 已有版本化到店锚点（午餐 11:00-14:00、晚餐 17:00-20:30）；`return_by` 仅在解析为同日 `HH:MM` 后进入 Planner，无法解析则由 Gate 反问，不能静默放宽。
 
 ## 已有自动证据
 
@@ -157,20 +157,23 @@ NormalizedConstraints
 - `tests/test_native_planning.py`：通用 `ACTIVITY -> MEAL` 角色可由 Cafe 承担；长时间窗可生成 `LUNCH -> ACTIVITY -> DINNER`、`ACTIVITY -> BREAK -> DINNER` 与 `ACTIVITY -> LUNCH -> ACTIVITY -> DINNER`；午晚餐角色不被 Cafe/Dessert 误填；长骨架失败时不会饿死低分可行骨架。
 - `tests/test_planning.py`：Provider 返回跨日乃至超百小时的异常耗时时，使用数值时间线判断并返回 `time_window` conflict，不因非法 `time(hour=...)` 或字符串比较而崩溃/误放行。
 - `tests/test_catalog_collection.py` 与 `tests/test_snapshot_catalog.py`：多营业区间不会在采集时截断，版本化快照实际包含多区间 POI。
-- 本轮后端全量回归 102/102（另含 2 个 subtests）、5 条离线 smoke 与前端生产构建通过；200 条快照的 09:00-22:00 冒烟请求约 2.25 秒完成并返回含四站的方案。真实 Key 自检返回 `amap_live` 路线/天气，完整 UI 双站请求显示未降级高德路线，浏览器地图显示底图、路线和 3 个 marker。2026-08-28 又以本地浏览器完成了“创建两条会话、侧栏切换、刷新、前进/后退”的手工回归；该证据仍不等于仓库内可重复执行的 Playwright E2E，也不证明真实高德长期质量、POI 当前营业/价格准确或所有多站变体。
+- `tests/test_native_planning.py`：`LUNCH/DINNER` 到店被锚定到版本化用餐窗口、偏离锚点的晚餐方案被淘汰；`return_by` 追加返程段并计入总时长，Verifier 会拒绝缺失返程、错误终点和超时、允许恰好截止；`total_distance_km` 独立于单段距离拒绝超限方案；集合级多样化保留价格差异方案而非相似低价 Top-3。六种策略均有指标驱动的选择回归，且 Unknown 记录为 `cost=uncomparable`，不会作为免费方案进入 `low_cost`。
+- `tests/test_enrichment.py` 与 `tests/test_demo_router.py`：`return_by` 从原文与时钟归一化并进入 `NormalizedConstraints`；离线 Demo Router 抽取“最晚 X 到家”。
+- `evals/smoke_cases.json` 现有 19 条离线声明式 smoke：经 Enrichment 后注入 Replay Geocoding/Weather/Availability/Route，Plan 不再只检查“是否返回”，会逐方案检查返程终点/截止、全程与单段距离、路线与天气 Provider 来源、地点解析、动态可用性 warning/替补、雨天敏感活动、儿童可用性与营业边界；另覆盖无法解析的返程/全程距离 Gate 澄清和冲突 fields。其中 13 条标记为硬约束路径，当前 13/13 通过，并执行 95% 门槛。它不是 Graph/HTTP/SQLite/React E2E；这些边界另由 API、组件与 Playwright 测试覆盖。
+- `tests/test_presenter.py` 断言模板 Presenter 只读取已验证方案事实和活跃约束；`tests/test_planning.py` 断言策略固定枚举及其评分证据；`tests/test_native_planning.py` 断言含返程时的 Route Provider 调用不超过 24 与小候选集也不跳过多样性阈值。`frontend/src/*.test.tsx` 以 Vitest/RTL 覆盖方案切换、首/中/返程 RouteLeg 索引、高德禁用降级和可见错误；`frontend/e2e/planning-flow.spec.ts` 以 mock API 通过桌面 Chromium 与 375px 离线主路径。真实 Key 自检返回 `amap_live` 路线/天气，完整 UI 双站请求显示未降级高德路线，浏览器地图显示底图、路线和 3 个 marker；这些样本不证明真实高德长期质量、POI 当前营业/价格准确或所有多站变体。
 
 ## 已知限制
 
-- 已用本机 Key 验证一条天气、一条独立路线和一次完整双站规划；仍需补录制回放样本、更多线上失败类型与可重复浏览器 E2E，不能把单次成功外推为 SLA。
-- 首片仅内置北京核心城区到天气 `adcode` 的小范围映射；完整地理编码由后续 Provider 切片接管。
+- 已用本机 Key 验证一条天气、一条独立路线和一次完整双站规划；录制/回放与离线浏览器 E2E 已具备，但单次成功仍不能外推为 SLA。
+- Geocoding 已由 Provider seam 接管；地点 not_found/ambiguous 会通过 Gate 反问，不会退回默认坐标。真实高德地点质量仍取决于其上游结果与本地缓存策略。
 - 缓存当前为进程内存，不是路线图目标的持久化 `provider_cache`。
-- 天气规则只处理活动的 `weather_sensitive` 字段；完整天气 Verifier、warning 聚合与局部重规划尚未实现。
-- Planner 已支持四个显式 2/3/4 站骨架；默认 mock 模式明确使用本地路线估算，live/replay 可逐段复核并有界回填候选，但尚未实现餐时锚点、返程、库存验证、完整天气 warning 聚合和集合级多样化。
+- 天气规则当前只对活动的 `weather_sensitive` 字段做可靠的组合前剪枝；未知/降级/陈旧天气会作为 warning 聚合。它不是实时临近降水或全类型天气风险模型。
+- Planner 已支持四个显式 2/3/4 站骨架、餐时锚点、返程到家时间和独立全程距离；默认 mock 模式明确使用本地路线估算，live/replay 可逐段复核。Availability 仅是 Mock/Replay 动态事实，不是实时库存或下单系统。
 - 当前默认 Catalog 是 200 条来源可追溯但未现场核验的 OSM 静态快照，不是实时 POI 搜索；实时闭店、节假日例外与定时刷新任务尚未实现。
-- C1 先做请求窗口与基础营业时段是否相交，并以直线距离做明显超范围的安全下界剪枝；D0 已按实际到达/停留时间核验同日开关门边界。节假日、跨夜营业与实时临时闭店仍未知；`max_distance_km` 当前保持既有“召回半径/单段上限”语义，尚未新增独立的全程距离约束。
-- 当前 snapshot 价格全部 Unknown，严格预算会全部拒绝；普通预算只报告价格证据不足，不把 Unknown 当免费。动态库存、排队与更多策略仍未实现。
+- C1 先做请求窗口与基础营业时段是否相交，并以直线距离做明显超范围的安全下界剪枝；D0 已按实际到达/停留时间核验同日开关门边界。节假日、跨夜营业与实时临时闭店仍未知；`max_distance_km` 保持“召回半径/单段上限”语义，`total_distance_km` 是独立的已生成路线累计距离约束。返程段仅在用户给出可解析 `return_by` 时生成，因此全程距离语义会在约束摘要与 Presenter 中公开，不以隐藏默认混淆用户。
+- 当前 snapshot 价格全部 Unknown，严格预算会全部拒绝；普通预算只报告价格证据不足，不把 Unknown 当免费。实时库存、排队与更多策略仍未实现。
 - 当前 72 条 POI 具有许可明确的 Wikimedia Commons 远程图片，其余显示类别占位图；图片未做代理、下载或永久保存。
-- 浏览器刷新恢复、最近会话切换和 URL 导航已实现；仓库内可重复执行的 Playwright E2E 仍待补充。
+- 浏览器刷新恢复、最近会话切换和 URL 导航已实现；仓库内已有 mock/offline Playwright 桌面与 375px 主路径。Windows 受控终端中 `webServer` 子进程偶尔不会自行退出，测试断言已通过但运行器清理需继续处理；不得将其混同为产品路径失败。
 
 ## 建议学习实验
 

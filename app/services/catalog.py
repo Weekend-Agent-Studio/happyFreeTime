@@ -84,10 +84,15 @@ class SnapshotCatalog:
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or Path(__file__).resolve().parents[2] / "data" / "catalog" / "pois.json"
-        self._delegate = InMemoryCatalog(self._load())
+        self._candidates = self._load()
+        self._delegate = InMemoryCatalog(self._candidates)
 
     def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
         return self._delegate.recall(constraints)
+
+    def load_candidates(self) -> list[StopCandidate]:
+        """Return a defensive anchor copy for adapters such as DemoCatalog."""
+        return [candidate.model_copy(deep=True) for candidate in self._candidates]
 
     def _load(self) -> list[StopCandidate]:
         try:

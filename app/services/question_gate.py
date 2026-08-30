@@ -85,6 +85,25 @@ class NeedQuestionGate:
                 severity="blocking",
             )
 
+        # 原文或结构化字段只要明确表达了返程截止时间，就必须在进入
+        # Planner 前变成可校验的 HH:MM；不能因为 Router 给出了非法字符串
+        # 而静默忽略这条硬约束。
+        if (raw.return_by_text or raw.return_by) and constraints.return_by is None:
+            return QuestionDecision(
+                need_question=True,
+                field="return_by",
+                question="你最晚几点需要到家？请用例如 18:00 的时间告诉我。",
+                severity="blocking",
+            )
+
+        if raw.total_distance_text and constraints.total_distance_km is None:
+            return QuestionDecision(
+                need_question=True,
+                field="total_distance_km",
+                question="你希望全程总路程最多是多少公里？请给一个数字，例如 12 公里。",
+                severity="blocking",
+            )
+
         if context.booking_required:
             party = constraints.party
             if party is None or party.source.value == "default_rule":

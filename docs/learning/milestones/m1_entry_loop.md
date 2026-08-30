@@ -210,10 +210,10 @@ checkpoint 中的 `interrupts` 已经携带待回答字段、问题和严重级�
 | `user_id` 会话隔离 | Repository 与 API 测试覆盖 |
 | 真实 LLM 抽取准确率 | 未覆盖；Fake 输出只验证结构化契约、重试和降级 |
 | 真实商家营业与推荐质量 | 未覆盖；当前使用 Mock Catalog，且无质量指标 |
-| 页面刷新恢复 | 未实现完整闭环，也无浏览器 E2E |
+| 页面刷新恢复 | 已实现并完成一次手工浏览器回归；仍无仓库内可重复浏览器 E2E |
 | 前端类型检查和生产打包 | `pnpm run build` 覆盖，但不验证交互 |
 
-5 条 smoke case 位于 `evals/smoke_cases.json`。运行器直接构造 `Interpretation`，只经过 Enrichment、Gate 和 Planning，绕过 Router、Graph、HTTP、SQLite 与 React。因此准确名称是“离线行为 smoke”，不是端到端测试。它主要检查是否返回方案、反问字段或冲突代码，不评估真实抽取和主观推荐质量。
+9 条 smoke case 位于 `evals/smoke_cases.json`。运行器直接构造 `Interpretation`，只经过 Enrichment、Gate 和 Planning，绕过 Router、Graph、HTTP、SQLite 与 React。因此准确名称是“离线行为 smoke”，不是端到端测试。它检查结果类型、反问字段、冲突代码与指定硬约束字段；其中 6 条标记为硬约束路径并汇总通过率，不评估真实抽取和主观推荐质量。
 
 真实 Router 应通过人工标注数据集评测 schema 合法率、意图准确率、字段 Precision/Recall/F1、关键字段错误率、稳定性、延迟与成本。推荐质量还需单独评价硬约束满足率、无解识别、排序相关性和用户反馈。
 

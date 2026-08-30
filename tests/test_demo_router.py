@@ -31,6 +31,33 @@ class DemoRouterTest(unittest.TestCase):
         self.assertTrue(result.raw_constraints.strict_budget)
         self.assertEqual(result.raw_constraints.budget_per_person, 200)
 
+    def test_extracts_return_by_deadline(self) -> None:
+        result = self.router.interpret(
+            "下午出去玩，最晚18:00到家",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.return_by, "18:00")
+        self.assertIsNotNone(result.raw_constraints.return_by_text)
+
+    def test_extracts_total_distance_with_its_original_evidence(self) -> None:
+        result = self.router.interpret(
+            "今天下午出去玩，全程不超过10公里",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.total_distance_km, 10.0)
+        self.assertEqual(result.raw_constraints.total_distance_text, "全程不超过10公里")
+
+    def test_preserves_unresolved_return_deadline_for_the_question_gate(self) -> None:
+        result = self.router.interpret(
+            "下午出去玩，最晚十八点回家",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.return_by_text, "最晚十八点回家")
+        self.assertIsNone(result.raw_constraints.return_by)
+
 
 if __name__ == "__main__":
     unittest.main()

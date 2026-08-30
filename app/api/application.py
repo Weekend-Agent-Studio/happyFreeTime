@@ -21,8 +21,12 @@ from app.api.schemas import (
 from app.domain.constraints import ActorContext, IdentityType
 from app.providers.weather import WeatherProvider
 from app.providers.route import RouteProvider
+from app.providers.geocoding import GeocodingProvider
+from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
+from app.services.presenter import present_candidate_set
+from app.services.poi_presentation import EmptyPoiPresentationProvider, PoiPresentationProvider
 from app.orchestration.entry_graph import (
     EnvironmentProvider,
     Router,
@@ -40,7 +44,10 @@ def create_app(
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
     route_provider: RouteProvider | None = None,
+    geocoding_provider: GeocodingProvider | None = None,
+    availability_provider: AvailabilityProvider | None = None,
     catalog: Catalog | None = None,
+    poi_presentation_provider: PoiPresentationProvider | None = None,
     web_map_provider: WebMapProvider | None = None,
 ) -> FastAPI:
     """创建可注入依赖的应用实例。
@@ -63,10 +70,13 @@ def create_app(
         environment_provider=environment_provider,
         weather_provider=weather_provider,
         route_provider=route_provider,
+        geocoding_provider=geocoding_provider,
+        availability_provider=availability_provider,
         catalog=catalog,
         checkpointer=checkpointer,
     )
     browser_map = web_map_provider or DisabledWebMapProvider()
+    presentation_provider = poi_presentation_provider or EmptyPoiPresentationProvider()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -223,6 +233,8 @@ def create_app(
                     provider_facts=[],
                     catalog_violations=[],
                     catalog_warnings=[],
+                    warnings=[],
+                    poi_presentations=[],
                 )
                 repository.complete_planning_run(
                     user_id=x_user_id,
@@ -241,7 +253,10 @@ def create_app(
             plans = candidate_set.plans if candidate_set else []
             conflict = candidate_set.conflict if candidate_set else None
             if plans:
-                reply = f"已生成 {len(plans)} 个候选方案。"
+                reply = present_candidate_set(
+                    candidate_set,
+                    result["enrichment"].constraints,
+                )
             elif conflict is not None:
                 reply = conflict.message
 
@@ -273,6 +288,21 @@ def create_app(
                     if candidate_set
                     else []
                 ),
+                warnings=(
+                    [item.model_dump(mode="json") for item in candidate_set.warnings]
+                    if candidate_set
+                    else []
+                ),
+                poi_presentations=[
+                    item.model_dump(mode="json")
+                    for item in presentation_provider.present_many(
+                        [
+                            stop.resource_id
+                            for plan in plans
+                            for stop in plan.stops
+                        ]
+                    )
+                ],
             )
             repository.complete_planning_run(
                 user_id=x_user_id,
@@ -316,6 +346,8 @@ def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
         "party",
         "budget_per_person",
         "max_distance_km",
+        "return_by",
+        "total_distance_km",
     ):
         constraint = getattr(enrichment.constraints, field)
         if constraint is None:

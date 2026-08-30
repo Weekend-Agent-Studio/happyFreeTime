@@ -8,6 +8,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+from enum import Enum
 from itertools import product
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,8 @@ from app.domain.planning import (
     Plan,
     PlanPace,
     PlanPriceStatus,
+    PlanWarning,
+    PlanStrategy,
     PlanSkeleton,
     PlanningIntent,
     RouteLeg,
@@ -30,16 +33,21 @@ from app.domain.planning import (
     StopType,
 )
 from app.domain.providers import (
+    AvailabilityCheck,
+    AvailabilityFact,
+    AvailabilityRequest,
     GeoPoint,
     ProviderSource,
     RouteFact,
     RouteRequest,
+    WeatherFact,
     WeatherRequest,
 )
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
+from app.providers.availability import AvailabilityProvider, MockAvailabilityProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
 from app.services.catalog import Catalog, SnapshotCatalog
-from app.services.plan_verifier import PlanVerifier
+from app.services.plan_verifier import PlanVerifier, VerificationFinding
 
 
 _PREFERENCE_ALIASES: dict[str, frozenset[str]] = {
@@ -49,8 +57,12 @@ _PREFERENCE_ALIASES: dict[str, frozenset[str]] = {
     "户外": frozenset({"户外", "公园", "运动"}),
 }
 _MAX_RETURNED_PLANS = 3
+_MAX_FEASIBLE_PLANS = 12
 _MAX_ROUTE_LEG_VERIFICATIONS = 24
+_MAX_AVAILABILITY_BATCHES = 6
+_MAX_LOCAL_REPLAN_ROUNDS = 2
 _MAX_CANDIDATES_PER_ROLE_FOR_MULTI_STOP = 8
+_MIN_PLAN_DIVERSITY = 0.35
 _ACTIVITY_MEAL_SKELETON = PlanSkeleton(
     skeleton_id="activity-meal-v1",
     roles=(StopRole.ACTIVITY, StopRole.MEAL),
@@ -83,6 +95,83 @@ _ROLE_RESOURCE_TYPES: dict[StopRole, frozenset[ResourceType]] = {
 }
 
 
+class RepairOutcome(str, Enum):
+    """One bounded repair scheduling decision for a single root finalist chain."""
+
+    LOCAL_REPLACEMENT = "local_replacement"
+    NEXT_FINALIST = "next_finalist"
+    TERMINAL = "terminal"
+
+
+@dataclass(frozen=True)
+class _FinalistAttempt:
+    plan: Plan
+    root_fingerprint: str
+    repair_rounds: int = 0
+
+
+@dataclass(frozen=True)
+class _RepairDecision:
+    outcome: RepairOutcome
+    replacement: _FinalistAttempt | None = None
+
+
+@dataclass(frozen=True)
+class _RepairContext:
+    """Everything the bounded repair scheduler may inspect.
+
+    The budgets are deliberately inputs rather than hidden globals: a repair is
+    allowed to rearrange only the already bounded finalist pool, and must never
+    turn a provider quota into an unbounded retry loop.
+    """
+
+    failed: _FinalistAttempt
+    findings: tuple[VerificationFinding, ...]
+    remaining_route_leg_budget: int
+    remaining_availability_batches: int
+
+
+class _RepairCoordinator:
+    """Deep internal seam for failure attribution and bounded finalist scheduling.
+
+    It never calls a Provider or verifies a plan. Given already selected finalist
+    candidates and verifier findings, it either chooses one single-stop sibling,
+    defers to independent finalists, or closes only the current repair chain.
+    """
+
+    def decide(
+        self,
+        *,
+        context: _RepairContext,
+        pending: deque[_FinalistAttempt],
+        verified_compositions: set[str],
+    ) -> _RepairDecision:
+        failed = context.failed
+        target_ids = _repair_target_resource_ids(failed.plan, context.findings)
+        if not target_ids:
+            return _RepairDecision(RepairOutcome.NEXT_FINALIST)
+        needs_availability_recheck = any(
+            finding.code == "availability_verified_unavailable"
+            for finding in context.findings
+        )
+        if context.remaining_route_leg_budget <= 0 or (
+            needs_availability_recheck
+            and context.remaining_availability_batches <= 0
+        ):
+            return _RepairDecision(RepairOutcome.TERMINAL)
+        if failed.repair_rounds >= _MAX_LOCAL_REPLAN_ROUNDS:
+            return _RepairDecision(RepairOutcome.TERMINAL)
+        replacement = _take_local_replacement(
+            pending,
+            failed,
+            target_ids,
+            verified_compositions,
+        )
+        if replacement is None:
+            return _RepairDecision(RepairOutcome.TERMINAL)
+        return _RepairDecision(RepairOutcome.LOCAL_REPLACEMENT, replacement)
+
+
 class PlanningService:
     """Generate and verify bounded plans behind one stable interface."""
 
@@ -90,10 +179,12 @@ class PlanningService:
         self,
         weather_provider: WeatherProvider | None = None,
         route_provider: RouteProvider | None = None,
+        availability_provider: AvailabilityProvider | None = None,
         catalog: Catalog | None = None,
     ) -> None:
         self._weather_provider = weather_provider or clear_mock_weather()
         self._route_provider = route_provider or LocalEstimateRouteProvider()
+        self._availability_provider = availability_provider or MockAvailabilityProvider()
         self._catalog = catalog or SnapshotCatalog()
         self._plan_verifier = PlanVerifier()
 
@@ -110,7 +201,10 @@ class PlanningService:
             WeatherRequest(
                 city=location.city,
                 district=location.district,
-                adcode=_beijing_weather_adcode(location.district),
+                # Explicit places arrive with their provider-derived adcode. The
+                # city default is retained only for legacy/default start points
+                # that predate the GeocodingProvider seam.
+                adcode=location.adcode or "110105",
                 date=constraints.date.value,
             )
         )
@@ -149,21 +243,62 @@ class PlanningService:
         route_candidates = _select_route_candidates(
             local_result.plans,
             _MAX_ROUTE_LEG_VERIFICATIONS,
+            has_return_leg=constraints.return_by is not None,
         )
         plans = []
+        availability_facts_by_plan: dict[str, tuple[AvailabilityFact, ...]] = {}
+        verification_warnings_by_plan: dict[str, tuple[VerificationFinding, ...]] = {}
         route_failure_fields: set[str] = set()
         route_failure_field_sets: list[set[str]] = []
-        for plan in route_candidates:
+        availability_batches = 0
+        route_leg_verifications = 0
+        exhausted_repair_chain = False
+        verified_compositions: set[str] = set()
+        repair_coordinator = _RepairCoordinator()
+        pending_candidates = deque(
+            _FinalistAttempt(
+                plan=plan,
+                root_fingerprint=plan.composition_fingerprint,
+            )
+            for plan in route_candidates
+        )
+        while pending_candidates:
+            attempt = pending_candidates.popleft()
+            plan = attempt.plan
+            if plan.composition_fingerprint in verified_compositions:
+                continue
+            verified_compositions.add(plan.composition_fingerprint)
             verified = self._rebuild_route_timeline(
                 plan,
                 constraints,
                 candidate_by_id,
             )
+            route_leg_verifications += len(verified.route_legs)
             verified = _refresh_verified_score(verified, constraints)
+            availability_facts: tuple[AvailabilityFact, ...] = ()
+            availability_budget_exhausted = availability_batches >= _MAX_AVAILABILITY_BATCHES
+            if not availability_budget_exhausted:
+                availability_facts = tuple(
+                    self._availability_provider.check(
+                        AvailabilityRequest(
+                            date=constraints.date.value,
+                            checks=tuple(
+                                AvailabilityCheck(
+                                    resource_id=stop.resource_id,
+                                    start=stop.start,
+                                    end=stop.end,
+                                )
+                                for stop in verified.stops
+                            ),
+                        )
+                    )
+                )
+                availability_batches += 1
             verification = self._plan_verifier.verify(
                 verified,
                 constraints,
                 candidate_by_id,
+                availability_facts=availability_facts,
             )
             if not verification.is_feasible:
                 issue_fields = {
@@ -172,12 +307,48 @@ class PlanningService:
                 }
                 route_failure_fields.update(issue_fields)
                 route_failure_field_sets.append(issue_fields)
+                repair = repair_coordinator.decide(
+                    context=_RepairContext(
+                        failed=attempt,
+                        findings=verification.violations,
+                        remaining_route_leg_budget=(
+                            _MAX_ROUTE_LEG_VERIFICATIONS - route_leg_verifications
+                        ),
+                        remaining_availability_batches=(
+                            _MAX_AVAILABILITY_BATCHES - availability_batches
+                        ),
+                    ),
+                    pending=pending_candidates,
+                    verified_compositions=verified_compositions,
+                )
+                if repair.outcome == RepairOutcome.LOCAL_REPLACEMENT:
+                    if repair.replacement is None:
+                        raise AssertionError("local replacement repair requires a replacement")
+                    pending_candidates.appendleft(repair.replacement)
+                elif repair.outcome == RepairOutcome.TERMINAL:
+                    exhausted_repair_chain = (
+                        exhausted_repair_chain
+                        or attempt.repair_rounds >= _MAX_LOCAL_REPLAN_ROUNDS
+                    )
                 continue
             plans.append(verified)
-            if len(plans) == _MAX_RETURNED_PLANS:
+            availability_facts_by_plan[verified.plan_id] = availability_facts
+            verification_warnings_by_plan[verified.plan_id] = verification.warnings
+            if availability_budget_exhausted:
+                verification_warnings_by_plan[verified.plan_id] = (
+                    *verification.warnings,
+                    _availability_budget_warning(),
+                )
+            if len(plans) == _MAX_FEASIBLE_PLANS:
                 break
 
         if plans:
+            plans = _apply_dynamic_strategies(
+                plans,
+                constraints,
+                weather,
+                candidate_by_id,
+            )
             plans.sort(
                 key=lambda plan: (
                     -plan.total_score,
@@ -185,20 +356,35 @@ class PlanningService:
                     plan.composition_fingerprint,
                 )
             )
+            plans = _diversify_plans(plans, _MAX_RETURNED_PLANS)
             selected_ids = {
                 stop.resource_id
                 for plan in plans
                 for stop in plan.stops
             }
+            warnings = _collect_final_warnings(
+                plans,
+                weather,
+                verification_warnings_by_plan,
+                catalog_result.warnings,
+            )
             return CandidateSet(
                 plans=plans,
-                provider_facts=[weather],
+                provider_facts=[
+                    weather,
+                    *[
+                        fact
+                        for plan in plans
+                        for fact in availability_facts_by_plan.get(plan.plan_id, ())
+                    ],
+                ],
                 catalog_violations=catalog_result.violations,
                 catalog_warnings=[
                     warning
                     for warning in catalog_result.warnings
                     if warning.resource_id in selected_ids
                 ],
+                warnings=warnings,
             )
 
         if route_candidates:
@@ -214,7 +400,11 @@ class PlanningService:
                 provider_facts=[weather],
                 catalog_violations=catalog_result.violations,
                 conflict=ConstraintConflict(
-                    code="NO_PLAN_AFTER_ROUTE_VERIFICATION",
+                    code=(
+                        "NO_PLAN_AFTER_LOCAL_REPLAN"
+                        if exhausted_repair_chain
+                        else "NO_PLAN_AFTER_ROUTE_VERIFICATION"
+                    ),
                     message="路线和整单可行性复核后，候选方案均违反硬约束。",
                     fields=[
                         field
@@ -223,6 +413,10 @@ class PlanningService:
                             "duration_minutes",
                             "max_distance_km",
                             "opening_hours",
+                            "meal_window",
+                            "return_by",
+                            "total_distance_km",
+                            "availability",
                         )
                         if field in reported_failure_fields
                     ],
@@ -265,6 +459,8 @@ class PlanningService:
                 "duration_minutes",
                 "time_window",
                 "max_distance_km",
+                "total_distance_km",
+                "return_by",
                 "budget_per_person",
                 "weather",
                 "party",
@@ -278,6 +474,10 @@ class PlanningService:
             relaxation_options.extend(["增加可用时长", "缩短停留时长"])
         if "max_distance_km" in conflict_fields:
             relaxation_options.append("扩大距离范围")
+        if "total_distance_km" in conflict_fields:
+            relaxation_options.append("放宽全程距离限制或选择更近的地点")
+        if "return_by" in conflict_fields:
+            relaxation_options.append("延后最晚到家时间或缩短行程")
         if "budget_per_person" in conflict_fields:
             relaxation_options.append("提高人均预算")
         if "weather" in conflict_fields:
@@ -366,6 +566,47 @@ class PlanningService:
             current_point = destination
             current_name = stop.name
 
+        if constraints.return_by is not None:
+            return_route = self._route_provider.route(
+                RouteRequest(
+                    origin=current_point,
+                    destination=GeoPoint(
+                        latitude=location.latitude,
+                        longitude=location.longitude,
+                    ),
+                    mode=RouteMode.TAXI,
+                    departure_at=(
+                        datetime.combine(
+                            constraints.date.value,
+                            time.min,
+                            tzinfo=ZoneInfo("Asia/Shanghai"),
+                        )
+                        + timedelta(minutes=current_minutes)
+                    ),
+                )
+            )
+            rebuilt_legs.append(
+                RouteLeg(
+                    origin_name=current_name,
+                    destination_name="出发地",
+                    start=_minutes_to_time(current_minutes),
+                    end=_minutes_to_time(
+                        current_minutes + return_route.duration_minutes
+                    ),
+                    mode=return_route.mode,
+                    distance_km=return_route.distance_km,
+                    duration_minutes=return_route.duration_minutes,
+                    source=_route_source(return_route),
+                    provider_mode=return_route.provider_mode,
+                    degraded=return_route.degraded,
+                    degraded_reason=return_route.degraded_reason,
+                    verified_at=return_route.verified_at,
+                    cache_age_seconds=return_route.cache_age_seconds,
+                    geometry=return_route.geometry,
+                )
+            )
+            current_minutes += return_route.duration_minutes
+
         return plan.model_copy(
             update={
                 "stops": rebuilt_stops,
@@ -383,6 +624,8 @@ class _LocalPlanningResult:
 def _select_route_candidates(
     plans: list[Plan],
     route_leg_budget: int,
+    *,
+    has_return_leg: bool = False,
 ) -> list[Plan]:
     by_skeleton: dict[str, deque[Plan]] = {}
     for plan in plans:
@@ -396,7 +639,7 @@ def _select_route_candidates(
         for candidates in by_skeleton.values():
             if not candidates:
                 continue
-            required_legs = len(candidates[0].stops)
+            required_legs = len(candidates[0].stops) + int(has_return_leg)
             if required_legs > remaining_legs:
                 candidates.clear()
                 continue
@@ -406,6 +649,389 @@ def _select_route_candidates(
         if not added_this_round:
             break
     return selected
+
+
+def _repair_target_resource_ids(
+    plan: Plan,
+    findings: tuple[VerificationFinding, ...],
+) -> set[str]:
+    """Return only deterministically attributable stop ids eligible for repair.
+
+    Weather-sensitive activities are deliberately absent: adverse weather is a
+    reliable pre-combination prune in this M2 planner. Aggregate duration and
+    total-distance failures also remain NEXT_FINALIST because choosing a stop to
+    replace would be a guess rather than a trustworthy repair.
+    """
+    targets: set[str] = set()
+    for finding in findings:
+        if (
+            finding.code in {
+                "availability_verified_unavailable",
+                "visit_outside_opening_hours",
+            }
+            and finding.resource_id is not None
+        ):
+            targets.add(finding.resource_id)
+            continue
+        if finding.code not in {
+            "route_leg_exceeds_distance",
+            "return_after_deadline",
+        } or finding.route_leg_index is None:
+            continue
+        if not plan.stops:
+            continue
+        stop_index = min(finding.route_leg_index, len(plan.stops) - 1)
+        if stop_index >= 0:
+            targets.add(plan.stops[stop_index].resource_id)
+    return targets
+
+
+def _take_local_replacement(
+    pending: deque[_FinalistAttempt],
+    failed: _FinalistAttempt,
+    target_ids: set[str],
+    verified_compositions: set[str],
+) -> _FinalistAttempt | None:
+    """Pick one same-shape candidate that changes exactly one attributable stop."""
+    failed_ids = [stop.resource_id for stop in failed.plan.stops]
+    for attempt in pending:
+        candidate = attempt.plan
+        candidate_ids = [stop.resource_id for stop in candidate.stops]
+        if candidate.composition_fingerprint in verified_compositions:
+            continue
+        if candidate.skeleton_id != failed.plan.skeleton_id or len(candidate_ids) != len(failed_ids):
+            continue
+        changed = [
+            (before, after)
+            for before, after in zip(failed_ids, candidate_ids, strict=True)
+            if before != after
+        ]
+        if len(changed) == 1 and changed[0][0] in target_ids:
+            pending.remove(attempt)
+            return _FinalistAttempt(
+                plan=candidate,
+                root_fingerprint=failed.root_fingerprint,
+                repair_rounds=failed.repair_rounds + 1,
+            )
+    return None
+
+
+def _availability_budget_warning() -> VerificationFinding:
+    return VerificationFinding(
+        code="availability_budget_exhausted",
+        field="availability",
+        message="已达到动态可用性复核预算，该方案未获得本轮库存确认。",
+    )
+
+
+def _collect_final_warnings(
+    plans: list[Plan],
+    weather: WeatherFact,
+    verification_warnings: dict[str, tuple[VerificationFinding, ...]],
+    catalog_warnings: list[object],
+) -> list[PlanWarning]:
+    """Expose only warnings tied to plans that survived whole-plan verification."""
+    warnings: list[PlanWarning] = []
+    for plan in plans:
+        for finding in verification_warnings.get(plan.plan_id, ()):
+            warnings.append(
+                PlanWarning(
+                    code=finding.code,
+                    message=finding.message,
+                    plan_id=plan.plan_id,
+                    resource_id=finding.resource_id,
+                    route_leg_index=finding.route_leg_index,
+                )
+            )
+        resource_ids = {stop.resource_id for stop in plan.stops}
+        for warning in catalog_warnings:
+            if getattr(warning, "resource_id", None) in resource_ids:
+                warnings.append(
+                    PlanWarning(
+                        code=f"catalog_{warning.code.value}",
+                        message=warning.message,
+                        plan_id=plan.plan_id,
+                        resource_id=warning.resource_id,
+                    )
+                )
+        if weather.degraded or weather.cache_age_seconds is not None or weather.condition == "未知":
+            warnings.append(
+                PlanWarning(
+                    code="weather_fact_unconfirmed",
+                    message="天气事实来自降级、缓存或未知条件，建议出发前再次确认。",
+                    plan_id=plan.plan_id,
+                    source=weather.source.value,
+                    degraded=weather.degraded,
+                    stale=weather.cache_age_seconds is not None,
+                )
+            )
+    return warnings
+
+
+def _diversify_plans(plans: list[Plan], max_count: int) -> list[Plan]:
+    """从已按总分排序的可行候选中，贪心保留彼此有实际差异的最多 max_count 个。
+
+    第一个总是最高分方案；之后每次都选“与已选集合差异最大”的候选，直到
+    差异低于门槛或凑够数量，从而避免返回内容近似的数值 Top-3。
+    """
+    if not plans or max_count <= 0:
+        return []
+    selected = [plans[0]]
+    remaining = plans[1:]
+    while len(selected) < max_count and remaining:
+        best_index = max(
+            range(len(remaining)),
+            key=lambda index: _min_plan_diversity(remaining[index], selected),
+        )
+        best = remaining[best_index]
+        if _min_plan_diversity(best, selected) < _MIN_PLAN_DIVERSITY:
+            break
+        selected.append(best)
+        remaining.pop(best_index)
+    return selected
+
+
+def _apply_dynamic_strategies(
+    plans: list[Plan],
+    constraints: NormalizedConstraints,
+    weather: WeatherFact,
+    candidates: dict[str, StopCandidate],
+) -> list[Plan]:
+    """Attach the best evidence-backed fixed strategy to each feasible plan.
+
+    Feasibility never depends on this policy. It only reweights already verified
+    candidates, so a strategy cannot promote a hard-constraint violation.
+    """
+    if not plans:
+        return []
+    comparable_prices = [
+        plan.total_price
+        for plan in plans
+        if plan.price_status != PlanPriceStatus.INCOMPLETE
+    ]
+    distances = [sum(leg.distance_km for leg in plan.route_legs) for plan in plans]
+    base_scores = [plan.total_score for plan in plans]
+    experience_scores = [_experience_score(plan) for plan in plans]
+    family_scores = [_family_score(plan, candidates) for plan in plans]
+    weather_scores = [_weather_score(plan, weather, candidates) for plan in plans]
+    active = _active_strategies(constraints, weather)
+
+    enriched: list[Plan] = []
+    for index, plan in enumerate(plans):
+        cost_is_comparable = plan.price_status != PlanPriceStatus.INCOMPLETE
+        metrics: dict[str, float | None] = {
+            "base": _normalize_higher(base_scores[index], base_scores),
+            # ``total_price`` 仍是展示和已知项目求和所需的算术字段；当任一
+            # Stop 价格未知时，它绝不代表完整价格。未知价格不参加省钱比较。
+            "cost": (
+                _normalize_lower(plan.total_price, comparable_prices)
+                if cost_is_comparable
+                else None
+            ),
+            "travel": _normalize_lower(distances[index], distances),
+            "experience": _normalize_higher(
+                experience_scores[index], experience_scores
+            ),
+            "family": _normalize_higher(family_scores[index], family_scores),
+            "weather": _normalize_higher(weather_scores[index], weather_scores),
+        }
+        scored_strategies = [
+            (strategy, score)
+            for strategy in active
+            if (score := _strategy_score(strategy, metrics)) is not None
+        ]
+        strategy, policy_score = max(
+            scored_strategies,
+            key=lambda item: (item[1], -_strategy_priority(item[0])),
+        )
+        contribution = ScoreContribution(
+            rule_id=f"planning.strategy.{strategy.value}.v1",
+            dimension="strategy",
+            points=round(policy_score * 8.0, 1),
+            message=f"按 {strategy.value} 的固定权重重排已验证候选。",
+            evidence=[
+                f"base={metrics['base']:.2f}",
+                (
+                    f"cost={metrics['cost']:.2f}"
+                    if metrics["cost"] is not None
+                    else "cost=uncomparable"
+                ),
+                f"price_status={plan.price_status.value}",
+                f"travel={metrics['travel']:.2f}",
+                f"experience={metrics['experience']:.2f}",
+                f"family={metrics['family']:.2f}",
+                f"weather={metrics['weather']:.2f}",
+            ],
+        )
+        enriched.append(
+            plan.model_copy(
+                update={
+                    "strategy": strategy,
+                    "score_breakdown": [*plan.score_breakdown, contribution],
+                    "total_score": round(plan.total_score + contribution.points, 1),
+                }
+            )
+        )
+    return enriched
+
+
+def _active_strategies(
+    constraints: NormalizedConstraints,
+    weather: WeatherFact,
+) -> tuple[PlanStrategy, ...]:
+    strategies = [
+        PlanStrategy.BALANCED,
+        PlanStrategy.LOW_COST,
+        PlanStrategy.LOW_TRAVEL,
+    ]
+    if constraints.preferences or constraints.diet_tags or constraints.scene_tags:
+        strategies.append(PlanStrategy.EXPERIENCE)
+    if constraints.party and constraints.party.value.children > 0:
+        strategies.append(PlanStrategy.FAMILY_SAFE)
+    if weather.is_adverse:
+        strategies.append(PlanStrategy.WEATHER_SAFE)
+    return tuple(strategies)
+
+
+def _strategy_score(
+    strategy: PlanStrategy,
+    metrics: dict[str, float | None],
+) -> float | None:
+    weights: dict[PlanStrategy, dict[str, float]] = {
+        PlanStrategy.BALANCED: {
+            "base": 0.45,
+            "cost": 0.15,
+            "travel": 0.20,
+            "experience": 0.20,
+        },
+        PlanStrategy.LOW_COST: {
+            "base": 0.10,
+            "cost": 0.70,
+            "travel": 0.15,
+            "experience": 0.05,
+        },
+        PlanStrategy.LOW_TRAVEL: {
+            "base": 0.15,
+            "cost": 0.15,
+            "travel": 0.70,
+        },
+        PlanStrategy.EXPERIENCE: {
+            "base": 0.15,
+            "travel": 0.10,
+            "experience": 0.75,
+        },
+        PlanStrategy.FAMILY_SAFE: {
+            "base": 0.15,
+            "travel": 0.15,
+            "family": 0.70,
+        },
+        PlanStrategy.WEATHER_SAFE: {
+            "base": 0.15,
+            "travel": 0.15,
+            "weather": 0.70,
+        },
+    }
+    # 价格不完整时，LOW_COST 没有可比较的事实，因此不能把未知价方案包装成
+    # “更省钱”。其余策略将缺失的 cost 视为中性值，只降低这条软偏好的影响，
+    # 不改变已经由 Verifier 得出的硬约束结论。
+    if strategy == PlanStrategy.LOW_COST and metrics["cost"] is None:
+        return None
+    return sum(
+        (metrics[dimension] if metrics[dimension] is not None else 0.5) * weight
+        for dimension, weight in weights[strategy].items()
+    )
+
+
+def _strategy_priority(strategy: PlanStrategy) -> int:
+    return (
+        PlanStrategy.BALANCED,
+        PlanStrategy.LOW_COST,
+        PlanStrategy.LOW_TRAVEL,
+        PlanStrategy.EXPERIENCE,
+        PlanStrategy.FAMILY_SAFE,
+        PlanStrategy.WEATHER_SAFE,
+    ).index(strategy)
+
+
+def _normalize_higher(value: float, values: list[float]) -> float:
+    lower, upper = min(values), max(values)
+    return 1.0 if upper == lower else (value - lower) / (upper - lower)
+
+
+def _normalize_lower(value: float, values: list[float]) -> float:
+    lower, upper = min(values), max(values)
+    return 1.0 if upper == lower else (upper - value) / (upper - lower)
+
+
+def _experience_score(plan: Plan) -> float:
+    return sum(
+        contribution.points
+        for contribution in plan.score_breakdown
+        if contribution.dimension in {"preference", "diet", "scene"}
+    )
+
+
+def _family_score(plan: Plan, candidates: dict[str, StopCandidate]) -> float:
+    family_terms = {"亲子", "儿童", "家庭"}
+    return float(
+        sum(
+            bool(
+                family_terms
+                & {
+                    tag.casefold()
+                    for tag in (
+                        candidate.category_tags
+                        + candidate.preference_tags
+                        + candidate.scene_tags
+                    )
+                }
+            )
+            for stop in plan.stops
+            if (candidate := candidates.get(stop.resource_id)) is not None
+        )
+    )
+
+
+def _weather_score(
+    plan: Plan,
+    weather: WeatherFact,
+    candidates: dict[str, StopCandidate],
+) -> float:
+    if not weather.is_adverse:
+        return 0.0
+    activities = [
+        candidates[stop.resource_id]
+        for stop in plan.stops
+        if stop.resource_id in candidates
+        and candidates[stop.resource_id].resource_type == ResourceType.ACTIVITY
+    ]
+    return float(sum(not candidate.weather_sensitive for candidate in activities))
+
+
+def _min_plan_diversity(candidate: Plan, selected: list[Plan]) -> float:
+    return min(_plan_diversity(candidate, plan) for plan in selected)
+
+
+def _plan_diversity(left: Plan, right: Plan) -> float:
+    """0=完全相同，1=完全不同；按 POI 重叠、成本和路程三个可观察指标衡量。"""
+    left_ids = {stop.resource_id for stop in left.stops}
+    right_ids = {stop.resource_id for stop in right.stops}
+    union = len(left_ids | right_ids)
+    poi_overlap = len(left_ids & right_ids) / union if union else 0.0
+    price_gap = abs(left.total_price - right.total_price) / max(
+        1.0, left.total_price, right.total_price
+    )
+    left_distance = sum(leg.distance_km for leg in left.route_legs)
+    right_distance = sum(leg.distance_km for leg in right.route_legs)
+    distance_gap = abs(left_distance - right_distance) / max(
+        0.5, left_distance, right_distance
+    )
+    similarity = (
+        0.6 * poi_overlap
+        + 0.2 * (1.0 - price_gap)
+        + 0.2 * (1.0 - distance_gap)
+    )
+    return 1.0 - similarity
 
 
 def _build_planning_intent(
@@ -640,6 +1266,27 @@ def _build_local_plan(
         > constraints.max_distance_km.value
     ):
         return None, "max_distance_km"
+
+    return_distance = (
+        _haversine_km(current_point, origin)
+        if constraints.return_by
+        else 0.0
+    )
+    if (
+        constraints.total_distance_km
+        and sum(route_distances) + return_distance
+        > constraints.total_distance_km.value
+    ):
+        return None, "total_distance_km"
+    if constraints.return_by:
+        start_minutes = _time_to_minutes(window.start)
+        home_arrival = (
+            start_minutes
+            + total_duration
+            + _estimated_route_minutes(return_distance)
+        )
+        if home_arrival > _time_to_minutes(constraints.return_by.value):
+            return None, "return_by"
 
     people = 1
     if constraints.party:
@@ -885,11 +1532,7 @@ def _build_local_plan(
         composition_fingerprint=f"composition-{fingerprint}",
         skeleton_id=skeleton.skeleton_id,
         title=" + ".join(item.name for item in sequence),
-        strategy=(
-            "偏好优先"
-            if matched_preferences or matched_diet_tags or matched_scene_tags
-            else "时间利用"
-        ),
+        strategy=PlanStrategy.BALANCED,
         total_score=total_score,
         total_price=total_price,
         price_status=_plan_price_status(stops),
@@ -1009,6 +1652,12 @@ def _route_relaxation_options(fields: set[str]) -> list[str]:
         options.append("选择路程更短的地点")
     if "opening_hours" in fields:
         options.append("调整到店时间或选择营业时段更匹配的地点")
+    if "meal_window" in fields:
+        options.append("调整活动时长或顺序，使用餐落在常规用餐时段")
+    if "return_by" in fields:
+        options.append("延后最晚到家时间或缩短行程")
+    if "total_distance_km" in fields:
+        options.append("放宽全程距离限制或选择更近的地点")
     return options
 
 
@@ -1077,19 +1726,6 @@ def _catalog_budget_is_universal(
         "budget_per_person" in fields
         for fields in fields_by_resource.values()
     )
-
-
-def _beijing_weather_adcode(district: str) -> str:
-    """M2 首批北京范围的显式映射；后续由 Geocoding Provider 提供。"""
-    adcodes = {
-        "东城区": "110101",
-        "西城区": "110102",
-        "朝阳区": "110105",
-        "丰台区": "110106",
-        "石景山区": "110107",
-        "海淀区": "110108",
-    }
-    return adcodes.get(district, "110000")
 
 
 def _route_source(fact: RouteFact) -> RouteSource:

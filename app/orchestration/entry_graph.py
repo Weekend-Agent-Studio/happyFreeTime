@@ -24,8 +24,20 @@ from app.domain.constraints import (
     Interpretation,
     QuestionDecision,
 )
-from app.domain.planning import CandidateSet, PlanPriceStatus, StopRole, StopType
+from app.domain.planning import (
+    CandidateSet,
+    PlanPriceStatus,
+    PlanWarning,
+    PlanStrategy,
+    StopRole,
+    StopType,
+)
 from app.domain.providers import (
+    AvailabilityFact,
+    AvailabilityStatus,
+    GeocodeRequest,
+    GeocodeResolution,
+    GeocodingFact,
     GeoPoint,
     ProviderMode,
     ProviderSource,
@@ -43,7 +55,9 @@ from app.domain.catalog import (
     ViolationCode,
 )
 from app.providers.route import RouteProvider
+from app.providers.availability import AvailabilityProvider
 from app.providers.weather import WeatherProvider
+from app.providers.geocoding import GeocodingProvider
 from app.services.catalog import Catalog
 from app.services.enrichment import EnvironmentContext, EnrichmentService
 from app.services.planning import PlanningService
@@ -82,6 +96,8 @@ def build_entry_graph(
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
     route_provider: RouteProvider | None = None,
+    geocoding_provider: GeocodingProvider | None = None,
+    availability_provider: AvailabilityProvider | None = None,
     catalog: Catalog | None = None,
     checkpointer: object | None = None,
 ):
@@ -90,11 +106,12 @@ def build_entry_graph(
     依赖注入让测试可以使用规则 Router、固定时间和内存 checkpoint；生产 API
     则使用真实 Router、系统时间和 SQLite checkpoint，但 Graph 本身无需分叉。
     """
-    enrichment_service = EnrichmentService()
+    enrichment_service = EnrichmentService(geocoding_provider=geocoding_provider)
     question_gate = NeedQuestionGate()
     planning_service = PlanningService(
         weather_provider=weather_provider,
         route_provider=route_provider,
+        availability_provider=availability_provider,
         catalog=catalog,
     )
 
@@ -170,7 +187,13 @@ def build_entry_graph(
         return END
 
     def planning_node(state: EntryState) -> dict[str, object]:
-        return {"candidate_set": planning_service.plan(state["enrichment"].constraints)}
+        candidate_set = planning_service.plan(state["enrichment"].constraints)
+        geocoding_fact = state["enrichment"].geocoding_fact
+        if geocoding_fact is not None:
+            candidate_set = candidate_set.model_copy(
+                update={"provider_facts": [geocoding_fact, *candidate_set.provider_facts]}
+            )
+        return {"candidate_set": candidate_set}
 
     def ask_question_node(state: EntryState) -> dict[str, object]:
         decision = state["question_decision"]
@@ -226,6 +249,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
         allowed_msgpack_modules=[
             ActorContext,
             CandidateSet,
+            PlanWarning,
             CatalogWarningCode,
             CatalogSource,
             ConstraintViolation,
@@ -235,10 +259,16 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             Intent,
             Interpretation,
             PlanPriceStatus,
+            PlanStrategy,
             PriceKind,
             QuestionDecision,
             ProviderMode,
             ProviderSource,
+            AvailabilityFact,
+            AvailabilityStatus,
+            GeocodeRequest,
+            GeocodeResolution,
+            GeocodingFact,
             GeoPoint,
             RouteFact,
             RouteMode,

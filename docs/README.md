@@ -24,6 +24,8 @@ Catalog C2 是已被 C3 替代的历史快照；当前采集、replay、Unknown 
 
 2026-08-28 的相近项目代码与产品评审见 [`status/competitive_review_2026-08-28.md`](status/competitive_review_2026-08-28.md)。已经确认的结论已进入 canonical：路线图在 M2 后增加 M2.5 产品呈现，在 M3 后增加 M3.5 可控记忆；竞品分析本身仍只是带日期的证据快照。
 
+M2.5 的当前数据策略与 POI 详情贯通状态见 [`status/demo_world_v1_2026-08-31.md`](status/demo_world_v1_2026-08-31.md)：Demo World 不是实时商户数据，但以 OSM 地点锚点与确定性商业模拟数据支持可复现的完整演示链路。
+
 可以把下面这段直接发给新会话：
 
 ```text

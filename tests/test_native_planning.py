@@ -8,16 +8,30 @@ from app.domain.catalog import (
     StopCandidate,
     VerificationStatus,
 )
-from app.domain.constraints import ConstraintSource, ConstraintValue, TimeWindow
+from app.domain.constraints import (
+    ConstraintSource,
+    ConstraintValue,
+    NormalizedConstraints,
+    PartyProfile,
+    TimeWindow,
+)
+from app.domain.planning import PlanPriceStatus, ScoreContribution, StopRole
 from app.domain.providers import (
+    AvailabilityStatus,
     GeoPoint,
     ProviderMode,
     ProviderSource,
     WeatherFact,
     WeatherRequest,
 )
+from app.providers.availability import MockAvailabilityProvider
 from app.services.catalog import InMemoryCatalog
-from app.services.planning import PlanningService
+from app.services.planning import (
+    PlanningService,
+    _apply_dynamic_strategies,
+    _diversify_plans,
+)
+from app.services.plan_verifier import PlanVerifier
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
 
 
@@ -40,6 +54,7 @@ def candidate(
     diet_tags: list[str] | None = None,
     scene_tags: list[str] | None = None,
     avg_price: int = 50,
+    price_kind: PriceKind = PriceKind.KNOWN,
     weather_sensitive: bool = False,
     open_hours: dict[str, str] | None = None,
 ) -> StopCandidate:
@@ -52,7 +67,7 @@ def candidate(
         diet_tags=diet_tags or [],
         scene_tags=scene_tags or [],
         avg_price=avg_price,
-        price_kind=PriceKind.KNOWN,
+        price_kind=price_kind,
         duration_minutes=duration_minutes,
         open_hours=open_hours or {},
         weather_sensitive=weather_sensitive,
@@ -78,6 +93,85 @@ class RainyWeatherProvider:
 
 
 class NativePlanningBehaviorTest(unittest.TestCase):
+    def test_verified_unavailable_stop_is_locally_replaced_without_changing_other_stop(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity-a", ResourceType.ACTIVITY, "展览", ["展览"]),
+                candidate("meal-a", ResourceType.RESTAURANT, "餐厅 A", ["餐厅"]),
+                candidate("meal-b", ResourceType.RESTAURANT, "餐厅 B", ["餐厅"]),
+            ]
+        )
+        availability = MockAvailabilityProvider(
+            statuses={"meal-a": AvailabilityStatus.UNAVAILABLE},
+            clock=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=availability,
+        ).plan(planning_constraints(budget=1_000, time_end="18:00"))
+
+        self.assertTrue(result.plans)
+        self.assertTrue(all("meal-a" not in {stop.resource_id for stop in plan.stops} for plan in result.plans))
+        self.assertTrue(any([stop.resource_id for stop in plan.stops] == ["activity-a", "meal-b"] for plan in result.plans))
+        self.assertTrue(any(item.code == "availability_unconfirmed" for item in result.warnings))
+
+    def test_two_local_replan_rounds_can_reach_a_third_local_candidate_within_budget(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity-a", ResourceType.ACTIVITY, "展览", ["展览"]),
+                candidate("meal-a", ResourceType.RESTAURANT, "餐厅 A", ["餐厅"]),
+                candidate("meal-b", ResourceType.RESTAURANT, "餐厅 B", ["餐厅"]),
+                candidate("meal-c", ResourceType.RESTAURANT, "餐厅 C", ["餐厅"]),
+            ]
+        )
+        availability = MockAvailabilityProvider(
+            statuses={"meal-a": AvailabilityStatus.UNAVAILABLE, "meal-b": AvailabilityStatus.UNAVAILABLE, "meal-c": AvailabilityStatus.AVAILABLE},
+            clock=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=availability,
+        ).plan(planning_constraints(budget=1_000, time_end="18:00"))
+
+        self.assertTrue(result.plans)
+        self.assertEqual(result.plans[0].stops[0].resource_id, "activity-a")
+        self.assertEqual(result.plans[0].stops[1].resource_id, "meal-c")
+
+    def test_local_replan_limit_returns_structured_conflict_and_stays_within_provider_budget(self) -> None:
+        class CountingUnavailableProvider:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def check(self, request):
+                self.calls += 1
+                return MockAvailabilityProvider(
+                    statuses={check.resource_id: AvailabilityStatus.UNAVAILABLE for check in request.checks},
+                    clock=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
+                ).check(request)
+
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity-a", ResourceType.ACTIVITY, "展览", ["展览"]),
+                candidate("meal-a", ResourceType.RESTAURANT, "餐厅 A", ["餐厅"]),
+                candidate("meal-b", ResourceType.RESTAURANT, "餐厅 B", ["餐厅"]),
+                candidate("meal-c", ResourceType.RESTAURANT, "餐厅 C", ["餐厅"]),
+            ]
+        )
+        availability = CountingUnavailableProvider()
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=availability,
+        ).plan(planning_constraints(budget=1_000, time_end="18:00"))
+
+        self.assertFalse(result.plans)
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_LOCAL_REPLAN")
+        self.assertIn("availability", result.conflict.fields)
+        self.assertLessEqual(availability.calls, 6)
     def test_afternoon_request_can_produce_activity_break_dinner(self) -> None:
         catalog = InMemoryCatalog(
             [
@@ -1016,6 +1110,478 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
         self.assertTrue(result.plans)
         self.assertIsNone(result.conflict)
+
+    def _full_day_constraints(self) -> NormalizedConstraints:
+        return planning_constraints(budget=1_000, time_end="20:00").model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="11:00", end="20:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                )
+            }
+        )
+
+    def test_meal_roles_anchor_arrival_to_meal_windows(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate(
+                    "lunch",
+                    ResourceType.RESTAURANT,
+                    "午餐馆",
+                    ["午餐"],
+                    duration_minutes=60,
+                    open_hours={"sat": "11:00-14:00"},
+                ),
+                candidate(
+                    "activity",
+                    ResourceType.ACTIVITY,
+                    "下午展览",
+                    ["展览"],
+                    duration_minutes=300,
+                    open_hours={"sat": "11:00-20:00"},
+                ),
+                candidate(
+                    "dinner",
+                    ResourceType.RESTAURANT,
+                    "晚餐馆",
+                    ["晚餐"],
+                    duration_minutes=60,
+                    open_hours={"sat": "17:00-21:00"},
+                ),
+            ]
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(self._full_day_constraints())
+
+        self.assertTrue(any(len(plan.stops) == 3 for plan in result.plans))
+        for plan in result.plans:
+            for stop in plan.stops:
+                if stop.role == StopRole.LUNCH:
+                    self.assertTrue(
+                        "11:00" <= stop.start <= "14:00",
+                        f"lunch off-anchor at {stop.start}",
+                    )
+                elif stop.role == StopRole.DINNER:
+                    self.assertTrue(
+                        "17:00" <= stop.start <= "20:30",
+                        f"dinner off-anchor at {stop.start}",
+                    )
+
+    def test_off_anchor_dinner_plan_is_not_returned(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate(
+                    "lunch",
+                    ResourceType.RESTAURANT,
+                    "午餐馆",
+                    ["午餐"],
+                    duration_minutes=60,
+                    open_hours={"sat": "11:00-14:00"},
+                ),
+                candidate(
+                    "activity",
+                    ResourceType.ACTIVITY,
+                    "短活动",
+                    ["展览"],
+                    duration_minutes=60,
+                    open_hours={"sat": "11:00-20:00"},
+                ),
+                candidate(
+                    "dinner",
+                    ResourceType.RESTAURANT,
+                    "晚餐馆",
+                    ["晚餐"],
+                    duration_minutes=60,
+                    open_hours={"sat": "11:00-21:00"},
+                ),
+            ]
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(self._full_day_constraints())
+
+        self.assertTrue(result.plans)
+        self.assertNotIn(
+            "lunch-activity-dinner-v1",
+            {plan.skeleton_id for plan in result.plans},
+        )
+
+    def test_return_by_appends_return_leg_and_counts_it(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate(
+                    "activity",
+                    ResourceType.ACTIVITY,
+                    "城市展览",
+                    ["展览"],
+                    duration_minutes=120,
+                    open_hours={"sat": "14:00-20:00"},
+                ),
+                candidate(
+                    "restaurant",
+                    ResourceType.RESTAURANT,
+                    "附近简餐",
+                    ["简餐"],
+                    duration_minutes=60,
+                    open_hours={"sat": "14:00-20:00"},
+                ),
+            ]
+        )
+        constraints = planning_constraints(time_end="20:00").model_copy(
+            update={
+                "return_by": ConstraintValue[str](
+                    value="20:00",
+                    source=ConstraintSource.USER_INFERRED,
+                )
+            }
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        first = result.plans[0]
+        self.assertEqual(first.route_legs[-1].destination_name, "出发地")
+        self.assertEqual(len(first.route_legs), len(first.stops) + 1)
+        self.assertEqual(
+            first.total_duration_minutes,
+            sum(stop.duration_minutes for stop in first.stops)
+            + sum(leg.duration_minutes for leg in first.route_legs),
+        )
+
+    def test_return_by_keeps_route_verification_within_the_leg_budget(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"]),
+                *[
+                    candidate(
+                        f"restaurant-{index:02d}",
+                        ResourceType.RESTAURANT,
+                        f"餐厅 {index:02d}",
+                        ["餐厅"],
+                    )
+                    for index in range(20)
+                ],
+            ]
+        )
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={
+                "return_by": ConstraintValue[str](
+                    value="23:00",
+                    source=ConstraintSource.USER_EXPLICIT,
+                )
+            }
+        )
+        route_provider = FixedReplayRouteProvider(duration_minutes=5, distance_km=1)
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=route_provider,
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertLessEqual(len(route_provider.requests), 24)
+
+    def test_return_by_violation_reports_conflict(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"]),
+                candidate("restaurant", ResourceType.RESTAURANT, "附近简餐", ["简餐"]),
+            ]
+        )
+        constraints = planning_constraints(time_end="20:00").model_copy(
+            update={
+                "return_by": ConstraintValue[str](
+                    value="15:00",
+                    source=ConstraintSource.USER_INFERRED,
+                )
+            }
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=30, distance_km=2),
+        ).plan(constraints)
+
+        self.assertEqual(result.plans, [])
+        self.assertEqual(result.conflict.code, "NO_FEASIBLE_PLAN")
+        self.assertIn("return_by", result.conflict.fields)
+
+    def test_return_verifier_requires_a_real_leg_back_to_origin_and_honors_boundary(self) -> None:
+        resources = [
+            candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"]),
+            candidate("restaurant", ResourceType.RESTAURANT, "附近简餐", ["简餐"]),
+        ]
+        constraints = planning_constraints(time_end="20:00").model_copy(
+            update={
+                "return_by": ConstraintValue[str](
+                    value="20:00",
+                    source=ConstraintSource.USER_EXPLICIT,
+                )
+            }
+        )
+        plan = PlanningService(
+            catalog=InMemoryCatalog(resources),
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2),
+        ).plan(constraints).plans[0]
+        verifier = PlanVerifier()
+        resource_by_id = {item.resource_id: item for item in resources}
+
+        missing_leg = plan.model_copy(update={"route_legs": plan.route_legs[:-1]})
+        wrong_destination = plan.model_copy(
+            update={
+                "route_legs": [
+                    *plan.route_legs[:-1],
+                    plan.route_legs[-1].model_copy(update={"destination_name": "另一处"}),
+                ]
+            }
+        )
+        exactly_on_deadline = plan.model_copy(
+            update={
+                "route_legs": [
+                    *plan.route_legs[:-1],
+                    plan.route_legs[-1].model_copy(update={"end": "20:00"}),
+                ]
+            }
+        )
+        late_return = plan.model_copy(
+            update={
+                "route_legs": [
+                    *plan.route_legs[:-1],
+                    plan.route_legs[-1].model_copy(update={"end": "20:01"}),
+                ]
+            }
+        )
+
+        self.assertIn(
+            "return_route_missing",
+            {item.code for item in verifier.verify(missing_leg, constraints, resource_by_id).violations},
+        )
+        self.assertIn(
+            "return_route_missing",
+            {item.code for item in verifier.verify(wrong_destination, constraints, resource_by_id).violations},
+        )
+        self.assertTrue(verifier.verify(exactly_on_deadline, constraints, resource_by_id).is_feasible)
+        self.assertIn(
+            "return_after_deadline",
+            {item.code for item in verifier.verify(late_return, constraints, resource_by_id).violations},
+        )
+
+    def test_unknown_price_is_not_ranked_as_a_free_low_cost_plan(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"], avg_price=20),
+                candidate("known", ResourceType.RESTAURANT, "明确价格餐厅", ["餐厅"], avg_price=10),
+                candidate(
+                    "unknown",
+                    ResourceType.RESTAURANT,
+                    "价格待确认餐厅",
+                    ["餐厅"],
+                    avg_price=None,
+                    price_kind=PriceKind.UNKNOWN,
+                ),
+            ]
+        )
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(planning_constraints(budget=1_000, time_end="20:00"))
+
+        incomplete = next(plan for plan in result.plans if plan.price_status.value == "incomplete")
+        strategy = next(item for item in incomplete.score_breakdown if item.dimension == "strategy")
+        self.assertNotEqual(incomplete.strategy.value, "low_cost")
+        self.assertIn("price_status=incomplete", strategy.evidence)
+        self.assertIn("cost=uncomparable", strategy.evidence)
+
+    def test_strategy_policies_reorder_verified_candidates_by_real_metrics(self) -> None:
+        """每种策略必须对可观察指标作出不同选择，而不是只暴露枚举值。"""
+        base_constraints = planning_constraints(budget=1_000, time_end="20:00")
+        base = PlanningService(
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(base_constraints).plans[0]
+        weather = RainyWeatherProvider().get_weather(
+            WeatherRequest(
+                city="北京市",
+                district="朝阳区",
+                adcode="110105",
+                date=base_constraints.date.value,
+            )
+        )
+
+        def variant(
+            plan_id: str,
+            *,
+            price: int,
+            distance: float,
+            resource_id: str,
+            preference_points: float = 0.0,
+            base_score: float = 10.0,
+        ):
+            contribution = (
+                [
+                    ScoreContribution(
+                        rule_id="test.preference.v1",
+                        dimension="preference",
+                        points=preference_points,
+                        message="test preference",
+                    )
+                ]
+                if preference_points
+                else []
+            )
+            return base.model_copy(
+                update={
+                    "plan_id": plan_id,
+                    "composition_fingerprint": plan_id,
+                    "total_price": price,
+                    "price_status": PlanPriceStatus.KNOWN,
+                    "total_score": base_score,
+                    "stops": [
+                        base.stops[0].model_copy(update={"resource_id": resource_id}),
+                        base.stops[1].model_copy(update={"resource_id": f"{resource_id}-meal"}),
+                    ],
+                    "route_legs": [
+                        leg.model_copy(update={"distance_km": distance})
+                        for leg in base.route_legs
+                    ],
+                    "score_breakdown": contribution,
+                }
+            )
+
+        cheap = variant("cheap", price=10, distance=9, resource_id="plain")
+        close = variant("close", price=100, distance=1, resource_id="plain", base_score=5.0)
+        cost_and_travel = _apply_dynamic_strategies(
+            [cheap, close], base_constraints, weather.model_copy(update={"is_adverse": False}), {}
+        )
+        by_id = {plan.plan_id: plan for plan in cost_and_travel}
+        self.assertEqual(by_id["cheap"].strategy.value, "low_cost")
+        self.assertEqual(by_id["close"].strategy.value, "low_travel")
+
+        experience_constraints = base_constraints.model_copy(update={"preferences": ["适合拍照"]})
+        ordinary = variant("ordinary", price=10, distance=1, resource_id="plain")
+        rich = variant(
+            "rich",
+            price=100,
+            distance=9,
+            resource_id="experience",
+            preference_points=10.0,
+        )
+        experience = _apply_dynamic_strategies(
+            [ordinary, rich], experience_constraints, weather.model_copy(update={"is_adverse": False}), {}
+        )
+        self.assertEqual({plan.plan_id: plan.strategy.value for plan in experience}["rich"], "experience")
+
+        family_constraints = base_constraints.model_copy(
+            update={
+                "party": ConstraintValue(
+                    value=PartyProfile(adults=1, children=1, child_age=6),
+                    source=ConstraintSource.USER_EXPLICIT,
+                )
+            }
+        )
+        family = variant("family", price=100, distance=9, resource_id="family")
+        plain = variant("plain", price=10, distance=1, resource_id="plain")
+        family_candidates = {
+            "family": candidate("family", ResourceType.ACTIVITY, "亲子馆", ["亲子"]),
+            "plain": candidate("plain", ResourceType.ACTIVITY, "普通馆", ["展览"]),
+        }
+        family_result = _apply_dynamic_strategies(
+            [plain, family], family_constraints, weather.model_copy(update={"is_adverse": False}), family_candidates
+        )
+        self.assertEqual({plan.plan_id: plan.strategy.value for plan in family_result}["family"], "family_safe")
+
+        indoor = variant("indoor", price=100, distance=9, resource_id="indoor")
+        outdoor = variant("outdoor", price=10, distance=1, resource_id="outdoor")
+        weather_candidates = {
+            "indoor": candidate("indoor", ResourceType.ACTIVITY, "室内馆", ["展览"], weather_sensitive=False),
+            "outdoor": candidate("outdoor", ResourceType.ACTIVITY, "户外公园", ["公园"], weather_sensitive=True),
+        }
+        weather_result = _apply_dynamic_strategies(
+            [outdoor, indoor], base_constraints, weather, weather_candidates
+        )
+        self.assertEqual({plan.plan_id: plan.strategy.value for plan in weather_result}["indoor"], "weather_safe")
+
+    def test_total_distance_constraint_rejects_a_plan(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"]),
+                candidate("restaurant", ResourceType.RESTAURANT, "附近简餐", ["简餐"]),
+            ]
+        )
+        constraints = planning_constraints(max_distance_km=30, time_end="20:00").model_copy(
+            update={
+                "total_distance_km": ConstraintValue[float](
+                    value=5.0,
+                    source=ConstraintSource.USER_EXPLICIT,
+                )
+            }
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=10),
+        ).plan(constraints)
+
+        self.assertEqual(result.plans, [])
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
+        self.assertIn("total_distance_km", result.conflict.fields)
+
+    def test_diversification_keeps_a_price_diverse_plan_over_a_similar_cheap_one(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"], avg_price=30),
+                candidate("cheap-1", ResourceType.RESTAURANT, "平价餐厅一", ["餐厅"], avg_price=50),
+                candidate("cheap-2", ResourceType.RESTAURANT, "平价餐厅二", ["餐厅"], avg_price=50),
+                candidate("cheap-3", ResourceType.RESTAURANT, "平价餐厅三", ["餐厅"], avg_price=50),
+                candidate("fancy", ResourceType.RESTAURANT, "精致餐厅", ["餐厅"], avg_price=150),
+            ]
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(planning_constraints(budget=120, time_end="20:00"))
+
+        self.assertEqual(len(result.plans), 3)
+        restaurant_ids = {plan.stops[1].resource_id for plan in result.plans}
+        self.assertIn("fancy", restaurant_ids)
+
+    def test_diversification_does_not_return_a_small_set_of_near_duplicates(self) -> None:
+        base = PlanningService(
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(planning_constraints(time_end="20:00")).plans[0]
+        shared_stops = [
+            *base.stops,
+            base.stops[0].model_copy(update={"resource_id": "shared-third"}),
+            base.stops[1].model_copy(update={"resource_id": "shared-fourth"}),
+        ]
+        first = base.model_copy(
+            update={"plan_id": "first", "composition_fingerprint": "first", "stops": shared_stops}
+        )
+        second = first.model_copy(
+            update={
+                "plan_id": "second",
+                "composition_fingerprint": "second",
+                "stops": [
+                    *shared_stops[:3],
+                    shared_stops[3].model_copy(update={"resource_id": "different-fourth"}),
+                ],
+            }
+        )
+        third = second.model_copy(
+            update={"plan_id": "third", "composition_fingerprint": "third"}
+        )
+
+        selected = _diversify_plans([first, second, third], max_count=3)
+
+        self.assertEqual([plan.plan_id for plan in selected], ["first"])
 
 
 if __name__ == "__main__":

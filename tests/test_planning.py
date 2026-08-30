@@ -10,7 +10,7 @@ from app.domain.constraints import (
     PartyProfile,
     TimeWindow,
 )
-from app.domain.planning import RouteSource, StopType
+from app.domain.planning import PlanStrategy, RouteSource, StopType
 from app.domain.providers import (
     GeoPoint,
     ProviderMode,
@@ -108,6 +108,21 @@ class PlanningServiceTest(unittest.TestCase):
             )
         )
 
+    def test_verified_plans_expose_a_fixed_strategy_and_its_score_evidence(self) -> None:
+        result = PlanningService(
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
+        ).plan(planning_constraints(max_distance_km=30, time_end="22:00"))
+
+        allowed = set(PlanStrategy)
+        self.assertTrue(result.plans)
+        self.assertTrue(all(plan.strategy in allowed for plan in result.plans))
+        self.assertTrue(
+            all(
+                any(item.dimension == "strategy" for item in plan.score_breakdown)
+                for plan in result.plans
+            )
+        )
+
     def test_snapshot_catalog_runs_through_planning_and_route_verification_offline(self) -> None:
         route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
 
@@ -134,7 +149,10 @@ class PlanningServiceTest(unittest.TestCase):
                 for stop in plan.stops
             )
         )
-        self.assertEqual(len(route_provider.requests), len(result.plans) * 2)
+        # 为集合级多样化，会先复核一个不超过 24 个 Route Leg 的候选池，
+        # 再从中选出 3 个差异方案，因此复核数至少覆盖返回方案、且不超过预算。
+        self.assertGreaterEqual(len(route_provider.requests), len(result.plans) * 2)
+        self.assertLessEqual(len(route_provider.requests), 24)
 
     def test_strict_budget_rejects_unknown_snapshot_prices_before_combination(self) -> None:
         result = PlanningService().plan(
@@ -182,15 +200,14 @@ class PlanningServiceTest(unittest.TestCase):
         )
 
         self.assertGreaterEqual(len(result.plans), 1)
-        self.assertEqual(len(route_provider.requests), len(result.plans) * 2)
+        self.assertGreaterEqual(len(route_provider.requests), len(result.plans) * 2)
+        self.assertLessEqual(len(route_provider.requests), 24)
         first = result.plans[0]
         self.assertEqual(first.route_legs[0].start, "14:00")
         self.assertEqual(first.route_legs[0].end, "14:20")
         self.assertEqual(first.stops[0].start, "14:20")
         self.assertEqual(first.route_legs[1].start, first.stops[0].end)
         self.assertEqual(first.stops[1].start, first.route_legs[1].end)
-        self.assertEqual(first.stops[1].end, "17:40")
-        self.assertEqual(first.total_duration_minutes, 220)
         self.assertEqual(
             first.total_duration_minutes,
             sum(stop.duration_minutes for stop in first.stops)
@@ -245,7 +262,7 @@ class PlanningServiceTest(unittest.TestCase):
 
         self.assertEqual(result.plans, [])
         self.assertIsNotNone(result.conflict)
-        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_LOCAL_REPLAN")
         self.assertEqual(result.conflict.fields, ["max_distance_km"])
 
     def test_builds_structured_two_stop_plans_from_the_mock_catalog(self) -> None:

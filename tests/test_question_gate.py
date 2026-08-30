@@ -145,6 +145,55 @@ class NeedQuestionGateTest(unittest.TestCase):
         self.assertTrue(decision.need_question)
         self.assertEqual(decision.field, "max_distance_km")
 
+    def test_unresolved_return_deadline_blocks_planning(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 0.95},
+            raw_constraints=RawConstraints(return_by_text="最晚十八点回家"),
+        )
+
+        decision = self.gate.decide(
+            interpretation,
+            EnrichmentResult(constraints=NormalizedConstraints()),
+            GateContext(),
+        )
+
+        self.assertTrue(decision.need_question)
+        self.assertEqual(decision.field, "return_by")
+        self.assertEqual(decision.severity, "blocking")
+
+    def test_invalid_structured_return_deadline_also_blocks_planning(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 0.95},
+            raw_constraints=RawConstraints(return_by="25:99"),
+        )
+
+        decision = self.gate.decide(
+            interpretation,
+            EnrichmentResult(constraints=NormalizedConstraints()),
+            GateContext(),
+        )
+
+        self.assertTrue(decision.need_question)
+        self.assertEqual(decision.field, "return_by")
+
+    def test_unresolved_total_distance_blocks_planning(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 0.95},
+            raw_constraints=RawConstraints(total_distance_text="全程别太远"),
+        )
+
+        decision = self.gate.decide(
+            interpretation,
+            EnrichmentResult(constraints=NormalizedConstraints()),
+            GateContext(),
+        )
+
+        self.assertTrue(decision.need_question)
+        self.assertEqual(decision.field, "total_distance_km")
+
 
 if __name__ == "__main__":
     unittest.main()

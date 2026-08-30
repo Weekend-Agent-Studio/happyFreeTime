@@ -113,7 +113,7 @@ graph LR
 
 建议周期：6-9 个有效开发日。
 
-**实现检查点（2026-08-28）：** A/B/C1-C3/S0/D0-D3 已实现首版，D4 已完成总预算与 24 Route Leg 公平复核预算；四个显式骨架覆盖 2/3/4 站，多站每角色最多 8 个候选后完整枚举。M2 尚未完成；下一优先级仍是餐时锚点、返程/独立全程距离、集合级多样化与对应 eval。竞品评审没有改变该顺序；M2.5 UI 和 M3.5 记忆不得抢占 M2 可信基线。详细边界见 `docs/status/m2_trustworthy_planning_plan_2026-08-20.md`。
+**实现检查点（2026-08-30）：** M2 已完成可离线验收。四个显式骨架覆盖 2/3/4 站，多站每角色最多 8 个候选后完整枚举；D4 包含餐时锚点、返程真实终点/截止校验、独立全程距离、24 Route Leg 公平预算与未解析截止时间的阻断澄清；E 的未知价格不参与 `low_cost`，六种策略均有行为回归；F 已有模板 Presenter、同一 RouteLeg 索引的地图/时间线互相定位、Vitest/RTL 和离线 Playwright 桌面/375px 主路径。Geocoding 通过 Mock/Replay/高德/降级 Provider 归一化显式地点；Availability 只对 finalist 做有预算批量复核，verified unavailable 为 violation，unknown/stale/degraded 为 warning；最终 CandidateSet/API 只聚合仍被返回方案的 warning。内部 Repair Contract 将 availability、营业、单段路线和可归因返程失败统一为 `LOCAL_REPLACEMENT / NEXT_FINALIST / TERMINAL`：每条 root finalist chain 最多两轮，预算显式传入，耗尽只关闭该链，不能阻塞独立 finalist；天气仍保持可靠的组合前剪枝。19 条声明式离线 smoke 中 13 条硬约束路径均通过（100%），其中动态地点、可用性与路线场景经真实 Enrichment → Provider → Planner/Verifier 链路运行。HTTP/SQLite 离线 E2E、组件与两条 Playwright 路径也存在。M2.5 UI 和 M3.5 记忆现在可按路线图顺序进入，但不得倒改 M2 的可信边界。详细证据见 `docs/status/m2_trustworthy_planning_plan_2026-08-20.md`。
 
 ### 4.1 范围
 
@@ -134,7 +134,7 @@ graph LR
 - 先用通用有界序列组合器完整枚举最多 4 站的空间；每类召回、单资源硬剪枝、部分行程估分、完整方案重评分和完整 Verifier 分层实现。
 - 动态选择 `balanced`、`low_cost`、`low_travel`、`experience`、`family_safe`、`weather_safe`。
 - 从全部可行候选中生成最多 3 个具备实际差异的方案，不机械复制总分最高的近似组合。
-- 只对 finalist 路段调用高德；失败时最多局部重规划 2 次。
+- 只对 finalist 路段调用高德；统一 Repair Contract 在既有 finalist 池内按每条 root chain 最多局部重规划 2 次，并始终受 Route Leg / Availability 调用预算限制。
 - 无解时返回结构化冲突与放宽选项。
 
 **Presenter / UI**
@@ -163,6 +163,7 @@ graph LR
 - 多样性与重复方案测试。
 - 无解及放宽建议测试。
 - 地图与时间线联动的 Playwright 桌面/移动截图测试。
+- Geocoding、Availability、Route/营业局部 repair 的离线声明式 smoke，以及失败链耗尽后独立 finalist 继续验证的行为测试。
 
 ### 4.4 里程碑演示
 
@@ -172,6 +173,8 @@ graph LR
 
 **目标：** 不改变 Planner 可行性语义，把已经可信的结构化结果呈现为“家庭管家在帮我安排”，而不是调试控制台或约束报表。
 
+**实现检查点（2026-08-31，Demo World V1）：** 作品演示默认使用 `DemoCatalog`，仍保持 `Catalog.recall(NormalizedConstraints) -> CatalogResult` seam 和可切回的 `SnapshotCatalog`。它以 200 条 OSM 名称/类别/坐标锚点叠加版本化、固定种子的商业模拟世界；模拟价格、营业、亲子和天气适配真实进入 Catalog 剪枝、Planner 评分和 Verifier，而图片、评分、评论、画廊和文案经独立 `PoiPresentation` 按 `resource_id` 进入 API/SQLite 会话快照。这里的可信含义是约束、路线、状态与修复可解释可复现，不把模拟商业数据伪装为实时商户事实。默认 UI 使用一次克制的数据模式提示；已有 Wikimedia 图片保留归属，无图为明确的类别示意图。
+
 建议周期：2-4 个有效开发日；必须在 M2 验收后进入，不与餐时、返程、多样化和 M2 eval 并行抢占主线。
 
 ### 4.5.1 范围
@@ -179,7 +182,7 @@ graph LR
 - 中栏改为管家式对话；模板 Presenter 根据已存在的事实、评分、warning、tradeoff 和 assumption 先给结论与关键取舍。
 - 约束摘要采用渐进披露：默认只展示关键假设、阻塞风险和可修改项，来源、规则和置信度进入详情抽屉。
 - 重做方案卡信息层级：主题、总时长、全程距离、预算、风险和差异优先，完整证据次级展开。
-- 增加 `PoiPresentation` 展示模型和 POI 详情抽屉；展示标签、营业摘要、评分证据、图片和导航入口，但不把 UI 字段塞回 `StopCandidate`。
+- 增加 `PoiPresentation` 展示模型和 POI 详情抽屉；展示标签、营业摘要、演示评分/评论、图片、预约/排队风险和高德导航入口，但不把 UI 字段塞回 `StopCandidate`。`Demo World V1` 已落地；真实库存、支付和商户履约仍不在本切片。
 - Route Leg 可以点击展开，地图 marker、路线段和时间线双向选中；前端复用 Planner 已消费的 `RouteLeg.geometry`。
 - 加入阶段化等待动效与错误/空/降级状态；只展示可公开阶段，不展示 chain-of-thought。
 - 左侧历史会话继续有界展示，下半部分只预留记忆入口，本切片不提前实现长期记忆。

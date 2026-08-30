@@ -37,12 +37,18 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | 刷新与导航恢复            | 已完成             | URL 保存 `session`；刷新、浏览器前进/后退均恢复对应会话   |
 | 修改假设值                | 未完成             | 当前只能查看假设，还没有点击编辑控件                     |
 | 天气事实与雨天可行性      | M2 切片 A 已完成   | 支持 mock/replay、live/record Adapter、缓存降级与来源展示；已用本机 Key 验证真实高德响应 |
-| 路线复核与完整多站时间线  | M2 切片 B/D 已完成部分 | finalist 才逐段复核路线并重建时间线；支持缓存、replay、本地估算降级；已完成真实路线与浏览器地图联调 |
-| Catalog 来源与单资源剪枝  | M2 C1-C3 已完成   | 默认离线读取 200 条可重建 OSM 北京 POI；来源、许可、未知事实和核验状态可见，单资源硬约束在组合前剪枝 |
+| 路线复核与完整多站时间线  | M2 切片 B/D 已完成 | finalist 才逐段复核路线并重建时间线；支持缓存、replay、本地估算降级；已完成真实路线与浏览器地图联调 |
+| Catalog 来源与单资源剪枝  | M2 C1-C3 已完成   | `snapshot` 模式读取 200 条可重建 OSM 北京 POI；来源、许可、未知事实和核验状态可见，单资源硬约束在组合前剪枝 |
+| Demo World V1 与 POI 详情 | M2.5 已完成首版 | 默认 `demo` 模式以 OSM 名称/坐标锚点叠加确定性商业演示数据；价格与营业参与规划，详情按 `resource_id` 从会话快照恢复 |
 | 原生规划与可解释评分      | S0 已完成          | OSM ID 直接组合；时长、偏好、饮食、场景、避开项和预算参与规则评分，路线复核后刷新分项证据 |
 | 整单可行性复核与有限回填  | M2 D0 已完成       | 按实际到达/停留验证基础营业时段；支持同日多营业区间；外部复核按最多 24 个 Route Leg 计费并在骨架间公平取样 |
-| 通用多站骨架与搜索        | D1-D3 已完成首版，D4 部分完成 | 外部接口不变；显式骨架覆盖 `ACTIVITY→MEAL`、`LUNCH→ACTIVITY→DINNER`、`ACTIVITY→BREAK→DINNER`、`ACTIVITY→LUNCH→ACTIVITY→DINNER`，多站角色池最多 8 个候选后完整枚举 |
-| 动态 POI 与打车执行       | 未完成             | 当前 POI 是版本化静态快照且未现场核验；动态库存、可靠价格、实时 POI 检索和真实叫车仍未实现 |
+| 通用多站骨架与搜索        | D1-D4 已完成首版  | 外部接口不变；显式骨架覆盖 `ACTIVITY→MEAL`、`LUNCH→ACTIVITY→DINNER`、`ACTIVITY→BREAK→DINNER`、`ACTIVITY→LUNCH→ACTIVITY→DINNER`，多站角色池最多 8 个候选后完整枚举 |
+| 餐时锚点、返程与全程距离  | M2 D4 已完成      | `LUNCH/DINNER` 到店必须落在 11:00-14:00 / 17:00-20:30；`return_by` 必须有一段回到出发地的 Route Leg 且按到家边界校验；`total_distance_km` 独立于单段 `max_distance_km` 校验全程累计距离 |
+| 集合级多样化              | M2 E 已完成首版   | 先复核不超过 24 个 Route Leg 的可行候选池，再按 POI 重叠、成本和路程贪心选出最多 3 个有实际差异的方案；未知价格不参与 `low_cost` 比较，不会冒充免费 |
+| 前端自动验收              | M2 F 基础完成     | Vitest/RTL 覆盖方案切换、路线索引和高德降级/错误；离线 Playwright 覆盖桌面与 375px 主路径，不请求真实高德或 LLM |
+| 地理编码与动态可用性事实  | M2 收口实现        | 显式地点经 Mock/Replay/高德/降级 Geocoding 归一化；finalist 按批量 Availability 复核，已核验不可用淘汰、未知/陈旧/降级告警，不声称真实库存 |
+| 有界动态修复与 warning    | M2 收口完成        | 每条 root finalist chain 最多 2 轮；对已核验不可用、营业失败、单段超距和可归因的返程超时，只替换对应站点并完整复核；不可归因失败转入独立 finalist，最终 API 只公开返回方案实际使用的 warning |
+| 动态 POI 与打车执行       | 未完成             | 当前 POI 是版本化静态快照且未现场核验；真实库存、可靠价格、实时 POI 检索和真实叫车仍未实现 |
 | 订单/预订执行             | 占位               | “订单”页签是 M4 产品闭环的入口，目前不能下单             |
 
 ## 推荐的前端验收场景
@@ -98,6 +104,11 @@ HFT_ROUTE_PROVIDER_MODE=mock
 # HFT_ROUTE_PROVIDER_MODE=replay
 # HFT_ROUTE_REPLAY_PATH=data/replays/routes.json
 
+# 地理编码同样可独立切换；mock/replay 可完全离线。用户明确地点无法解析时会反问，
+# 不会回落到默认出发地。
+# HFT_GEOCODING_PROVIDER_MODE=mock
+# HFT_GEOCODING_REPLAY_PATH=data/replays/geocoding.json
+
 # 后端天气与路线共用“Web 服务”Key；live / record 才会联网
 HFT_PROVIDER_MODE=live
 HFT_ROUTE_PROVIDER_MODE=live
@@ -109,6 +120,12 @@ AMAP_JS_SECURITY_CODE=填写该_JS_Key_对应的_securityJsCode
 ```
 
 `HFT_DEMO_MODE=1` 可以继续保留：它只让自然语言 Router 使用离线规则，不妨碍天气和路线 Provider 设为 `live`。前端不需要单独的 `.env`：后端 `/api/config/map` 只下发本来就会公开的 JS Key；`securityJsCode` 由同源 `/_AMapService` 代理追加，不进入 Vite 构建产物。`_AMapService` 是高德 JS API 规定的一级固定前缀，不能嵌套在 `/api` 等路径下。JS Key 与安全码必须成对配置，缺少任意一项会在后端启动时明确报错。
+
+```dotenv
+# Catalog：作品演示默认 demo；若要只检查原始 OSM snapshot，可显式切回 snapshot
+HFT_CATALOG_MODE=demo
+# HFT_CATALOG_MODE=snapshot
+```
 
 地图直接绘制 Planner 已经消费并公开的 `RouteLeg.geometry`，不会在浏览器再次请求驾车路线；因此地图与时间线使用同一份路线事实，也不会为一次展示重复消耗路线规划配额。天气和路线的 `record` 都只保存规范化事实，不保存请求 Key。`live/record` 失败时先使用可用缓存，再尝试 replay；无匹配路线回放时明确降级为本地估算。当前缓存尚未持久化。
 
@@ -122,13 +139,21 @@ AMAP_JS_SECURITY_CODE=填写该_JS_Key_对应的_securityJsCode
 
 成功输出只包含路线距离、耗时、几何点数和天气事实；失败会显示高德的安全错误码（例如 Key 类型不匹配或配额限制），不会打印请求 URL 或 Key。当前 POI 来自版本化 OSM 快照，不调用高德 POI 搜索。
 
-## POI Catalog、价格与图片边界
+## POI Catalog、Demo World、价格与图片边界
 
 - `data/catalog/pois.json` 当前包含 200 条北京 POI：100 个活动、100 个餐厅。它由版本化 Overpass 查询、原始响应 replay 和生成脚本构建，基础来源为 OpenStreetMap contributors（ODbL 1.0）。
 - 快照保存 WGS84，`SnapshotCatalog` 在 Adapter 内转换为当前路线 Provider 使用的 GCJ-02。旧 M1 Mock 数据只存在于 `data/fixtures/v1/`，不会混入运行快照。
-- 当前覆盖率：地址 104/200、基础营业时间 110/200、许可可追溯远程图片 72/200、可靠价格 0/200；10 条 POI 保留同日多营业区间。完整报告见 `data/catalog/completeness.md`。
-- 缺营业时间或亲子适配信息时保留候选并输出 Warning；已知不满足硬约束时才输出 Violation 并淘汰。未知价格不会随机补齐或当作免费，严格预算只接受 `known/free`。
-- 图片通过 OSM 的 Wikidata/Commons 引用解析，只保存 URL、作者与许可元数据；缺图或加载失败显示类别占位图，不影响规划，也不会下载图片文件。
+- `HFT_CATALOG_MODE=snapshot` 保留上述原始基线：地址 104/200、基础营业时间 110/200、许可可追溯远程图片 72/200、可靠价格 0/200；10 条 POI 保留同日多营业区间。完整报告见 `data/catalog/completeness.md`。
+- 默认 `demo` 使用 `data/demo_world/v1/enrichment.json`：所有 200 个 OSM 锚点都有稳定的参考价格、展示营业时段、场景/设施标签、亲子/天气适配、演示评分和评论数、排队/预约文案及画廊。它由 `resource_id + 固定 v1 种子` 构建，同一 POI 跨请求不变化，且参考价格和营业时段会真正进入 Catalog 剪枝、Planner 和 Verifier。
+- 数据边界：OSM 名称、分类、坐标、已存在地址和 Wikimedia 图片是 SourceFact；坐标转换、路线、时间线与评分是 DerivedFeature；商业属性和 Availability 是可复现的 SimulatedState。UI 统一提示“POI 商业信息为模拟数据，地图与路线来自高德”，不把演示评分、评论、排队或可用性说成实时商户数据。
+- 图片保留已有 Wikimedia 归属；缺图使用本地类别示意图并明确标为非门店实拍。不会生成电话、商家官网或外部预订 URL，也不会把运行时爬虫作为依赖。
+
+重建并校验 Demo World：
+
+```powershell
+& .\.venv\Scripts\python.exe scripts\build_demo_world.py
+& .\.venv\Scripts\python.exe scripts\validate_demo_world.py
+```
 
 完全离线重建相同快照：
 
@@ -220,7 +245,7 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 # 离线 Demo Router
 & $PYTHON -m unittest tests.test_demo_router -v
 
-# 5 条离线行为 smoke eval（绕过 Router、Graph、HTTP、SQLite 和 React）
+# 19 条离线行为 smoke eval（覆盖 Enrichment → Replay Geocoding/Weather/Availability/Route → Planner/Verifier；Plan 用例会检查返程、截止、距离、地点解析、动态可用性 warning/替补、天气/儿童/营业边界和 Provider 来源，并执行 95% 硬约束门槛）
 & $PYTHON -m evals.run_smoke
 
 # 全部后端测试
@@ -231,7 +256,9 @@ $env:LANGGRAPH_STRICT_MSGPACK='true'
 
 ```powershell
 Set-Location frontend
+pnpm run test
 pnpm run build
+pnpm run test:e2e
 ```
 
 ## 代码入口
@@ -242,12 +269,16 @@ pnpm run build
 - `app/services/demo_router.py`：不需要 Key 的离线抽取器。
 - `app/services/enrichment.py`：确定性规则、默认值和 provenance。
 - `app/services/question_gate.py`：阻断式反问策略。
-- `app/services/planning.py`：显式 2/3/4 站骨架、有界序列组合、可解释规则评分和 finalist 路线复核。
+- `app/services/planning.py`：显式 2/3/4 站骨架、有界序列组合、可解释规则评分、finalist 路线复核与每链最多两轮的局部 repair 调度。
 - `app/services/catalog.py`：Catalog seam、snapshot/fixture Adapter、schema 校验、坐标归一化和单资源硬约束剪枝。
+- `app/services/demo_world.py`：`DemoCatalog` Adapter，把 OSM anchors 与版本化 Demo World 合并；`Catalog.recall(...)` 外部契约不变。
+- `app/domain/presentation.py` 与 `app/services/poi_presentation.py`：按 `resource_id` 批量返回 `PoiPresentation`，不污染 `StopCandidate`；响应会随 Planning Run 存入 SQLite 并在会话恢复时保持一致。
 - `app/services/catalog_collection.py` 与 `scripts/collect_osm_catalog.py`：Overpass/Commons 采集、去重、质量报告和离线 replay。
 - `app/domain/catalog.py`：StopCandidate、CatalogSource 与 ConstraintViolation 契约。
 - `app/providers/weather.py`：天气 live/record/replay/mock Adapter、缓存与降级。
 - `app/providers/route.py`：路线 live/record/replay/mock Adapter、缓存与本地估算降级。
+- `app/providers/geocoding.py`：显式地点的 Mock/Replay/高德/降级 Adapter；领域层只接收归一化坐标和行政区事实。
+- `app/providers/availability.py`：finalist 批量动态可用性 Mock/Replay/降级 Adapter；Unknown 不会伪装为 Available。
 - `app/providers/web_map.py`：高德 JS API 的公开配置、安全码代理和固定上游白名单。
 - `app/domain/providers.py`：Provider 模式、来源及天气/路线事实契约。
 - `app/api/application.py`：FastAPI 与 LangGraph/SQLite 的组合入口。

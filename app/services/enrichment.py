@@ -20,6 +20,8 @@ from app.domain.constraints import (
     PartyProfile,
     TimeWindow,
 )
+from app.domain.providers import GeocodeRequest, GeocodeResolution, GeocodingFact
+from app.providers.geocoding import GeocodingProvider
 
 
 class EnvironmentContext(BaseModel):
@@ -28,7 +30,6 @@ class EnvironmentContext(BaseModel):
 
     now: datetime
     default_location: GeoLocation
-    resolved_location: GeoLocation | None = None
 
 
 class EnrichmentService:
@@ -40,6 +41,9 @@ class EnrichmentService:
 
     DEFAULT_BUDGET = 120
     DEFAULT_DISTANCE_KM = 8.0
+
+    def __init__(self, geocoding_provider: GeocodingProvider | None = None) -> None:
+        self._geocoding_provider = geocoding_provider
 
     def enrich(
         self,
@@ -117,6 +121,27 @@ class EnrichmentService:
                 )
             )
 
+        return_by = self._normalize_return_by(raw.return_by_text, raw.return_by)
+        return_by_value = None
+        if return_by is not None:
+            return_by_value = ConstraintValue[str](
+                value=return_by,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=raw.return_by_text,
+                confidence=self._confidence(interpretation, "return_by_text"),
+                rule_id="return_by.clock.zh_cn.v1",
+            )
+
+        total_distance = None
+        if raw.total_distance_km is not None:
+            total_distance = ConstraintValue[float](
+                value=raw.total_distance_km,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=raw.total_distance_text,
+                confidence=self._confidence(interpretation, "total_distance_km"),
+                rule_id="total_distance.total_route.v1",
+            )
+
         budget = None
         if raw.budget_per_person is not None:
             budget = ConstraintValue[int](
@@ -179,13 +204,32 @@ class EnrichmentService:
                 )
             )
 
-        # 位置解析是工具适配点。M1 通过 EnvironmentContext 接收已解析的位置；
-        # 若用户给出的地点无法完成地理编码，系统不会自行编造坐标。
+        # 显式地点只能由 GeocodingProvider 变成坐标；无法解析时保留 None，由
+        # Gate 反问。用户没有给地点才可以使用会话默认出发地。
         location = None
+        geocoding_fact: GeocodingFact | None = None
         if raw.location_text:
-            if environment.resolved_location is not None:
+            if self._geocoding_provider is not None:
+                geocoding_fact = self._geocoding_provider.geocode(
+                    GeocodeRequest(
+                        location_text=raw.location_text,
+                        city=environment.default_location.city,
+                    )
+                )
+            if (
+                geocoding_fact is not None
+                and geocoding_fact.resolution == GeocodeResolution.RESOLVED
+                and geocoding_fact.point is not None
+            ):
                 location = ConstraintValue[GeoLocation](
-                    value=environment.resolved_location,
+                    value=GeoLocation(
+                        city=geocoding_fact.city or environment.default_location.city,
+                        district=geocoding_fact.district or "",
+                        address=geocoding_fact.address or raw.location_text,
+                        latitude=geocoding_fact.point.latitude,
+                        longitude=geocoding_fact.point.longitude,
+                        adcode=geocoding_fact.adcode,
+                    ),
                     source=ConstraintSource.REAL_TOOL,
                     raw_text=raw.location_text,
                     rule_id="location.geocoded.v1",
@@ -218,8 +262,14 @@ class EnrichmentService:
             scene_tags=raw.scene_tags,
             avoid=raw.avoid,
             strict_budget=raw.strict_budget,
+            return_by=return_by_value,
+            total_distance_km=total_distance,
         )
-        return EnrichmentResult(constraints=constraints, assumptions=assumptions)
+        return EnrichmentResult(
+            constraints=constraints,
+            assumptions=assumptions,
+            geocoding_fact=geocoding_fact,
+        )
 
     @staticmethod
     def _confidence(interpretation: Interpretation, field: str) -> float | None:
@@ -294,6 +344,30 @@ class EnrichmentService:
                 end=f"{int(end_hour):02d}:{int(end_minute or 0):02d}",
             )
         return None
+
+    @staticmethod
+    def _normalize_return_by(
+        return_by_text: str | None,
+        explicit: str | None,
+    ) -> str | None:
+        """把“最晚 18:00 到家”一类表达归一化成 HH:MM 时钟，无法解析则不猜。"""
+        candidate = explicit
+        if candidate is None and return_by_text:
+            match = re.search(r"(\d{1,2})[:：](\d{2})", return_by_text)
+            if match:
+                candidate = f"{match.group(1)}:{match.group(2)}"
+        if candidate is None:
+            return None
+        parts = candidate.strip().split(":")
+        if len(parts) != 2:
+            return None
+        try:
+            hour, minute = int(parts[0]), int(parts[1])
+        except ValueError:
+            return None
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            return None
+        return f"{hour:02d}:{minute:02d}"
 
     @classmethod
     def _normalize_distance(

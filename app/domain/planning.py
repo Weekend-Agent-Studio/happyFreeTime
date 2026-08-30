@@ -17,6 +17,8 @@ from app.domain.catalog import (
     PriceKind,
 )
 from app.domain.providers import (
+    AvailabilityFact,
+    GeocodingFact,
     GeoPoint,
     ProviderMode,
     RouteMode,
@@ -56,6 +58,17 @@ class PlanPace(str, Enum):
     RELAXED = "relaxed"
     BALANCED = "balanced"
     FULL = "full"
+
+
+class PlanStrategy(str, Enum):
+    """Named deterministic optimization emphasis for a feasible plan."""
+
+    BALANCED = "balanced"
+    LOW_COST = "low_cost"
+    LOW_TRAVEL = "low_travel"
+    EXPERIENCE = "experience"
+    FAMILY_SAFE = "family_safe"
+    WEATHER_SAFE = "weather_safe"
 
 
 class PlanningIntent(BaseModel):
@@ -142,7 +155,7 @@ class Plan(BaseModel):
     composition_fingerprint: str
     skeleton_id: str | None = None
     title: str
-    strategy: str
+    strategy: PlanStrategy
     total_score: float = Field(ge=0)
     total_price: int = Field(ge=0)
     price_status: PlanPriceStatus = PlanPriceStatus.KNOWN
@@ -164,12 +177,28 @@ class ConstraintConflict(BaseModel):
     relaxation_options: list[str] = Field(default_factory=list)
 
 
+class PlanWarning(BaseModel):
+    """Non-blocking incompleteness scoped to a returned plan and its actual facts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    plan_id: str | None = None
+    resource_id: str | None = None
+    route_leg_index: int | None = Field(default=None, ge=0)
+    source: str | None = None
+    degraded: bool = False
+    stale: bool = False
+
+
 class CandidateSet(BaseModel):
     """Planner 的互斥结果：包含候选方案，或包含一个不可行冲突。"""
     model_config = ConfigDict(extra="forbid")
 
     plans: list[Plan] = Field(default_factory=list)
     conflict: ConstraintConflict | None = None
-    provider_facts: list[WeatherFact] = Field(default_factory=list)
+    provider_facts: list[WeatherFact | GeocodingFact | AvailabilityFact] = Field(default_factory=list)
     catalog_violations: list[ConstraintViolation] = Field(default_factory=list)
     catalog_warnings: list[CatalogWarning] = Field(default_factory=list)
+    warnings: list[PlanWarning] = Field(default_factory=list)

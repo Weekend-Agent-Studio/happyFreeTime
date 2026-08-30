@@ -4,7 +4,9 @@ import { getMapConfig } from "./api";
 import type { Plan, WebMapConfig } from "./types";
 
 type Position = [number, number];
-type Overlay = object;
+type Overlay = {
+  on?: (eventName: string, listener: () => void) => void;
+};
 
 type AmapMapInstance = {
   destroy: () => void;
@@ -59,23 +61,26 @@ function loadAmap(config: WebMapConfig): Promise<AmapNamespace> {
   return loader;
 }
 
-function legPath(plan: Plan): Position[][] {
+function legPath(plan: Plan): Array<{ index: number; path: Position[] }> {
   return plan.route_legs
-    .map((leg) =>
-      leg.geometry
+    .map((leg, index) => ({
+      index,
+      path: leg.geometry
         .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
         .map((point): Position => [point.longitude, point.latitude]),
-    )
-    .filter((path) => path.length >= 2);
+    }))
+    .filter(({ path }) => path.length >= 2);
 }
 
 function renderPlan(
   container: HTMLElement,
   plan: Plan,
   AMap: AmapNamespace,
+  activeLegIndex: number | null,
+  onSelectRoute: (legIndex: number) => void,
 ): AmapMapInstance {
-  const paths = legPath(plan);
-  if (!paths.length) throw new Error("当前方案没有可绘制的路线坐标");
+  const legPaths = legPath(plan);
+  if (!legPaths.length) throw new Error("当前方案没有可绘制的路线坐标");
 
   const map = new AMap.Map(container, {
     viewMode: "2D",
@@ -83,37 +88,45 @@ function renderPlan(
     zoom: 12,
   });
   const overlays: Overlay[] = [];
-  paths.forEach((path) => {
-    overlays.push(
-      new AMap.Polyline({
+  legPaths.forEach(({ index, path }) => {
+    const isActive = activeLegIndex === index;
+    const polyline = new AMap.Polyline({
         map,
         path,
-        strokeColor: "#3178c6",
-        strokeWeight: 6,
+        strokeColor: isActive ? "#075a9f" : "#3178c6",
+        strokeWeight: isActive ? 9 : 6,
         strokeOpacity: 0.88,
         lineJoin: "round",
         showDir: true,
-      }),
-    );
+      });
+    polyline.on?.("click", () => onSelectRoute(index));
+    overlays.push(polyline);
   });
 
-  const markerPositions = [paths[0][0], ...paths.map((path) => path[path.length - 1])];
-  markerPositions.forEach((position, index) => {
-    overlays.push(
-      new AMap.Marker({
+  const markerPoints = [
+    { position: legPaths[0].path[0], legIndex: null as number | null },
+    ...legPaths.map(({ index, path }) => ({ position: path[path.length - 1], legIndex: index })),
+  ];
+  markerPoints.forEach(({ position, legIndex }, markerIndex) => {
+    const label = legIndex === null ? "起" : legIndex < plan.stops.length ? String(legIndex + 1) : "返";
+    const title = legIndex === null
+      ? "出发地"
+      : plan.stops[legIndex]?.name ?? plan.route_legs[legIndex]?.destination_name ?? "目的地";
+    const marker = new AMap.Marker({
         map,
         position,
         anchor: "center",
-        title: index === 0 ? "出发地" : plan.stops[index - 1]?.name,
-        content: `<div class="amap-plan-marker ${index === 0 ? "origin" : ""}">${index === 0 ? "起" : index}</div>`,
-      }),
-    );
+        title,
+        content: `<div class="amap-plan-marker ${markerIndex === 0 ? "origin" : ""}">${label}</div>`,
+      });
+    if (legIndex !== null) marker.on?.("click", () => onSelectRoute(legIndex));
+    overlays.push(marker);
   });
   map.setFitView(overlays, false, [42, 32, 42, 32], 15);
   return map;
 }
 
-export function AmapPlanMap({ plan }: { plan: Plan }) {
+export function AmapPlanMap({ plan, activeLegIndex, onSelectRoute }: { plan: Plan; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "disabled" | "error">("loading");
   const [message, setMessage] = useState("正在加载高德地图…");
@@ -135,7 +148,7 @@ export function AmapPlanMap({ plan }: { plan: Plan }) {
         }
         const AMap = await loadAmap(config);
         if (disposed || !containerRef.current) return;
-        map = renderPlan(containerRef.current, plan, AMap);
+        map = renderPlan(containerRef.current, plan, AMap, activeLegIndex, onSelectRoute);
         setStatus("ready");
       })
       .catch((error: unknown) => {
@@ -149,7 +162,7 @@ export function AmapPlanMap({ plan }: { plan: Plan }) {
       disposed = true;
       map?.destroy();
     };
-  }, [plan]);
+  }, [activeLegIndex, onSelectRoute, plan]);
 
   return (
     <div className="map-canvas amap-map-shell" aria-label="高德地图路线图">

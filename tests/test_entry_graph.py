@@ -13,7 +13,9 @@ from app.domain.constraints import (
     RawConstraints,
 )
 from app.orchestration.entry_graph import build_entry_graph
+from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext
+from app.providers.geocoding import MockGeocodingProvider
 from app.services.router_extractor import RouterContext
 
 
@@ -47,7 +49,33 @@ class FollowUpRouter:
         )
 
 
+class ExplicitLocationRouter:
+    def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        return Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                date_text="今天", time_text="下午", location_text="不存在地标"
+            ),
+        )
+
+
 class EntryGraphTest(unittest.TestCase):
+    def test_unresolvable_explicit_location_interrupts_without_falling_back_to_default(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", district="朝阳区", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+        actor = ActorContext(user_id="demo-user", session_id="session-geo-gate", identity_type=IdentityType.DEMO)
+        graph = build_entry_graph(
+            router=ExplicitLocationRouter(),
+            environment_provider=lambda _: environment,
+            geocoding_provider=MockGeocodingProvider.from_locations({}),
+        )
+
+        result = graph.invoke({"user_input": "不存在地标今天下午出去玩", "actor": actor}, config={"configurable": {"thread_id": actor.session_id}})
+
+        self.assertEqual(result["__interrupt__"][0].value["field"], "location")
     def test_interrupts_for_blocking_field_and_resumes_through_router(self) -> None:
         router = FollowUpRouter()
         environment = EnvironmentContext(
@@ -208,6 +236,46 @@ class EntryGraphTest(unittest.TestCase):
         self.assertGreaterEqual(len(result["candidate_set"].plans), 1)
         self.assertEqual(len(result["candidate_set"].plans[0].stops), 2)
         self.assertEqual(restored, result["candidate_set"])
+
+    def test_demo_return_deadline_question_resumes_with_a_bare_clock_answer(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-return-resume",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DemoRouter(),
+            environment_provider=lambda _: environment,
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+
+        first_result = graph.invoke(
+            {"user_input": "今天下午出去玩，最晚十八点回家", "actor": actor},
+            config=config,
+        )
+        self.assertEqual(first_result["__interrupt__"][0].value["field"], "return_by")
+
+        final_result = graph.invoke(Command(resume="18:00"), config=config)
+
+        self.assertTrue(final_result["ready_for_planning"])
+        self.assertFalse(final_result["question_decision"].need_question)
+        self.assertTrue(final_result["candidate_set"].plans)
+        self.assertTrue(
+            all(
+                plan.route_legs[-1].destination_name == "出发地"
+                for plan in final_result["candidate_set"].plans
+            )
+        )
 
 
 if __name__ == "__main__":

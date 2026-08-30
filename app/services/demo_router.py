@@ -54,6 +54,40 @@ class DemoRouter:
         strict_budget = any(
             phrase in text for phrase in ("别超预算", "严格预算", "不能超预算")
         )
+        return_by_text_match = re.search(
+            r"(?:最晚|最迟|不晚于|在).{0,12}?(?:到家|回家|回来)",
+            text,
+        )
+        return_by_match = re.search(
+            r"(?:最晚|最迟|不晚于|在)\s*(\d{1,2})[:：](\d{2})"
+            r"\s*(?:点|点钟)?\s*(?:前|之前)?\s*(?:到家|回家|回来)",
+            text,
+        )
+        # Graph 恢复时会把原请求和答案拼接。裸 ``18:00`` 只有在原请求
+        # 已明确出现“最晚…回家”语义时，才可作为返程 deadline，避免把普通
+        # 时间表达误当成返程约束。
+        resumed_return_by_match = (
+            re.search(r"(?:^|\n)用户补充：\s*(\d{1,2})[:：](\d{2})\s*$", text)
+            if return_by_text_match and not return_by_match
+            else None
+        )
+        return_clock_match = return_by_match or resumed_return_by_match
+        return_by = (
+            f"{int(return_clock_match.group(1)):02d}:{int(return_clock_match.group(2)):02d}"
+            if return_clock_match
+            else None
+        )
+        total_distance_match = re.search(
+            r"((?:全程|总路程|总距离)\s*(?:不超过|不超|最多|至多|≤)?\s*"
+            r"(\d+(?:\.\d+)?)\s*(?:公里|km))",
+            text,
+            flags=re.IGNORECASE,
+        )
+        total_distance = (
+            float(total_distance_match.group(2))
+            if total_distance_match
+            else None
+        )
         raw = RawConstraints(
             date_text=date_text,
             time_text=time_text,
@@ -64,6 +98,14 @@ class DemoRouter:
             max_distance_text=distance_text,
             preferences=preferences,
             scene_tags=["约会"] if "约会" in text else [],
+            return_by_text=(
+                return_by_text_match.group(0) if return_by_text_match else None
+            ),
+            return_by=return_by,
+            total_distance_text=(
+                total_distance_match.group(1) if total_distance_match else None
+            ),
+            total_distance_km=total_distance,
         )
         # 与真实 Router 一样保留证据映射，方便后续评测抽取是否有依据。
         evidence = {
@@ -74,6 +116,12 @@ class DemoRouter:
                 "budget_per_person": budget_match.group(0) if budget_match else None,
                 "max_distance_text": distance_text,
                 "party": party_evidence,
+                "return_by_text": (
+                    return_by_text_match.group(0) if return_by_text_match else None
+                ),
+                "total_distance_km": (
+                    total_distance_match.group(1) if total_distance_match else None
+                ),
             }.items()
             if value is not None
         }

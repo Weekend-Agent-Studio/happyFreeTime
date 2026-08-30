@@ -10,9 +10,13 @@ from app.domain.providers import ProviderMode
 from app.orchestration.entry_graph import default_environment_provider
 from app.providers.weather import build_weather_provider
 from app.providers.route import build_route_provider
+from app.providers.geocoding import build_geocoding_provider
+from app.providers.availability import DemoAvailabilityProvider
 from app.providers.web_map import build_web_map_provider
 from app.services.demo_router import DemoRouter
 from app.services.router_extractor import build_default_router_extractor
+from app.services.catalog import SnapshotCatalog
+from app.services.demo_world import DemoCatalog
 
 
 load_dotenv()
@@ -82,10 +86,40 @@ def build_default_route_provider():
 
 route_provider = build_default_route_provider()
 
+
+def build_default_geocoding_provider():
+    mode_value = os.getenv("HFT_GEOCODING_PROVIDER_MODE", ProviderMode.MOCK.value)
+    try:
+        mode = ProviderMode(mode_value)
+    except ValueError as error:
+        allowed = ", ".join(item.value for item in ProviderMode)
+        raise RuntimeError(f"HFT_GEOCODING_PROVIDER_MODE must be one of: {allowed}") from error
+    return build_geocoding_provider(
+        mode=mode,
+        replay_path=Path(os.getenv("HFT_GEOCODING_REPLAY_PATH", "data/replays/geocoding.json")),
+        api_key=os.getenv("AMAP_WEB_SERVICE_KEY"),
+    )
+
+
+geocoding_provider = build_default_geocoding_provider()
+
 web_map_provider = build_web_map_provider(
     js_api_key=os.getenv("AMAP_JS_API_KEY"),
     security_code=os.getenv("AMAP_JS_SECURITY_CODE"),
 )
+
+
+def build_default_catalog():
+    mode = os.getenv("HFT_CATALOG_MODE", "demo").lower()
+    if mode == "demo":
+        catalog = DemoCatalog()
+        return catalog, catalog.presentation_provider
+    if mode == "snapshot":
+        return SnapshotCatalog(), None
+    raise RuntimeError("HFT_CATALOG_MODE must be one of: demo, snapshot")
+
+
+catalog, poi_presentation_provider = build_default_catalog()
 
 app = create_app(
     database_path=Path("data/happy_free_time_v2.db"),
@@ -93,5 +127,9 @@ app = create_app(
     environment_provider=default_environment_provider,
     weather_provider=weather_provider,
     route_provider=route_provider,
+    geocoding_provider=geocoding_provider,
+    availability_provider=DemoAvailabilityProvider(),
+    catalog=catalog,
+    poi_presentation_provider=poi_presentation_provider,
     web_map_provider=web_map_provider,
 )

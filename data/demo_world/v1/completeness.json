@@ -1,0 +1,66 @@
+{
+  "version": "v1",
+  "record_count": 200,
+  "coverage": {
+    "business_area": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "description": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "scene_tags": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "facility_tags": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "reference_avg_price": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "reference_rating": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "reference_review_count": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "open_hours": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "suggested_duration_minutes": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "reservation_requirement": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "queue_profile": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "risk_tips": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "booking_mode": {
+      "count": 200,
+      "percent": 100.0
+    },
+    "gallery": {
+      "count": 200,
+      "percent": 100.0
+    }
+  },
+  "gallery": {
+    "source_image": 72,
+    "illustrative": 128
+  }
+}

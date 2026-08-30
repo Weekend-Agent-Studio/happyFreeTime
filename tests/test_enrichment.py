@@ -6,19 +6,32 @@ from pydantic import ValidationError
 
 from app.domain.constraints import (
     ActorContext,
+    ConstraintValue,
     ConstraintSource,
     GeoLocation,
     IdentityType,
     Intent,
     Interpretation,
+    NormalizedConstraints,
     RawConstraints,
 )
 from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext, EnrichmentService
+from app.providers.geocoding import MockGeocodingProvider
 from app.services.router_extractor import RouterContext
 
 
 class EnrichmentServiceTest(unittest.TestCase):
+    def test_return_by_model_rejects_non_clock_value(self) -> None:
+        with self.assertRaises(ValidationError):
+            NormalizedConstraints(
+                return_by=ConstraintValue(
+                    value="十八点",
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="最晚十八点回家",
+                ),
+            )
+
     def test_date_party_is_inferred_from_the_user_phrase_not_marked_explicit(self) -> None:
         interpretation = DemoRouter().interpret(
             "安排一个轻松的约会，想吃甜品",
@@ -214,21 +227,77 @@ class EnrichmentServiceTest(unittest.TestCase):
 
         self.assertIsNone(unresolved.constraints.location)
 
-        resolved_location = GeoLocation(
-            city="北京市",
-            district="海淀区",
-            address="北京市海淀区黄庄",
-            latitude=39.9756,
-            longitude=116.3176,
-        )
-        resolved = EnrichmentService().enrich(
+        resolved = EnrichmentService(
+            MockGeocodingProvider.from_locations(
+                {
+                    ("北京市", "海淀黄庄附近"): (
+                        39.9756,
+                        116.3176,
+                        "海淀区",
+                        "110108",
+                        "北京市海淀区黄庄",
+                    )
+                }
+            )
+        ).enrich(
             interpretation,
             actor,
-            environment.model_copy(update={"resolved_location": resolved_location}),
+            environment,
         )
 
-        self.assertEqual(resolved.constraints.location.value, resolved_location)
+        self.assertEqual(resolved.constraints.location.value.district, "海淀区")
+        self.assertEqual(resolved.constraints.location.value.adcode, "110108")
         self.assertEqual(resolved.constraints.location.source, ConstraintSource.REAL_TOOL)
+
+    def test_return_by_is_normalized_from_clock_and_text(self) -> None:
+        self.assertEqual(
+            EnrichmentService._normalize_return_by("最晚18:00到家", None),
+            "18:00",
+        )
+        self.assertEqual(
+            EnrichmentService._normalize_return_by(None, "19:30"),
+            "19:30",
+        )
+        self.assertIsNone(EnrichmentService._normalize_return_by("路上再说", None))
+        self.assertIsNone(EnrichmentService._normalize_return_by(None, "25:00"))
+
+    def test_return_by_and_total_distance_flow_into_normalized_constraints(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 0.95},
+            raw_constraints=RawConstraints(
+                return_by_text="最晚18:30到家",
+                total_distance_km=12.5,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-return",
+            identity_type=IdentityType.DEMO,
+        )
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.return_by.value, "18:30")
+        self.assertEqual(
+            result.constraints.return_by.source,
+            ConstraintSource.USER_INFERRED,
+        )
+        self.assertEqual(result.constraints.total_distance_km.value, 12.5)
+        self.assertEqual(
+            result.constraints.total_distance_km.source,
+            ConstraintSource.USER_EXPLICIT,
+        )
 
 
 if __name__ == "__main__":

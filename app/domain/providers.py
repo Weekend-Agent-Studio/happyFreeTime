@@ -50,6 +50,124 @@ class GeoPoint(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
+class GeocodeResolution(str, Enum):
+    """A location answer must be explicit about whether it is usable."""
+
+    RESOLVED = "resolved"
+    NOT_FOUND = "not_found"
+    AMBIGUOUS = "ambiguous"
+    UNAVAILABLE = "unavailable"
+
+
+class GeocodeRequest(BaseModel):
+    """One explicit user location, scoped to a city when available."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    location_text: str = Field(min_length=1, max_length=200)
+    city: str | None = Field(default=None, max_length=80)
+
+    @property
+    def cache_key(self) -> str:
+        return f"{(self.city or '').strip()}|{self.location_text.strip()}"
+
+
+class GeocodingFact(BaseModel):
+    """Normalized geocoding fact; no provider response payload crosses this seam."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["geocoding"] = "geocoding"
+    request: GeocodeRequest
+    resolution: GeocodeResolution
+    point: GeoPoint | None = None
+    city: str | None = None
+    district: str | None = None
+    adcode: str | None = Field(default=None, pattern=r"^\d{6}$")
+    address: str | None = None
+    source: ProviderSource
+    mode: ProviderMode
+    observed_at: datetime
+    verified_at: datetime
+    verified: bool = False
+    degraded: bool = False
+    degraded_reason: str | None = None
+    cache_age_seconds: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_resolution(self) -> "GeocodingFact":
+        if self.resolution == GeocodeResolution.RESOLVED:
+            if self.point is None or not self.city or not self.address:
+                raise ValueError("resolved geocoding facts require point, city, and address")
+        elif self.point is not None:
+            raise ValueError("unresolved geocoding facts cannot contain a point")
+        if self.degraded and not self.degraded_reason:
+            raise ValueError("degraded geocoding facts require degraded_reason")
+        if not self.degraded and self.degraded_reason is not None:
+            raise ValueError("non-degraded geocoding facts cannot have degraded_reason")
+        return self
+
+
+class AvailabilityStatus(str, Enum):
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+
+class AvailabilityCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    resource_id: str = Field(min_length=1)
+    start: str = Field(pattern=r"^\d{2,}:\d{2}$")
+    end: str = Field(pattern=r"^\d{2,}:\d{2}$")
+
+
+class AvailabilityRequest(BaseModel):
+    """Bounded batch lookup for finalist visits, never an unbounded POI crawl."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    date: date
+    checks: tuple[AvailabilityCheck, ...] = Field(min_length=1, max_length=8)
+
+    @property
+    def cache_key(self) -> str:
+        checks = ";".join(
+            f"{check.resource_id}:{check.start}-{check.end}" for check in self.checks
+        )
+        return f"{self.date.isoformat()}|{checks}"
+
+
+class AvailabilityFact(BaseModel):
+    """A dynamic availability observation for one planned stop."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["availability"] = "availability"
+    resource_id: str = Field(min_length=1)
+    status: AvailabilityStatus
+    source: ProviderSource
+    mode: ProviderMode
+    observed_at: datetime
+    verified_at: datetime
+    verified: bool = False
+    expires_at: datetime | None = None
+    stale: bool = False
+    degraded: bool = False
+    reason: str | None = None
+    degraded_reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_availability_semantics(self) -> "AvailabilityFact":
+        if self.status == AvailabilityStatus.UNAVAILABLE and not self.reason:
+            raise ValueError("unavailable availability facts require reason")
+        if self.degraded and not self.degraded_reason:
+            raise ValueError("degraded availability facts require degraded_reason")
+        if not self.degraded and self.degraded_reason is not None:
+            raise ValueError("non-degraded availability facts cannot have degraded_reason")
+        return self
+
+
 class RouteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
