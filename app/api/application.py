@@ -180,6 +180,7 @@ def create_app(
                 ],
                 "plans": repository.list_plans(x_user_id, session_id),
                 "latest_response": repository.latest_response(x_user_id, session_id),
+                "response_history": repository.response_history(x_user_id, session_id),
             }
         )
 

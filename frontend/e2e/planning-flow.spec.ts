@@ -74,3 +74,34 @@ test("POI details keep demo data disclosure on desktop and 375px", async ({ page
   await expect(page.getByText("地图定位").first()).toBeVisible();
   await expect(page.getByText("演示环境：POI 商业信息为模拟数据，地图与路线来自高德。").first()).toBeVisible();
 });
+
+test("desktop keeps the workspace chrome fixed while the conversation scrolls", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "desktop workspace contract");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+
+  const conversation = page.locator(".conversation");
+  const navigation = page.locator(".session-sidebar");
+  const composer = page.locator(".composer-dock");
+  const inspector = page.locator(".detail-panel");
+  const before = {
+    navigation: await navigation.boundingBox(),
+    composer: await composer.boundingBox(),
+    inspector: await inspector.boundingBox(),
+  };
+  await expect.poll(() => conversation.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await conversation.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  const after = {
+    navigation: await navigation.boundingBox(),
+    composer: await composer.boundingBox(),
+    inspector: await inspector.boundingBox(),
+  };
+
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(after.navigation?.y).toBeCloseTo(before.navigation?.y ?? 0, 0);
+  expect(after.composer?.y).toBeCloseTo(before.composer?.y ?? 0, 0);
+  expect(after.inspector?.y).toBeCloseTo(before.inspector?.y ?? 0, 0);
+});

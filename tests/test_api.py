@@ -407,6 +407,22 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(all("created_at" in message for message in restored["messages"]))
         self.assertEqual(second_read.json()["data"], restored)
 
+    def test_get_session_restores_every_completed_planning_response(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩")
+        second = self._send_message(session_id, "人均100")
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+
+        restored = self.client.get(
+            f"/api/sessions/{session_id}", headers=self.headers
+        )
+
+        self.assertEqual(restored.status_code, 200, restored.text)
+        history = restored.json()["data"]["response_history"]
+        self.assertEqual(history, [first.json()["data"], second.json()["data"]])
+
     def test_message_exposes_inferred_party_as_an_editable_constraint(self) -> None:
         session_id = self._create_session()
 

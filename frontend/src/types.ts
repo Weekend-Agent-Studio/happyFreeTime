@@ -219,6 +219,8 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   created_at?: string;
+  /** The immutable structured payload produced by this assistant turn. */
+  response?: AgentResponse;
 };
 
 export type SessionSummary = {
@@ -238,5 +240,8 @@ export type SessionView = {
   updated_at: string;
   messages: ChatMessage[];
   plans: Plan[];
-  latest_response: AgentResponse | null;
+  /** Older persisted sessions may predate fields added to AgentResponse. */
+  latest_response: Partial<AgentResponse> | null;
+  /** Optional for backward compatibility with sessions saved before rich-turn history. */
+  response_history?: Partial<AgentResponse>[];
 };

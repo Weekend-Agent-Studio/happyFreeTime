@@ -1,5 +1,5 @@
 import { Dialog } from "@base-ui/react/dialog";
-import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bus,
   CalendarDays,
@@ -105,22 +105,51 @@ function statusLabel(status: string): string {
   return labels[status] ?? status;
 }
 
-function responseFromSession(view: SessionView): AgentResponse | null {
-  if (view.latest_response) return view.latest_response;
-  if (!view.plans.length) return null;
+function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse {
   return {
-    status: "completed",
-    reply: "",
-    question: null,
-    assumptions: [],
-    constraint_summary: [],
-    plans: view.plans,
-    conflict: null,
-    provider_facts: [],
-    catalog_violations: [],
-    catalog_warnings: [],
-    poi_presentations: [],
+    status: response.status ?? "completed",
+    reply: response.reply ?? "",
+    question: response.question ?? null,
+    assumptions: response.assumptions ?? [],
+    constraint_summary: response.constraint_summary ?? [],
+    plans: response.plans ?? [],
+    conflict: response.conflict ?? null,
+    provider_facts: response.provider_facts ?? [],
+    catalog_violations: response.catalog_violations ?? [],
+    catalog_warnings: response.catalog_warnings ?? [],
+    warnings: response.warnings ?? [],
+    poi_presentations: response.poi_presentations ?? [],
   };
+}
+
+function responsesFromSession(view: SessionView): AgentResponse[] {
+  if (view.response_history?.length) return view.response_history.map(normalizeAgentResponse);
+  if (view.latest_response) return [normalizeAgentResponse(view.latest_response)];
+  if (!view.plans.length) return [];
+  return [{
+    status: "completed", reply: "", question: null, assumptions: [], constraint_summary: [],
+    plans: view.plans, conflict: null, provider_facts: [], catalog_violations: [],
+    catalog_warnings: [], warnings: [], poi_presentations: [],
+  }];
+}
+
+function attachResponsesToMessages(messages: ChatMessage[], responses: AgentResponse[]): ChatMessage[] {
+  let responseIndex = 0;
+  const restored = messages.map((message) => {
+    if (message.role !== "assistant" || !responses[responseIndex]) return message;
+    return { ...message, response: responses[responseIndex++] };
+  });
+  while (responseIndex < responses.length) {
+    const response = responses[responseIndex];
+    restored.push({
+      id: `restored-response-${responseIndex}`,
+      role: "assistant",
+      content: response.question?.question ?? response.reply ?? response.conflict?.message ?? "",
+      response,
+    });
+    responseIndex += 1;
+  }
+  return restored;
 }
 
 function displayAssumption(assumption: Assumption): string {
@@ -281,6 +310,7 @@ function App() {
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
+  const [inspectedResponse, setInspectedResponse] = useState<AgentResponse | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [focusedLegIndex, setFocusedLegIndex] = useState<number | null>(null);
   const [rightTab, setRightTab] = useState<InspectorTab>("trip");
@@ -289,10 +319,14 @@ function App() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 900px)");
   const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string } | null>(null);
+  const conversationRef = useRef<HTMLElement>(null);
+  const conversationEndRef = useRef<HTMLDivElement>(null);
+
+  const detailResponse = inspectedResponse ?? response;
 
   const selectedPlan = useMemo(
-    () => response?.plans.find((plan) => plan.plan_id === selectedPlanId) ?? response?.plans[0],
-    [response, selectedPlanId],
+    () => detailResponse?.plans.find((plan) => plan.plan_id === selectedPlanId) ?? detailResponse?.plans[0],
+    [detailResponse, selectedPlanId],
   );
 
   const refreshRecentSessions = useCallback(async () => {
@@ -309,10 +343,12 @@ function App() {
     setFailedRequest(null);
     try {
       const view = await getSession(nextSessionId);
-      const restoredResponse = responseFromSession(view);
+      const restoredResponses = responsesFromSession(view);
+      const restoredResponse = restoredResponses[restoredResponses.length - 1] ?? null;
       setSessionId(view.session_id);
-      setMessages(view.messages);
+      setMessages(attachResponsesToMessages(view.messages, restoredResponses));
       setResponse(restoredResponse);
+      setInspectedResponse(restoredResponse);
       setSelectedPlanId(restoredResponse?.plans[0]?.plan_id ?? null);
       setFocusedLegIndex(null);
       setRightTab("trip");
@@ -321,6 +357,7 @@ function App() {
       setSessionId(null);
       setMessages([]);
       setResponse(null);
+      setInspectedResponse(null);
       setSelectedPlanId(null);
       setFocusedLegIndex(null);
       if (sessionIdFromUrl() === nextSessionId) updateSessionUrl(null, true);
@@ -342,6 +379,7 @@ function App() {
         setSessionId(null);
         setMessages([]);
         setResponse(null);
+        setInspectedResponse(null);
         setSelectedPlanId(null);
         setFocusedLegIndex(null);
         setFailedRequest(null);
@@ -351,6 +389,17 @@ function App() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [openSession, refreshRecentSessions]);
+
+  useEffect(() => {
+    if (restoring) return;
+    const latestMessage = messages[messages.length - 1];
+    if (latestMessage?.role === "assistant") {
+      const turns = conversationRef.current?.querySelectorAll<HTMLElement>(".message-list .message");
+      turns?.[turns.length - 1]?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      return;
+    }
+    conversationEndRef.current?.scrollIntoView?.({ block: "end", behavior: loading ? "smooth" : "auto" });
+  }, [loading, messages, restoring]);
 
   async function submit(content: string) {
     const trimmed = content.trim();
@@ -372,13 +421,18 @@ function App() {
       const nextResponse = await sendMessage(activeSession, trimmed, requestId);
       setFailedRequest(null);
       setResponse(nextResponse);
+      setInspectedResponse(nextResponse);
       if (nextResponse.plans.length) {
         setSelectedPlanId(nextResponse.plans[0].plan_id);
         setFocusedLegIndex(null);
         setRightTab("trip");
       }
       const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
-      if (assistantText) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: assistantText }]);
+      if (assistantText || nextResponse.plans.length || nextResponse.conflict) {
+        setMessages((current) => [...current, {
+          id: crypto.randomUUID(), role: "assistant", content: assistantText ?? "", response: nextResponse,
+        }]);
+      }
       await refreshRecentSessions();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "请求失败，请稍后重试");
@@ -397,6 +451,7 @@ function App() {
     setSessionId(null);
     setMessages([]);
     setResponse(null);
+    setInspectedResponse(null);
     setSelectedPlanId(null);
     setFocusedLegIndex(null);
     setFailedRequest(null);
@@ -415,10 +470,19 @@ function App() {
     setRightTab("trip");
   }, []);
 
-  const selectPlan = useCallback((planId: string) => {
+  const selectPlan = useCallback((targetResponse: AgentResponse, planId: string) => {
+    setInspectedResponse(targetResponse);
     setSelectedPlanId(planId);
     setFocusedLegIndex(null);
   }, []);
+
+  const openInspectorForResponse = useCallback((targetResponse: AgentResponse, tab: InspectorTab, legIndex: number | null = null) => {
+    setInspectedResponse(targetResponse);
+    setSelectedPlanId((current) => targetResponse.plans.some((plan) => plan.plan_id === current) ? current : targetResponse.plans[0]?.plan_id ?? null);
+    setFocusedLegIndex(legIndex);
+    setRightTab(tab);
+    if (isMobile) setMobileDetailOpen(true);
+  }, [isMobile]);
 
   return (
     <div className={`app-shell ${inspectorCollapsed ? "inspector-collapsed" : ""}`}>
@@ -437,59 +501,52 @@ function App() {
           </div>
         </header>
 
-        <header className="workspace-header">
-          <div>
-            <h1>{sessionId ? "周末出游管家" : "今天想怎么放松？"}</h1>
-            <p>{sessionId ? "我会保留完整对话，并把可执行的方案放在回复里。" : "说说时间、同行人和大致心情，其余可以一起商量。"}</p>
-          </div>
-          <div className="household-chip"><span className="account-avatar">周</span><span>周末家庭出游管家<small>北京 · 本地规划</small></span><ChevronDown size={15} /></div>
-        </header>
-
-        <section className="conversation" aria-live="polite">
+        <section className="conversation" aria-live="polite" ref={conversationRef}>
           {messages.length === 0 ? <EmptyConversation onSelect={(suggestion) => void submit(suggestion)} /> : (
             <div className="message-list">
-              {messages.map((message) => <ChatBubble key={message.id} message={message} />)}
+              {messages.map((message) => <ChatBubble
+                key={message.id}
+                message={message}
+                selectedPlan={message.response === detailResponse ? selectedPlan : message.response?.plans[0]}
+                showMobileDetails={Boolean(isMobile && !mobileDetailOpen && message.response === detailResponse)}
+                onSelectPlan={(planId) => message.response && selectPlan(message.response, planId)}
+                onOpenInspector={() => message.response && openInspectorForResponse(message.response, "trip")}
+                onOpenRoute={(index) => message.response && openInspectorForResponse(message.response, "map", index)}
+                onChooseConflict={setInput}
+              />)}
               {loading ? <ThinkingRow /> : null}
+              <div ref={conversationEndRef} aria-hidden="true" />
             </div>
           )}
 
           {error ? <div className="error-banner" role="alert"><CircleAlert size={17} />{error}</div> : null}
-
-          {response?.conflict ? (
-            <section className="conflict-panel" role="status">
-              <strong>{response.conflict.message}</strong>
-              <div>{response.conflict.relaxation_options.map((option) => <button type="button" key={option} onClick={() => setInput(option)}>{option}</button>)}</div>
-            </section>
-          ) : null}
-
-          {response?.plans.length ? (
-            <RichPlanningReply response={response} selectedPlan={selectedPlan} showMobileDetails={isMobile && !mobileDetailOpen} onSelectPlan={selectPlan} onOpenInspector={() => { setRightTab("trip"); setMobileDetailOpen(true); }} onOpenRoute={(index) => { setFocusedLegIndex(index); setRightTab("map"); setMobileDetailOpen(true); }} />
-          ) : null}
         </section>
 
-        {response?.plans.length ? (
-          <div className="quick-adjustments" aria-label="快速调整方案">
-            {QUICK_ADJUSTMENTS.map((item, index) => (
-              <button type="button" key={item.label} onClick={() => setInput(item.value)}>
-                {index === 0 ? <Settings2 size={15} /> : index === 1 ? <CircleDollarSign size={15} /> : index === 2 ? <Sparkles size={15} /> : index === 3 ? <Clock3 size={15} /> : null}
-                {item.label}{index === QUICK_ADJUSTMENTS.length - 1 ? <ChevronDown size={14} /> : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        <div className="composer-dock">
+          {response?.plans.length ? (
+            <div className="quick-adjustments" aria-label="快速调整方案">
+              {QUICK_ADJUSTMENTS.map((item, index) => (
+                <button type="button" key={item.label} onClick={() => setInput(item.value)}>
+                  {index === 0 ? <Settings2 size={15} /> : index === 1 ? <CircleDollarSign size={15} /> : index === 2 ? <Sparkles size={15} /> : index === 3 ? <Clock3 size={15} /> : null}
+                  {item.label}{index === QUICK_ADJUSTMENTS.length - 1 ? <ChevronDown size={14} /> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
-        <form className="composer" onSubmit={onSubmit}>
-          <label className="sr-only" htmlFor="planning-input">{response?.question ? "补充这个信息后继续" : "描述你的空闲时间和偏好"}</label>
-          <div className="composer-row">
-            <div className="composer-tools" aria-hidden="true"><Plus size={19} /><Compass size={18} /><Settings2 size={18} /></div>
-            <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.question?.question ?? "继续告诉管家，例如：餐厅保留，活动换近一点的…"} disabled={loading || restoring} />
-            <button type="submit" disabled={loading || restoring || !input.trim()} aria-label="发送需求"><Send size={19} aria-hidden="true" /></button>
-          </div>
-        </form>
+          <form className="composer" onSubmit={onSubmit}>
+            <label className="sr-only" htmlFor="planning-input">{response?.question ? "补充这个信息后继续" : "描述你的空闲时间和偏好"}</label>
+            <div className="composer-row">
+              <div className="composer-tools" aria-hidden="true"><Plus size={19} /><Compass size={18} /><Settings2 size={18} /></div>
+              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.question?.question ?? "继续告诉管家，例如：餐厅保留，活动换近一点的…"} disabled={loading || restoring} />
+              <button type="submit" disabled={loading || restoring || !input.trim()} aria-label="发送需求"><Send size={19} aria-hidden="true" /></button>
+            </div>
+          </form>
+        </div>
       </main>
 
       <aside className="detail-panel" aria-label="方案详情" aria-hidden={inspectorCollapsed}>
-        {!isMobile ? <Inspector response={response} plan={selectedPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} /> : null}
+        {!isMobile ? <Inspector response={detailResponse} plan={selectedPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} /> : null}
       </aside>
 
       <button className="inspector-toggle" type="button" onClick={() => setInspectorCollapsed((current) => !current)} aria-label={inspectorCollapsed ? "展开方案详情" : "收起方案详情"} aria-expanded={!inspectorCollapsed}>
@@ -501,7 +558,7 @@ function App() {
       </MobileSheet>
 
       <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前方案的行程、地图、订单与可信依据。">
-        <Inspector response={response} plan={selectedPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} />
+        <Inspector response={detailResponse} plan={selectedPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} />
       </MobileSheet>
     </div>
   );
@@ -554,8 +611,33 @@ function ButlerAvatar() {
   return <span className="butler-avatar" aria-hidden="true"><Compass size={18} /></span>;
 }
 
-function ChatBubble({ message }: { message: ChatMessage }) {
-  return <div className={`message ${message.role}`}>{message.role === "assistant" ? <ButlerAvatar /> : null}<div><span>{message.role === "user" ? "你" : "周末管家"}</span><p>{message.content}</p></div></div>;
+function ChatBubble({ message, selectedPlan, showMobileDetails, onSelectPlan, onOpenInspector, onOpenRoute, onChooseConflict }: {
+  message: ChatMessage;
+  selectedPlan?: Plan;
+  showMobileDetails: boolean;
+  onSelectPlan: (planId: string) => void;
+  onOpenInspector: () => void;
+  onOpenRoute: (legIndex: number) => void;
+  onChooseConflict: (option: string) => void;
+}) {
+  return (
+    <article className={`message ${message.role} ${message.response?.plans.length ? "rich-turn" : ""}`}>
+      {message.role === "assistant" ? <ButlerAvatar /> : null}
+      <div className="message-content">
+        <span>{message.role === "user" ? "你" : "周末管家"}</span>
+        {message.content ? <p>{message.content}</p> : null}
+        {message.response?.conflict ? (
+          <section className="conflict-panel" role="status">
+            <strong>{message.response.conflict.message}</strong>
+            <div>{message.response.conflict.relaxation_options.map((option) => <button type="button" key={option} onClick={() => onChooseConflict(option)}>{option}</button>)}</div>
+          </section>
+        ) : null}
+        {message.response?.plans.length ? (
+          <RichPlanningReply response={message.response} selectedPlan={selectedPlan} showMobileDetails={showMobileDetails} onSelectPlan={onSelectPlan} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} />
+        ) : null}
+      </div>
+    </article>
+  );
 }
 
 function ThinkingRow() {
@@ -566,12 +648,12 @@ function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelect
   const weather = response.provider_facts.find((fact): fact is Extract<ProviderFact, { kind: "weather" }> => fact.kind === "weather");
   const returnConstraint = latestReturnConstraint(response);
   const shownConstraints = response.constraint_summary.filter((item) => ["budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
+  const headingId = `plan-heading-${response.plans[0]?.plan_id ?? "reply"}`;
   return (
-    <section className="rich-planning-reply" aria-labelledby="plan-heading">
-      <ButlerAvatar />
+    <section className="rich-planning-reply" aria-labelledby={headingId}>
       <div className="rich-reply-body">
         <div className="planning-progress" aria-label="规划完成步骤"><span><CheckCircle2 size={14} />解析需求</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />查询路线与景点</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />评估与排序</span></div>
-        <div className="plan-intro"><div><h2 id="plan-heading">我整理了 {response.plans.length} 个都可行的方案</h2><p>重要信息放在同一位置，先看路线和取舍，再选一个展开。</p></div><span>{response.plans.length} 个候选</span></div>
+        <div className="plan-intro"><div><h2 id={headingId}>我整理了 {response.plans.length} 个都可行的方案</h2><p>重要信息放在同一位置，先看路线和取舍，再选一个展开。</p></div><span>{response.plans.length} 个候选</span></div>
         {response.poi_presentations.length ? <p className="demo-data-notice"><Database size={14} />演示环境：POI 商业信息为模拟数据，地图与路线来自高德。</p> : null}
         {(weather || returnConstraint || shownConstraints.length) ? (
           <div className="shared-context" aria-label="本次规划的共享信息">

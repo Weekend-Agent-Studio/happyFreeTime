@@ -153,4 +153,112 @@ describe("planning workspace", () => {
     expect(screen.getAllByText(/测试路 1 号/).length).toBeGreaterThan(0);
     expect(screen.getByText("演示环境：POI 商业信息为模拟数据，地图与路线来自高德。")).toBeInTheDocument();
   });
+
+  it("keeps every rich planning reply inside its original assistant turn", async () => {
+    const user = userEvent.setup();
+    const firstResponse = {
+      ...response,
+      reply: "第一轮方案已经整理好。",
+      plans: [plan("first-plan", "第一轮方案")],
+    };
+    const secondResponse = {
+      ...response,
+      reply: "第二轮方案已经整理好。",
+      plans: [plan("second-plan", "第二轮方案")],
+    };
+    api.sendMessage
+      .mockResolvedValueOnce(firstResponse)
+      .mockResolvedValueOnce(secondResponse);
+
+    const { container } = render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "第一轮方案", level: 3 });
+
+    await user.type(input, "预算再低一点");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "第二轮方案", level: 3 });
+
+    const assistantTurns = [...container.querySelectorAll(".message.assistant")];
+    expect(assistantTurns).toHaveLength(2);
+    expect(assistantTurns[0]).toHaveTextContent("第一轮方案已经整理好");
+    expect(assistantTurns[0].querySelector(".rich-planning-reply")).not.toBeNull();
+    expect(assistantTurns[1]).toHaveTextContent("第二轮方案已经整理好");
+    expect(assistantTurns[1].querySelector(".rich-planning-reply")).not.toBeNull();
+    expect(container.querySelectorAll(".message.assistant > .butler-avatar")).toHaveLength(2);
+  });
+
+  it("restores all persisted rich replies instead of only the latest one", async () => {
+    const firstResponse = {
+      ...response,
+      reply: "第一轮方案已经整理好。",
+      plans: [plan("restored-first", "恢复的第一轮方案")],
+    };
+    const secondResponse = {
+      ...response,
+      reply: "第二轮方案已经整理好。",
+      plans: [plan("restored-second", "恢复的第二轮方案")],
+    };
+    api.listSessions.mockResolvedValue([{
+      session_id: "history-session",
+      title: "多轮历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T02:00:00Z",
+      last_message_preview: "第二轮方案已经整理好。",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "history-session",
+      title: "多轮历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T02:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "今天下午出去玩" },
+        { id: "assistant-1", role: "assistant", content: firstResponse.reply },
+        { id: "user-2", role: "user", content: "预算再低一点" },
+        { id: "assistant-2", role: "assistant", content: secondResponse.reply },
+      ],
+      plans: secondResponse.plans,
+      latest_response: secondResponse,
+      response_history: [firstResponse, secondResponse],
+    });
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /多轮历史会话/ }));
+
+    expect(await screen.findByRole("heading", { name: "恢复的第一轮方案", level: 3 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "恢复的第二轮方案", level: 3 })).toBeVisible();
+  });
+
+  it("restores a legacy session response that predates POI presentations", async () => {
+    const user = userEvent.setup();
+    const legacyResponse = { ...response } as Partial<AgentResponse>;
+    delete legacyResponse.poi_presentations;
+    api.listSessions.mockResolvedValue([{
+      session_id: "legacy-session",
+      title: "旧版历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T01:00:00Z",
+      last_message_preview: "已生成方案",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "legacy-session",
+      title: "旧版历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T01:00:00Z",
+      messages: [{ id: "legacy-message", role: "user", content: "今天下午出去玩" }],
+      plans: response.plans,
+      latest_response: legacyResponse as AgentResponse,
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /旧版历史会话/ }));
+
+    expect(await screen.findByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+    expect(screen.getByText("今天下午出去玩")).toBeInTheDocument();
+  });
 });

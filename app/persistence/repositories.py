@@ -322,6 +322,32 @@ class SessionRepository:
                 return None
             return json.loads(planning_run.response_json)
 
+    def response_history(self, user_id: str, session_id: str) -> list[dict]:
+        """Return every completed response in conversation order.
+
+        A rich planning response belongs to the assistant turn that completed the
+        run. Keeping the immutable run payloads lets clients restore the complete
+        conversation instead of reconstructing it from only the latest plan.
+        """
+        with self._session_factory() as database:
+            planning_runs = database.scalars(
+                select(PlanningRunRecord)
+                .where(
+                    PlanningRunRecord.user_id == user_id,
+                    PlanningRunRecord.session_id == session_id,
+                    PlanningRunRecord.response_json.is_not(None),
+                )
+                .order_by(
+                    PlanningRunRecord.created_at,
+                    PlanningRunRecord.id,
+                )
+            )
+            return [
+                json.loads(planning_run.response_json)
+                for planning_run in planning_runs
+                if planning_run.response_json is not None
+            ]
+
     def replace_plans(
         self,
         *,
