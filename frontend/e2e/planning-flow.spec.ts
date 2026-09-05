@@ -11,8 +11,8 @@ const response = {
   catalog_violations: [],
   catalog_warnings: [],
   poi_presentations: ["0", "1"].flatMap((planIndex) => [
-    { resource_id: `activity-${planIndex}`, name: "展览", category_label: "博物馆", business_area: "朝阳区", address: "测试路 1 号", description: "一段完整的 POI 演示详情。", scene_tags: ["慢慢逛"], facility_tags: ["休息区"], indoor: true, weather_suitability: "室内为主，阴雨天也适合", child_suitability: "适合亲子同行（演示规则）", reference_avg_price: 30, demo_rating: 4.6, demo_review_count: 1280, opening_hours_display: "周一至周日 09:30–17:30", opening_status: "已纳入本次营业时间校验", suggested_duration_minutes: 60, reservation_requirement: "无需预约", queue_profile: "周末下午可能有客流", risk_tips: ["闭馆前请预留入场时间"], booking_mode: "现场入场", gallery: [{ url: "/demo-illustrations/outing.svg", alt: "展览场景示意图（非门店实拍）", kind: "illustrative", attribution: "test", license: "test" }], data_notice: "演示环境：POI 商业信息为模拟数据，地图与路线来自高德。" },
-    { resource_id: `meal-${planIndex}`, name: "晚餐", category_label: "餐厅", business_area: "朝阳区", address: "测试路 2 号", description: "一段完整的餐饮 POI 演示详情。", scene_tags: ["朋友聚餐"], facility_tags: ["可堂食"], indoor: true, weather_suitability: "室内为主，阴雨天也适合", child_suitability: "适合亲子同行（演示规则）", reference_avg_price: 58, demo_rating: 4.4, demo_review_count: 860, opening_hours_display: "周一至周日 10:30–22:30", opening_status: "已纳入本次营业时间校验", suggested_duration_minutes: 60, reservation_requirement: "无需预约", queue_profile: "高峰时段建议错峰", risk_tips: ["餐饮商业信息为演示数据"], booking_mode: "到店", gallery: [{ url: "/demo-illustrations/dining.svg", alt: "餐饮场景示意图（非门店实拍）", kind: "illustrative", attribution: "test", license: "test" }], data_notice: "演示环境：POI 商业信息为模拟数据，地图与路线来自高德。" },
+    { resource_id: `activity-${planIndex}`, name: "展览", category_label: "博物馆", business_area: "朝阳区", address: "测试路 1 号", description: "一段完整的 POI 演示详情。", scene_tags: ["慢慢逛"], facility_tags: ["休息区"], indoor: true, weather_suitability: "室内为主，阴雨天也适合", child_suitability: "适合亲子同行（演示规则）", reference_avg_price: 30, demo_rating: 4.6, demo_review_count: 1280, opening_hours_display: "周一至周日 09:30–17:30", opening_status: "已纳入本次营业时间校验", suggested_duration_minutes: 60, reservation_requirement: "无需预约", queue_profile: "周末下午可能有客流", risk_tips: ["闭馆前请预留入场时间"], booking_mode: "现场入场", gallery: [{ url: "/demo-illustrations/outing.svg", alt: "展览场景示意图（非门店实拍）", kind: "illustrative", attribution: "test", license: "test" }], data_notice: "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。" },
+    { resource_id: `meal-${planIndex}`, name: "晚餐", category_label: "餐厅", business_area: "朝阳区", address: "测试路 2 号", description: "一段完整的餐饮 POI 演示详情。", scene_tags: ["朋友聚餐"], facility_tags: ["可堂食"], indoor: true, weather_suitability: "室内为主，阴雨天也适合", child_suitability: "适合亲子同行（演示规则）", reference_avg_price: 58, demo_rating: 4.4, demo_review_count: 860, opening_hours_display: "周一至周日 10:30–22:30", opening_status: "已纳入本次营业时间校验", suggested_duration_minutes: 60, reservation_requirement: "无需预约", queue_profile: "高峰时段建议错峰", risk_tips: ["餐饮商业信息为演示数据"], booking_mode: "到店", gallery: [{ url: "/demo-illustrations/dining.svg", alt: "餐饮场景示意图（非门店实拍）", kind: "illustrative", attribution: "test", license: "test" }], data_notice: "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。" },
   ]),
   plans: ["方案一", "方案二"].map((title, planIndex) => ({
     plan_id: `plan-${planIndex}`,
@@ -72,7 +72,7 @@ test("POI details keep demo data disclosure on desktop and 375px", async ({ page
   await expect(page.getByText("演示评分").first()).toBeVisible();
   await expect(page.getByText("测试路 1 号").first()).toBeVisible();
   await expect(page.getByText("地图定位").first()).toBeVisible();
-  await expect(page.getByText("演示环境：POI 商业信息为模拟数据，地图与路线来自高德。").first()).toBeVisible();
+  await expect(page.locator(".poi-disclosure[open] .poi-data-disclosure p").first()).toContainText("演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。");
 });
 
 test("desktop keeps the workspace chrome fixed while the conversation scrolls", async ({ page }, testInfo) => {

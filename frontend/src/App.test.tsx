@@ -74,7 +74,7 @@ function presentation(resourceId: string, name: string) {
     reference_avg_price: 30, demo_rating: 4.6, demo_review_count: 1280, opening_hours_display: "周一至周日 09:30–17:30", opening_status: "已纳入本次营业时间校验",
     suggested_duration_minutes: 60, reservation_requirement: "无需预约", queue_profile: "周末下午可能有客流", risk_tips: ["闭馆前请预留入场时间"], booking_mode: "现场入场",
     gallery: [{ url: "/demo-illustrations/outing.svg", alt: "展览场景示意图（非门店实拍）", kind: "illustrative" as const, attribution: "test", license: "test" }],
-    data_notice: "演示环境：POI 商业信息为模拟数据，地图与路线来自高德。",
+    data_notice: "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。",
   };
 }
 
@@ -105,6 +105,42 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: /展览 → 晚餐/ }));
     expect(screen.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows total party place fees without transport and preserves price uncertainty", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      plans: [
+        { ...plan("known-price", "已知费用"), total_price: 300, price_status: "known" },
+        { ...plan("estimated-price", "估算费用"), total_price: 260, price_status: "estimated" },
+        { ...plan("incomplete-price", "待确认费用"), total_price: 180, price_status: "incomplete" },
+      ],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByLabelText("地点费用，不含交通：全员合计 ¥300")).toBeInTheDocument();
+    expect(screen.getByLabelText("地点费用，不含交通：全员约 ¥260")).toBeInTheDocument();
+    expect(screen.getByLabelText("地点费用，不含交通：全员已知费用 ¥180 + 未知价格")).toBeInTheDocument();
+    expect(screen.queryByText(/\/ 人/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("快速调整方案")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/餐厅保留|换近一点/)).not.toBeInTheDocument();
+  });
+
+  it("does not render a return node when route legs contain only inbound legs", async () => {
+    const user = userEvent.setup();
+    const noReturnPlan = plan("no-return", "无返程方案");
+    noReturnPlan.route_legs = noReturnPlan.route_legs.slice(0, noReturnPlan.stops.length);
+    api.sendMessage.mockResolvedValue({ ...response, plans: [noReturnPlan] });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    await screen.findByRole("heading", { name: "无返程方案", level: 3 });
+    expect(screen.queryByText("返")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /查看返程/ })).not.toBeInTheDocument();
   });
 
   it("shows a recoverable error when a provider request fails", async () => {
@@ -151,7 +187,7 @@ describe("planning workspace", () => {
 
     expect((await screen.findAllByText("演示评分")).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/测试路 1 号/).length).toBeGreaterThan(0);
-    expect(screen.getByText("演示环境：POI 商业信息为模拟数据，地图与路线来自高德。")).toBeInTheDocument();
+    expect(screen.getByText("POI 商业信息为模拟数据；路线来源和降级状态见各路线段。")).toBeInTheDocument();
   });
 
   it("keeps every rich planning reply inside its original assistant turn", async () => {

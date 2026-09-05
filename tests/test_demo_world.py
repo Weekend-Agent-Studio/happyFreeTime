@@ -84,6 +84,8 @@ class DemoWorldTest(unittest.TestCase):
         self.assertNotEqual(activity_detail.indoor, restaurant_detail.indoor)
         self.assertGreater(restaurant_detail.reference_avg_price or 0, 0)
         self.assertIn("演示", restaurant_detail.data_notice)
+        self.assertIn("路线来源和降级状态见各路线段", restaurant_detail.data_notice)
+        self.assertNotIn("高德", restaurant_detail.data_notice)
         plan = Plan(
             plan_id="opening-test", composition_fingerprint="opening-test", title="晚间测试", strategy=PlanStrategy.BALANCED,
             total_score=1, total_price=activity.avg_price or 0, total_duration_minutes=60,

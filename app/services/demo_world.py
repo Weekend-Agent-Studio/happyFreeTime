@@ -81,7 +81,7 @@ class DemoWorld:
                     risk_tips=record["risk_tips"],
                     booking_mode=record["booking_mode"],
                     gallery=gallery,
-                    data_notice="演示环境：POI 商业信息为模拟数据，地图与路线来自高德。",
+                    data_notice="演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。",
                 )
             )
         return result

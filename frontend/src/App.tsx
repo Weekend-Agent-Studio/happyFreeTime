@@ -60,14 +60,6 @@ const SUGGESTIONS = [
   "安排一个轻松的约会，想吃甜品",
 ];
 
-const QUICK_ADJUSTMENTS = [
-  { label: "调整偏好", value: "我想调整一下活动和餐饮偏好" },
-  { label: "预算再低一点", value: "预算再低一点，其他条件尽量不变" },
-  { label: "想去更有特色的地方", value: "想去更有特色、更有记忆点的地方" },
-  { label: "推迟到 15:00 出发", value: "改为 15:00 出发，重新规划" },
-  { label: "更多", value: "我还想调整同行人、时间或距离" },
-];
-
 const ASSUMPTION_LABELS: Record<string, string> = {
   date: "日期",
   time_window: "时间",
@@ -233,9 +225,9 @@ function priceLabel(stop: Stop): string {
 }
 
 function planPriceLabel(plan: Plan): string {
-  if (plan.price_status === "incomplete") return `¥${plan.total_price} + 未知价格`;
-  if (plan.price_status === "estimated") return `约 ¥${plan.total_price}`;
-  return `¥${plan.total_price}`;
+  if (plan.price_status === "incomplete") return `全员已知费用 ¥${plan.total_price} + 未知价格`;
+  if (plan.price_status === "estimated") return `全员约 ¥${plan.total_price}`;
+  return `全员合计 ¥${plan.total_price}`;
 }
 
 function totalDistance(plan: Plan): number {
@@ -523,22 +515,11 @@ function App() {
         </section>
 
         <div className="composer-dock">
-          {response?.plans.length ? (
-            <div className="quick-adjustments" aria-label="快速调整方案">
-              {QUICK_ADJUSTMENTS.map((item, index) => (
-                <button type="button" key={item.label} onClick={() => setInput(item.value)}>
-                  {index === 0 ? <Settings2 size={15} /> : index === 1 ? <CircleDollarSign size={15} /> : index === 2 ? <Sparkles size={15} /> : index === 3 ? <Clock3 size={15} /> : null}
-                  {item.label}{index === QUICK_ADJUSTMENTS.length - 1 ? <ChevronDown size={14} /> : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
           <form className="composer" onSubmit={onSubmit}>
             <label className="sr-only" htmlFor="planning-input">{response?.question ? "补充这个信息后继续" : "描述你的空闲时间和偏好"}</label>
             <div className="composer-row">
               <div className="composer-tools" aria-hidden="true"><Plus size={19} /><Compass size={18} /><Settings2 size={18} /></div>
-              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.question?.question ?? "继续告诉管家，例如：餐厅保留，活动换近一点的…"} disabled={loading || restoring} />
+              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.question?.question ?? "继续描述新的规划需求……"} disabled={loading || restoring} />
               <button type="submit" disabled={loading || restoring || !input.trim()} aria-label="发送需求"><Send size={19} aria-hidden="true" /></button>
             </div>
           </form>
@@ -654,7 +635,7 @@ function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelect
       <div className="rich-reply-body">
         <div className="planning-progress" aria-label="规划完成步骤"><span><CheckCircle2 size={14} />解析需求</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />查询路线与景点</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />评估与排序</span></div>
         <div className="plan-intro"><div><h2 id={headingId}>我整理了 {response.plans.length} 个都可行的方案</h2><p>重要信息放在同一位置，先看路线和取舍，再选一个展开。</p></div><span>{response.plans.length} 个候选</span></div>
-        {response.poi_presentations.length ? <p className="demo-data-notice"><Database size={14} />演示环境：POI 商业信息为模拟数据，地图与路线来自高德。</p> : null}
+        {response.poi_presentations.length ? <p className="demo-data-notice"><Database size={14} />POI 商业信息为模拟数据；路线来源和降级状态见各路线段。</p> : null}
         {(weather || returnConstraint || shownConstraints.length) ? (
           <div className="shared-context" aria-label="本次规划的共享信息">
             {weather ? <span><CloudSun size={18} /><strong>预计天气</strong>{weather.condition}{weather.temperature_c !== null ? ` · ${weather.temperature_c}℃` : ""}{weather.is_adverse ? " · 需留意" : ""}</span> : null}
@@ -673,7 +654,7 @@ function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelect
 
 function PlanCard({ plan, presentations, index, warning, returnConstraint, selected, showMobileDetails, onSelect, onOpenInspector, onOpenRoute }: { plan: Plan; presentations: PoiPresentation[]; index: number; warning: PlanWarning | null; returnConstraint: ConstraintSummaryItem | null; selected: boolean; showMobileDetails: boolean; onSelect: () => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
   const heroStop = plan.stops[0];
-  const returnLeg = plan.route_legs[plan.route_legs.length - 1];
+  const returnLeg = plan.route_legs.length > plan.stops.length ? plan.route_legs[plan.route_legs.length - 1] : null;
   const notice = warning?.message ?? plan.tradeoffs[0] ?? "已通过当前硬约束校验";
   return (
     <article className={`plan-card ${selected ? "selected" : ""}`}>
@@ -684,7 +665,7 @@ function PlanCard({ plan, presentations, index, warning, returnConstraint, selec
         <div className="plan-title"><span>{strategyLabel(plan.strategy)}</span><h3>{plan.title}</h3></div>
       </div>
       <div className="plan-card-body">
-        <div className="plan-metrics"><span><Clock3 size={15} />{Math.floor(plan.total_duration_minutes / 60)} 小时 {plan.total_duration_minutes % 60 || ""}{plan.total_duration_minutes % 60 ? " 分" : ""}</span><span><CircleDollarSign size={15} />{planPriceLabel(plan)} / 人</span><span><Route size={15} />{totalDistance(plan).toFixed(1)} km</span></div>
+        <div className="plan-metrics"><span><Clock3 size={15} />{Math.floor(plan.total_duration_minutes / 60)} 小时 {plan.total_duration_minutes % 60 || ""}{plan.total_duration_minutes % 60 ? " 分" : ""}</span><span title="地点费用，不含交通" aria-label={`地点费用，不含交通：${planPriceLabel(plan)}`}><CircleDollarSign size={15} />{planPriceLabel(plan)} · 地点费用，不含交通</span><span><Route size={15} />{totalDistance(plan).toFixed(1)} km</span></div>
         <div className={`plan-notice ${warning?.degraded ? "degraded" : ""}`} aria-label={warning ? "方案待确认信息" : undefined}><Info size={15} />{notice}</div>
         <div className="compact-itinerary">
           {plan.stops.map((stop, stopIndex) => (
@@ -733,7 +714,7 @@ function TripPanel({ plan, presentations, activeLegIndex, onSelectRoute }: { pla
   const returnLegIndex = plan.route_legs.length > plan.stops.length ? plan.route_legs.length - 1 : null;
   return (
     <div className="trip-detail">
-      <div className="detail-title"><span>{strategyLabel(plan.strategy)}</span><h2>{plan.title}</h2><p>{planPriceLabel(plan)} · {plan.total_duration_minutes} 分钟 · {totalDistance(plan).toFixed(1)} km</p></div>
+      <div className="detail-title"><span>{strategyLabel(plan.strategy)}</span><h2>{plan.title}</h2><p>{planPriceLabel(plan)}（地点费用，不含交通）· {plan.total_duration_minutes} 分钟 · {totalDistance(plan).toFixed(1)} km</p></div>
       <RecommendationSummary plan={plan} />
       <div className="detail-section-heading"><h3>详细行程</h3><span>{plan.stops.length} 站</span></div>
       <ol className="timeline">
@@ -742,7 +723,7 @@ function TripPanel({ plan, presentations, activeLegIndex, onSelectRoute }: { pla
       </ol>
       <section className="trip-route-overview">
         <div><h3>路线预览</h3><span>{totalDistance(plan).toFixed(1)} km · 通勤约 {plan.route_legs.reduce((sum, leg) => sum + leg.duration_minutes, 0)} 分钟</span></div>
-        <div className="route-track" aria-label="路线站点顺序"><span><i>出</i><small>出发地</small></span>{plan.stops.map((stop, index) => <span key={stop.resource_id}><i>{index + 1}</i><small>{stop.name}</small></span>)}<span><i>返</i><small>出发地</small></span></div>
+        <div className="route-track" aria-label="路线站点顺序"><span><i>出</i><small>出发地</small></span>{plan.stops.map((stop, index) => <span key={stop.resource_id}><i>{index + 1}</i><small>{stop.name}</small></span>)}{returnLegIndex !== null ? <span><i>返</i><small>出发地</small></span> : null}</div>
         <button type="button" onClick={() => onSelectRoute(activeLegIndex ?? 0)}>在地图中查看完整路线<ChevronRight size={15} /></button>
       </section>
     </div>

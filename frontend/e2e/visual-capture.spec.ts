@@ -95,7 +95,7 @@ const response = {
     demo_rating: 4.6, demo_review_count: 1280, opening_hours_display: "周一至周日 09:00–21:30", opening_status: "已纳入本次营业时间校验", suggested_duration_minutes: stop.duration_minutes,
     reservation_requirement: "无需预约", queue_profile: "周末下午可能有客流", risk_tips: ["演示信息，请以实际安排为准"], booking_mode: "现场到访",
     gallery: [{ url: stop.type === "restaurant" ? "/demo-illustrations/dining.svg" : "/demo-illustrations/outing.svg", alt: "场景示意图（非门店实拍）", kind: "illustrative", attribution: "test", license: "test" }],
-    data_notice: "演示环境：POI 商业信息为模拟数据，地图与路线来自高德。",
+    data_notice: "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。",
   }))),
   warnings: [{ code: "availability_unconfirmed", message: "晚餐座位需在出发前再次确认。", plan_id: "balanced", resource_id: "balanced-meal", route_leg_index: null, source: "mock", degraded: false, stale: false }],
   plans,
