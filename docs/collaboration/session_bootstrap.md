@@ -12,13 +12,14 @@ _用于让新会话快速理解项目状态、用户学习进度和协作边界_
 2. [`../README.md`](../README.md)：文档权威层级和目录职责
 3. [`../canonical/architecture_v2.md`](../canonical/architecture_v2.md)：目标架构
 4. [`../canonical/v2_roadmap.md`](../canonical/v2_roadmap.md)：当前里程碑边界
-5. [`../learning/progress.md`](../learning/progress.md)：用户已经学到哪里
-6. 当前里程碑的计划与复盘；继续 M2 时读取 [`../status/m2_trustworthy_planning_plan_2026-08-20.md`](../status/m2_trustworthy_planning_plan_2026-08-20.md) 和 [`../learning/milestones/m2_trustworthy_planning.md`](../learning/milestones/m2_trustworthy_planning.md)
-7. [`../product/product_idea_inbox.md`](../product/product_idea_inbox.md)：只识别未决想法，不自动实现
+5. [`../../CONTEXT.md`](../../CONTEXT.md)：领域词汇与概念边界
+6. [`../learning/progress.md`](../learning/progress.md)：用户已经学到哪里
+7. 当前里程碑的计划与复盘；继续 M2 时读取 [`../status/m2_trustworthy_planning_plan_2026-08-20.md`](../status/m2_trustworthy_planning_plan_2026-08-20.md) 和 [`../learning/milestones/m2_trustworthy_planning.md`](../learning/milestones/m2_trustworthy_planning.md)
+8. [`../product/product_idea_inbox.md`](../product/product_idea_inbox.md)：只识别未决想法，不自动实现
 
 除非要追溯设计演进，否则不要先读 `archive/`。除非当前任务是面试复习，否则不要先加载全部 `interview/`。
 
-当前正式产品定位是“可信、可修改、会记住一家人的周末管家”。默认实施顺序为：完成 M2 餐时/返程/全程距离/多样化与 eval → M2.5 产品呈现 → M3 局部修改 → M3.5 可控记忆 → M4 执行 → M5 产品化评测。M2.5 和 M3.5 已进入 canonical 路线图，但都不得被误报为当前已实现能力。若当前任务涉及竞品、产品定位或记忆设计，再读取 [`../status/competitive_review_2026-08-28.md`](../status/competitive_review_2026-08-28.md)。
+当前正式产品定位是“可信、可修改、会记住一家人的周末管家”。M2 可信规划已完成；后续默认顺序为：M2.5 产品呈现收口 → M3-A 对话控制与 ContextAssembler → M3-B 定向修改 → M3-C 受约束语义规划 → M3.5 可控记忆与 Hybrid RAG → M4 执行 → M5 产品化、消融评测与可选 MCP Adapter。任何目标能力都不得被误报为当前已实现；先以根 README、代码和测试核对状态。若当前任务涉及竞品、产品定位或记忆设计，再读取 [`../status/competitive_review_2026-08-28.md`](../status/competitive_review_2026-08-28.md)。
 
 ## 🤝 默认协作节奏
 
@@ -50,6 +51,7 @@ _用于让新会话快速理解项目状态、用户学习进度和协作边界_
 请先阅读：
 - README.md
 - docs/README.md
+- CONTEXT.md
 - docs/collaboration/session_bootstrap.md
 - docs/learning/progress.md
 - [当前里程碑计划与复盘；M2 使用 docs/status/m2_trustworthy_planning_plan_2026-08-20.md]

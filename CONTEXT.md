@@ -25,8 +25,41 @@ A stable read model that restores the planning workspace from relevant session r
 **Interpretation**:
 The validated semantic reading of one user turn. It may contain intent, commands, Raw Constraints, evidence, and confidence, but does not add environment facts or product defaults.
 
+**Conversation Command**:
+A validated, compositional request for one supported operation over one domain subject. It carries targets, a Constraint Patch, locks, requested facts, evidence, and confidence without granting permission to execute the operation.
+_Avoid_: one intent enum per user phrase, free-form agent command
+
+**Target Reference**:
+A reference from a Conversation Command to an existing Plan Version, Stop, candidate, Order, Memory Item, or other domain object. A reference may begin as user language such as “the second stop,” but must resolve to an authorized stable identity before mutation.
+
+**Constraint Patch**:
+An explicit set of additions, replacements, or removals applied to a constraint snapshot. A Constraint Patch preserves source and strength and does not silently replace unrelated constraints.
+
+**Session Snapshot**:
+The structured state that may be referenced by the current turn, including current constraints, the active Plan Version, locks, a pending question, and a bounded recent summary. It is not the complete conversation history or an orchestration checkpoint.
+
+**Decision Context**:
+A bounded, purpose-specific projection of authorized session state, memories, evidence, observations, allowed actions, and remaining budget supplied to one model decision. It records provenance and omissions and is not itself a source of business truth.
+_Avoid_: full prompt history, memory dump, Graph state
+
+**Information Need**:
+A structured statement of information that is missing for a decision and may be obtained from an allowed capability or from the Actor. It explains why the information matters and the required scope or confidence.
+
+**Capability Request**:
+A model proposal to use one registered, schema-constrained capability for an Information Need. It becomes an actual call only after authorization and budget checks.
+
+**Tool Observation**:
+A validated result returned for a Capability Request, including source, freshness, confidence, and errors. It is evidence available to a later decision, not an instruction to execute another action.
+
+**Agent Decision**:
+A structured proposal to continue, ask the Actor, request a capability, or finish. The Harness accepts it only when capability, budget, feasibility, confirmation, and terminal conditions hold.
+
 **Raw Constraint**:
 A planning-related expression preserved from the user's language. It may be precise, fuzzy, or unresolved and is not yet safe for planning calculations.
+
+**Time Constraint Set**:
+The non-interchangeable time anchors for planning: an exact departure, an availability window, a duration, and a return deadline. Combining them must preserve their original meaning and expose conflicts.
+_Avoid_: one generic time window for every time expression
 
 **Normalized Constraint**:
 A planning value with a stable type and explicit provenance. It is the constraint form consumed by planning.
@@ -72,6 +105,12 @@ _Avoid_: Plan ID, persistence ID
 
 **Plan Version**:
 An immutable planning outcome produced by one Planning Run under one constraint snapshot. A later successful run may supersede it without rewriting its history.
+
+**Plan Diff**:
+The structured difference between two Plan Versions, covering changed Stops, Route Legs, timing, price, warnings, and execution impact. It explains a modification without replacing either version.
+
+**Locked Stop**:
+A Stop that a requested modification must preserve unless the Actor explicitly unlocks it or the system reports that the lock makes the new request infeasible.
 
 **Selected Plan**:
 A candidate explicitly confirmed by an Actor for downstream execution. The Plan currently open in the interface is not selected merely because it is being viewed.

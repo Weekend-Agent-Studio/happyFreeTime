@@ -1,6 +1,6 @@
 # HappyFreeTime 文档中心
 
-_当前实现、架构基线、学习记录、面试材料和历史设计的统一入口 · 2026-08-28_
+_当前实现、架构基线、学习记录、面试材料和历史设计的统一入口 · 2026-09-04_
 
 ---
 
@@ -13,10 +13,11 @@ _当前实现、架构基线、学习记录、面试材料和历史设计的统�
 1. 阅读根目录 [`README.md`](../README.md)，确认当前已经实现的能力、运行方式和测试基线
 2. 阅读本索引，确认文档权威层级和本次任务应使用的材料
 3. 阅读 [`canonical/architecture_v2.md`](canonical/architecture_v2.md) 和 [`canonical/v2_roadmap.md`](canonical/v2_roadmap.md)，理解正式设计与当前里程碑
-4. 若继续学习，阅读 [`learning/progress.md`](learning/progress.md) 和对应里程碑复盘
-5. 若继续开发，检查 [`product/product_idea_inbox.md`](product/product_idea_inbox.md)，但不得自动实现未批准想法
-6. 读取 [`collaboration/session_bootstrap.md`](collaboration/session_bootstrap.md)，按切片约定开始协作
-7. 最后检查 `git status`、当前分支和最近提交，避免覆盖用户改动
+4. 阅读根目录 [`CONTEXT.md`](../CONTEXT.md)，使用项目统一领域语言，避免把 Session、DecisionContext、Memory 或 Graph State 混为一谈
+5. 若继续学习，阅读 [`learning/progress.md`](learning/progress.md) 和对应里程碑复盘
+6. 若继续开发，检查 [`product/product_idea_inbox.md`](product/product_idea_inbox.md)，但不得自动实现未批准想法
+7. 读取 [`collaboration/session_bootstrap.md`](collaboration/session_bootstrap.md)，按切片约定开始协作
+8. 最后检查 `git status`、当前分支和最近提交，避免覆盖用户改动
 
 继续 M2 时同时阅读 [`status/m2_trustworthy_planning_plan_2026-08-20.md`](status/m2_trustworthy_planning_plan_2026-08-20.md) 与 [`learning/milestones/m2_trustworthy_planning.md`](learning/milestones/m2_trustworthy_planning.md)。前者是切片计划快照，不高于 canonical 路线图；后者区分代码证据与个人学习状态。
 
@@ -26,10 +27,13 @@ Catalog C2 是已被 C3 替代的历史快照；当前采集、replay、Unknown 
 
 M2.5 的当前数据策略与 POI 详情贯通状态见 [`status/demo_world_v1_2026-08-31.md`](status/demo_world_v1_2026-08-31.md)：Demo World 不是实时商户数据，但以 OSM 地点锚点与确定性商业模拟数据支持可复现的完整演示链路。
 
+2026-09-04 的 canonical 更新把 M3 扩展为“对话控制 + 受约束语义规划 + 定向修改”：保留 M2 的确定性可信规划内核，演进 RouterExtractor 为组合式 TurnInterpreter，通过 ContextAssembler 构造有界上下文，并让 LLM 只在 InformationNeed、PlanningIntent、语义检索和 verified finalist 取舍上获得有预算的决策权。该段是目标设计，不代表这些能力已经实现；当前行为仍以根 README、代码和测试为准。
+
 可以把下面这段直接发给新会话：
 
 ```text
-请先阅读 README.md、docs/README.md 和 docs/collaboration/session_bootstrap.md。
+请先阅读 README.md、docs/README.md、CONTEXT.md 和
+docs/collaboration/session_bootstrap.md。
 如果本次继续 M1 学习，再阅读 docs/learning/progress.md 与
 docs/learning/milestones/m1_entry_loop.md。
 如果本次继续 M2 设计或实现，再阅读
@@ -46,7 +50,9 @@ docs/learning/milestones/m2_trustworthy_planning.md。
 | 目录 | 内容 | 权威性 | 更新时机 |
 | --- | --- | --- | --- |
 | 根 [`README.md`](../README.md) | 当前能力、启动、验收、测试 | 当前实现入口 | 功能或运行方式变化时 |
+| 根 [`CONTEXT.md`](../CONTEXT.md) | 项目领域词汇与概念边界 | 代码、需求、测试和面试的统一语言 | 术语被澄清或新增时 |
 | [`canonical/`](canonical/) | V2 架构与路线图 | 正式设计基线 | 架构决策确认后 |
+| [`adr/`](adr/) | 难以逆转且存在真实取舍的架构决策 | 已接受决策及其原因 | 决策接受、废弃或被替代时 |
 | [`status/`](status/) | 带日期的差距分析和状态快照 | 历史时点事实 | 生成新快照，不覆盖旧结论 |
 | [`product/`](product/) | 临时想法和未决需求 | 非实现契约 | 讨论或晋升想法时 |
 | [`collaboration/`](collaboration/) | 新会话协议和人机协作方式 | 协作规范 | 工作方式发生变化时 |
@@ -72,6 +78,7 @@ docs/learning/milestones/m2_trustworthy_planning.md。
 docs/
 ├── README.md
 ├── canonical/             # 当前架构与路线图
+├── adr/                   # 关键架构决策记录
 ├── status/                # 带日期的状态快照
 ├── product/               # 未决产品想法
 ├── collaboration/         # 新会话与协作规范
