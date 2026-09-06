@@ -70,7 +70,11 @@ class DemoRouterTest(unittest.TestCase):
         self.assertIsNone(result.raw_constraints.return_by)
 
     def test_extracts_dinner_only_structure_with_evidence(self) -> None:
-        for text in ("明天只安排一家晚饭", "明天就吃个晚饭"):
+        for text in (
+            "明天只安排一家晚饭",
+            "明天就吃个晚饭",
+            "明天只去一家餐厅吃晚饭",
+        ):
             result = self.router.interpret(text, self.context)
 
             self.assertEqual(result.raw_constraints.exact_stop_count, 1)
@@ -79,7 +83,14 @@ class DemoRouterTest(unittest.TestCase):
             self.assertIn("晚", result.evidence_map["required_stop_roles"])
 
     def test_dinner_words_without_exclusivity_do_not_become_dinner_only(self) -> None:
-        for text in ("想吃晚饭", "安排活动和晚饭", "晚饭后散散步", "先逛展再吃晚饭"):
+        for text in (
+            "想吃晚饭",
+            "安排活动和晚饭",
+            "晚饭后散散步",
+            "先逛展再吃晚饭",
+            "只安排活动和晚饭",
+            "只安排看展，晚饭自己解决",
+        ):
             result = self.router.interpret(text, self.context)
 
             self.assertIsNone(result.raw_constraints.exact_stop_count)

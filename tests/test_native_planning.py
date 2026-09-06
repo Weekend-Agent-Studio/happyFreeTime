@@ -94,6 +94,11 @@ class RainyWeatherProvider:
         )
 
 
+class UnexpectedWeatherProvider:
+    def get_weather(self, request: WeatherRequest) -> WeatherFact:
+        raise AssertionError("unsupported plan structure must fail before provider calls")
+
+
 class NativePlanningBehaviorTest(unittest.TestCase):
     @staticmethod
     def _dinner_only_constraints(*, return_by: bool = False, strict_budget: bool = False) -> NormalizedConstraints:
@@ -143,6 +148,31 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertNotIn(
             "dinner-only-v1",
             {item.skeleton_id for item in _select_plan_skeletons(planning_constraints(time_end="22:00"), default_intent)},
+        )
+
+    def test_unsupported_explicit_structure_is_rejected_instead_of_using_default_plan(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=1,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="只安排一家",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.LUNCH,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="午饭",
+                ),
+            }
+        )
+
+        result = PlanningService(weather_provider=UnexpectedWeatherProvider()).plan(constraints)
+
+        self.assertEqual(result.plans, [])
+        self.assertEqual(result.conflict.code, "UNSUPPORTED_PLAN_STRUCTURE")
+        self.assertEqual(
+            result.conflict.fields,
+            ["exact_stop_count", "required_stop_roles", "plan_structure"],
         )
 
     def test_dinner_only_returns_only_restaurant_stops_and_optional_return(self) -> None:
@@ -195,9 +225,13 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         ).plan(self._dinner_only_constraints())
 
         self.assertEqual(missing.plans, [])
-        self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(missing.conflict.fields))
+        self.assertEqual(missing.conflict.fields, ["required_stop_roles", "plan_structure"])
         self.assertEqual(budget.plans, [])
         self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(budget.conflict.fields))
+        self.assertEqual(
+            budget.conflict.relaxation_options,
+            ["提高人均预算", "取消严格预算限制"],
+        )
         self.assertEqual(unavailable_result.plans, [])
         self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(unavailable_result.conflict.fields))
 

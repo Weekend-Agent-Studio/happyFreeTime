@@ -210,6 +210,10 @@ class PlanningService:
         if time_conflict is not None:
             return CandidateSet(conflict=time_conflict)
 
+        structure_conflict = _unsupported_plan_structure_conflict(constraints)
+        if structure_conflict is not None:
+            return CandidateSet(conflict=structure_conflict)
+
         location = constraints.location.value
         weather = self._weather_provider.get_weather(
             WeatherRequest(
@@ -455,18 +459,20 @@ class PlanningService:
         )
         if constraints.strict_budget and strict_budget_is_blocking:
             budget = constraints.budget_per_person.value if constraints.budget_per_person else None
+            structure_fields = _structure_conflict_fields(planning_intent)
+            relaxation_options = (
+                ["提高人均预算", "取消严格预算限制"]
+                if structure_fields
+                else ["提高人均预算", "只保留一个核心停靠点", "允许免费活动搭配简餐"]
+            )
             return CandidateSet(
                 provider_facts=[weather],
                 catalog_violations=catalog_result.violations,
                 conflict=ConstraintConflict(
                     code="NO_PLAN_WITHIN_STRICT_BUDGET",
                     message=f"当前目录中没有满足人均 {budget} 元严格预算的可行行程方案。",
-                    fields=["budget_per_person", *_structure_conflict_fields(planning_intent)],
-                    relaxation_options=[
-                        "提高人均预算",
-                        "只保留一个核心停靠点",
-                        "允许免费活动搭配简餐",
-                    ],
+                    fields=["budget_per_person", *structure_fields],
+                    relaxation_options=relaxation_options,
                 )
             )
 
@@ -493,9 +499,12 @@ class PlanningService:
             )
         ):
             conflict_fields.append("opening_hours")
-        if not conflict_fields:
+        structure_fields = _structure_conflict_fields(planning_intent)
+        if not conflict_fields and structure_fields:
+            conflict_fields = structure_fields
+        elif not conflict_fields:
             conflict_fields = ["time_window", "max_distance_km", "party"]
-        conflict_fields = [*dict.fromkeys([*conflict_fields, *_structure_conflict_fields(planning_intent)])]
+        conflict_fields = [*dict.fromkeys([*conflict_fields, *structure_fields])]
         relaxation_options = []
         if "duration_minutes" in conflict_fields:
             relaxation_options.extend(["增加可用时长", "缩短停留时长"])
@@ -1128,6 +1137,38 @@ def _build_planning_intent(
         maximum_stops=maximum_stops,
         pace=pace,
         evidence=evidence,
+    )
+
+
+def _unsupported_plan_structure_conflict(
+    constraints: NormalizedConstraints,
+) -> ConstraintConflict | None:
+    exact_stop_count = (
+        constraints.exact_stop_count.value
+        if constraints.exact_stop_count is not None
+        else None
+    )
+    required_roles = (
+        constraints.required_stop_roles.value
+        if constraints.required_stop_roles is not None
+        else None
+    )
+    if exact_stop_count is None and required_roles is None:
+        return None
+    if exact_stop_count == 1 and required_roles == (StopRole.DINNER,):
+        return None
+
+    fields = []
+    if exact_stop_count is not None:
+        fields.append("exact_stop_count")
+    if required_roles is not None:
+        fields.append("required_stop_roles")
+    fields.append("plan_structure")
+    return ConstraintConflict(
+        code="UNSUPPORTED_PLAN_STRUCTURE",
+        message="当前版本只支持默认多站规划，或“只安排一家晚饭”的单站结构。",
+        fields=fields,
+        relaxation_options=["改为只安排一家晚饭", "移除明确站数或角色限制"],
     )
 
 

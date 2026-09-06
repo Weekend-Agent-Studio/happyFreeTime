@@ -44,12 +44,12 @@ class DemoRouter:
             r"\s*(?:准时\s*)?(?:出发|离开)",
             text,
         )
-        dinner_match = re.search(r"晚饭|晚餐", text)
-        exclusive_match = re.search(
-            r"只(?:安排|去|吃)|仅(?:安排|去|吃)|就吃(?:个|一顿)?",
+        dinner_only_match = re.search(
+            r"(?P<exclusive>(?:只|仅|就)(?:安排|去|吃))"
+            r"(?:一(?:家|顿)|个)?(?:餐厅)?(?:吃)?(?P<dinner>晚饭|晚餐)",
             text,
         )
-        dinner_only = dinner_match is not None and exclusive_match is not None
+        dinner_only = dinner_only_match is not None
         party_evidence = "约会" if "约会" in text else None
         party_size = 2 if party_evidence else None
         preferences = [
@@ -132,8 +132,8 @@ class DemoRouter:
                 "date_text": date_text,
                 "time_text": time_text,
                 "departure_at_text": departure_match.group(0) if departure_match else None,
-                "exact_stop_count": exclusive_match.group(0) if dinner_only else None,
-                "required_stop_roles": dinner_match.group(0) if dinner_only else None,
+                "exact_stop_count": dinner_only_match.group("exclusive") if dinner_only_match else None,
+                "required_stop_roles": dinner_only_match.group("dinner") if dinner_only_match else None,
                 "budget_per_person": budget_match.group(0) if budget_match else None,
                 "max_distance_text": distance_text,
                 "party": party_evidence,
