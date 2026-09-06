@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   getSession: vi.fn(),
   listSessions: vi.fn(),
   sendMessage: vi.fn(),
+  selectPlan: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
@@ -84,6 +85,7 @@ describe("planning workspace", () => {
     api.listSessions.mockResolvedValue([]);
     api.createSession.mockResolvedValue("session-test");
     api.sendMessage.mockResolvedValue(response);
+    api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
   });
 
   it("switches plans and keeps timeline, map rows, and RouteLeg indices aligned", async () => {
@@ -93,8 +95,8 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
-    await user.click(screen.getByRole("button", { name: /方案二/ }));
-    expect(screen.getByRole("button", { name: /方案二/ })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "查看方案二" }));
+    expect(screen.getByRole("button", { name: "查看方案二" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }));
@@ -343,5 +345,91 @@ describe("planning workspace", () => {
 
     expect(await screen.findByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
     expect(screen.getByText("今天下午出去玩")).toBeInTheDocument();
+  });
+
+  it("defaults to viewing the first plan without marking it selected", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    expect(screen.getByRole("button", { name: "查看方案一" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("正在查看")).toBeInTheDocument();
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+  });
+
+  it("marks a plan selected only after the backend confirms", async () => {
+    const user = userEvent.setup();
+    api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-two" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "选择方案二" }));
+
+    expect(await screen.findByText("已选择这个方案")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+    expect(api.selectPlan).toHaveBeenCalledWith("session-test", "plan-two");
+  });
+
+  it("does not show a fake selection when the backend rejects it", async () => {
+    const user = userEvent.setup();
+    api.selectPlan.mockRejectedValue(new Error("该方案不属于当前版本"));
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("该方案不属于当前版本");
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+  });
+
+  it("restores the persisted selected plan from the session snapshot", async () => {
+    const user = userEvent.setup();
+    api.listSessions.mockResolvedValue([{
+      session_id: "selected-session", title: "已选方案会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      last_message_preview: "已生成方案",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "selected-session", title: "已选方案会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "今天下午出去玩" },
+        { id: "assistant-1", role: "assistant", content: "已生成方案" },
+      ],
+      plans: response.plans,
+      latest_response: response,
+      response_history: [response],
+      selected_plan_id: "plan-two",
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /已选方案会话/ }));
+
+    expect(await screen.findByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("clears the selection when a new plan version is generated", async () => {
+    const user = userEvent.setup();
+    api.sendMessage
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({ ...response, reply: "新一轮方案已整理。", plans: [plan("plan-new", "新一轮方案")], plan_version_id: "v2" });
+    render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await screen.findByText("已选择这个方案");
+
+    await user.type(input, "再来一轮");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "新一轮方案", level: 3 });
+
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
   });
 });

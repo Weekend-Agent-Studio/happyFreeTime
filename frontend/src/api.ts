@@ -55,6 +55,18 @@ export async function getSession(sessionId: string): Promise<SessionView> {
   return body.data;
 }
 
+export async function selectPlan(
+  sessionId: string,
+  planId: string,
+): Promise<{ active_plan_version_id: string | null; selected_plan_id: string | null }> {
+  const response = await fetch(`/api/sessions/${sessionId}/plans/${planId}/select`, {
+    method: "POST",
+    headers: USER_HEADER,
+  });
+  const body = await readJson<{ data: { active_plan_version_id: string | null; selected_plan_id: string | null } }>(response);
+  return body.data;
+}
+
 export function getMapConfig(): Promise<WebMapConfig> {
   if (!mapConfigRequest) {
     mapConfigRequest = fetch("/api/config/map")

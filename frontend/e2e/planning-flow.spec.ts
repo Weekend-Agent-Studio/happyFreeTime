@@ -55,7 +55,7 @@ test("offline planning path keeps route and fallback map interactive", async ({ 
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
 
-  await page.getByRole("button", { name: /方案二/ }).click();
+  await page.getByRole("button", { name: "查看方案二" }).click();
   await page.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }).click();
   await expect(page.getByText("未配置高德 JS API，当前仅显示路线文字摘要")).toBeVisible();
   await page.getByRole("button", { name: /展览 → 晚餐/ }).click();
@@ -104,4 +104,51 @@ test("desktop keeps the workspace chrome fixed while the conversation scrolls", 
   expect(after.navigation?.y).toBeCloseTo(before.navigation?.y ?? 0, 0);
   expect(after.composer?.y).toBeCloseTo(before.composer?.y ?? 0, 0);
   expect(after.inspector?.y).toBeCloseTo(before.inspector?.y ?? 0, 0);
+});
+
+test("selection persists across refresh and clears after a new plan", async ({ page }) => {
+  let selectedPlanId: string | null = null;
+
+  await page.route("**/api/sessions/offline-session/plans/*/select", async (route) => {
+    const segments = new URL(route.request().url()).pathname.split("/");
+    const planId = segments[segments.length - 2];
+    selectedPlanId = planId;
+    await route.fulfill({ json: { data: { active_plan_version_id: "v1", selected_plan_id: planId } } });
+  });
+  await page.route("**/api/sessions/offline-session", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ json: { data: {
+      session_id: "offline-session",
+      title: "新规划",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T00:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "今天下午出去玩" },
+        { id: "assistant-1", role: "assistant", content: "已生成方案" },
+      ],
+      plans: response.plans,
+      latest_response: response,
+      response_history: [response],
+      selected_plan_id: selectedPlanId,
+    } } });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+
+  await page.getByRole("button", { name: "选择方案二" }).click();
+  await expect(page.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByLabel("描述你的空闲时间和偏好").fill("再来一轮");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.getByText("已选择这个方案")).toHaveCount(0);
 });

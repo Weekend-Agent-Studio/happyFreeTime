@@ -212,6 +212,7 @@ export type AgentResponse = {
   catalog_warnings: CatalogWarning[];
   warnings?: PlanWarning[];
   poi_presentations: PoiPresentation[];
+  plan_version_id?: string | null;
 };
 
 export type ChatMessage = {
@@ -244,4 +245,13 @@ export type SessionView = {
   latest_response: Partial<AgentResponse> | null;
   /** Optional for backward compatibility with sessions saved before rich-turn history. */
   response_history?: Partial<AgentResponse>[];
+  active_plan_version_id?: string | null;
+  selected_plan_id?: string | null;
+  active_constraints?: unknown;
+  plan_versions?: Array<{
+    plan_version_id: string;
+    planning_run_id: string;
+    supersedes_version_id: string | null;
+    created_at: string;
+  }>;
 };

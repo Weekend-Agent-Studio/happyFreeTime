@@ -37,7 +37,7 @@ import {
   X,
 } from "lucide-react";
 
-import { createSession, getSession, listSessions, sendMessage } from "./api";
+import { createSession, getSession, listSessions, selectPlan, sendMessage } from "./api";
 import { AmapPlanMap } from "./AmapPlanMap";
 import type {
   AgentResponse,
@@ -114,6 +114,7 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     catalog_warnings: response.catalog_warnings ?? [],
     warnings: response.warnings ?? [],
     poi_presentations: response.poi_presentations ?? [],
+    plan_version_id: response.plan_version_id ?? null,
   };
 }
 
@@ -314,6 +315,7 @@ function App() {
   const [error, setError] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
   const [inspectedResponse, setInspectedResponse] = useState<AgentResponse | null>(null);
+  const [viewedPlanId, setViewedPlanId] = useState<string | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [focusedLegIndex, setFocusedLegIndex] = useState<number | null>(null);
   const [rightTab, setRightTab] = useState<InspectorTab>("trip");
@@ -327,9 +329,9 @@ function App() {
 
   const detailResponse = inspectedResponse ?? response;
 
-  const selectedPlan = useMemo(
-    () => detailResponse?.plans.find((plan) => plan.plan_id === selectedPlanId) ?? detailResponse?.plans[0],
-    [detailResponse, selectedPlanId],
+  const inspectorPlan = useMemo(
+    () => detailResponse?.plans.find((plan) => plan.plan_id === viewedPlanId) ?? detailResponse?.plans[0],
+    [detailResponse, viewedPlanId],
   );
 
   const refreshRecentSessions = useCallback(async () => {
@@ -348,11 +350,13 @@ function App() {
       const view = await getSession(nextSessionId);
       const restoredResponses = responsesFromSession(view);
       const restoredResponse = restoredResponses[restoredResponses.length - 1] ?? null;
+      const restoredSelectedId = view.selected_plan_id ?? null;
       setSessionId(view.session_id);
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
       setResponse(restoredResponse);
       setInspectedResponse(restoredResponse);
-      setSelectedPlanId(restoredResponse?.plans[0]?.plan_id ?? null);
+      setSelectedPlanId(restoredSelectedId);
+      setViewedPlanId(restoredSelectedId ?? restoredResponse?.plans[0]?.plan_id ?? null);
       setFocusedLegIndex(null);
       setRightTab("trip");
       if (navigate && sessionIdFromUrl() !== view.session_id) updateSessionUrl(view.session_id);
@@ -362,6 +366,7 @@ function App() {
       setResponse(null);
       setInspectedResponse(null);
       setSelectedPlanId(null);
+      setViewedPlanId(null);
       setFocusedLegIndex(null);
       if (sessionIdFromUrl() === nextSessionId) updateSessionUrl(null, true);
       setError(reason instanceof Error ? reason.message : "会话恢复失败");
@@ -384,6 +389,7 @@ function App() {
         setResponse(null);
         setInspectedResponse(null);
         setSelectedPlanId(null);
+        setViewedPlanId(null);
         setFocusedLegIndex(null);
         setFailedRequest(null);
         setError("");
@@ -426,7 +432,8 @@ function App() {
       setResponse(nextResponse);
       setInspectedResponse(nextResponse);
       if (nextResponse.plans.length) {
-        setSelectedPlanId(nextResponse.plans[0].plan_id);
+        setSelectedPlanId(null);
+        setViewedPlanId(nextResponse.plans[0].plan_id);
         setFocusedLegIndex(null);
         setRightTab("trip");
       }
@@ -456,6 +463,7 @@ function App() {
     setResponse(null);
     setInspectedResponse(null);
     setSelectedPlanId(null);
+    setViewedPlanId(null);
     setFocusedLegIndex(null);
     setFailedRequest(null);
     setError("");
@@ -473,15 +481,25 @@ function App() {
     setRightTab("trip");
   }, []);
 
-  const selectPlan = useCallback((targetResponse: AgentResponse, planId: string) => {
+  const viewPlan = useCallback((targetResponse: AgentResponse, planId: string) => {
     setInspectedResponse(targetResponse);
-    setSelectedPlanId(planId);
+    setViewedPlanId(planId);
     setFocusedLegIndex(null);
   }, []);
 
+  const choosePlan = useCallback(async (planId: string) => {
+    if (!sessionId) return;
+    try {
+      await selectPlan(sessionId, planId);
+      setSelectedPlanId(planId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "选择方案失败，请稍后重试");
+    }
+  }, [sessionId]);
+
   const openInspectorForResponse = useCallback((targetResponse: AgentResponse, tab: InspectorTab, legIndex: number | null = null) => {
     setInspectedResponse(targetResponse);
-    setSelectedPlanId((current) => targetResponse.plans.some((plan) => plan.plan_id === current) ? current : targetResponse.plans[0]?.plan_id ?? null);
+    setViewedPlanId((current) => targetResponse.plans.some((plan) => plan.plan_id === current) ? current : targetResponse.plans[0]?.plan_id ?? null);
     setFocusedLegIndex(legIndex);
     setRightTab(tab);
     if (isMobile) setMobileDetailOpen(true);
@@ -500,7 +518,7 @@ function App() {
           <Brand compact />
           <div>
             <button type="button" onClick={() => setHistoryOpen(true)} aria-label="打开历史会话"><History size={19} /></button>
-            <button type="button" onClick={() => setMobileDetailOpen(true)} aria-label="打开方案详情" disabled={!selectedPlan}><PanelRight size={19} /></button>
+            <button type="button" onClick={() => setMobileDetailOpen(true)} aria-label="打开方案详情" disabled={!inspectorPlan}><PanelRight size={19} /></button>
           </div>
         </header>
 
@@ -510,9 +528,11 @@ function App() {
               {messages.map((message) => <ChatBubble
                 key={message.id}
                 message={message}
-                selectedPlan={message.response === detailResponse ? selectedPlan : message.response?.plans[0]}
+                selectedPlan={message.response === detailResponse ? inspectorPlan : message.response?.plans[0]}
+                selectedPlanId={selectedPlanId}
                 showMobileDetails={Boolean(isMobile && !mobileDetailOpen && message.response === detailResponse)}
-                onSelectPlan={(planId) => message.response && selectPlan(message.response, planId)}
+                onViewPlan={(planId) => message.response && viewPlan(message.response, planId)}
+                onChoosePlan={choosePlan}
                 onOpenInspector={() => message.response && openInspectorForResponse(message.response, "trip")}
                 onOpenRoute={(index) => message.response && openInspectorForResponse(message.response, "map", index)}
                 onChooseConflict={setInput}
@@ -538,7 +558,7 @@ function App() {
       </main>
 
       <aside className="detail-panel" aria-label="方案详情" aria-hidden={inspectorCollapsed}>
-        {!isMobile ? <Inspector response={detailResponse} plan={selectedPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} /> : null}
+        {!isMobile ? <Inspector response={detailResponse} plan={inspectorPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} /> : null}
       </aside>
 
       <button className="inspector-toggle" type="button" onClick={() => setInspectorCollapsed((current) => !current)} aria-label={inspectorCollapsed ? "展开方案详情" : "收起方案详情"} aria-expanded={!inspectorCollapsed}>
@@ -550,7 +570,7 @@ function App() {
       </MobileSheet>
 
       <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前方案的行程、地图、订单与可信依据。">
-        <Inspector response={detailResponse} plan={selectedPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} />
+        <Inspector response={detailResponse} plan={inspectorPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} />
       </MobileSheet>
     </div>
   );
@@ -603,11 +623,13 @@ function ButlerAvatar() {
   return <span className="butler-avatar" aria-hidden="true"><Compass size={18} /></span>;
 }
 
-function ChatBubble({ message, selectedPlan, showMobileDetails, onSelectPlan, onOpenInspector, onOpenRoute, onChooseConflict }: {
+function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onChooseConflict }: {
   message: ChatMessage;
   selectedPlan?: Plan;
+  selectedPlanId: string | null;
   showMobileDetails: boolean;
-  onSelectPlan: (planId: string) => void;
+  onViewPlan: (planId: string) => void;
+  onChoosePlan: (planId: string) => void;
   onOpenInspector: () => void;
   onOpenRoute: (legIndex: number) => void;
   onChooseConflict: (option: string) => void;
@@ -625,7 +647,7 @@ function ChatBubble({ message, selectedPlan, showMobileDetails, onSelectPlan, on
           </section>
         ) : null}
         {message.response?.plans.length ? (
-          <RichPlanningReply response={message.response} selectedPlan={selectedPlan} showMobileDetails={showMobileDetails} onSelectPlan={onSelectPlan} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} />
+          <RichPlanningReply response={message.response} selectedPlan={selectedPlan} selectedPlanId={selectedPlanId} showMobileDetails={showMobileDetails} onViewPlan={onViewPlan} onChoosePlan={onChoosePlan} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} />
         ) : null}
       </div>
     </article>
@@ -636,7 +658,7 @@ function ThinkingRow() {
   return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>正在核对路线和可行性</strong></div></div>;
 }
 
-function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelectPlan, onOpenInspector, onOpenRoute }: { response: AgentResponse; selectedPlan?: Plan; showMobileDetails: boolean; onSelectPlan: (planId: string) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
+function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute }: { response: AgentResponse; selectedPlan?: Plan; selectedPlanId: string | null; showMobileDetails: boolean; onViewPlan: (planId: string) => void; onChoosePlan: (planId: string) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
   const weather = response.provider_facts.find((fact): fact is Extract<ProviderFact, { kind: "weather" }> => fact.kind === "weather");
   const departureAt = departureConstraint(response);
   const returnConstraint = latestReturnConstraint(response);
@@ -658,19 +680,19 @@ function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelect
         ) : null}
         {response.warnings?.some((warning) => warning.plan_id === null) ? <div className="shared-warning"><CircleAlert size={16} />{response.warnings.filter((warning) => warning.plan_id === null).map((warning) => warning.message).join("；")}</div> : null}
         <div className="plan-grid">
-          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} presentations={response.poi_presentations} index={index} warning={planWarning(response, plan)} returnConstraint={returnConstraint} selected={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} showMobileDetails={showMobileDetails} onSelect={() => onSelectPlan(plan.plan_id)} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} />)}
+          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} presentations={response.poi_presentations} index={index} warning={planWarning(response, plan)} returnConstraint={returnConstraint} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} showMobileDetails={showMobileDetails} onView={() => onViewPlan(plan.plan_id)} onChoose={() => onChoosePlan(plan.plan_id)} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} />)}
         </div>
       </div>
     </section>
   );
 }
 
-function PlanCard({ plan, presentations, index, warning, returnConstraint, selected, showMobileDetails, onSelect, onOpenInspector, onOpenRoute }: { plan: Plan; presentations: PoiPresentation[]; index: number; warning: PlanWarning | null; returnConstraint: ConstraintSummaryItem | null; selected: boolean; showMobileDetails: boolean; onSelect: () => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
+function PlanCard({ plan, presentations, index, warning, returnConstraint, viewed, selected, showMobileDetails, onView, onChoose, onOpenInspector, onOpenRoute }: { plan: Plan; presentations: PoiPresentation[]; index: number; warning: PlanWarning | null; returnConstraint: ConstraintSummaryItem | null; viewed: boolean; selected: boolean; showMobileDetails: boolean; onView: () => void; onChoose: () => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
   const heroStop = plan.stops[0];
   const returnLeg = plan.route_legs.length > plan.stops.length ? plan.route_legs[plan.route_legs.length - 1] : null;
   const notice = warning?.message ?? plan.tradeoffs[0] ?? "已通过当前硬约束校验";
   return (
-    <article className={`plan-card ${selected ? "selected" : ""}`}>
+    <article className={`plan-card ${viewed ? "viewed" : ""} ${selected ? "selected" : ""}`}>
       <div className="plan-visual">
         {heroStop ? <StopImage stop={heroStop} variant="hero" /> : <div className="stop-image hero placeholder"><ImageIcon size={22} /></div>}
         <div className="plan-visual-scrim" />
@@ -691,8 +713,11 @@ function PlanCard({ plan, presentations, index, warning, returnConstraint, selec
         </div>
         {returnConstraint && returnLeg ? <div className="return-meta">预计 {returnLeg.end} 到家 · 目标 {displayConstraint(returnConstraint)}</div> : null}
         <div className="route-source"><Navigation size={14} />路线来源：{[...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))].join(" / ") || "待查询"}</div>
-        <button className="plan-select" type="button" onClick={onSelect} aria-pressed={selected} aria-label={`查看${plan.title}`}>{selected ? "已选择这个方案" : "选择这个方案"}<ChevronRight size={16} /></button>
-        {selected && showMobileDetails ? <MobilePlanExpansion plan={plan} presentations={presentations} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} /> : null}
+        <div className="plan-card-actions">
+          <button className="plan-select" type="button" onClick={onChoose} aria-pressed={selected} aria-label={`选择${plan.title}`}>{selected ? "已选择这个方案" : "选择这个方案"}</button>
+          <button className="plan-view" type="button" onClick={onView} aria-pressed={viewed} aria-label={`查看${plan.title}`}>{viewed ? "正在查看" : "查看详情"}<ChevronRight size={16} /></button>
+        </div>
+        {viewed && showMobileDetails ? <MobilePlanExpansion plan={plan} presentations={presentations} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} /> : null}
       </div>
     </article>
   );
