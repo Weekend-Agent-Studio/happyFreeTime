@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from app.api.application import create_app
-from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints
+from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole
 from app.domain.providers import (
     AvailabilityStatus,
     ProviderMode,
@@ -34,6 +34,22 @@ from app.domain.catalog import ResourceType
 
 class RuleRouter:
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        if "只安排一家晚饭" in user_input:
+            return Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(
+                    date_text="明天",
+                    time_text="晚上",
+                    exact_stop_count=1,
+                    required_stop_roles=(StopRole.DINNER,),
+                    budget_text="人均150",
+                    budget_per_person=150,
+                    return_by_text="晚上十点前回家",
+                    return_by="22:00",
+                ),
+                evidence_map={"exact_stop_count": "只安排一家", "required_stop_roles": "晚饭"},
+            )
         if "两点半准时出发" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
@@ -485,6 +501,46 @@ class ApiTest(unittest.TestCase):
         }
         self.assertEqual(restored_fields["departure_at"]["value"], "14:30")
         self.assertEqual(snapshot["plans"], body["plans"])
+
+    def test_dinner_only_http_sqlite_plan_is_restored_without_extra_stops(self) -> None:
+        app = create_app(
+            database_path=Path(self.temp_dir.name) / "dinner-only-e2e.db",
+            router=RuleRouter(),
+            environment_provider=lambda _: EnvironmentContext(
+                now=datetime(2026, 8, 15, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                default_location=GeoLocation(city="北京市", district="朝阳区", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+            ),
+            weather_provider=clear_mock_weather(now=datetime(2026, 8, 16, 8, 0, tzinfo=timezone.utc)),
+            route_provider=FixedReplayRouteProvider(),
+            catalog=InMemoryCatalog([
+                candidate("dinner-a", ResourceType.RESTAURANT, "晚餐 A", ["餐厅"], duration_minutes=60, avg_price=120),
+                candidate("dinner-b", ResourceType.RESTAURANT, "晚餐 B", ["餐厅"], duration_minutes=60, avg_price=140),
+                candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"], duration_minutes=60),
+            ]),
+        )
+        with TestClient(app) as client:
+            session = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            response = client.post(
+                f"/api/sessions/{session}/messages",
+                headers=self.headers,
+                json={"request_id": "dinner-only-e2e", "content": "明天只安排一家晚饭，人均150，晚上十点前回家"},
+            )
+            restored = client.get(f"/api/sessions/{session}", headers=self.headers)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()["data"]
+        self.assertEqual(body["status"], "completed")
+        self.assertTrue(body["plans"])
+        self.assertTrue(all(len(plan["stops"]) == 1 for plan in body["plans"]))
+        self.assertTrue(all(plan["stops"][0]["role"] == "dinner" for plan in body["plans"]))
+        self.assertTrue(all(plan["stops"][0]["type"] == "restaurant" for plan in body["plans"]))
+        self.assertTrue(all(plan["route_legs"][-1]["destination_name"] == "出发地" for plan in body["plans"]))
+        self.assertTrue(all(plan["route_legs"][-1]["end"] <= "22:00" for plan in body["plans"]))
+        fields = {item["field"]: item for item in body["constraint_summary"]}
+        self.assertEqual(fields["exact_stop_count"]["value"], 1)
+        self.assertEqual(fields["required_stop_roles"]["value"], ["dinner"])
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertEqual(restored.json()["data"]["latest_response"], body)
 
     def test_get_session_restores_every_completed_planning_response(self) -> None:
         session_id = self._create_session()

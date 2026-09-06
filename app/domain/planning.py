@@ -16,6 +16,7 @@ from app.domain.catalog import (
     ImageRef,
     PriceKind,
 )
+from app.domain.constraints import StopRole
 from app.domain.providers import (
     AvailabilityFact,
     GeocodingFact,
@@ -33,16 +34,6 @@ class StopType(str, Enum):
     RESTAURANT = "restaurant"
     CAFE = "cafe"
     DESSERT = "dessert"
-
-
-class StopRole(str, Enum):
-    """A semantic purpose fulfilled by one concrete itinerary stop."""
-
-    ACTIVITY = "activity"
-    MEAL = "meal"
-    LUNCH = "lunch"
-    DINNER = "dinner"
-    BREAK = "break"
 
 
 class PlanSkeleton(BaseModel):

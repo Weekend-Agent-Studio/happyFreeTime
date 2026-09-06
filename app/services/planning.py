@@ -13,7 +13,7 @@ from itertools import product
 from zoneinfo import ZoneInfo
 
 from app.domain.catalog import ConstraintViolation, PriceKind, ResourceType, StopCandidate
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import NormalizedConstraints, StopRole
 from app.domain.planning import (
     CandidateSet,
     ConstraintConflict,
@@ -29,7 +29,6 @@ from app.domain.planning import (
     RouteSource,
     ScoreContribution,
     Stop,
-    StopRole,
     StopType,
 )
 from app.domain.providers import (
@@ -67,6 +66,10 @@ _ACTIVITY_MEAL_SKELETON = PlanSkeleton(
     skeleton_id="activity-meal-v1",
     roles=(StopRole.ACTIVITY, StopRole.MEAL),
 )
+_DINNER_ONLY_SKELETON = PlanSkeleton(
+    skeleton_id="dinner-only-v1",
+    roles=(StopRole.DINNER,),
+)
 _LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
     skeleton_id="lunch-activity-dinner-v1",
     roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
@@ -83,6 +86,13 @@ _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
         StopRole.ACTIVITY,
         StopRole.DINNER,
     ),
+)
+_ALL_PLAN_SKELETONS = (
+    _ACTIVITY_MEAL_SKELETON,
+    _DINNER_ONLY_SKELETON,
+    _LUNCH_ACTIVITY_DINNER_SKELETON,
+    _ACTIVITY_BREAK_DINNER_SKELETON,
+    _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON,
 )
 _ROLE_RESOURCE_TYPES: dict[StopRole, frozenset[ResourceType]] = {
     StopRole.ACTIVITY: frozenset({ResourceType.ACTIVITY}),
@@ -413,6 +423,8 @@ class PlanningService:
                     fields=[
                         field
                         for field in (
+                            "required_stop_roles",
+                            "plan_structure",
                             "departure_at",
                             "time_window",
                             "duration_minutes",
@@ -422,9 +434,9 @@ class PlanningService:
                             "return_by",
                             "total_distance_km",
                             "availability",
-                        )
-                        if field in reported_failure_fields
-                    ],
+                    )
+                    if field in reported_failure_fields
+                    ] + _structure_conflict_fields(planning_intent),
                     relaxation_options=_route_relaxation_options(
                         reported_failure_fields
                     ),
@@ -449,7 +461,7 @@ class PlanningService:
                 conflict=ConstraintConflict(
                     code="NO_PLAN_WITHIN_STRICT_BUDGET",
                     message=f"当前目录中没有满足人均 {budget} 元严格预算的可行行程方案。",
-                    fields=["budget_per_person"],
+                    fields=["budget_per_person", *_structure_conflict_fields(planning_intent)],
                     relaxation_options=[
                         "提高人均预算",
                         "只保留一个核心停靠点",
@@ -473,8 +485,17 @@ class PlanningService:
             )
             if field in local_result.rejected_fields
         ]
+        if (
+            _structure_conflict_fields(planning_intent)
+            and any(
+                violation.code == "outside_basic_opening_hours"
+                for violation in catalog_result.violations
+            )
+        ):
+            conflict_fields.append("opening_hours")
         if not conflict_fields:
             conflict_fields = ["time_window", "max_distance_km", "party"]
+        conflict_fields = [*dict.fromkeys([*conflict_fields, *_structure_conflict_fields(planning_intent)])]
         relaxation_options = []
         if "duration_minutes" in conflict_fields:
             relaxation_options.extend(["增加可用时长", "缩短停留时长"])
@@ -1043,6 +1064,26 @@ def _plan_diversity(left: Plan, right: Plan) -> float:
 def _build_planning_intent(
     constraints: NormalizedConstraints,
 ) -> PlanningIntent:
+    window = constraints.time_window.value
+    if (
+        constraints.exact_stop_count is not None
+        and constraints.exact_stop_count.value == 1
+        and constraints.required_stop_roles is not None
+        and constraints.required_stop_roles.value == (StopRole.DINNER,)
+    ):
+        return PlanningIntent(
+            required_roles=(StopRole.DINNER,),
+            optional_roles=(),
+            minimum_stops=1,
+            maximum_stops=1,
+            pace=PlanPace.RELAXED,
+            evidence={
+                "exact_stop_count": constraints.exact_stop_count.raw_text or "1",
+                "required_stop_roles": constraints.required_stop_roles.raw_text or StopRole.DINNER.value,
+                "time_window": f"{window.start}-{window.end}",
+            },
+        )
+
     preferences = {
         item.strip().casefold()
         for item in constraints.preferences
@@ -1058,7 +1099,6 @@ def _build_planning_intent(
         pace = PlanPace.BALANCED
         maximum_stops = 4
 
-    window = constraints.time_window.value
     start_minutes = _time_to_minutes(window.start)
     end_minutes = _time_to_minutes(window.end)
     includes_lunch = start_minutes <= 13 * 60 and end_minutes >= 12 * 60
@@ -1095,27 +1135,46 @@ def _select_plan_skeletons(
     constraints: NormalizedConstraints,
     intent: PlanningIntent,
 ) -> tuple[PlanSkeleton, ...]:
-    selected = [_ACTIVITY_MEAL_SKELETON]
     maximum_minutes, _ = _planning_minutes(constraints)
-    if (
-        intent.maximum_stops >= 3
-        and {StopRole.LUNCH, StopRole.DINNER}.issubset(intent.optional_roles)
-        and maximum_minutes >= 6 * 60
-    ):
-        selected.append(_LUNCH_ACTIVITY_DINNER_SKELETON)
-    if (
-        intent.maximum_stops >= 3
-        and {StopRole.BREAK, StopRole.DINNER}.issubset(intent.optional_roles)
-        and maximum_minutes >= 5 * 60
-    ):
-        selected.append(_ACTIVITY_BREAK_DINNER_SKELETON)
-    if (
-        intent.maximum_stops >= 4
-        and {StopRole.LUNCH, StopRole.DINNER}.issubset(intent.optional_roles)
-        and maximum_minutes >= 8 * 60
-    ):
-        selected.append(_ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON)
-    return tuple(selected)
+    return tuple(
+        skeleton
+        for skeleton in _ALL_PLAN_SKELETONS
+        if _skeleton_matches_intent(skeleton, intent, maximum_minutes)
+    )
+
+
+def _skeleton_matches_intent(
+    skeleton: PlanSkeleton,
+    intent: PlanningIntent,
+    available_minutes: int,
+) -> bool:
+    """Keep every bounded skeleton behind one structural eligibility rule."""
+    roles = skeleton.roles
+    if not intent.minimum_stops <= len(roles) <= intent.maximum_stops:
+        return False
+    role_set = set(roles)
+    if not set(intent.required_roles).issubset(role_set):
+        return False
+    if not role_set.issubset(set(intent.required_roles) | set(intent.optional_roles)):
+        return False
+    for before, after in intent.precedence:
+        if before in role_set and after in role_set and roles.index(before) >= roles.index(after):
+            return False
+    # Preserve the existing capacity gates for richer skeletons. A resource visit
+    # cannot be shorter than the catalog's minimum useful slot; exact feasibility
+    # remains in _build_local_plan with real candidate durations.
+    minimum_capacity = {
+        _LUNCH_ACTIVITY_DINNER_SKELETON.skeleton_id: 6 * 60,
+        _ACTIVITY_BREAK_DINNER_SKELETON.skeleton_id: 5 * 60,
+        _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON.skeleton_id: 8 * 60,
+    }.get(skeleton.skeleton_id, len(roles) * 30)
+    return minimum_capacity <= available_minutes
+
+
+def _structure_conflict_fields(intent: PlanningIntent) -> list[str]:
+    if intent.minimum_stops == intent.maximum_stops == 1 and intent.required_roles == (StopRole.DINNER,):
+        return ["required_stop_roles", "plan_structure"]
+    return []
 
 
 def _rank_skeleton_plans(

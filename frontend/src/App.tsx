@@ -64,6 +64,8 @@ const ASSUMPTION_LABELS: Record<string, string> = {
   date: "日期",
   time_window: "时间",
   departure_at: "准时出发",
+  exact_stop_count: "停靠站数",
+  required_stop_roles: "必选角色",
   max_distance_km: "距离",
   total_distance_km: "全程距离",
   return_by: "最晚到家",
@@ -150,6 +152,10 @@ function displayAssumption(assumption: Assumption): string {
   if (assumption.field === "max_distance_km") return `${assumption.value} km 内`;
   if (assumption.field === "total_distance_km") return `全程 ${assumption.value} km 内`;
   if (assumption.field === "return_by") return `${assumption.value} 前到家`;
+  if (assumption.field === "exact_stop_count") return `只安排 ${assumption.value} 站`;
+  if (assumption.field === "required_stop_roles" && Array.isArray(assumption.value)) {
+    return assumption.value.map((role) => ({ dinner: "晚餐", lunch: "午餐", meal: "餐饮", activity: "活动", break: "休息" }[String(role)] ?? String(role))).join("、");
+  }
   if (assumption.field === "time_window" && typeof assumption.value === "object") {
     const value = assumption.value as { start?: string; end?: string };
     return `${value.start ?? ""}-${value.end ?? ""}`;
@@ -634,7 +640,7 @@ function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelect
   const weather = response.provider_facts.find((fact): fact is Extract<ProviderFact, { kind: "weather" }> => fact.kind === "weather");
   const departureAt = departureConstraint(response);
   const returnConstraint = latestReturnConstraint(response);
-  const shownConstraints = response.constraint_summary.filter((item) => ["budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
+  const shownConstraints = response.constraint_summary.filter((item) => ["exact_stop_count", "required_stop_roles", "budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
   const headingId = `plan-heading-${response.plans[0]?.plan_id ?? "reply"}`;
   return (
     <section className="rich-planning-reply" aria-labelledby={headingId}>

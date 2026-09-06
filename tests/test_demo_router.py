@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 
 from app.domain.constraints import Intent
+from app.domain.constraints import StopRole
 from app.services.demo_router import DemoRouter
 from app.services.router_extractor import RouterContext
 
@@ -67,6 +68,22 @@ class DemoRouterTest(unittest.TestCase):
 
         self.assertEqual(result.raw_constraints.return_by_text, "最晚十八点回家")
         self.assertIsNone(result.raw_constraints.return_by)
+
+    def test_extracts_dinner_only_structure_with_evidence(self) -> None:
+        for text in ("明天只安排一家晚饭", "明天就吃个晚饭"):
+            result = self.router.interpret(text, self.context)
+
+            self.assertEqual(result.raw_constraints.exact_stop_count, 1)
+            self.assertEqual(result.raw_constraints.required_stop_roles, (StopRole.DINNER,))
+            self.assertTrue(result.evidence_map["exact_stop_count"])
+            self.assertIn("晚", result.evidence_map["required_stop_roles"])
+
+    def test_dinner_words_without_exclusivity_do_not_become_dinner_only(self) -> None:
+        for text in ("想吃晚饭", "安排活动和晚饭", "晚饭后散散步", "先逛展再吃晚饭"):
+            result = self.router.interpret(text, self.context)
+
+            self.assertIsNone(result.raw_constraints.exact_stop_count)
+            self.assertEqual(result.raw_constraints.required_stop_roles, ())
 
 
 if __name__ == "__main__":

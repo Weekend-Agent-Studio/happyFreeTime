@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.domain.constraints import Intent, Interpretation, RawConstraints
+from app.domain.constraints import Intent, Interpretation, RawConstraints, StopRole
 from app.services.router_extractor import RouterContext
 
 
@@ -44,6 +44,12 @@ class DemoRouter:
             r"\s*(?:准时\s*)?(?:出发|离开)",
             text,
         )
+        dinner_match = re.search(r"晚饭|晚餐", text)
+        exclusive_match = re.search(
+            r"只(?:安排|去|吃)|仅(?:安排|去|吃)|就吃(?:个|一顿)?",
+            text,
+        )
+        dinner_only = dinner_match is not None and exclusive_match is not None
         party_evidence = "约会" if "约会" in text else None
         party_size = 2 if party_evidence else None
         preferences = [
@@ -101,6 +107,8 @@ class DemoRouter:
             date_text=date_text,
             time_text=time_text,
             departure_at_text=(departure_match.group(0) if departure_match else None),
+            exact_stop_count=1 if dinner_only else None,
+            required_stop_roles=(StopRole.DINNER,) if dinner_only else (),
             adults=party_size,
             budget_text=budget_match.group(0) if budget_match else None,
             budget_per_person=int(budget_match.group(1)) if budget_match else None,
@@ -124,6 +132,8 @@ class DemoRouter:
                 "date_text": date_text,
                 "time_text": time_text,
                 "departure_at_text": departure_match.group(0) if departure_match else None,
+                "exact_stop_count": exclusive_match.group(0) if dinner_only else None,
+                "required_stop_roles": dinner_match.group(0) if dinner_only else None,
                 "budget_per_person": budget_match.group(0) if budget_match else None,
                 "max_distance_text": distance_text,
                 "party": party_evidence,

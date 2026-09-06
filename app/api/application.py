@@ -343,6 +343,8 @@ def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
         "date",
         "time_window",
         "departure_at",
+        "exact_stop_count",
+        "required_stop_roles",
         "duration_minutes",
         "location",
         "party",

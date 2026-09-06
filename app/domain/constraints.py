@@ -47,6 +47,16 @@ class ConstraintSource(str, Enum):
     DEFAULT_RULE = "default_rule"
 
 
+class StopRole(str, Enum):
+    """A semantic purpose fulfilled by one concrete itinerary stop."""
+
+    ACTIVITY = "activity"
+    MEAL = "meal"
+    LUNCH = "lunch"
+    DINNER = "dinner"
+    BREAK = "break"
+
+
 class ActorContext(BaseModel):
     """一次 Graph 调用的调用者上下文，不承载用户本轮的自然语言需求。"""
     model_config = ConfigDict(extra="forbid")
@@ -95,6 +105,8 @@ class RawConstraints(BaseModel):
     time_text: str | None = None
     departure_at_text: str | None = None
     departure_at: str | None = None
+    exact_stop_count: int | None = Field(default=None, ge=1, le=4)
+    required_stop_roles: tuple[StopRole, ...] = ()
     duration_minutes: int | None = Field(default=None, gt=0)
     location_text: str | None = None
     adults: int | None = Field(default=None, ge=0)
@@ -213,6 +225,8 @@ class NormalizedConstraints(BaseModel):
     avoid: list[str] = Field(default_factory=list)
     strict_budget: bool = False
     departure_at: ConstraintValue[str] | None = None
+    exact_stop_count: ConstraintValue[int] | None = None
+    required_stop_roles: ConstraintValue[tuple[StopRole, ...]] | None = None
     return_by: ConstraintValue[str] | None = None
     total_distance_km: ConstraintValue[float] | None = None
 

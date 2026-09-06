@@ -1,5 +1,24 @@
 [
   {
+    "case_id": "dinner_only_returns_one_restaurant_and_home",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "exact_stop_count": 1,
+      "required_stop_roles": ["dinner"],
+      "return_by_text": "最晚22:00到家",
+      "return_by": "22:00"
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "expected_stop_count": 1,
+      "required_roles": ["dinner"],
+      "forbidden_roles": ["activity"],
+      "return_to_origin": true,
+      "latest_return_time": "22:00"
+    },
+    "tags": ["planning", "dinner_only", "hard_constraint"]
+  },
+  {
     "case_id": "default_weekend_plan",
     "intent": "plan_outing",
     "raw_constraints": {},

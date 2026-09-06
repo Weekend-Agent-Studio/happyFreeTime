@@ -29,7 +29,9 @@ from app.services.catalog import InMemoryCatalog
 from app.services.planning import (
     PlanningService,
     _apply_dynamic_strategies,
+    _build_planning_intent,
     _diversify_plans,
+    _select_plan_skeletons,
 )
 from app.services.plan_verifier import PlanVerifier
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
@@ -93,6 +95,131 @@ class RainyWeatherProvider:
 
 
 class NativePlanningBehaviorTest(unittest.TestCase):
+    @staticmethod
+    def _dinner_only_constraints(*, return_by: bool = False, strict_budget: bool = False) -> NormalizedConstraints:
+        base = planning_constraints(budget=150, time_end="22:00").model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="18:00", end="22:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+                "exact_stop_count": ConstraintValue[int](
+                    value=1,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="只安排一家",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.DINNER,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="晚饭",
+                ),
+                "strict_budget": strict_budget,
+            }
+        )
+        if not return_by:
+            return base
+        return base.model_copy(
+            update={
+                "return_by": ConstraintValue[str](
+                    value="22:00", source=ConstraintSource.USER_EXPLICIT
+                )
+            }
+        )
+
+    def test_dinner_only_intent_and_skeleton_do_not_leak_into_default_requests(self) -> None:
+        dinner_constraints = self._dinner_only_constraints()
+        dinner_intent = _build_planning_intent(dinner_constraints)
+        default_intent = _build_planning_intent(planning_constraints(time_end="22:00"))
+
+        self.assertEqual(dinner_intent.required_roles, (StopRole.DINNER,))
+        self.assertEqual(dinner_intent.optional_roles, ())
+        self.assertEqual((dinner_intent.minimum_stops, dinner_intent.maximum_stops), (1, 1))
+        self.assertEqual(
+            [item.skeleton_id for item in _select_plan_skeletons(dinner_constraints, dinner_intent)],
+            ["dinner-only-v1"],
+        )
+        self.assertIn(StopRole.ACTIVITY, default_intent.required_roles)
+        self.assertGreaterEqual(default_intent.minimum_stops, 2)
+        self.assertNotIn(
+            "dinner-only-v1",
+            {item.skeleton_id for item in _select_plan_skeletons(planning_constraints(time_end="22:00"), default_intent)},
+        )
+
+    def test_dinner_only_returns_only_restaurant_stops_and_optional_return(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"]),
+                candidate("dinner-a", ResourceType.RESTAURANT, "晚餐 A", ["餐厅"], duration_minutes=60),
+                candidate("dinner-b", ResourceType.RESTAURANT, "晚餐 B", ["餐厅"], duration_minutes=60),
+            ]
+        )
+        route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
+        result = PlanningService(catalog=catalog, route_provider=route_provider).plan(
+            self._dinner_only_constraints()
+        )
+        returning = PlanningService(catalog=catalog, route_provider=route_provider).plan(
+            self._dinner_only_constraints(return_by=True)
+        )
+
+        self.assertGreaterEqual(len(result.plans), 2)
+        self.assertEqual({plan.skeleton_id for plan in result.plans}, {"dinner-only-v1"})
+        self.assertEqual({len(plan.stops) for plan in result.plans}, {1})
+        self.assertTrue(all(plan.stops[0].role == StopRole.DINNER for plan in result.plans))
+        self.assertTrue(all(plan.stops[0].type.value == "restaurant" for plan in result.plans))
+        self.assertEqual({len(plan.route_legs) for plan in result.plans}, {1})
+        self.assertEqual({plan.stops[0].resource_id for plan in result.plans}, {"dinner-a", "dinner-b"})
+        self.assertTrue(returning.plans)
+        self.assertEqual({len(plan.route_legs) for plan in returning.plans}, {2})
+        self.assertTrue(all(plan.route_legs[-1].destination_name == "出发地" for plan in returning.plans))
+        self.assertTrue(all(plan.route_legs[-1].end <= "22:00" for plan in returning.plans))
+
+    def test_dinner_only_does_not_fallback_and_reports_structure_when_impossible(self) -> None:
+        activity_only = InMemoryCatalog([candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"])])
+        over_budget = InMemoryCatalog([
+            candidate("dinner", ResourceType.RESTAURANT, "昂贵晚餐", ["餐厅"], avg_price=300)
+        ])
+        unavailable = InMemoryCatalog([
+            candidate("dinner", ResourceType.RESTAURANT, "已订满晚餐", ["餐厅"])
+        ])
+
+        missing = PlanningService(catalog=activity_only).plan(self._dinner_only_constraints())
+        budget = PlanningService(catalog=over_budget).plan(
+            self._dinner_only_constraints(strict_budget=True)
+        )
+        unavailable_result = PlanningService(
+            catalog=unavailable,
+            availability_provider=MockAvailabilityProvider(
+                statuses={"dinner": AvailabilityStatus.UNAVAILABLE}
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(self._dinner_only_constraints())
+
+        self.assertEqual(missing.plans, [])
+        self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(missing.conflict.fields))
+        self.assertEqual(budget.plans, [])
+        self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(budget.conflict.fields))
+        self.assertEqual(unavailable_result.plans, [])
+        self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(unavailable_result.conflict.fields))
+
+    def test_dinner_only_still_rejects_off_anchor_and_closed_restaurants(self) -> None:
+        off_anchor = self._dinner_only_constraints().model_copy(
+            update={"time_window": ConstraintValue[TimeWindow](value=TimeWindow(start="14:00", end="16:00"), source=ConstraintSource.USER_EXPLICIT)}
+        )
+        closed = InMemoryCatalog([
+            candidate("dinner", ResourceType.RESTAURANT, "午间餐厅", ["餐厅"], open_hours={"sat": "11:00-14:00"})
+        ])
+        restaurant = InMemoryCatalog([
+            candidate("dinner", ResourceType.RESTAURANT, "晚餐", ["餐厅"])
+        ])
+
+        off_anchor_result = PlanningService(catalog=restaurant, route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1)).plan(off_anchor)
+        closed_result = PlanningService(catalog=closed, route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1)).plan(self._dinner_only_constraints())
+
+        self.assertEqual(off_anchor_result.plans, [])
+        self.assertIn("meal_window", off_anchor_result.conflict.fields)
+        self.assertEqual(closed_result.plans, [])
+        self.assertIn("opening_hours", closed_result.conflict.fields)
+
     def test_exact_departure_drives_local_timeline_and_route_requests(self) -> None:
         route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
         constraints = planning_constraints(budget=1_000, time_end="18:00").model_copy(

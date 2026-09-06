@@ -70,6 +70,9 @@ class ExpectedPlanFacts(BaseModel):
     required_warning_codes: list[str] = Field(default_factory=list)
     excluded_resource_ids: list[str] = Field(default_factory=list)
     required_resource_ids: list[str] = Field(default_factory=list)
+    expected_stop_count: int | None = Field(default=None, ge=1, le=4)
+    required_roles: list[str] = Field(default_factory=list)
+    forbidden_roles: list[str] = Field(default_factory=list)
 
 
 class EvalCase(BaseModel):

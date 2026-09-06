@@ -159,6 +159,37 @@ describe("planning workspace", () => {
     expect(screen.getAllByText("14:30").length).toBeGreaterThan(0);
   });
 
+  it("renders a dinner-only plan with one place, inbound route, and return route", async () => {
+    const user = userEvent.setup();
+    const dinnerOnly = plan("dinner-only", "晚餐 A");
+    dinnerOnly.skeleton_id = "dinner-only-v1";
+    dinnerOnly.stops = [{
+      resource_id: "dinner-only-dinner", type: "restaurant", role: "dinner", name: "晚餐 A", start: "18:20", end: "19:20", duration_minutes: 60, price: 120, price_kind: "known", category_tags: ["餐厅"], image: null, source,
+    }];
+    dinnerOnly.route_legs = [
+      { origin_name: "出发地", destination_name: "晚餐 A", start: "18:00", end: "18:20", mode: "taxi", distance_km: 2, duration_minutes: 20, source: "replay", provider_mode: "replay", verified_at: null, cache_age_seconds: null, geometry: [], degraded: false, degraded_reason: null },
+      { origin_name: "晚餐 A", destination_name: "出发地", start: "19:20", end: "19:40", mode: "taxi", distance_km: 2, duration_minutes: 20, source: "replay", provider_mode: "replay", verified_at: null, cache_age_seconds: null, geometry: [], degraded: false, degraded_reason: null },
+    ];
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      plans: [dinnerOnly],
+      constraint_summary: [
+        { field: "exact_stop_count", value: 1, source: "user_explicit", evidence: "只安排一家", confidence: 1, rule_id: "plan_structure.exact_stop_count.v1", user_editable: true },
+        { field: "required_stop_roles", value: ["dinner"], source: "user_explicit", evidence: "晚饭", confidence: 1, rule_id: "plan_structure.required_roles.v1", user_editable: true },
+      ],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "只安排一家晚饭");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("heading", { name: "晚餐 A", level: 3 })).toBeInTheDocument();
+    expect(screen.getByText("只安排 1 站")).toBeInTheDocument();
+    expect(screen.getByText("晚餐")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /查看下一程/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("展览")).not.toBeInTheDocument();
+  });
+
   it("shows a recoverable error when a provider request fails", async () => {
     const user = userEvent.setup();
     api.listSessions.mockRejectedValue(new Error("历史接口失败"));

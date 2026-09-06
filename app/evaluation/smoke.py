@@ -180,6 +180,13 @@ def _plan_postconditions_hold(
     failures: list[str] = []
     for plan in plans:
         legs = plan.route_legs
+        if expected.expected_stop_count is not None and len(plan.stops) != expected.expected_stop_count:
+            failures.append(f"{plan.plan_id}:stop_count={len(plan.stops)}")
+        actual_roles = {stop.role.value for stop in plan.stops if stop.role is not None}
+        if not set(expected.required_roles).issubset(actual_roles):
+            failures.append(f"{plan.plan_id}:missing_roles={sorted(set(expected.required_roles) - actual_roles)}")
+        if set(expected.forbidden_roles) & actual_roles:
+            failures.append(f"{plan.plan_id}:forbidden_roles={sorted(set(expected.forbidden_roles) & actual_roles)}")
         if expected.return_to_origin is not None:
             actually_returns = bool(legs) and legs[-1].destination_name == "出发地"
             if actually_returns != expected.return_to_origin:

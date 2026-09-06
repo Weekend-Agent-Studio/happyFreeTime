@@ -14,6 +14,7 @@ from app.domain.constraints import (
     Interpretation,
     NormalizedConstraints,
     RawConstraints,
+    StopRole,
 )
 from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext, EnrichmentService
@@ -87,6 +88,31 @@ class EnrichmentServiceTest(unittest.TestCase):
 
         self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "14:30", "end": "18:30"})
         self.assertIn("time_window", {item.field for item in result.assumptions})
+
+    def test_dinner_only_infers_an_evening_window_without_overriding_explicit_time(self) -> None:
+        actor = ActorContext(user_id="demo", session_id="dinner", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+        dinner_only = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(exact_stop_count=1, required_stop_roles=(StopRole.DINNER,)),
+            evidence_map={"exact_stop_count": "只安排一家", "required_stop_roles": "晚饭"},
+        )
+        explicit_afternoon = dinner_only.model_copy(
+            update={"raw_constraints": dinner_only.raw_constraints.model_copy(update={"time_text": "下午"})}
+        )
+
+        inferred = EnrichmentService().enrich(dinner_only, actor, environment).constraints
+        explicit = EnrichmentService().enrich(explicit_afternoon, actor, environment).constraints
+
+        self.assertEqual(inferred.time_window.value.model_dump(), {"start": "18:00", "end": "22:00"})
+        self.assertEqual(inferred.time_window.source, ConstraintSource.USER_INFERRED)
+        self.assertEqual(inferred.exact_stop_count.raw_text, "只安排一家")
+        self.assertEqual(inferred.required_stop_roles.value, (StopRole.DINNER,))
+        self.assertEqual(explicit.time_window.value.model_dump(), {"start": "14:00", "end": "18:00"})
 
     def test_date_party_is_inferred_from_the_user_phrase_not_marked_explicit(self) -> None:
         interpretation = DemoRouter().interpret(

@@ -52,6 +52,10 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
  - “最晚 18:00 到家”要保留 return_by_text，并在时钟明确时填写 return_by；
    “全程不超过 10 公里”要保留 total_distance_text 并填写 total_distance_km。不要把
    全程距离写入 max_distance_km，后者表示单段/召回距离。
+ - 对“只安排一家晚饭”“就吃个晚饭”这类同时表达排他和晚餐的请求，填写
+   exact_stop_count=1、required_stop_roles=["dinner"]；分别在 evidence_map 中保留
+   exact_stop_count 的排他短语和 required_stop_roles 的晚餐短语。没有排他语义时，
+   不要从“想吃晚饭”“晚饭后散步”等表达推断一站行程。
 - 不调用工具，不生成地点、价格、库存、路线等事实。
 - “严格控制预算”“千万别超预算”等表达令 strict_budget=true；只有明确金额才填写 budget_per_person。
 - 有儿童时尽量提取 children 和 child_age；不能确定时保持为空。

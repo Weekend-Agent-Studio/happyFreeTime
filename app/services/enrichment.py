@@ -18,6 +18,7 @@ from app.domain.constraints import (
     Interpretation,
     NormalizedConstraints,
     PartyProfile,
+    StopRole,
     TimeWindow,
 )
 from app.domain.providers import GeocodeRequest, GeocodeResolution, GeocodingFact
@@ -110,6 +111,29 @@ class EnrichmentService:
                 rule_id="return_by.clock.zh_cn.v1",
             )
 
+        exact_stop_count = (
+            ConstraintValue[int](
+                value=raw.exact_stop_count,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=interpretation.evidence_map.get("exact_stop_count"),
+                confidence=self._confidence(interpretation, "exact_stop_count"),
+                rule_id="plan_structure.exact_stop_count.v1",
+            )
+            if raw.exact_stop_count is not None
+            else None
+        )
+        required_stop_roles = (
+            ConstraintValue[tuple[StopRole, ...]](
+                value=raw.required_stop_roles,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=interpretation.evidence_map.get("required_stop_roles"),
+                confidence=self._confidence(interpretation, "required_stop_roles"),
+                rule_id="plan_structure.required_roles.v1",
+            )
+            if raw.required_stop_roles
+            else None
+        )
+
         normalized_time = self._normalize_time_window(raw.time_text)
         time_value = None
         if normalized_time is not None:
@@ -119,6 +143,18 @@ class EnrichmentService:
                 raw_text=raw.time_text,
                 confidence=self._confidence(interpretation, "time_text"),
                 rule_id="time.period.zh_cn.v1",
+            )
+        elif (
+            raw.time_text is None
+            and departure_at is None
+            and StopRole.DINNER in raw.required_stop_roles
+        ):
+            dinner_window = TimeWindow(start="18:00", end="22:00")
+            time_value = ConstraintValue[TimeWindow](
+                value=dinner_window,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=interpretation.evidence_map.get("required_stop_roles"),
+                rule_id="time.dinner_role.zh_cn.v1",
             )
         elif raw.time_text is None and departure_at is not None and return_by is not None:
             time_value = ConstraintValue[TimeWindow](
@@ -308,6 +344,8 @@ class EnrichmentService:
             avoid=raw.avoid,
             strict_budget=raw.strict_budget,
             departure_at=departure_at_value,
+            exact_stop_count=exact_stop_count,
+            required_stop_roles=required_stop_roles,
             return_by=return_by_value,
             total_distance_km=total_distance,
         )
