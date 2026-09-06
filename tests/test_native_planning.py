@@ -93,6 +93,70 @@ class RainyWeatherProvider:
 
 
 class NativePlanningBehaviorTest(unittest.TestCase):
+    def test_exact_departure_drives_local_timeline_and_route_requests(self) -> None:
+        route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
+        constraints = planning_constraints(budget=1_000, time_end="18:00").model_copy(
+            update={
+                "departure_at": ConstraintValue[str](
+                    value="14:30", source=ConstraintSource.USER_EXPLICIT
+                ),
+                "return_by": ConstraintValue[str](
+                    value="18:00", source=ConstraintSource.USER_EXPLICIT
+                ),
+            }
+        )
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [
+                    candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"], duration_minutes=30),
+                    candidate("meal", ResourceType.RESTAURANT, "晚餐", ["餐厅"], duration_minutes=30),
+                ]
+            ),
+            route_provider=route_provider,
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        first = result.plans[0]
+        self.assertEqual(first.route_legs[0].start, "14:30")
+        self.assertEqual(first.stops[0].start, "14:40")
+        self.assertEqual(route_provider.requests[0].departure_at.hour, 14)
+        self.assertEqual(route_provider.requests[0].departure_at.minute, 30)
+        self.assertEqual(route_provider.requests[0].departure_at.date(), constraints.date.value)
+        self.assertLessEqual(first.route_legs[-1].end, "18:00")
+
+    def test_invalid_departure_conflict_skips_route_provider(self) -> None:
+        route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
+        constraints = planning_constraints(budget=1_000, time_end="18:00").model_copy(
+            update={
+                "departure_at": ConstraintValue[str](
+                    value="17:30", source=ConstraintSource.USER_EXPLICIT
+                ),
+                "return_by": ConstraintValue[str](
+                    value="17:00", source=ConstraintSource.USER_EXPLICIT
+                ),
+            }
+        )
+        result = PlanningService(route_provider=route_provider).plan(constraints)
+
+        self.assertEqual(result.conflict.code, "DEPARTURE_NOT_BEFORE_RETURN_BY")
+        self.assertEqual(result.conflict.fields, ["departure_at", "return_by"])
+        self.assertEqual(route_provider.requests, [])
+
+    def test_departure_outside_explicit_window_skips_route_provider(self) -> None:
+        route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
+        constraints = planning_constraints(budget=1_000, time_end="18:00").model_copy(
+            update={
+                "departure_at": ConstraintValue[str](
+                    value="13:30", source=ConstraintSource.USER_EXPLICIT
+                ),
+            }
+        )
+        result = PlanningService(route_provider=route_provider).plan(constraints)
+
+        self.assertEqual(result.conflict.code, "DEPARTURE_OUTSIDE_TIME_WINDOW")
+        self.assertEqual(result.conflict.fields, ["departure_at", "time_window"])
+        self.assertEqual(route_provider.requests, [])
+
     def test_verified_unavailable_stop_is_locally_replaced_without_changing_other_stop(self) -> None:
         catalog = InMemoryCatalog(
             [

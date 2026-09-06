@@ -63,6 +63,7 @@ const SUGGESTIONS = [
 const ASSUMPTION_LABELS: Record<string, string> = {
   date: "日期",
   time_window: "时间",
+  departure_at: "准时出发",
   max_distance_km: "距离",
   total_distance_km: "全程距离",
   return_by: "最晚到家",
@@ -266,6 +267,10 @@ function planWarning(response: AgentResponse, plan: Plan): PlanWarning | null {
 
 function latestReturnConstraint(response: AgentResponse): ConstraintSummaryItem | null {
   return response.constraint_summary.find((item) => item.field === "return_by" && item.source !== "default_rule") ?? null;
+}
+
+function departureConstraint(response: AgentResponse): ConstraintSummaryItem | null {
+  return response.constraint_summary.find((item) => item.field === "departure_at") ?? null;
 }
 
 function planRationale(plan: Plan): string[] {
@@ -627,6 +632,7 @@ function ThinkingRow() {
 
 function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelectPlan, onOpenInspector, onOpenRoute }: { response: AgentResponse; selectedPlan?: Plan; showMobileDetails: boolean; onSelectPlan: (planId: string) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
   const weather = response.provider_facts.find((fact): fact is Extract<ProviderFact, { kind: "weather" }> => fact.kind === "weather");
+  const departureAt = departureConstraint(response);
   const returnConstraint = latestReturnConstraint(response);
   const shownConstraints = response.constraint_summary.filter((item) => ["budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
   const headingId = `plan-heading-${response.plans[0]?.plan_id ?? "reply"}`;
@@ -636,9 +642,10 @@ function RichPlanningReply({ response, selectedPlan, showMobileDetails, onSelect
         <div className="planning-progress" aria-label="规划完成步骤"><span><CheckCircle2 size={14} />解析需求</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />查询路线与景点</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />评估与排序</span></div>
         <div className="plan-intro"><div><h2 id={headingId}>我整理了 {response.plans.length} 个都可行的方案</h2><p>重要信息放在同一位置，先看路线和取舍，再选一个展开。</p></div><span>{response.plans.length} 个候选</span></div>
         {response.poi_presentations.length ? <p className="demo-data-notice"><Database size={14} />POI 商业信息为模拟数据；路线来源和降级状态见各路线段。</p> : null}
-        {(weather || returnConstraint || shownConstraints.length) ? (
+        {(weather || departureAt || returnConstraint || shownConstraints.length) ? (
           <div className="shared-context" aria-label="本次规划的共享信息">
             {weather ? <span><CloudSun size={18} /><strong>预计天气</strong>{weather.condition}{weather.temperature_c !== null ? ` · ${weather.temperature_c}℃` : ""}{weather.is_adverse ? " · 需留意" : ""}</span> : null}
+            {departureAt ? <span><Clock3 size={18} /><strong>准时出发</strong>{displayConstraint(departureAt)}</span> : null}
             {returnConstraint ? <span><Clock3 size={18} /><strong>返程约束</strong>{displayConstraint(returnConstraint)} · 已纳入规划</span> : null}
             {shownConstraints.map((item) => <span key={item.field} title={constraintSourceLabel(item)}><Info size={17} /><strong>{ASSUMPTION_LABELS[item.field] ?? item.field}</strong>{displayConstraint(item)}</span>)}
           </div>

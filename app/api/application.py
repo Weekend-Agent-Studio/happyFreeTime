@@ -342,6 +342,7 @@ def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
     for field in (
         "date",
         "time_window",
+        "departure_at",
         "duration_minutes",
         "location",
         "party",

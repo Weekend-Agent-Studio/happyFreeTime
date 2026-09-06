@@ -69,6 +69,14 @@ class NeedQuestionGate:
                 severity="blocking",
             )
 
+        if (raw.departure_at_text or raw.departure_at) and constraints.departure_at is None:
+            return QuestionDecision(
+                need_question=True,
+                field="departure_at",
+                question="你希望几点准时出发？请用例如 14:30 出发的时间告诉我。",
+                severity="blocking",
+            )
+
         if raw.location_text and constraints.location is None:
             return QuestionDecision(
                 need_question=True,

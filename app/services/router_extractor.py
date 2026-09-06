@@ -47,6 +47,8 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 约束：
 - 未明确表达的信息保持为空，不填系统默认值。
  - 不解析相对日期、模糊时间和模糊距离，只保留 date_text、time_text、max_distance_text。
+ - “下午两点半准时出发”要保留 departure_at_text；不要把中文时钟规范化，
+   也不要把到家时间写成出发时间。时钟规范化由 Enrichment 完成。
  - “最晚 18:00 到家”要保留 return_by_text，并在时钟明确时填写 return_by；
    “全程不超过 10 公里”要保留 total_distance_text 并填写 total_distance_km。不要把
    全程距离写入 max_distance_km，后者表示单段/召回距离。

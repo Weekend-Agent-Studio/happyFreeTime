@@ -39,6 +39,11 @@ class DemoRouter:
             (phrase for phrase in ("上午", "中午", "下午", "晚上") if phrase in text),
             None,
         )
+        departure_match = re.search(
+            r"(?:(?:上午|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
+            r"\s*(?:准时\s*)?(?:出发|离开)",
+            text,
+        )
         party_evidence = "约会" if "约会" in text else None
         party_size = 2 if party_evidence else None
         preferences = [
@@ -55,12 +60,16 @@ class DemoRouter:
             phrase in text for phrase in ("别超预算", "严格预算", "不能超预算")
         )
         return_by_text_match = re.search(
-            r"(?:最晚|最迟|不晚于|在).{0,12}?(?:到家|回家|回来)",
+            r"(?:最晚|最迟|不晚于|在).{0,12}?(?:到家|回家|回来)"
+            r"|\d{1,2}[:：]\d{2}\s*(?:前|之前)\s*(?:到家|回家|回来)",
             text,
         )
         return_by_match = re.search(
             r"(?:最晚|最迟|不晚于|在)\s*(\d{1,2})[:：](\d{2})"
             r"\s*(?:点|点钟)?\s*(?:前|之前)?\s*(?:到家|回家|回来)",
+            text,
+        ) or re.search(
+            r"(\d{1,2})[:：](\d{2})\s*(?:前|之前)\s*(?:到家|回家|回来)",
             text,
         )
         # Graph 恢复时会把原请求和答案拼接。裸 ``18:00`` 只有在原请求
@@ -91,6 +100,7 @@ class DemoRouter:
         raw = RawConstraints(
             date_text=date_text,
             time_text=time_text,
+            departure_at_text=(departure_match.group(0) if departure_match else None),
             adults=party_size,
             budget_text=budget_match.group(0) if budget_match else None,
             budget_per_person=int(budget_match.group(1)) if budget_match else None,
@@ -113,6 +123,7 @@ class DemoRouter:
             for field, value in {
                 "date_text": date_text,
                 "time_text": time_text,
+                "departure_at_text": departure_match.group(0) if departure_match else None,
                 "budget_per_person": budget_match.group(0) if budget_match else None,
                 "max_distance_text": distance_text,
                 "party": party_evidence,

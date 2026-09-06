@@ -40,6 +40,16 @@ class DemoRouterTest(unittest.TestCase):
         self.assertEqual(result.raw_constraints.return_by, "18:00")
         self.assertIsNotNone(result.raw_constraints.return_by_text)
 
+    def test_keeps_departure_evidence_separate_from_return_deadline(self) -> None:
+        result = self.router.interpret(
+            "明天下午两点半准时出发，18:00 前回家",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.departure_at_text, "下午两点半准时出发")
+        self.assertIsNone(result.raw_constraints.departure_at)
+        self.assertEqual(result.raw_constraints.return_by, "18:00")
+
     def test_extracts_total_distance_with_its_original_evidence(self) -> None:
         result = self.router.interpret(
             "今天下午出去玩，全程不超过10公里",

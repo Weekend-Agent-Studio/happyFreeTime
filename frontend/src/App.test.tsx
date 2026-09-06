@@ -143,6 +143,22 @@ describe("planning workspace", () => {
     expect(screen.queryByRole("button", { name: /查看返程/ })).not.toBeInTheDocument();
   });
 
+  it("shows an exact departure constraint in the shared plan context", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      constraint_summary: [{
+        field: "departure_at", value: "14:30", source: "user_explicit", evidence: "下午两点半准时出发", confidence: 1, rule_id: "departure_at.clock.zh_cn.v1", user_editable: true,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "明天下午两点半准时出发");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByText("准时出发")).toBeInTheDocument();
+    expect(screen.getAllByText("14:30").length).toBeGreaterThan(0);
+  });
+
   it("shows a recoverable error when a provider request fails", async () => {
     const user = userEvent.setup();
     api.listSessions.mockRejectedValue(new Error("历史接口失败"));

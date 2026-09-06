@@ -20,7 +20,11 @@ from app.domain.providers import (
 )
 from app.providers.availability import MockAvailabilityProvider
 from app.providers.geocoding import MockGeocodingProvider
-from app.providers.weather import InMemoryWeatherReplayStore, ReplayWeatherProvider
+from app.providers.weather import (
+    InMemoryWeatherReplayStore,
+    ReplayWeatherProvider,
+    clear_mock_weather,
+)
 from app.services.enrichment import EnvironmentContext
 from app.services.catalog import InMemoryCatalog
 from app.services.router_extractor import RouterContext
@@ -30,6 +34,17 @@ from app.domain.catalog import ResourceType
 
 class RuleRouter:
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        if "两点半准时出发" in user_input:
+            return Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(
+                    date_text="明天",
+                    time_text="下午",
+                    departure_at_text="下午两点半准时出发",
+                    return_by_text="18:00 前回家",
+                ),
+            )
         if "约会" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
@@ -163,6 +178,15 @@ class ApiTest(unittest.TestCase):
                 date=date(2026, 8, 15),
             ),
             rainy_fact,
+        )
+        replay_store.save(
+            WeatherRequest(
+                city="北京市",
+                district="朝阳区",
+                adcode="110105",
+                date=date(2026, 8, 16),
+            ),
+            rainy_fact.model_copy(update={"date": date(2026, 8, 16)}),
         )
         app = create_app(
             database_path=Path(self.temp_dir.name) / "api.db",
@@ -406,6 +430,61 @@ class ApiTest(unittest.TestCase):
         self.assertIn("updated_at", restored)
         self.assertTrue(all("created_at" in message for message in restored["messages"]))
         self.assertEqual(second_read.json()["data"], restored)
+
+    def test_exact_departure_is_planned_and_persisted(self) -> None:
+        app = create_app(
+            database_path=Path(self.temp_dir.name) / "exact-departure-e2e.db",
+            router=RuleRouter(),
+            environment_provider=lambda _: EnvironmentContext(
+                now=datetime(2026, 8, 15, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+                default_location=GeoLocation(
+                    city="北京市",
+                    district="朝阳区",
+                    address="北京市朝阳区",
+                    latitude=39.9219,
+                    longitude=116.4436,
+                ),
+            ),
+            weather_provider=clear_mock_weather(
+                now=datetime(2026, 8, 16, 8, 0, tzinfo=timezone.utc)
+            ),
+            route_provider=FixedReplayRouteProvider(),
+            catalog=InMemoryCatalog(
+                [
+                    candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"], duration_minutes=30),
+                    candidate("meal", ResourceType.RESTAURANT, "晚餐", ["餐厅"], duration_minutes=30),
+                ]
+            ),
+        )
+        with TestClient(app) as client:
+            session = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            response = client.post(
+                f"/api/sessions/{session}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "exact-departure-e2e",
+                    "content": "明天下午两点半准时出发，18:00 前回家",
+                },
+            )
+            restored = client.get(f"/api/sessions/{session}", headers=self.headers)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()["data"]
+        fields = {item["field"]: item for item in body["constraint_summary"]}
+        self.assertEqual(fields["departure_at"]["value"], "14:30")
+        self.assertTrue(body["plans"])
+        first_plan = body["plans"][0]
+        self.assertEqual(first_plan["route_legs"][0]["start"], "14:30")
+        self.assertLessEqual(first_plan["route_legs"][-1]["end"], "18:00")
+
+        self.assertEqual(restored.status_code, 200, restored.text)
+        snapshot = restored.json()["data"]
+        restored_fields = {
+            item["field"]: item
+            for item in snapshot["latest_response"]["constraint_summary"]
+        }
+        self.assertEqual(restored_fields["departure_at"]["value"], "14:30")
+        self.assertEqual(snapshot["plans"], body["plans"])
 
     def test_get_session_restores_every_completed_planning_response(self) -> None:
         session_id = self._create_session()

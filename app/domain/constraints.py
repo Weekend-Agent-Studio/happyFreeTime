@@ -93,6 +93,8 @@ class RawConstraints(BaseModel):
 
     date_text: str | None = None
     time_text: str | None = None
+    departure_at_text: str | None = None
+    departure_at: str | None = None
     duration_minutes: int | None = Field(default=None, gt=0)
     location_text: str | None = None
     adults: int | None = Field(default=None, ge=0)
@@ -112,6 +114,11 @@ class RawConstraints(BaseModel):
     return_by: str | None = None
     total_distance_text: str | None = None
     total_distance_km: float | None = Field(default=None, gt=0)
+
+    @field_validator("departure_at")
+    @classmethod
+    def validate_departure_at(cls, value: str | None) -> str | None:
+        return _canonical_clock(value, field_name="departure_at")
 
 
 class Interpretation(BaseModel):
@@ -205,25 +212,34 @@ class NormalizedConstraints(BaseModel):
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
     strict_budget: bool = False
+    departure_at: ConstraintValue[str] | None = None
     return_by: ConstraintValue[str] | None = None
     total_distance_km: ConstraintValue[float] | None = None
 
-    @field_validator("return_by")
+    @field_validator("departure_at", "return_by")
     @classmethod
-    def validate_return_by(cls, value: ConstraintValue[str] | None) -> ConstraintValue[str] | None:
-        """Planner only receives a canonical same-day clock deadline."""
+    def validate_clock_constraint(cls, value: ConstraintValue[str] | None) -> ConstraintValue[str] | None:
+        """Planner only receives canonical same-day clock constraints."""
         if value is None:
             return None
-        parts = value.value.split(":")
-        if len(parts) != 2:
-            raise ValueError("return_by must use HH:MM")
-        try:
-            hour, minute = (int(part) for part in parts)
-        except ValueError as error:
-            raise ValueError("return_by must use HH:MM") from error
-        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-            raise ValueError("return_by must be a valid 24-hour clock value")
-        return value.model_copy(update={"value": f"{hour:02d}:{minute:02d}"})
+        return value.model_copy(
+            update={"value": _canonical_clock(value.value, field_name="clock")}
+        )
+
+
+def _canonical_clock(value: str | None, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise ValueError(f"{field_name} must use HH:MM")
+    try:
+        hour, minute = (int(part) for part in parts)
+    except ValueError as error:
+        raise ValueError(f"{field_name} must use HH:MM") from error
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError(f"{field_name} must be a valid 24-hour clock value")
+    return f"{hour:02d}:{minute:02d}"
 
 
 class Assumption(BaseModel):

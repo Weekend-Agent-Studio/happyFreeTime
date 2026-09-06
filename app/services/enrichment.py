@@ -41,6 +41,7 @@ class EnrichmentService:
 
     DEFAULT_BUDGET = 120
     DEFAULT_DISTANCE_KM = 8.0
+    DEFAULT_OUTING_MINUTES = 4 * 60
 
     def __init__(self, geocoding_provider: GeocodingProvider | None = None) -> None:
         self._geocoding_provider = geocoding_provider
@@ -82,6 +83,33 @@ class EnrichmentService:
                 )
             )
 
+        departure_at = self._normalize_departure_at(
+            raw.departure_at_text,
+            raw.departure_at,
+        )
+        departure_at_value = (
+            ConstraintValue[str](
+                value=departure_at,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=raw.departure_at_text,
+                confidence=self._confidence(interpretation, "departure_at_text"),
+                rule_id="departure_at.clock.zh_cn.v1",
+            )
+            if departure_at is not None
+            else None
+        )
+
+        return_by = self._normalize_return_by(raw.return_by_text, raw.return_by)
+        return_by_value = None
+        if return_by is not None:
+            return_by_value = ConstraintValue[str](
+                value=return_by,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=raw.return_by_text,
+                confidence=self._confidence(interpretation, "return_by_text"),
+                rule_id="return_by.clock.zh_cn.v1",
+            )
+
         normalized_time = self._normalize_time_window(raw.time_text)
         time_value = None
         if normalized_time is not None:
@@ -92,6 +120,34 @@ class EnrichmentService:
                 confidence=self._confidence(interpretation, "time_text"),
                 rule_id="time.period.zh_cn.v1",
             )
+        elif raw.time_text is None and departure_at is not None and return_by is not None:
+            time_value = ConstraintValue[TimeWindow](
+                value=TimeWindow(start=departure_at, end=return_by),
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=raw.departure_at_text,
+                rule_id="time.window.from_departure_return.v1",
+            )
+        elif raw.time_text is None and departure_at is not None:
+            default_end = self._add_minutes_to_clock(
+                departure_at,
+                self.DEFAULT_OUTING_MINUTES,
+            )
+            if default_end is not None:
+                default_time = TimeWindow(start=departure_at, end=default_end)
+                time_value = ConstraintValue[TimeWindow](
+                    value=default_time,
+                    source=ConstraintSource.DEFAULT_RULE,
+                    raw_text=raw.departure_at_text,
+                    rule_id="time.default.from_departure.v1",
+                )
+                assumptions.append(
+                    Assumption(
+                        field="time_window",
+                        value=default_time.model_dump(),
+                        reason="已按你指定的出发时刻，采用默认 4 小时行程窗口",
+                        rule_id="time.default.from_departure.v1",
+                    )
+                )
         elif raw.time_text is None:
             default_time = TimeWindow(start="14:00", end="18:00")
             time_value = ConstraintValue[TimeWindow](
@@ -119,17 +175,6 @@ class EnrichmentService:
                     reason="用户未指定距离，使用北京城区默认搜索半径",
                     rule_id=distance.rule_id or "distance.default.beijing.v1",
                 )
-            )
-
-        return_by = self._normalize_return_by(raw.return_by_text, raw.return_by)
-        return_by_value = None
-        if return_by is not None:
-            return_by_value = ConstraintValue[str](
-                value=return_by,
-                source=ConstraintSource.USER_INFERRED,
-                raw_text=raw.return_by_text,
-                confidence=self._confidence(interpretation, "return_by_text"),
-                rule_id="return_by.clock.zh_cn.v1",
             )
 
         total_distance = None
@@ -262,6 +307,7 @@ class EnrichmentService:
             scene_tags=raw.scene_tags,
             avoid=raw.avoid,
             strict_budget=raw.strict_budget,
+            departure_at=departure_at_value,
             return_by=return_by_value,
             total_distance_km=total_distance,
         )
@@ -368,6 +414,82 @@ class EnrichmentService:
         if not 0 <= hour <= 23 or not 0 <= minute <= 59:
             return None
         return f"{hour:02d}:{minute:02d}"
+
+    @classmethod
+    def _normalize_departure_at(
+        cls,
+        departure_at_text: str | None,
+        explicit: str | None,
+    ) -> str | None:
+        """Parse only controlled, explicit departure-clock expressions to HH:MM."""
+        if explicit is not None:
+            return cls._normalize_clock(explicit)
+        if not departure_at_text:
+            return None
+        text = departure_at_text.strip()
+        if any(marker in text for marker in ("左右", "大约", "约")):
+            return None
+        numeric = re.fullmatch(
+            r"(?:(上午|下午|晚上)\s*)?(\d{1,2})[:：](\d{2})\s*(?:准时\s*)?(?:出发|离开)",
+            text,
+        )
+        if numeric:
+            period, hour_text, minute_text = numeric.groups()
+            return cls._normalize_clock_with_period(period, int(hour_text), int(minute_text))
+        chinese = re.fullmatch(
+            r"(?:(上午|下午|晚上)\s*)?([一二三四五六七八九十两]+)点(半)?\s*(?:准时\s*)?(?:出发|离开)",
+            text,
+        )
+        if not chinese:
+            return None
+        period, hour_text, minute_text = chinese.groups()
+        hour = cls._parse_chinese_hour(hour_text)
+        if hour is None:
+            return None
+        minute = 30 if minute_text == "半" else 0
+        return cls._normalize_clock_with_period(period, hour, minute)
+
+    @staticmethod
+    def _normalize_clock(value: str) -> str | None:
+        match = re.fullmatch(r"(\d{1,2}):(\d{2})", value.strip())
+        if not match:
+            return None
+        hour, minute = (int(part) for part in match.groups())
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            return None
+        return f"{hour:02d}:{minute:02d}"
+
+    @classmethod
+    def _normalize_clock_with_period(
+        cls,
+        period: str | None,
+        hour: int,
+        minute: int,
+    ) -> str | None:
+        if period in {"下午", "晚上"} and 1 <= hour <= 11:
+            hour += 12
+        elif period == "上午" and hour == 12:
+            hour = 0
+        return cls._normalize_clock(f"{hour:02d}:{minute:02d}")
+
+    @staticmethod
+    def _parse_chinese_hour(value: str) -> int | None:
+        digits = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+        if value in digits:
+            return digits[value]
+        if value == "十":
+            return 10
+        if len(value) == 2 and value[0] == "十" and value[1] in digits:
+            return 10 + digits[value[1]]
+        return None
+
+    @staticmethod
+    def _add_minutes_to_clock(value: str, minutes: int) -> str | None:
+        hour, minute = (int(part) for part in value.split(":"))
+        total = hour * 60 + minute + minutes
+        if total >= 24 * 60:
+            return None
+        return f"{total // 60:02d}:{total % 60:02d}"
 
     @classmethod
     def _normalize_distance(

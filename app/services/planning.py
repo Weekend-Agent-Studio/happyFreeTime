@@ -196,6 +196,10 @@ class PlanningService:
         ):
             raise ValueError("planning requires normalized date, time window, and location")
 
+        time_conflict = _planning_time_conflict(constraints)
+        if time_conflict is not None:
+            return CandidateSet(conflict=time_conflict)
+
         location = constraints.location.value
         weather = self._weather_provider.get_weather(
             WeatherRequest(
@@ -409,6 +413,7 @@ class PlanningService:
                     fields=[
                         field
                         for field in (
+                            "departure_at",
                             "time_window",
                             "duration_minutes",
                             "max_distance_km",
@@ -456,6 +461,7 @@ class PlanningService:
         conflict_fields = [
             field
             for field in (
+                "departure_at",
                 "duration_minutes",
                 "time_window",
                 "max_distance_km",
@@ -507,7 +513,7 @@ class PlanningService:
             longitude=location.longitude,
         )
         current_name = "出发地"
-        start_minutes = _time_to_minutes(constraints.time_window.value.start)
+        start_minutes = _planning_start_minutes(constraints)
         current_minutes = start_minutes
         rebuilt_stops: list[Stop] = []
         rebuilt_legs: list[RouteLeg] = []
@@ -1279,7 +1285,7 @@ def _build_local_plan(
     ):
         return None, "total_distance_km"
     if constraints.return_by:
-        start_minutes = _time_to_minutes(window.start)
+        start_minutes = _planning_start_minutes(constraints)
         home_arrival = (
             start_minutes
             + total_duration
@@ -1486,7 +1492,7 @@ def _build_local_plan(
         )
     total_score = round(sum(item.points for item in score_breakdown), 1)
 
-    current_minutes = _time_to_minutes(window.start)
+    current_minutes = _planning_start_minutes(constraints)
     stops: list[Stop] = []
     for role, candidate, distance in zip(
         skeleton.roles,
@@ -1627,7 +1633,7 @@ def _refresh_verified_score(
 
 def _planning_minutes(constraints: NormalizedConstraints) -> tuple[int, int]:
     window = constraints.time_window.value
-    available_minutes = _time_to_minutes(window.end) - _time_to_minutes(window.start)
+    available_minutes = _time_to_minutes(window.end) - _planning_start_minutes(constraints)
     maximum_minutes = min(
         available_minutes,
         (
@@ -1642,6 +1648,44 @@ def _planning_minutes(constraints: NormalizedConstraints) -> tuple[int, int]:
         else max(1, round(available_minutes * 0.8))
     )
     return maximum_minutes, target_minutes
+
+
+def _planning_start_minutes(constraints: NormalizedConstraints) -> int:
+    """The one canonical start for every local and provider-backed timeline."""
+    return _time_to_minutes(
+        constraints.departure_at.value
+        if constraints.departure_at is not None
+        else constraints.time_window.value.start
+    )
+
+
+def _planning_time_conflict(
+    constraints: NormalizedConstraints,
+) -> ConstraintConflict | None:
+    """Reject incompatible explicit clocks before any provider call."""
+    if constraints.departure_at is None:
+        return None
+    departure = _planning_start_minutes(constraints)
+    window = constraints.time_window.value
+    window_start = _time_to_minutes(window.start)
+    window_end = _time_to_minutes(window.end)
+    if not window_start <= departure < window_end:
+        return ConstraintConflict(
+            code="DEPARTURE_OUTSIDE_TIME_WINDOW",
+            message="指定的准时出发时刻不在可用时间窗内。",
+            fields=["departure_at", "time_window"],
+            relaxation_options=["调整出发时刻或可用时间窗"],
+        )
+    if constraints.return_by is not None and departure >= _time_to_minutes(
+        constraints.return_by.value
+    ):
+        return ConstraintConflict(
+            code="DEPARTURE_NOT_BEFORE_RETURN_BY",
+            message="准时出发必须早于最晚到家时间。",
+            fields=["departure_at", "return_by"],
+            relaxation_options=["提前出发或延后最晚到家时间"],
+        )
+    return None
 
 
 def _route_relaxation_options(fields: set[str]) -> list[str]:

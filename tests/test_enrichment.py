@@ -32,6 +32,62 @@ class EnrichmentServiceTest(unittest.TestCase):
                 ),
             )
 
+    def test_departure_at_requires_a_canonical_clock_in_raw_and_normalized_constraints(self) -> None:
+        self.assertEqual(RawConstraints(departure_at="14:30").departure_at, "14:30")
+        with self.assertRaises(ValidationError):
+            RawConstraints(departure_at="下午两点半")
+        with self.assertRaises(ValidationError):
+            NormalizedConstraints(
+                departure_at=ConstraintValue(value="24:00", source=ConstraintSource.USER_EXPLICIT)
+            )
+
+    def test_normalizes_explicit_departure_clocks_without_guessing(self) -> None:
+        for raw_text in ("下午两点半准时出发", "下午 2:30 出发", "14:30 出发"):
+            self.assertEqual(
+                EnrichmentService._normalize_departure_at(raw_text, None),
+                "14:30",
+            )
+        self.assertIsNone(EnrichmentService._normalize_departure_at("下午出发", None))
+        self.assertIsNone(EnrichmentService._normalize_departure_at("两点左右出发", None))
+
+    def test_departure_and_return_construct_a_window_without_losing_departure(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                departure_at_text="下午两点半准时出发",
+                return_by_text="18:00前回家",
+            ),
+        )
+        actor = ActorContext(user_id="demo", session_id="departure", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.departure_at.value, "14:30")
+        self.assertEqual(result.constraints.return_by.value, "18:00")
+        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "14:30", "end": "18:00"})
+
+    def test_departure_without_an_end_uses_a_visible_default_end(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(departure_at_text="14:30 出发"),
+        )
+        actor = ActorContext(user_id="demo", session_id="departure-default", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "14:30", "end": "18:30"})
+        self.assertIn("time_window", {item.field for item in result.assumptions})
+
     def test_date_party_is_inferred_from_the_user_phrase_not_marked_explicit(self) -> None:
         interpretation = DemoRouter().interpret(
             "安排一个轻松的约会，想吃甜品",
