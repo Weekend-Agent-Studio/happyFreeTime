@@ -126,6 +126,59 @@ class PlanRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class PlanVersionRecord(Base):
+    """一次成功 Planning Run 产生的不可变规划结果组，含本轮约束快照。
+
+    一个 Plan Version 可以包含多个候选 Plan；候选通过 planning_run_id 关联
+    到同一 Planning Run。只有真正返回候选方案的成功 run 才创建版本。
+    """
+
+    __tablename__ = "plan_versions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("sessions.id"),
+        nullable=False,
+        index=True,
+    )
+    planning_run_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("planning_runs.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    normalized_constraints_json: Mapped[str] = mapped_column(Text, nullable=False)
+    supersedes_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class SessionSnapshotRecord(Base):
+    """会话当前 active Plan Version 与用户已选方案的业务持久化状态。
+
+    这是业务事实，不是 React state 或 Graph checkpoint；读取和写入都按
+    user_id + session_id 隔离。旧库中没有 snapshot 的会话按空状态读取。
+    """
+
+    __tablename__ = "session_snapshots"
+
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("sessions.id"),
+        primary_key=True,
+    )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    active_plan_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    selected_plan_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
 class TraceEventRecord(Base):
     """为后续可观测性预留的节点事件表；M1 尚未写入事件。"""
     __tablename__ = "trace_events"

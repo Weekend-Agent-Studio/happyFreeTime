@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -14,6 +15,7 @@ from app.api.schemas import (
     AgentResponse,
     ConstraintSummaryItem,
     MessageRequest,
+    PlanVersionSummary,
     ResponseEnvelope,
     SessionMessageResponse,
     SessionSummaryResponse,
@@ -167,6 +169,7 @@ def create_app(
         session = repository.get_session(x_user_id, session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="session not found")
+        snapshot = repository.get_session_snapshot(x_user_id, session_id)
         return ResponseEnvelope(
             data={
                 "session_id": session.id,
@@ -181,6 +184,43 @@ def create_app(
                 "plans": repository.list_plans(x_user_id, session_id),
                 "latest_response": repository.latest_response(x_user_id, session_id),
                 "response_history": repository.response_history(x_user_id, session_id),
+                "active_plan_version_id": (
+                    snapshot.active_plan_version_id if snapshot else None
+                ),
+                "selected_plan_id": snapshot.selected_plan_id if snapshot else None,
+                "active_constraints": repository.active_constraints(x_user_id, session_id),
+                "plan_versions": [
+                    PlanVersionSummary(
+                        plan_version_id=version.id,
+                        planning_run_id=version.planning_run_id,
+                        supersedes_version_id=version.supersedes_version_id,
+                        created_at=version.created_at,
+                    ).model_dump(mode="json")
+                    for version in repository.list_plan_versions(x_user_id, session_id)
+                ],
+            }
+        )
+
+    @app.post("/api/sessions/{session_id}/plans/{plan_id}/select")
+    def select_plan(
+        session_id: str,
+        plan_id: str,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[dict]:
+        if repository.get_session(x_user_id, session_id) is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        try:
+            snapshot = repository.select_plan(
+                user_id=x_user_id,
+                session_id=session_id,
+                plan_id=plan_id,
+            )
+        except LookupError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return ResponseEnvelope(
+            data={
+                "active_plan_version_id": snapshot.active_plan_version_id,
+                "selected_plan_id": snapshot.selected_plan_id,
             }
         )
 
@@ -261,6 +301,14 @@ def create_app(
             elif conflict is not None:
                 reply = conflict.message
 
+            plan_version_id = uuid.uuid4().hex if plans else None
+            enrichment = result.get("enrichment")
+            normalized_constraints_json = (
+                enrichment.constraints.model_dump_json()
+                if plans and enrichment is not None
+                else None
+            )
+
             response = AgentResponse(
                 status="completed",
                 reply=reply,
@@ -304,6 +352,7 @@ def create_app(
                         ]
                     )
                 ],
+                plan_version_id=plan_version_id,
             )
             repository.complete_planning_run(
                 user_id=x_user_id,
@@ -313,6 +362,8 @@ def create_app(
                 response=response.model_dump(mode="json"),
                 assistant_content=reply,
                 plans=plans,
+                plan_version_id=plan_version_id,
+                normalized_constraints_json=normalized_constraints_json,
             )
             return ResponseEnvelope(data=response)
         except Exception:

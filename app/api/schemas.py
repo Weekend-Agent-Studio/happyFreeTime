@@ -77,3 +77,14 @@ class AgentResponse(BaseModel):
     catalog_warnings: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[dict[str, Any]] = Field(default_factory=list)
     poi_presentations: list[dict[str, Any]] = Field(default_factory=list)
+    plan_version_id: str | None = None
+
+
+class PlanVersionSummary(BaseModel):
+    """会话中一个 Plan Version 的最小元数据，用于按时间顺序恢复多轮方案组。"""
+    model_config = ConfigDict(extra="forbid")
+
+    plan_version_id: str
+    planning_run_id: str
+    supersedes_version_id: str | None = None
+    created_at: datetime

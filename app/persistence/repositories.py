@@ -12,8 +12,10 @@ from app.domain.planning import Plan
 from app.persistence.models import (
     MessageRecord,
     PlanRecord,
+    PlanVersionRecord,
     PlanningRunRecord,
     SessionRecord,
+    SessionSnapshotRecord,
     UserRecord,
     utc_now,
 )
@@ -232,8 +234,16 @@ class SessionRepository:
         response: dict,
         assistant_content: str,
         plans: list[Plan],
+        plan_version_id: str | None = None,
+        normalized_constraints_json: str | None = None,
     ) -> None:
-        """Atomically persist one run response, assistant message, and Plan Version."""
+        """Atomically persist one run response, assistant message, and Plan Version.
+
+        只有真正返回候选方案的成功 run（``plans`` 非空）才创建 Plan Version，
+        并把它设为 active、清空旧选择；question/conflict/failed 不创建版本，
+        也不切换 active 版本或清除已有选择。幂等重放由 ``response_json`` 已存在
+        的早退和 ``plan_versions.planning_run_id`` 唯一约束共同保证。
+        """
         now = utc_now()
         with self._session_factory.begin() as database:
             planning_run = database.scalar(
@@ -261,6 +271,38 @@ class SessionRepository:
                     for index, plan in enumerate(plans)
                 ]
             )
+            if plans and plan_version_id and normalized_constraints_json is not None:
+                database.add(
+                    PlanVersionRecord(
+                        id=plan_version_id,
+                        user_id=user_id,
+                        session_id=session_id,
+                        planning_run_id=planning_run_id,
+                        normalized_constraints_json=normalized_constraints_json,
+                        supersedes_version_id=None,
+                        created_at=now,
+                    )
+                )
+                snapshot = database.scalar(
+                    select(SessionSnapshotRecord).where(
+                        SessionSnapshotRecord.session_id == session_id,
+                        SessionSnapshotRecord.user_id == user_id,
+                    )
+                )
+                if snapshot is None:
+                    database.add(
+                        SessionSnapshotRecord(
+                            session_id=session_id,
+                            user_id=user_id,
+                            active_plan_version_id=plan_version_id,
+                            selected_plan_id=None,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    snapshot.active_plan_version_id = plan_version_id
+                    snapshot.selected_plan_id = None
+                    snapshot.updated_at = now
             if assistant_content:
                 database.add(
                     MessageRecord(
@@ -348,6 +390,93 @@ class SessionRepository:
                 if planning_run.response_json is not None
             ]
 
+    def get_session_snapshot(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> SessionSnapshotRecord | None:
+        with self._session_factory() as database:
+            return database.scalar(
+                select(SessionSnapshotRecord).where(
+                    SessionSnapshotRecord.session_id == session_id,
+                    SessionSnapshotRecord.user_id == user_id,
+                )
+            )
+
+    def list_plan_versions(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> list[PlanVersionRecord]:
+        with self._session_factory() as database:
+            return list(
+                database.scalars(
+                    select(PlanVersionRecord)
+                    .where(
+                        PlanVersionRecord.user_id == user_id,
+                        PlanVersionRecord.session_id == session_id,
+                    )
+                    .order_by(PlanVersionRecord.created_at, PlanVersionRecord.id)
+                )
+            )
+
+    def active_constraints(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> dict | None:
+        snapshot = self.get_session_snapshot(user_id, session_id)
+        if snapshot is None or snapshot.active_plan_version_id is None:
+            return None
+        with self._session_factory() as database:
+            version = database.get(PlanVersionRecord, snapshot.active_plan_version_id)
+            if version is None:
+                return None
+            return json.loads(version.normalized_constraints_json)
+
+    def select_plan(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        plan_id: str,
+    ) -> SessionSnapshotRecord:
+        """把一次显式选择持久化为当前 active Plan Version 的 selected_plan。
+
+        校验链：会话归属 -> 存在 active version -> Plan 存在且属于本会话 ->
+        Plan 属于当前 active version。任一不满足都抛 LookupError。
+        """
+        if self.get_session(user_id, session_id) is None:
+            raise LookupError("session not found")
+        now = utc_now()
+        with self._session_factory.begin() as database:
+            snapshot = database.scalar(
+                select(SessionSnapshotRecord).where(
+                    SessionSnapshotRecord.session_id == session_id,
+                    SessionSnapshotRecord.user_id == user_id,
+                )
+            )
+            if snapshot is None or snapshot.active_plan_version_id is None:
+                raise LookupError("no active plan version")
+            plan = database.scalar(
+                select(PlanRecord).where(
+                    PlanRecord.id == plan_id,
+                    PlanRecord.user_id == user_id,
+                    PlanRecord.session_id == session_id,
+                )
+            )
+            if plan is None:
+                raise LookupError("plan not found")
+            active_version = database.get(PlanVersionRecord, snapshot.active_plan_version_id)
+            if (
+                active_version is None
+                or plan.planning_run_id != active_version.planning_run_id
+            ):
+                raise LookupError("plan is not part of the active plan version")
+            snapshot.selected_plan_id = plan_id
+            snapshot.updated_at = now
+        return snapshot
+
     def replace_plans(
         self,
         *,
@@ -382,19 +511,30 @@ class SessionRepository:
             )
 
     def list_plans(self, user_id: str, session_id: str) -> list[dict]:
+        """返回 active Plan Version 的候选方案，避免从响应快照反向拼装。
+
+        active version 由 session_snapshots 决定；旧库无 snapshot 的会话回退到
+        最近一次响应的 plans（历史兼容），而不是把不同轮次方案混在一起。
+        """
+        snapshot = self.get_session_snapshot(user_id, session_id)
+        if snapshot is not None and snapshot.active_plan_version_id is not None:
+            with self._session_factory() as database:
+                version = database.get(PlanVersionRecord, snapshot.active_plan_version_id)
+                if version is not None:
+                    records = database.scalars(
+                        select(PlanRecord)
+                        .where(
+                            PlanRecord.user_id == user_id,
+                            PlanRecord.session_id == session_id,
+                            PlanRecord.planning_run_id == version.planning_run_id,
+                        )
+                        .order_by(PlanRecord.created_at, PlanRecord.id)
+                    )
+                    return [json.loads(record.payload_json) for record in records]
         latest = self.latest_response(user_id, session_id)
         if latest is not None:
             return list(latest.get("plans", []))
-        with self._session_factory() as database:
-            records = database.scalars(
-                select(PlanRecord)
-                .where(
-                    PlanRecord.user_id == user_id,
-                    PlanRecord.session_id == session_id,
-                )
-                .order_by(PlanRecord.created_at, PlanRecord.id)
-            )
-            return [json.loads(record.payload_json) for record in records]
+        return []
 
 
 def _session_title(content: str) -> str:

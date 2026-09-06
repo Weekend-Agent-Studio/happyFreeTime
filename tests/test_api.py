@@ -162,7 +162,7 @@ class FixedReplayRouteProvider:
 class ApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        environment = EnvironmentContext(
+        self.environment = EnvironmentContext(
             now=datetime(2026, 8, 15, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
             default_location=GeoLocation(
                 city="北京市",
@@ -185,8 +185,8 @@ class ApiTest(unittest.TestCase):
             observed_at=datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc),
             verified_at=datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
         )
-        replay_store = InMemoryWeatherReplayStore()
-        replay_store.save(
+        self.replay_store = InMemoryWeatherReplayStore()
+        self.replay_store.save(
             WeatherRequest(
                 city="北京市",
                 district="朝阳区",
@@ -195,7 +195,7 @@ class ApiTest(unittest.TestCase):
             ),
             rainy_fact,
         )
-        replay_store.save(
+        self.replay_store.save(
             WeatherRequest(
                 city="北京市",
                 district="朝阳区",
@@ -204,23 +204,28 @@ class ApiTest(unittest.TestCase):
             ),
             rainy_fact.model_copy(update={"date": date(2026, 8, 16)}),
         )
-        app = create_app(
-            database_path=Path(self.temp_dir.name) / "api.db",
-            router=RuleRouter(),
-            environment_provider=lambda _: environment,
-            weather_provider=ReplayWeatherProvider(
-                store=replay_store,
-                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
-            ),
-            route_provider=FixedReplayRouteProvider(),
-        )
-        self.client_context = TestClient(app)
-        self.client = self.client_context.__enter__()
+        self.client_context, self.client = self._open_client()
         self.headers = {"X-User-Id": "demo-user"}
 
     def tearDown(self) -> None:
         self.client_context.__exit__(None, None, None)
         self.temp_dir.cleanup()
+
+    def _build_app(self):
+        return create_app(
+            database_path=Path(self.temp_dir.name) / "api.db",
+            router=RuleRouter(),
+            environment_provider=lambda _: self.environment,
+            weather_provider=ReplayWeatherProvider(
+                store=self.replay_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+        )
+
+    def _open_client(self):
+        context = TestClient(self._build_app())
+        return context, context.__enter__()
 
     def _create_session(self) -> str:
         response = self.client.post("/api/sessions", headers=self.headers)
@@ -240,6 +245,120 @@ class ApiTest(unittest.TestCase):
             headers=headers or self.headers,
             json={"request_id": request_id or uuid.uuid4().hex, "content": content},
         )
+
+    def _session_view(self, session_id: str) -> dict:
+        return self.client.get(
+            f"/api/sessions/{session_id}", headers=self.headers
+        ).json()["data"]
+
+    def test_selection_starts_empty_then_restores_after_select(self) -> None:
+        session_id = self._create_session()
+        result = self._send_message(session_id, "今天下午出去玩")
+        self.assertEqual(result.status_code, 200, result.text)
+        plans = result.json()["data"]["plans"]
+        self.assertGreaterEqual(len(plans), 2)
+        second_plan_id = plans[1]["plan_id"]
+
+        view = self._session_view(session_id)
+        self.assertIsNone(view["selected_plan_id"])
+        self.assertIsNotNone(view["active_plan_version_id"])
+        self.assertIsNotNone(view["active_constraints"])
+        self.assertEqual(len(view["plan_versions"]), 1)
+
+        select = self.client.post(
+            f"/api/sessions/{session_id}/plans/{second_plan_id}/select",
+            headers=self.headers,
+        )
+        self.assertEqual(select.status_code, 200, select.text)
+        self.assertEqual(select.json()["data"]["selected_plan_id"], second_plan_id)
+
+        view = self._session_view(session_id)
+        self.assertEqual(view["selected_plan_id"], second_plan_id)
+
+    def test_selection_persists_across_app_restart(self) -> None:
+        session_id = self._create_session()
+        plans = self._send_message(session_id, "今天下午出去玩").json()["data"]["plans"]
+        selected = plans[1]["plan_id"]
+        self.client.post(
+            f"/api/sessions/{session_id}/plans/{selected}/select", headers=self.headers
+        )
+
+        with TestClient(self._build_app()) as restarted:
+            view = restarted.get(
+                f"/api/sessions/{session_id}", headers=self.headers
+            ).json()["data"]
+            self.assertEqual(view["selected_plan_id"], selected)
+            self.assertIsNotNone(view["active_plan_version_id"])
+
+    def test_new_successful_planning_advances_version_and_clears_selection(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩").json()["data"]["plans"]
+        self.client.post(
+            f"/api/sessions/{session_id}/plans/{first[0]['plan_id']}/select",
+            headers=self.headers,
+        )
+
+        second = self._send_message(session_id, "今天下午出去玩")
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertTrue(second.json()["data"]["plans"])
+        self.assertIsNotNone(second.json()["data"]["plan_version_id"])
+
+        view = self._session_view(session_id)
+        self.assertIsNone(view["selected_plan_id"])
+        self.assertEqual(len(view["plan_versions"]), 2)
+        self.assertEqual(
+            view["active_plan_version_id"],
+            view["plan_versions"][-1]["plan_version_id"],
+        )
+
+    def test_idempotent_replay_does_not_duplicate_plan_version(self) -> None:
+        session_id = self._create_session()
+        payload = {"request_id": "request-select-idem-001", "content": "今天下午出去玩"}
+        first = self.client.post(
+            f"/api/sessions/{session_id}/messages", headers=self.headers, json=payload
+        )
+        second = self.client.post(
+            f"/api/sessions/{session_id}/messages", headers=self.headers, json=payload
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json(), first.json())
+
+        view = self._session_view(session_id)
+        self.assertEqual(len(view["plan_versions"]), 1)
+
+    def test_select_rejects_invalid_plan_targets(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩").json()["data"]["plans"]
+        first_plan_id = first[0]["plan_id"]
+
+        missing = self.client.post(
+            f"/api/sessions/{session_id}/plans/nonexistent/select", headers=self.headers
+        )
+        self.assertEqual(missing.status_code, 404)
+
+        # 第二轮规划使第一版成为历史版本，历史候选不可再选。
+        self._send_message(session_id, "今天下午出去玩")
+        historical = self.client.post(
+            f"/api/sessions/{session_id}/plans/{first_plan_id}/select", headers=self.headers
+        )
+        self.assertEqual(historical.status_code, 404)
+
+        # 跨会话：另一个会话的 plan 不可选。
+        other_session = self._create_session()
+        other_plan = self._send_message(other_session, "今天下午出去玩").json()["data"]["plans"][0]
+        cross_session = self.client.post(
+            f"/api/sessions/{session_id}/plans/{other_plan['plan_id']}/select",
+            headers=self.headers,
+        )
+        self.assertEqual(cross_session.status_code, 404)
+
+        # 跨用户：他人无法访问该会话。
+        cross_user = self.client.post(
+            f"/api/sessions/{session_id}/plans/{first_plan_id}/select",
+            headers={"X-User-Id": "other-user"},
+        )
+        self.assertEqual(cross_user.status_code, 404)
 
     def test_map_config_reports_disabled_without_browser_credentials(self) -> None:
         response = self.client.get("/api/config/map")
