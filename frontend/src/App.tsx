@@ -129,6 +129,23 @@ function responsesFromSession(view: SessionView): AgentResponse[] {
   }];
 }
 
+function activePlanResponse(view: SessionView, responses: AgentResponse[]): AgentResponse | null {
+  if (view.active_plan_version_id) {
+    const matching = responses.find(
+      (candidate) => candidate.plan_version_id === view.active_plan_version_id && candidate.plans.length > 0,
+    );
+    if (matching) return matching;
+  }
+  if (view.plans.length > 0) {
+    return normalizeAgentResponse({
+      status: "completed",
+      plans: view.plans,
+      plan_version_id: view.active_plan_version_id ?? null,
+    });
+  }
+  return null;
+}
+
 function attachResponsesToMessages(messages: ChatMessage[], responses: AgentResponse[]): ChatMessage[] {
   let responseIndex = 0;
   const restored = messages.map((message) => {
@@ -326,6 +343,8 @@ function App() {
   const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string } | null>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const activePlanVersionIdRef = useRef<string | null>(null);
 
   const detailResponse = inspectedResponse ?? response;
 
@@ -350,17 +369,27 @@ function App() {
       const view = await getSession(nextSessionId);
       const restoredResponses = responsesFromSession(view);
       const restoredResponse = restoredResponses[restoredResponses.length - 1] ?? null;
+      const restoredActiveResponse = activePlanResponse(view, restoredResponses);
       const restoredSelectedId = view.selected_plan_id ?? null;
+      sessionIdRef.current = view.session_id;
+      activePlanVersionIdRef.current = view.active_plan_version_id ?? null;
       setSessionId(view.session_id);
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
       setResponse(restoredResponse);
-      setInspectedResponse(restoredResponse);
+      setInspectedResponse(restoredActiveResponse ?? restoredResponse);
       setSelectedPlanId(restoredSelectedId);
-      setViewedPlanId(restoredSelectedId ?? restoredResponse?.plans[0]?.plan_id ?? null);
+      const restoredViewedId = restoredSelectedId && restoredActiveResponse?.plans.some(
+        (plan) => plan.plan_id === restoredSelectedId,
+      )
+        ? restoredSelectedId
+        : restoredActiveResponse?.plans[0]?.plan_id ?? null;
+      setViewedPlanId(restoredViewedId);
       setFocusedLegIndex(null);
       setRightTab("trip");
       if (navigate && sessionIdFromUrl() !== view.session_id) updateSessionUrl(view.session_id);
     } catch (reason) {
+      sessionIdRef.current = null;
+      activePlanVersionIdRef.current = null;
       setSessionId(null);
       setMessages([]);
       setResponse(null);
@@ -384,6 +413,8 @@ function App() {
       const nextSessionId = sessionIdFromUrl();
       if (nextSessionId) void openSession(nextSessionId, false);
       else {
+        sessionIdRef.current = null;
+        activePlanVersionIdRef.current = null;
         setSessionId(null);
         setMessages([]);
         setResponse(null);
@@ -420,6 +451,8 @@ function App() {
     try {
       if (!activeSession) {
         activeSession = await createSession();
+        sessionIdRef.current = activeSession;
+        activePlanVersionIdRef.current = null;
         setSessionId(activeSession);
         updateSessionUrl(activeSession);
       }
@@ -430,12 +463,15 @@ function App() {
       const nextResponse = await sendMessage(activeSession, trimmed, requestId);
       setFailedRequest(null);
       setResponse(nextResponse);
-      setInspectedResponse(nextResponse);
       if (nextResponse.plans.length) {
+        activePlanVersionIdRef.current = nextResponse.plan_version_id ?? null;
+        setInspectedResponse(nextResponse);
         setSelectedPlanId(null);
         setViewedPlanId(nextResponse.plans[0].plan_id);
         setFocusedLegIndex(null);
         setRightTab("trip");
+      } else {
+        setInspectedResponse((current) => current?.plans.length ? current : nextResponse);
       }
       const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
       if (assistantText || nextResponse.plans.length || nextResponse.conflict) {
@@ -458,6 +494,8 @@ function App() {
   }
 
   function resetSession() {
+    sessionIdRef.current = null;
+    activePlanVersionIdRef.current = null;
     setSessionId(null);
     setMessages([]);
     setResponse(null);
@@ -488,14 +526,20 @@ function App() {
   }, []);
 
   const choosePlan = useCallback(async (planId: string) => {
-    if (!sessionId) return;
+    const requestSessionId = sessionIdRef.current;
+    const requestVersionId = activePlanVersionIdRef.current;
+    if (!requestSessionId) return;
     try {
-      await selectPlan(sessionId, planId);
-      setSelectedPlanId(planId);
+      const selection = await selectPlan(requestSessionId, planId);
+      if (
+        sessionIdRef.current !== requestSessionId
+        || activePlanVersionIdRef.current !== requestVersionId
+      ) return;
+      setSelectedPlanId(selection.selected_plan_id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "选择方案失败，请稍后重试");
     }
-  }, [sessionId]);
+  }, []);
 
   const openInspectorForResponse = useCallback((targetResponse: AgentResponse, tab: InspectorTab, legIndex: number | null = null) => {
     setInspectedResponse(targetResponse);

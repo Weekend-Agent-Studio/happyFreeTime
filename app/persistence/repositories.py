@@ -257,6 +257,25 @@ class SessionRepository:
                 raise LookupError("planning run not found")
             if planning_run.response_json is not None:
                 return
+            if plans:
+                if status != "completed":
+                    raise ValueError("a planning run with plans must be completed")
+                if not plan_version_id or normalized_constraints_json is None:
+                    raise ValueError(
+                        "a planning run with plans requires a plan version and constraint snapshot"
+                    )
+                if not isinstance(normalized_constraints_json, str) or not normalized_constraints_json.strip():
+                    raise ValueError("a plan version requires a non-empty constraint snapshot")
+                try:
+                    normalized_constraints = json.loads(normalized_constraints_json)
+                except (TypeError, json.JSONDecodeError) as error:
+                    raise ValueError("constraint snapshot must be valid JSON") from error
+                if not isinstance(normalized_constraints, dict) or not normalized_constraints:
+                    raise ValueError("constraint snapshot must be a non-empty JSON object")
+            elif plan_version_id is not None or normalized_constraints_json is not None:
+                raise ValueError(
+                    "plan version metadata is only valid when plans are present"
+                )
             database.add_all(
                 [
                     PlanRecord(
@@ -271,7 +290,7 @@ class SessionRepository:
                     for index, plan in enumerate(plans)
                 ]
             )
-            if plans and plan_version_id and normalized_constraints_json is not None:
+            if plans:
                 database.add(
                     PlanVersionRecord(
                         id=plan_version_id,
@@ -429,7 +448,13 @@ class SessionRepository:
         if snapshot is None or snapshot.active_plan_version_id is None:
             return None
         with self._session_factory() as database:
-            version = database.get(PlanVersionRecord, snapshot.active_plan_version_id)
+            version = database.scalar(
+                select(PlanVersionRecord).where(
+                    PlanVersionRecord.id == snapshot.active_plan_version_id,
+                    PlanVersionRecord.user_id == user_id,
+                    PlanVersionRecord.session_id == session_id,
+                )
+            )
             if version is None:
                 return None
             return json.loads(version.normalized_constraints_json)
@@ -467,7 +492,13 @@ class SessionRepository:
             )
             if plan is None:
                 raise LookupError("plan not found")
-            active_version = database.get(PlanVersionRecord, snapshot.active_plan_version_id)
+            active_version = database.scalar(
+                select(PlanVersionRecord).where(
+                    PlanVersionRecord.id == snapshot.active_plan_version_id,
+                    PlanVersionRecord.user_id == user_id,
+                    PlanVersionRecord.session_id == session_id,
+                )
+            )
             if (
                 active_version is None
                 or plan.planning_run_id != active_version.planning_run_id
@@ -517,20 +548,29 @@ class SessionRepository:
         最近一次响应的 plans（历史兼容），而不是把不同轮次方案混在一起。
         """
         snapshot = self.get_session_snapshot(user_id, session_id)
-        if snapshot is not None and snapshot.active_plan_version_id is not None:
+        if snapshot is not None:
+            if snapshot.active_plan_version_id is None:
+                return []
             with self._session_factory() as database:
-                version = database.get(PlanVersionRecord, snapshot.active_plan_version_id)
-                if version is not None:
-                    records = database.scalars(
-                        select(PlanRecord)
-                        .where(
-                            PlanRecord.user_id == user_id,
-                            PlanRecord.session_id == session_id,
-                            PlanRecord.planning_run_id == version.planning_run_id,
-                        )
-                        .order_by(PlanRecord.created_at, PlanRecord.id)
+                version = database.scalar(
+                    select(PlanVersionRecord).where(
+                        PlanVersionRecord.id == snapshot.active_plan_version_id,
+                        PlanVersionRecord.user_id == user_id,
+                        PlanVersionRecord.session_id == session_id,
                     )
-                    return [json.loads(record.payload_json) for record in records]
+                )
+                if version is None:
+                    return []
+                records = database.scalars(
+                    select(PlanRecord)
+                    .where(
+                        PlanRecord.user_id == user_id,
+                        PlanRecord.session_id == session_id,
+                        PlanRecord.planning_run_id == version.planning_run_id,
+                    )
+                    .order_by(PlanRecord.created_at, PlanRecord.id)
+                )
+                return [json.loads(record.payload_json) for record in records]
         latest = self.latest_response(user_id, session_id)
         if latest is not None:
             return list(latest.get("plans", []))

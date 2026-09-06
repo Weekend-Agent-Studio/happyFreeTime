@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -411,6 +411,119 @@ describe("planning workspace", () => {
     await user.click(await screen.findByRole("button", { name: /已选方案会话/ }));
 
     expect(await screen.findByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps the active plan visible when the latest restored turn is a question", async () => {
+    const user = userEvent.setup();
+    const firstResponse = { ...response, plan_version_id: "v1", reply: "第一轮方案已经整理好。" };
+    const questionResponse: Partial<AgentResponse> = {
+      status: "needs_input",
+      reply: "",
+      question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+      plans: [],
+      conflict: null,
+      plan_version_id: null,
+    };
+    api.listSessions.mockResolvedValue([{
+      session_id: "question-session", title: "反问后的会话", status: "needs_input",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      last_message_preview: "预算是多少？",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "question-session", title: "反问后的会话", status: "needs_input",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "今天下午出去玩" },
+        { id: "assistant-1", role: "assistant", content: firstResponse.reply },
+        { id: "user-2", role: "user", content: "预算是多少" },
+        { id: "assistant-2", role: "assistant", content: "预算是多少？" },
+      ],
+      plans: firstResponse.plans,
+      latest_response: questionResponse,
+      response_history: [firstResponse, questionResponse],
+      active_plan_version_id: "v1",
+      selected_plan_id: "plan-two",
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /反问后的会话/ }));
+
+    const detailPanel = document.querySelector(".detail-panel");
+    expect(detailPanel).not.toBeNull();
+    expect(within(detailPanel as HTMLElement).getByRole("heading", { name: "方案二", level: 2 })).toBeVisible();
+  });
+
+  it("uses the selected plan id returned by the backend", async () => {
+    const user = userEvent.setup();
+    api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "选择方案二" }));
+
+    expect(await screen.findByRole("button", { name: "选择方案一" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("ignores a stale selection response after a newer plan version arrives", async () => {
+    const user = userEvent.setup();
+    let resolveSelection: ((value: { active_plan_version_id: string; selected_plan_id: string }) => void) | undefined;
+    api.sendMessage
+      .mockResolvedValueOnce({ ...response, plan_version_id: "v1" })
+      .mockResolvedValueOnce({
+        ...response,
+        reply: "新一轮方案已整理。",
+        plans: [plan("plan-new", "新一轮方案")],
+        plan_version_id: "v2",
+      });
+    api.selectPlan.mockImplementation(() => new Promise((resolve) => {
+      resolveSelection = resolve;
+    }));
+    render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    await user.type(input, "重新生成一轮");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "新一轮方案", level: 3 });
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+
+    resolveSelection?.({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
+    await waitFor(() => expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument());
+  });
+
+  it("keeps the active plan details visible when a live turn asks a question", async () => {
+    const user = userEvent.setup();
+    api.sendMessage
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({
+        status: "needs_input",
+        reply: "",
+        question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+        assumptions: [], constraint_summary: [], plans: [], conflict: null,
+        provider_facts: [], catalog_violations: [], catalog_warnings: [], warnings: [], poi_presentations: [],
+      });
+    render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await screen.findByText("已选择这个方案");
+
+    await user.type(input, "预算是多少");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByText("预算是多少？");
+
+    const detailPanel = document.querySelector(".detail-panel");
+    expect(detailPanel).not.toBeNull();
+    expect(within(detailPanel as HTMLElement).getByRole("heading", { name: "方案一", level: 2 })).toBeVisible();
+    expect(screen.getByText("已选择这个方案")).toBeInTheDocument();
   });
 
   it("clears the selection when a new plan version is generated", async () => {

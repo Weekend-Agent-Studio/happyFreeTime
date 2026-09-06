@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.domain.planning import Plan
 from app.persistence.database import Database
+from app.persistence.models import SessionSnapshotRecord
 from app.persistence.repositories import SessionRepository
 
 
@@ -96,11 +97,110 @@ class PlanVersionPersistenceTest(unittest.TestCase):
         self.assertEqual(snapshot.active_plan_version_id, versions[0].id)
         self.assertIsNone(snapshot.selected_plan_id)
 
+    def test_non_empty_plans_require_version_metadata(self) -> None:
+        session = self.repository.create_session(user_id="user-a", identity_type="demo")
+        run = self.repository.begin_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-missing-version",
+            content="今天下午出去玩",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repository.complete_planning_run(
+                user_id="user-a",
+                session_id=session.id,
+                planning_run_id=run.planning_run_id,
+                status="completed",
+                response={"status": "completed", "plans": ["plan-a"]},
+                assistant_content="已生成方案",
+                plans=[make_plan("plan-a")],
+            )
+
+        self.assertEqual(self.repository.list_plan_versions("user-a", session.id), [])
+        self.assertEqual(self.repository.list_plans("user-a", session.id), [])
+
+    def test_empty_plans_reject_version_metadata(self) -> None:
+        session = self.repository.create_session(user_id="user-a", identity_type="demo")
+        run = self.repository.begin_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-spurious-version",
+            content="还需要补充信息",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repository.complete_planning_run(
+                user_id="user-a",
+                session_id=session.id,
+                planning_run_id=run.planning_run_id,
+                status="needs_input",
+                response={"status": "needs_input", "plans": []},
+                assistant_content="请补充时间",
+                plans=[],
+                plan_version_id="should-not-exist",
+                normalized_constraints_json="{}",
+            )
+
+        self.assertEqual(self.repository.list_plan_versions("user-a", session.id), [])
+        self.assertIsNone(self.repository.get_session_snapshot("user-a", session.id))
+
+    def test_non_empty_plans_require_a_valid_json_constraint_snapshot(self) -> None:
+        session = self.repository.create_session(user_id="user-a", identity_type="demo")
+        run = self.repository.begin_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-invalid-snapshot",
+            content="今天下午出去玩",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repository.complete_planning_run(
+                user_id="user-a",
+                session_id=session.id,
+                planning_run_id=run.planning_run_id,
+                status="completed",
+                response={"status": "completed", "plans": ["plan-a"]},
+                assistant_content="已生成方案",
+                plans=[make_plan("plan-a")],
+                plan_version_id="version-a",
+                normalized_constraints_json="not-json",
+            )
+
+        self.assertEqual(self.repository.list_plan_versions("user-a", session.id), [])
+        self.assertEqual(self.repository.list_plans("user-a", session.id), [])
+
+    def test_non_empty_plans_reject_an_empty_json_constraint_snapshot(self) -> None:
+        session = self.repository.create_session(user_id="user-a", identity_type="demo")
+        run = self.repository.begin_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-empty-snapshot",
+            content="今天下午出去玩",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repository.complete_planning_run(
+                user_id="user-a",
+                session_id=session.id,
+                planning_run_id=run.planning_run_id,
+                status="completed",
+                response={"status": "completed", "plans": ["plan-a"]},
+                assistant_content="已生成方案",
+                plans=[make_plan("plan-a")],
+                plan_version_id="version-empty",
+                normalized_constraints_json="{}",
+            )
+
+        self.assertEqual(self.repository.list_plan_versions("user-a", session.id), [])
+        self.assertEqual(self.repository.list_plans("user-a", session.id), [])
+
     def test_idempotent_replay_does_not_create_a_second_version(self) -> None:
         session = self.repository.create_session(user_id="user-a", identity_type="demo")
         planning_run_id = self._complete_success(
             user_id="user-a", session_id=session.id, request_id="request-replay"
         )
+        self.repository.select_plan(user_id="user-a", session_id=session.id, plan_id="plan-a")
         # 再次用同一个 planning_run_id 完成，应被幂等守卫短路，不新建版本。
         self.repository.complete_planning_run(
             user_id="user-a",
@@ -116,25 +216,53 @@ class PlanVersionPersistenceTest(unittest.TestCase):
 
         versions = self.repository.list_plan_versions("user-a", session.id)
         self.assertEqual(len(versions), 1)
+        self.assertEqual(
+            self.repository.get_session_snapshot("user-a", session.id).selected_plan_id,
+            "plan-a",
+        )
 
     def test_question_conflict_and_failed_do_not_create_versions(self) -> None:
         session = self.repository.create_session(user_id="user-a", identity_type="demo")
-        for request_id in ("request-question", "request-conflict", "request-failed"):
+        for request_id, status in (
+            ("request-question", "needs_input"),
+            ("request-conflict", "conflict"),
+            ("request-failed", "failed"),
+        ):
             run = self.repository.begin_planning_run(
                 user_id="user-a", session_id=session.id, request_id=request_id, content="hi"
             )
-            self.repository.complete_planning_run(
-                user_id="user-a",
-                session_id=session.id,
-                planning_run_id=run.planning_run_id,
-                status="completed",
-                response={"status": "completed", "plans": []},
-                assistant_content="no plans",
-                plans=[],
-            )
+            if status == "failed":
+                self.repository.fail_planning_run(
+                    user_id="user-a", session_id=session.id, planning_run_id=run.planning_run_id
+                )
+            else:
+                self.repository.complete_planning_run(
+                    user_id="user-a",
+                    session_id=session.id,
+                    planning_run_id=run.planning_run_id,
+                    status=status,
+                    response={"status": status, "plans": []},
+                    assistant_content="no plans",
+                    plans=[],
+                )
 
         self.assertEqual(self.repository.list_plan_versions("user-a", session.id), [])
         self.assertIsNone(self.repository.get_session_snapshot("user-a", session.id))
+
+    def test_active_version_reads_are_tenant_scoped(self) -> None:
+        session_a = self.repository.create_session(user_id="user-a", identity_type="demo")
+        session_b = self.repository.create_session(user_id="user-b", identity_type="demo")
+        self._complete_success(user_id="user-a", session_id=session_a.id, plan_ids=("plan-a",))
+        self._complete_success(user_id="user-b", session_id=session_b.id, plan_ids=("plan-b",))
+        foreign_version = self.repository.list_plan_versions("user-b", session_b.id)[0]
+
+        with self.database.session_factory.begin() as database:
+            snapshot = database.get(SessionSnapshotRecord, session_a.id)
+            self.assertIsNotNone(snapshot)
+            snapshot.active_plan_version_id = foreign_version.id
+
+        self.assertIsNone(self.repository.active_constraints("user-a", session_a.id))
+        self.assertEqual(self.repository.list_plans("user-a", session_a.id), [])
 
     def test_new_success_becomes_active_and_clears_old_selection(self) -> None:
         session = self.repository.create_session(user_id="user-a", identity_type="demo")
