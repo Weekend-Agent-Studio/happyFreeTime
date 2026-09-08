@@ -27,6 +27,7 @@ from app.providers.geocoding import GeocodingProvider
 from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
+from app.services.planning_intent import PlanningIntentProvider
 from app.services.presenter import present_candidate_set
 from app.services.poi_presentation import EmptyPoiPresentationProvider, PoiPresentationProvider
 from app.orchestration.entry_graph import (
@@ -49,6 +50,7 @@ def create_app(
     geocoding_provider: GeocodingProvider | None = None,
     availability_provider: AvailabilityProvider | None = None,
     catalog: Catalog | None = None,
+    planning_intent_provider: PlanningIntentProvider | None = None,
     poi_presentation_provider: PoiPresentationProvider | None = None,
     web_map_provider: WebMapProvider | None = None,
 ) -> FastAPI:
@@ -75,6 +77,7 @@ def create_app(
         geocoding_provider=geocoding_provider,
         availability_provider=availability_provider,
         catalog=catalog,
+        planning_intent_provider=planning_intent_provider,
         checkpointer=checkpointer,
     )
     browser_map = web_map_provider or DisabledWebMapProvider()
@@ -353,6 +356,11 @@ def create_app(
                     )
                 ],
                 plan_version_id=plan_version_id,
+                planning_intent_decision=(
+                    candidate_set.planning_intent_decision.model_dump(mode="json")
+                    if candidate_set and candidate_set.planning_intent_decision is not None
+                    else None
+                ),
             )
             repository.complete_planning_run(
                 user_id=x_user_id,

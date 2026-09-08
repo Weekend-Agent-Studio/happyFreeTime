@@ -61,6 +61,7 @@ from app.providers.geocoding import GeocodingProvider
 from app.services.catalog import Catalog
 from app.services.enrichment import EnvironmentContext, EnrichmentService
 from app.services.planning import PlanningService
+from app.services.planning_intent import PlanningIntentProvider
 from app.services.question_gate import GateContext, NeedQuestionGate
 from app.services.router_extractor import RouterContext
 
@@ -99,6 +100,7 @@ def build_entry_graph(
     geocoding_provider: GeocodingProvider | None = None,
     availability_provider: AvailabilityProvider | None = None,
     catalog: Catalog | None = None,
+    planning_intent_provider: PlanningIntentProvider | None = None,
     checkpointer: object | None = None,
 ):
     """组装 M1 控制流，并允许注入 Router、环境提供器和 checkpointer。
@@ -113,6 +115,7 @@ def build_entry_graph(
         route_provider=route_provider,
         availability_provider=availability_provider,
         catalog=catalog,
+        planning_intent_provider=planning_intent_provider,
     )
 
     def router_node(state: EntryState) -> dict[str, object]:

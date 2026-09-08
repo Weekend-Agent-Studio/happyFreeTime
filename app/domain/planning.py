@@ -6,6 +6,7 @@
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -80,6 +81,41 @@ class PlanningIntent(BaseModel):
         if self.minimum_stops > self.maximum_stops:
             raise ValueError("minimum_stops cannot exceed maximum_stops")
         return self
+
+
+class PlanningIntentProposal(BaseModel):
+    """模型对规划结构的原始提议；不承载任何外部事实或硬约束值。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    required_roles: tuple[StopRole, ...] = ()
+    optional_roles: tuple[StopRole, ...] = ()
+    precedence: tuple[tuple[StopRole, StopRole], ...] = ()
+    minimum_stops: int = Field(default=2, ge=1, le=4)
+    maximum_stops: int = Field(default=4, ge=1, le=4)
+    pace: PlanPace = PlanPace.BALANCED
+    evidence: dict[str, str] = Field(default_factory=dict)
+    confidence: float = Field(default=0.0, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_stop_range(self) -> "PlanningIntentProposal":
+        if self.minimum_stops > self.maximum_stops:
+            raise ValueError("minimum_stops cannot exceed maximum_stops")
+        return self
+
+
+class PlanningIntentDecision(BaseModel):
+    """Validated PlanningIntent plus bounded model-runtime trace."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    intent: PlanningIntent
+    source: Literal["rule_based", "llm", "fallback"]
+    confidence: float = Field(ge=0, le=1)
+    attempts: int = Field(ge=0, le=2)
+    fallback_reason: str | None = None
+    prompt_version: str = Field(min_length=1)
+    model_name: str | None = None
 
 
 class PlanPriceStatus(str, Enum):
@@ -193,3 +229,4 @@ class CandidateSet(BaseModel):
     catalog_violations: list[ConstraintViolation] = Field(default_factory=list)
     catalog_warnings: list[CatalogWarning] = Field(default_factory=list)
     warnings: list[PlanWarning] = Field(default_factory=list)
+    planning_intent_decision: PlanningIntentDecision | None = None

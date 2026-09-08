@@ -46,6 +46,17 @@ from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.availability import AvailabilityProvider, MockAvailabilityProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
 from app.services.catalog import Catalog, SnapshotCatalog
+from app.services.planning_intent import (
+    ACTIVITY_BREAK_DINNER_SKELETON as _ACTIVITY_BREAK_DINNER_SKELETON,
+    ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON as _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON,
+    ACTIVITY_MEAL_SKELETON as _ACTIVITY_MEAL_SKELETON,
+    ALL_PLAN_SKELETONS as _ALL_PLAN_SKELETONS,
+    DINNER_ONLY_SKELETON as _DINNER_ONLY_SKELETON,
+    LUNCH_ACTIVITY_DINNER_SKELETON as _LUNCH_ACTIVITY_DINNER_SKELETON,
+    PlanningIntentProvider,
+    RuleBasedPlanningIntentProvider,
+    build_rule_based_planning_intent,
+)
 from app.services.plan_verifier import PlanVerifier, VerificationFinding
 
 
@@ -62,38 +73,6 @@ _MAX_AVAILABILITY_BATCHES = 6
 _MAX_LOCAL_REPLAN_ROUNDS = 2
 _MAX_CANDIDATES_PER_ROLE_FOR_MULTI_STOP = 8
 _MIN_PLAN_DIVERSITY = 0.35
-_ACTIVITY_MEAL_SKELETON = PlanSkeleton(
-    skeleton_id="activity-meal-v1",
-    roles=(StopRole.ACTIVITY, StopRole.MEAL),
-)
-_DINNER_ONLY_SKELETON = PlanSkeleton(
-    skeleton_id="dinner-only-v1",
-    roles=(StopRole.DINNER,),
-)
-_LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
-    skeleton_id="lunch-activity-dinner-v1",
-    roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
-)
-_ACTIVITY_BREAK_DINNER_SKELETON = PlanSkeleton(
-    skeleton_id="activity-break-dinner-v1",
-    roles=(StopRole.ACTIVITY, StopRole.BREAK, StopRole.DINNER),
-)
-_ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
-    skeleton_id="activity-lunch-activity-dinner-v1",
-    roles=(
-        StopRole.ACTIVITY,
-        StopRole.LUNCH,
-        StopRole.ACTIVITY,
-        StopRole.DINNER,
-    ),
-)
-_ALL_PLAN_SKELETONS = (
-    _ACTIVITY_MEAL_SKELETON,
-    _DINNER_ONLY_SKELETON,
-    _LUNCH_ACTIVITY_DINNER_SKELETON,
-    _ACTIVITY_BREAK_DINNER_SKELETON,
-    _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON,
-)
 _ROLE_RESOURCE_TYPES: dict[StopRole, frozenset[ResourceType]] = {
     StopRole.ACTIVITY: frozenset({ResourceType.ACTIVITY}),
     StopRole.MEAL: frozenset(
@@ -191,12 +170,16 @@ class PlanningService:
         route_provider: RouteProvider | None = None,
         availability_provider: AvailabilityProvider | None = None,
         catalog: Catalog | None = None,
+        planning_intent_provider: PlanningIntentProvider | None = None,
     ) -> None:
         self._weather_provider = weather_provider or clear_mock_weather()
         self._route_provider = route_provider or LocalEstimateRouteProvider()
         self._availability_provider = availability_provider or MockAvailabilityProvider()
         self._catalog = catalog or SnapshotCatalog()
         self._plan_verifier = PlanVerifier()
+        self._planning_intent_provider = (
+            planning_intent_provider or RuleBasedPlanningIntentProvider()
+        )
 
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         if (
@@ -213,6 +196,12 @@ class PlanningService:
         structure_conflict = _unsupported_plan_structure_conflict(constraints)
         if structure_conflict is not None:
             return CandidateSet(conflict=structure_conflict)
+
+        # Reject deterministic hard conflicts before spending the bounded model
+        # budget. PlanningIntent is a soft structural decision and cannot make
+        # either conflict valid.
+        planning_intent_decision = self._planning_intent_provider.decide(constraints)
+        planning_intent = planning_intent_decision.intent
 
         location = constraints.location.value
         weather = self._weather_provider.get_weather(
@@ -246,7 +235,6 @@ class PlanningService:
             for candidate in catalog_result.candidates
             if candidate.resource_id not in weather_removed_ids
         ]
-        planning_intent = _build_planning_intent(constraints)
         local_result = _rank_skeleton_plans(
             candidates,
             constraints,
@@ -403,6 +391,7 @@ class PlanningService:
                     if warning.resource_id in selected_ids
                 ],
                 warnings=warnings,
+                planning_intent_decision=planning_intent_decision,
             )
 
         if route_candidates:
@@ -445,6 +434,7 @@ class PlanningService:
                         reported_failure_fields
                     ),
                 ),
+                planning_intent_decision=planning_intent_decision,
             )
 
         # 严格预算是硬约束：没有满足条件的结果时返回结构化冲突，不能偷偷放宽
@@ -473,7 +463,8 @@ class PlanningService:
                     message=f"当前目录中没有满足人均 {budget} 元严格预算的可行行程方案。",
                     fields=["budget_per_person", *structure_fields],
                     relaxation_options=relaxation_options,
-                )
+                ),
+                planning_intent_decision=planning_intent_decision,
             )
 
         conflict_fields = [
@@ -528,7 +519,8 @@ class PlanningService:
                 message="当前目录中没有满足全部硬约束的可行行程方案。",
                 fields=conflict_fields,
                 relaxation_options=relaxation_options,
-            )
+            ),
+            planning_intent_decision=planning_intent_decision,
         )
 
     def _rebuild_route_timeline(
@@ -1070,74 +1062,7 @@ def _plan_diversity(left: Plan, right: Plan) -> float:
     return 1.0 - similarity
 
 
-def _build_planning_intent(
-    constraints: NormalizedConstraints,
-) -> PlanningIntent:
-    window = constraints.time_window.value
-    if (
-        constraints.exact_stop_count is not None
-        and constraints.exact_stop_count.value == 1
-        and constraints.required_stop_roles is not None
-        and constraints.required_stop_roles.value == (StopRole.DINNER,)
-    ):
-        return PlanningIntent(
-            required_roles=(StopRole.DINNER,),
-            optional_roles=(),
-            minimum_stops=1,
-            maximum_stops=1,
-            pace=PlanPace.RELAXED,
-            evidence={
-                "exact_stop_count": constraints.exact_stop_count.raw_text or "1",
-                "required_stop_roles": constraints.required_stop_roles.raw_text or StopRole.DINNER.value,
-                "time_window": f"{window.start}-{window.end}",
-            },
-        )
-
-    preferences = {
-        item.strip().casefold()
-        for item in constraints.preferences
-        if item.strip()
-    }
-    if preferences & {"轻松", "松弛", "不赶", "休闲"}:
-        pace = PlanPace.RELAXED
-        maximum_stops = 2
-    elif preferences & {"丰富", "充实", "多玩几个", "尽量多"}:
-        pace = PlanPace.FULL
-        maximum_stops = 4
-    else:
-        pace = PlanPace.BALANCED
-        maximum_stops = 4
-
-    start_minutes = _time_to_minutes(window.start)
-    end_minutes = _time_to_minutes(window.end)
-    includes_lunch = start_minutes <= 13 * 60 and end_minutes >= 12 * 60
-    includes_dinner = start_minutes <= 19 * 60 and end_minutes >= 18 * 60
-    includes_break = start_minutes <= 16 * 60 and end_minutes >= 18 * 60
-    optional_roles = [StopRole.MEAL]
-    if includes_lunch:
-        optional_roles.append(StopRole.LUNCH)
-    if includes_break:
-        optional_roles.append(StopRole.BREAK)
-    if includes_dinner:
-        optional_roles.append(StopRole.DINNER)
-    precedence: list[tuple[StopRole, StopRole]] = []
-    if includes_lunch and includes_dinner:
-        precedence.append((StopRole.LUNCH, StopRole.DINNER))
-    if includes_break and includes_dinner:
-        precedence.append((StopRole.BREAK, StopRole.DINNER))
-    evidence = {
-        "time_window": f"{window.start}-{window.end}",
-        "pace": pace.value,
-    }
-    return PlanningIntent(
-        required_roles=(StopRole.ACTIVITY,),
-        optional_roles=tuple(optional_roles),
-        precedence=tuple(precedence),
-        minimum_stops=2,
-        maximum_stops=maximum_stops,
-        pace=pace,
-        evidence=evidence,
-    )
+_build_planning_intent = build_rule_based_planning_intent
 
 
 def _unsupported_plan_structure_conflict(

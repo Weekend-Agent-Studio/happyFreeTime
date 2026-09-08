@@ -255,8 +255,17 @@ class ApiTest(unittest.TestCase):
         session_id = self._create_session()
         result = self._send_message(session_id, "今天下午出去玩")
         self.assertEqual(result.status_code, 200, result.text)
-        plans = result.json()["data"]["plans"]
+        response_data = result.json()["data"]
+        plans = response_data["plans"]
         self.assertGreaterEqual(len(plans), 2)
+        self.assertEqual(
+            response_data["planning_intent_decision"]["source"],
+            "rule_based",
+        )
+        self.assertEqual(
+            response_data["planning_intent_decision"]["intent"]["maximum_stops"],
+            4,
+        )
         second_plan_id = plans[1]["plan_id"]
 
         view = self._session_view(session_id)
@@ -264,6 +273,10 @@ class ApiTest(unittest.TestCase):
         self.assertIsNotNone(view["active_plan_version_id"])
         self.assertIsNotNone(view["active_constraints"])
         self.assertEqual(len(view["plan_versions"]), 1)
+        self.assertEqual(
+            view["response_history"][-1]["planning_intent_decision"]["source"],
+            "rule_based",
+        )
 
         select = self.client.post(
             f"/api/sessions/{session_id}/plans/{second_plan_id}/select",

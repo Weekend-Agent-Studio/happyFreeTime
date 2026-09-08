@@ -16,6 +16,7 @@ from app.providers.web_map import build_web_map_provider
 from app.services.demo_router import DemoRouter
 from app.services.router_extractor import build_default_router_extractor
 from app.services.catalog import SnapshotCatalog
+from app.services.planning_intent import build_default_planning_intent_provider
 from app.services.demo_world import DemoCatalog
 
 
@@ -120,6 +121,7 @@ def build_default_catalog():
 
 
 catalog, poi_presentation_provider = build_default_catalog()
+planning_intent_provider = build_default_planning_intent_provider()
 
 app = create_app(
     database_path=Path("data/happy_free_time_v2.db"),
@@ -130,6 +132,7 @@ app = create_app(
     geocoding_provider=geocoding_provider,
     availability_provider=DemoAvailabilityProvider(),
     catalog=catalog,
+    planning_intent_provider=planning_intent_provider,
     poi_presentation_provider=poi_presentation_provider,
     web_map_provider=web_map_provider,
 )

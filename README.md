@@ -78,6 +78,9 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 - `HFT_DEMO_MODE=1`：强制离线 Demo Router，不需要 API Key。Graph、Enrichment、Gate、Planning、FastAPI 和 SQLite 都是真实运行的，只有语义抽取由确定性规则代替 LLM。
 - `HFT_DEMO_MODE=0`：强制真实 Router，必须配置 `LLM_API`，否则启动时会给出明确错误。
 - 不配置 `HFT_DEMO_MODE`：存在 `LLM_API` 时使用真实 Router；不存在时自动使用离线 Demo Router。
+- `HFT_PLANNING_INTENT_MODE=rule`：PlanningIntent 使用确定性规则，默认、完全离线且可复现。
+- `HFT_PLANNING_INTENT_MODE=llm`：仅让 LLM 解释软偏好并提出受约束的结构建议；模型失败、超时或越界时自动回退 RuleBased。该开关与 `HFT_DEMO_MODE` 独立。
+- `HFT_PLANNING_INTENT_TIMEOUT_SECONDS`：PlanningIntent 单次模型调用超时，默认 15 秒；仅 `llm` 模式使用。
 
 真实模式配置：
 
@@ -86,9 +89,15 @@ HFT_DEMO_MODE=0
 MODEL_NAME=deepseek-chat
 LLM_API=your-api-key
 BASE_URL=https://api.deepseek.com
+HFT_PLANNING_INTENT_MODE=rule
+HFT_PLANNING_INTENT_TIMEOUT_SECONDS=15
 ```
 
-`LLM_API` 只用于 RouterExtractor 的结构化语义抽取。活动与餐厅默认来自版本化的 `data/catalog/pois.json`，不因配置 LLM Key 自动更新；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德。
+`HFT_DEMO_MODE` 只控制 Router；`HFT_PLANNING_INTENT_MODE` 单独控制 PlanningIntent。即使配置了 `LLM_API`，PlanningIntent 默认仍是 `rule`，不会自动产生模型调用。要启用受约束的 PlanningIntent LLM，需要显式设置 `HFT_PLANNING_INTENT_MODE=llm`；该模式仍会使用 RuleBased 作为基线和失败回退。
+
+`LLM_API` 会在 `HFT_DEMO_MODE=0` 时用于 RouterExtractor，也会在 `HFT_PLANNING_INTENT_MODE=llm` 时用于 PlanningIntent。活动与餐厅默认来自版本化的 `data/catalog/pois.json`，不因配置 LLM Key 自动更新；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德。
+
+如果只想测试 PlanningIntent LLM、保持 Router 离线，可使用 `HFT_DEMO_MODE=1` 与 `HFT_PLANNING_INTENT_MODE=llm`；这仍然需要 `LLM_API`，并且 Demo Router 只识别其固定演示词。若希望“慢慢走”“不要太累”等自然表达也由模型抽取，应使用 `HFT_DEMO_MODE=0` 的真实 Router。
 
 天气、路线和浏览器地图分别使用高德控制台中的两类 Key。编辑项目根目录 `.env`；不要把真实值写进 `.env.example` 或提交到 Git：
 

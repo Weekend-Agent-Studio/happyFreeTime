@@ -78,6 +78,7 @@ class AgentResponse(BaseModel):
     warnings: list[dict[str, Any]] = Field(default_factory=list)
     poi_presentations: list[dict[str, Any]] = Field(default_factory=list)
     plan_version_id: str | None = None
+    planning_intent_decision: dict[str, Any] | None = None
 
 
 class PlanVersionSummary(BaseModel):
