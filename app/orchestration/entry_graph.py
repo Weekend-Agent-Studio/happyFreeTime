@@ -1,8 +1,9 @@
 """HappyFreeTime V2 的 LangGraph 编排层。
 
-主链路为：Router -> Enrichment -> Gate -> Planning。Gate 判断需要反问时，
+创建链路为：TurnInterpreter -> Enrichment -> Gate -> Planning；定向修改链路从
+TurnInterpreter 进入单个 modify_plan 节点。Gate 判断需要反问时，
 进入 ask_question 并通过 interrupt 暂停；用户下一条消息通过 Command(resume)
-恢复后，重新从 Router 解释“原请求 + 补充答案”。Graph 只负责节点顺序和状态，
+恢复后，重新从 TurnInterpreter 解释“原请求 + 补充答案”。Graph 只负责节点顺序和状态，
 具体业务逻辑仍位于可独立测试的 service 中。
 """
 
@@ -17,19 +18,32 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from app.domain.constraints import (
     ActorContext,
+    CommandOperation,
+    ConstraintPatch,
+    ConversationCommand,
     ConstraintSource,
     EnrichmentResult,
     IdentityType,
     Intent,
     Interpretation,
+    NormalizedConstraints,
     QuestionDecision,
+    StopRole,
+    TargetReference,
 )
 from app.domain.planning import (
     CandidateSet,
+    LockedStop,
+    Plan,
+    PlanDiff,
+    PlanPace,
+    PlanningIntent,
+    PlanningIntentDecision,
+    PlanningIntentProposal,
     PlanPriceStatus,
     PlanWarning,
     PlanStrategy,
-    StopRole,
+    StopReplacement,
     StopType,
 )
 from app.domain.providers import (
@@ -51,6 +65,7 @@ from app.domain.catalog import (
     CatalogSource,
     ConstraintViolation,
     PriceKind,
+    ResourceType,
     VerificationStatus,
     ViolationCode,
 )
@@ -66,10 +81,14 @@ from app.services.question_gate import GateContext, NeedQuestionGate
 from app.services.router_extractor import RouterContext
 
 
-class Router(Protocol):
-    """真实 LLM Router 与离线 DemoRouter 共同满足的接口。"""
+class TurnInterpreter(Protocol):
+    """真实 LLM 与离线 Demo Adapter 共同满足的语义解释接口。"""
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         ...
+
+
+# Compatibility name for existing composition roots and third-party callers.
+Router = TurnInterpreter
 
 
 class EntryState(TypedDict, total=False):
@@ -86,6 +105,11 @@ class EntryState(TypedDict, total=False):
     candidate_set: CandidateSet | None
     ready_for_planning: bool
     has_plans: bool
+    active_plan_version_id: str | None
+    active_constraints: NormalizedConstraints | None
+    selected_plan: Plan | None
+    plan_diff: PlanDiff | None
+    modification_question: QuestionDecision | None
 
 
 EnvironmentProvider = Callable[[ActorContext], EnvironmentContext]
@@ -93,7 +117,7 @@ EnvironmentProvider = Callable[[ActorContext], EnvironmentContext]
 
 def build_entry_graph(
     *,
-    router: Router,
+    router: TurnInterpreter,
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
     route_provider: RouteProvider | None = None,
@@ -127,6 +151,7 @@ def build_entry_graph(
                 current_date=environment.now.date(),
                 timezone=actor.timezone,
                 has_plans=state.get("has_plans", False),
+                has_selected_plan=state.get("selected_plan") is not None,
                 previous_intent=(
                     state["interpretation"].primary_intent
                     if state.get("interpretation")
@@ -142,6 +167,8 @@ def build_entry_graph(
             "question_decision": None,
             "candidate_set": None,
             "ready_for_planning": False,
+            "plan_diff": None,
+            "modification_question": None,
         }
 
     def route_after_router(state: EntryState) -> str:
@@ -149,7 +176,55 @@ def build_entry_graph(
         intent = state["interpretation"].primary_intent
         if intent in {Intent.CHITCHAT, Intent.CLARIFY}:
             return END
+        command = state["interpretation"].conversation_command
+        if intent == Intent.REFINE_PLAN or (
+            command is not None and command.operation == CommandOperation.REPLACE
+        ):
+            return "modify_plan"
         return "enrichment"
+
+    def modify_plan_node(state: EntryState) -> dict[str, object]:
+        interpretation = state["interpretation"]
+        command = interpretation.conversation_command
+        if command is None or command.operation != CommandOperation.REPLACE:
+            return {
+                "modification_question": QuestionDecision(
+                    need_question=True,
+                    field="conversation_command",
+                    question="请明确要保留哪一站，以及要替换哪一站。",
+                    severity="blocking",
+                )
+            }
+        selected_plan = state.get("selected_plan")
+        active_constraints = state.get("active_constraints")
+        if selected_plan is None:
+            return {
+                "modification_question": QuestionDecision(
+                    need_question=True,
+                    field="selected_plan_id",
+                    question="请先选择一个方案，再告诉我要保留和替换哪一站。",
+                    severity="blocking",
+                )
+            }
+        if active_constraints is None:
+            return {
+                "modification_question": QuestionDecision(
+                    need_question=True,
+                    field="active_plan_version_id",
+                    question="当前方案缺少可恢复的约束快照，请重新生成并选择方案。",
+                    severity="blocking",
+                )
+            }
+        outcome = planning_service.modify_selected_plan(
+            selected_plan=selected_plan,
+            constraints=active_constraints,
+            command=command,
+        )
+        return {
+            "candidate_set": outcome.candidate_set,
+            "plan_diff": outcome.plan_diff,
+            "modification_question": outcome.question,
+        }
 
     def enrichment_node(state: EntryState) -> dict[str, object]:
         environment = environment_provider(state["actor"])
@@ -221,6 +296,7 @@ def build_entry_graph(
 
     graph = StateGraph(EntryState)
     graph.add_node("router", router_node)
+    graph.add_node("modify_plan", modify_plan_node)
     graph.add_node("enrichment", enrichment_node)
     graph.add_node("gate", gate_node)
     graph.add_node("ask_question", ask_question_node)
@@ -229,8 +305,9 @@ def build_entry_graph(
     graph.add_conditional_edges(
         "router",
         route_after_router,
-        {"enrichment": "enrichment", END: END},
+        {"enrichment": "enrichment", "modify_plan": "modify_plan", END: END},
     )
+    graph.add_edge("modify_plan", END)
     graph.add_edge("enrichment", "gate")
     graph.add_conditional_edges(
         "gate",
@@ -261,9 +338,21 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             IdentityType,
             Intent,
             Interpretation,
+            CommandOperation,
+            ConstraintPatch,
+            ConversationCommand,
+            NormalizedConstraints,
+            LockedStop,
+            Plan,
+            PlanDiff,
+            PlanPace,
+            PlanningIntent,
+            PlanningIntentDecision,
+            PlanningIntentProposal,
             PlanPriceStatus,
             PlanStrategy,
             PriceKind,
+            ResourceType,
             QuestionDecision,
             ProviderMode,
             ProviderSource,
@@ -277,6 +366,8 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             RouteMode,
             RouteSource,
             StopRole,
+            TargetReference,
+            StopReplacement,
             StopType,
             WeatherFact,
             VerificationStatus,

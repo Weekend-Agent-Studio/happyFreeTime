@@ -236,6 +236,7 @@ class SessionRepository:
         plans: list[Plan],
         plan_version_id: str | None = None,
         normalized_constraints_json: str | None = None,
+        supersedes_version_id: str | None = None,
     ) -> None:
         """Atomically persist one run response, assistant message, and Plan Version.
 
@@ -272,7 +273,33 @@ class SessionRepository:
                     raise ValueError("constraint snapshot must be valid JSON") from error
                 if not isinstance(normalized_constraints, dict) or not normalized_constraints:
                     raise ValueError("constraint snapshot must be a non-empty JSON object")
-            elif plan_version_id is not None or normalized_constraints_json is not None:
+                if supersedes_version_id is not None:
+                    predecessor = database.scalar(
+                        select(PlanVersionRecord).where(
+                            PlanVersionRecord.id == supersedes_version_id,
+                            PlanVersionRecord.user_id == user_id,
+                            PlanVersionRecord.session_id == session_id,
+                        )
+                    )
+                    snapshot = database.scalar(
+                        select(SessionSnapshotRecord).where(
+                            SessionSnapshotRecord.session_id == session_id,
+                            SessionSnapshotRecord.user_id == user_id,
+                        )
+                    )
+                    if (
+                        predecessor is None
+                        or snapshot is None
+                        or snapshot.active_plan_version_id != predecessor.id
+                    ):
+                        raise ValueError(
+                            "superseded plan version must be the session's active version"
+                        )
+            elif (
+                plan_version_id is not None
+                or normalized_constraints_json is not None
+                or supersedes_version_id is not None
+            ):
                 raise ValueError(
                     "plan version metadata is only valid when plans are present"
                 )
@@ -298,7 +325,7 @@ class SessionRepository:
                         session_id=session_id,
                         planning_run_id=planning_run_id,
                         normalized_constraints_json=normalized_constraints_json,
-                        supersedes_version_id=None,
+                        supersedes_version_id=supersedes_version_id,
                         created_at=now,
                     )
                 )

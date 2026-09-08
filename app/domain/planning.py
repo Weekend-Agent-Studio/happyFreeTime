@@ -17,7 +17,7 @@ from app.domain.catalog import (
     ImageRef,
     PriceKind,
 )
-from app.domain.constraints import StopRole
+from app.domain.constraints import QuestionDecision, StopRole
 from app.domain.providers import (
     AvailabilityFact,
     GeocodingFact,
@@ -194,6 +194,46 @@ class Plan(BaseModel):
     tradeoffs: list[str] = Field(default_factory=list)
 
 
+class LockedStop(BaseModel):
+    """A resolved Stop identity that a modification is not allowed to change."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_plan_id: str
+    stop_index: int = Field(ge=0)
+    resource_id: str
+    role: StopRole | None = None
+
+
+class StopReplacement(BaseModel):
+    """One identity change at a stable itinerary position."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    stop_index: int = Field(ge=0)
+    role: StopRole | None = None
+    before_resource_id: str
+    before_name: str
+    after_resource_id: str
+    after_name: str
+
+
+class PlanDiff(BaseModel):
+    """An evidence-bearing difference between an immutable base and new Plan."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    from_plan_version_id: str | None = None
+    to_plan_version_id: str | None = None
+    base_plan_id: str
+    new_plan_id: str
+    locked_stops: tuple[LockedStop, ...] = ()
+    replacements: tuple[StopReplacement, ...] = ()
+    route_distance_delta_km: float
+    duration_delta_minutes: int
+    price_delta: int
+
+
 class ConstraintConflict(BaseModel):
     """没有可行方案时返回的结构化冲突，而不是让模型编造一个结果。"""
     model_config = ConfigDict(extra="forbid")
@@ -230,3 +270,27 @@ class CandidateSet(BaseModel):
     catalog_warnings: list[CatalogWarning] = Field(default_factory=list)
     warnings: list[PlanWarning] = Field(default_factory=list)
     planning_intent_decision: PlanningIntentDecision | None = None
+
+
+class PlanModificationResult(BaseModel):
+    """The bounded outcome of applying one supported command to a selected Plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_set: CandidateSet | None = None
+    plan_diff: PlanDiff | None = None
+    question: QuestionDecision | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> "PlanModificationResult":
+        if self.question is not None:
+            if self.candidate_set is not None or self.plan_diff is not None:
+                raise ValueError("a modification question cannot also contain a result")
+            return self
+        if self.candidate_set is None:
+            raise ValueError("a modification outcome requires a candidate set or question")
+        if self.candidate_set.plans and self.plan_diff is None:
+            raise ValueError("a successful modification requires a plan diff")
+        if not self.candidate_set.plans and self.plan_diff is not None:
+            raise ValueError("a failed modification cannot contain a plan diff")
+        return self

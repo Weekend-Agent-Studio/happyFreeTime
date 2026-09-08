@@ -20,7 +20,8 @@ from app.api.schemas import (
     SessionMessageResponse,
     SessionSummaryResponse,
 )
-from app.domain.constraints import ActorContext, IdentityType
+from app.domain.constraints import ActorContext, IdentityType, NormalizedConstraints
+from app.domain.planning import Plan
 from app.providers.weather import WeatherProvider
 from app.providers.route import RouteProvider
 from app.providers.geocoding import GeocodingProvider
@@ -259,8 +260,43 @@ def create_app(
             if snapshot.next and snapshot.interrupts:
                 result = graph.invoke(Command(resume=request.content), config=config)
             else:
+                session_snapshot = repository.get_session_snapshot(
+                    x_user_id,
+                    session_id,
+                )
+                active_plan_payloads = repository.list_plans(x_user_id, session_id)
+                selected_plan = next(
+                    (
+                        Plan.model_validate(plan)
+                        for plan in active_plan_payloads
+                        if session_snapshot is not None
+                        and plan.get("plan_id") == session_snapshot.selected_plan_id
+                    ),
+                    None,
+                )
+                active_constraints_payload = repository.active_constraints(
+                    x_user_id,
+                    session_id,
+                )
                 result = graph.invoke(
-                    {"user_input": request.content, "actor": actor},
+                    {
+                        "user_input": request.content,
+                        "actor": actor,
+                        "has_plans": bool(active_plan_payloads),
+                        "active_plan_version_id": (
+                            session_snapshot.active_plan_version_id
+                            if session_snapshot is not None
+                            else None
+                        ),
+                        "active_constraints": (
+                            NormalizedConstraints.model_validate(
+                                active_constraints_payload
+                            )
+                            if active_constraints_payload is not None
+                            else None
+                        ),
+                        "selected_plan": selected_plan,
+                    },
                     config=config,
                 )
 
@@ -291,24 +327,75 @@ def create_app(
                 )
                 return ResponseEnvelope(data=response)
 
+            modification_question = result.get("modification_question")
+            if modification_question is not None and modification_question.need_question:
+                question = modification_question.model_dump(mode="json")
+                response = AgentResponse(
+                    status="needs_input",
+                    question=question,
+                    reply=modification_question.question,
+                    conversation_command=(
+                        result["interpretation"].conversation_command.model_dump(
+                            mode="json"
+                        )
+                        if result.get("interpretation") is not None
+                        and result["interpretation"].conversation_command is not None
+                        else None
+                    ),
+                )
+                repository.complete_planning_run(
+                    user_id=x_user_id,
+                    session_id=session_id,
+                    planning_run_id=run.planning_run_id,
+                    status="needs_input",
+                    response=response.model_dump(mode="json"),
+                    assistant_content=modification_question.question,
+                    plans=[],
+                )
+                return ResponseEnvelope(data=response)
+
             interpretation = result.get("interpretation")
             candidate_set = result.get("candidate_set")
             reply = interpretation.reply if interpretation else ""
             plans = candidate_set.plans if candidate_set else []
             conflict = candidate_set.conflict if candidate_set else None
+            effective_constraints = (
+                result["enrichment"].constraints
+                if result.get("enrichment") is not None
+                else result.get("active_constraints")
+            )
             if plans:
                 reply = present_candidate_set(
                     candidate_set,
-                    result["enrichment"].constraints,
+                    effective_constraints,
                 )
             elif conflict is not None:
                 reply = conflict.message
 
             plan_version_id = uuid.uuid4().hex if plans else None
+            plan_diff = result.get("plan_diff")
+            supersedes_version_id = (
+                result.get("active_plan_version_id")
+                if plans and plan_diff is not None
+                else None
+            )
+            if plan_diff is not None and plan_version_id is not None:
+                plan_diff = plan_diff.model_copy(
+                    update={
+                        "from_plan_version_id": supersedes_version_id,
+                        "to_plan_version_id": plan_version_id,
+                    }
+                )
+                replacement = plan_diff.replacements[0]
+                reply = (
+                    f"已保留餐厅，并将“{replacement.before_name}”替换为"
+                    f"“{replacement.after_name}”；总通勤距离缩短 "
+                    f"{abs(plan_diff.route_distance_delta_km):.1f} km。"
+                )
             enrichment = result.get("enrichment")
             normalized_constraints_json = (
-                enrichment.constraints.model_dump_json()
-                if plans and enrichment is not None
+                effective_constraints.model_dump_json()
+                if plans and effective_constraints is not None
                 else None
             )
 
@@ -361,6 +448,17 @@ def create_app(
                     if candidate_set and candidate_set.planning_intent_decision is not None
                     else None
                 ),
+                conversation_command=(
+                    interpretation.conversation_command.model_dump(mode="json")
+                    if interpretation
+                    and interpretation.conversation_command is not None
+                    else None
+                ),
+                plan_diff=(
+                    plan_diff.model_dump(mode="json")
+                    if plan_diff is not None
+                    else None
+                ),
             )
             repository.complete_planning_run(
                 user_id=x_user_id,
@@ -372,6 +470,7 @@ def create_app(
                 plans=plans,
                 plan_version_id=plan_version_id,
                 normalized_constraints_json=normalized_constraints_json,
+                supersedes_version_id=supersedes_version_id,
             )
             return ResponseEnvelope(data=response)
         except Exception:

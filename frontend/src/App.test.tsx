@@ -131,6 +131,35 @@ describe("planning workspace", () => {
     expect(screen.queryByPlaceholderText(/餐厅保留|换近一点/)).not.toBeInTheDocument();
   });
 
+  it("shows the locked stop and replacement evidence for a modified plan", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      reply: "已保留餐厅并替换活动。",
+      plans: [plan("modified-plan", "修改后方案")],
+      plan_version_id: "version-2",
+      plan_diff: {
+        from_plan_version_id: "version-1",
+        to_plan_version_id: "version-2",
+        base_plan_id: "old-plan",
+        new_plan_id: "modified-plan",
+        locked_stops: [{ source_plan_id: "old-plan", stop_index: 1, resource_id: "restaurant-kept", role: "meal" }],
+        replacements: [{ stop_index: 0, role: "activity", before_resource_id: "activity-old", before_name: "旧展览", after_resource_id: "activity-new", after_name: "新展览" }],
+        route_distance_delta_km: -2.4,
+        duration_delta_minutes: -15,
+        price_delta: 0,
+      },
+    });
+    render(<App />);
+
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "餐厅保留，只把活动换近一点");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByText("方案已定向更新")).toBeInTheDocument();
+    expect(screen.getByText("旧展览 → 新展览")).toBeInTheDocument();
+    expect(screen.getByText("餐厅保持不变 · 通勤缩短 2.4 km")).toBeInTheDocument();
+  });
+
   it("does not render a return node when route legs contain only inbound legs", async () => {
     const user = userEvent.setup();
     const noReturnPlan = plan("no-return", "无返程方案");

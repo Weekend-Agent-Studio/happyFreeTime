@@ -285,6 +285,88 @@ class PlanVersionPersistenceTest(unittest.TestCase):
         # 旧版本仍保留。
         self.assertIn(first_version, [version.planning_run_id for version in versions])
 
+    def test_modification_version_supersedes_only_the_active_version(self) -> None:
+        session = self.repository.create_session(user_id="user-a", identity_type="demo")
+        self._complete_success(
+            user_id="user-a",
+            session_id=session.id,
+            plan_ids=("plan-a",),
+        )
+        old_version_id = self.repository.list_plan_versions("user-a", session.id)[0].id
+        self.repository.select_plan(
+            user_id="user-a",
+            session_id=session.id,
+            plan_id="plan-a",
+        )
+        run = self.repository.begin_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-modify",
+            content="餐厅保留，只把活动换近一点",
+        )
+        new_version_id = uuid.uuid4().hex
+
+        self.repository.complete_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            planning_run_id=run.planning_run_id,
+            status="completed",
+            response={"status": "completed", "plans": ["plan-new"]},
+            assistant_content="已修改方案",
+            plans=[make_plan("plan-new")],
+            plan_version_id=new_version_id,
+            normalized_constraints_json='{"date": {"value": "2026-08-15", "source": "user_inferred"}}',
+            supersedes_version_id=old_version_id,
+        )
+
+        versions = self.repository.list_plan_versions("user-a", session.id)
+        self.assertEqual([version.id for version in versions], [old_version_id, new_version_id])
+        self.assertEqual(versions[-1].supersedes_version_id, old_version_id)
+        snapshot = self.repository.get_session_snapshot("user-a", session.id)
+        self.assertEqual(snapshot.active_plan_version_id, new_version_id)
+        self.assertIsNone(snapshot.selected_plan_id)
+
+    def test_modification_cannot_supersede_a_non_active_version(self) -> None:
+        session = self.repository.create_session(user_id="user-a", identity_type="demo")
+        self._complete_success(
+            user_id="user-a",
+            session_id=session.id,
+            plan_ids=("old-plan",),
+        )
+        old_version_id = self.repository.list_plan_versions("user-a", session.id)[0].id
+        self._complete_success(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-new-active",
+            plan_ids=("active-plan",),
+        )
+        run = self.repository.begin_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-invalid-supersedes",
+            content="modify",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repository.complete_planning_run(
+                user_id="user-a",
+                session_id=session.id,
+                planning_run_id=run.planning_run_id,
+                status="completed",
+                response={"status": "completed", "plans": ["invalid-plan"]},
+                assistant_content="invalid",
+                plans=[make_plan("invalid-plan")],
+                plan_version_id=uuid.uuid4().hex,
+                normalized_constraints_json='{"date": {"value": "2026-08-15", "source": "user_inferred"}}',
+                supersedes_version_id=old_version_id,
+            )
+
+        self.assertEqual(len(self.repository.list_plan_versions("user-a", session.id)), 2)
+        self.assertEqual(
+            [plan["plan_id"] for plan in self.repository.list_plans("user-a", session.id)],
+            ["active-plan"],
+        )
+
     def test_old_versions_and_plans_are_preserved(self) -> None:
         session = self.repository.create_session(user_id="user-a", identity_type="demo")
         self._complete_success(user_id="user-a", session_id=session.id, plan_ids=("old-a", "old-b"))

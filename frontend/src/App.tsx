@@ -115,6 +115,8 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     warnings: response.warnings ?? [],
     poi_presentations: response.poi_presentations ?? [],
     plan_version_id: response.plan_version_id ?? null,
+    conversation_command: response.conversation_command ?? null,
+    plan_diff: response.plan_diff ?? null,
   };
 }
 
@@ -708,11 +710,13 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileD
   const returnConstraint = latestReturnConstraint(response);
   const shownConstraints = response.constraint_summary.filter((item) => ["exact_stop_count", "required_stop_roles", "budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
   const headingId = `plan-heading-${response.plans[0]?.plan_id ?? "reply"}`;
+  const replacement = response.plan_diff?.replacements[0];
   return (
     <section className="rich-planning-reply" aria-labelledby={headingId}>
       <div className="rich-reply-body">
         <div className="planning-progress" aria-label="规划完成步骤"><span><CheckCircle2 size={14} />解析需求</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />查询路线与景点</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />评估与排序</span></div>
-        <div className="plan-intro"><div><h2 id={headingId}>我整理了 {response.plans.length} 个都可行的方案</h2><p>重要信息放在同一位置，先看路线和取舍，再选一个展开。</p></div><span>{response.plans.length} 个候选</span></div>
+        <div className="plan-intro"><div><h2 id={headingId}>{response.plan_diff ? "方案已定向更新" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{response.plan_diff ? "锁定对象保持 identity 不变，新方案已经重新核验。" : "重要信息放在同一位置，先看路线和取舍，再选一个展开。"}</p></div><span>{response.plans.length} 个候选</span></div>
+        {response.plan_diff && replacement ? <div className="plan-diff-summary" role="status"><strong>{replacement.before_name} → {replacement.after_name}</strong><span>餐厅保持不变 · 通勤缩短 {Math.abs(response.plan_diff.route_distance_delta_km).toFixed(1)} km</span></div> : null}
         {response.poi_presentations.length ? <p className="demo-data-notice"><Database size={14} />POI 商业信息为模拟数据；路线来源和降级状态见各路线段。</p> : null}
         {(weather || departureAt || returnConstraint || shownConstraints.length) ? (
           <div className="shared-context" aria-label="本次规划的共享信息">

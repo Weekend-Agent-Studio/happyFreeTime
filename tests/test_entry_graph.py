@@ -61,6 +61,42 @@ class ExplicitLocationRouter:
 
 
 class EntryGraphTest(unittest.TestCase):
+    def test_replace_without_selected_plan_asks_before_planning(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-no-selection",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DemoRouter(),
+            environment_provider=lambda _: environment,
+        )
+
+        result = graph.invoke(
+            {
+                "user_input": "餐厅保留，只把活动换近一点",
+                "actor": actor,
+                "has_plans": True,
+                "active_plan_version_id": "version-1",
+                "active_constraints": None,
+                "selected_plan": None,
+            },
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        self.assertEqual(result["modification_question"].field, "selected_plan_id")
+        self.assertIsNone(result["candidate_set"])
+
     def test_unresolvable_explicit_location_interrupts_without_falling_back_to_default(self) -> None:
         environment = EnvironmentContext(
             now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),

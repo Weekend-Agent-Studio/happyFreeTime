@@ -28,6 +28,7 @@ HappyFreeTime 是一个面向北京周末活动的本地生活规划 Agent。V2 
 | 缺少关键条件时反问        | 已完成             | 前端继续输入答案，Graph 从 SQLite checkpoint 恢复        |
 | 生成并比较候选方案        | M2 多站切片        | 短时请求保留双站；覆盖午晚餐的长时间窗可生成显式 3/4 站方案，最多显示 3 个 |
 | 选择候选方案              | 已完成             | 点击方案卡后，右侧详情随选择更新                         |
+| 定向修改已选方案          | S3 最小切片已完成  | 支持“餐厅保留，只把活动换近一点”；锁定餐厅、完整复核并生成新 Plan Version 与 PlanDiff，其他修改动作暂不支持 |
 | 查看行程时间线            | 已完成             | 显示开始/结束时间、价格、站点和站间耗时                  |
 | 查看地图页签              | M2 真实地图首版    | 配置高德 JS API 后绘制复核后的路线几何和 N 站 marker；未配置或加载失败时保留路线文字摘要 |
 | 查看约束冲突              | 已完成             | 无可行方案时显示原因与可放宽方向，不伪造推荐结果         |
@@ -95,7 +96,7 @@ HFT_PLANNING_INTENT_TIMEOUT_SECONDS=15
 
 `HFT_DEMO_MODE` 只控制 Router；`HFT_PLANNING_INTENT_MODE` 单独控制 PlanningIntent。即使配置了 `LLM_API`，PlanningIntent 默认仍是 `rule`，不会自动产生模型调用。要启用受约束的 PlanningIntent LLM，需要显式设置 `HFT_PLANNING_INTENT_MODE=llm`；该模式仍会使用 RuleBased 作为基线和失败回退。
 
-`LLM_API` 会在 `HFT_DEMO_MODE=0` 时用于 RouterExtractor，也会在 `HFT_PLANNING_INTENT_MODE=llm` 时用于 PlanningIntent。活动与餐厅默认来自版本化的 `data/catalog/pois.json`，不因配置 LLM Key 自动更新；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德。
+`LLM_API` 会在 `HFT_DEMO_MODE=0` 时用于 TurnInterpreter（原 `RouterExtractor`），也会在 `HFT_PLANNING_INTENT_MODE=llm` 时用于 PlanningIntent。活动与餐厅默认来自版本化的 `data/catalog/pois.json`，不因配置 LLM Key 自动更新；路线仅在显式启用 route `live/record` 且提供后端高德 Key 时请求高德。
 
 如果只想测试 PlanningIntent LLM、保持 Router 离线，可使用 `HFT_DEMO_MODE=1` 与 `HFT_PLANNING_INTENT_MODE=llm`；这仍然需要 `LLM_API`，并且 Demo Router 只识别其固定演示词。若希望“慢慢走”“不要太累”等自然表达也由模型抽取，应使用 `HFT_DEMO_MODE=0` 的真实 Router。
 
@@ -218,7 +219,7 @@ pnpm run dev
 $PYTHON='D:\NWPU_career\anaconda3\envs\PyTorch\python.exe'
 $env:LANGGRAPH_STRICT_MSGPACK='true'
 
-# RouterExtractor：结构化输出、重试和澄清降级
+# TurnInterpreter（兼容旧名 RouterExtractor）：结构化输出、重试和澄清降级
 & $PYTHON -m unittest tests.test_router_extractor -v
 
 # Enrichment：日期/时间/距离规则和默认假设
@@ -274,7 +275,7 @@ pnpm run test:e2e
 
 - `app/orchestration/entry_graph.py`：Graph 节点、路由和 interrupt/resume。
 - `app/domain/`：节点间 Pydantic 数据契约。
-- `app/services/router_extractor.py`：真实 LLM 结构化抽取。
+- `app/services/router_extractor.py`：真实 LLM `TurnInterpreter`，结构化识别创建/修改命令；保留旧类名兼容入口。
 - `app/services/demo_router.py`：不需要 Key 的离线抽取器。
 - `app/services/enrichment.py`：确定性规则、默认值和 provenance。
 - `app/services/question_gate.py`：阻断式反问策略。
@@ -300,7 +301,7 @@ pnpm run test:e2e
 第一次学习项目时，不建议从前端或 ORM 逐文件硬啃。按一次请求的流向阅读：
 
 1. `app/domain/constraints.py`：先分清 RawConstraints、NormalizedConstraints、Assumption。
-2. `app/services/demo_router.py`：用最简单的规则实现理解 Router 接口。
+2. `app/services/demo_router.py`：用最简单的规则实现理解 TurnInterpreter 接口。
 3. `app/services/enrichment.py`：理解“缺失可默认，显式歧义不可覆盖”。
 4. `app/services/question_gate.py`：理解哪些信息会触发 blocking question。
 5. `app/orchestration/entry_graph.py`：把前三个模块串成 Graph，并观察 interrupt/resume。

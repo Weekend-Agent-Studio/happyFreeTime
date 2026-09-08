@@ -11,6 +11,7 @@ from app.api.application import create_app
 from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole
 from app.domain.providers import (
     AvailabilityStatus,
+    GeoPoint,
     ProviderMode,
     ProviderSource,
     RouteFact,
@@ -27,6 +28,7 @@ from app.providers.weather import (
 )
 from app.services.enrichment import EnvironmentContext
 from app.services.catalog import InMemoryCatalog
+from app.services.demo_router import DemoRouter
 from app.services.router_extractor import RouterContext
 from tests.test_native_planning import candidate
 from app.domain.catalog import ResourceType
@@ -287,6 +289,125 @@ class ApiTest(unittest.TestCase):
 
         view = self._session_view(session_id)
         self.assertEqual(view["selected_plan_id"], second_plan_id)
+
+    def test_keep_and_replace_creates_superseding_version_and_restores_diff(self) -> None:
+        restaurant = candidate(
+            "restaurant-kept",
+            ResourceType.RESTAURANT,
+            "保留餐厅",
+            ["餐厅"],
+        ).model_copy(update={"location": GeoPoint(latitude=39.9300, longitude=116.4500)})
+        near_activity = candidate(
+            "activity-near",
+            ResourceType.ACTIVITY,
+            "近处展览",
+            ["展览"],
+        ).model_copy(update={"location": GeoPoint(latitude=39.9250, longitude=116.4470)})
+        far_activity = candidate(
+            "activity-far",
+            ResourceType.ACTIVITY,
+            "远处展览",
+            ["展览"],
+        ).model_copy(update={"location": GeoPoint(latitude=39.9400, longitude=116.4600)})
+        database_path = Path(self.temp_dir.name) / "modification.db"
+
+        def build_app():
+            return create_app(
+                database_path=database_path,
+                router=DemoRouter(),
+                environment_provider=lambda _: self.environment,
+                catalog=InMemoryCatalog(
+                    [restaurant, near_activity, far_activity]
+                ),
+            )
+
+        with TestClient(build_app()) as client:
+            session_id = client.post(
+                "/api/sessions",
+                headers=self.headers,
+            ).json()["data"]["session_id"]
+            initial = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "s3-create-request",
+                    "content": "今天下午出去玩",
+                },
+            ).json()["data"]
+            old_version_id = initial["plan_version_id"]
+            far_plan = next(
+                plan
+                for plan in initial["plans"]
+                if any(stop["resource_id"] == "activity-far" for stop in plan["stops"])
+            )
+            select = client.post(
+                f"/api/sessions/{session_id}/plans/{far_plan['plan_id']}/select",
+                headers=self.headers,
+            )
+            self.assertEqual(select.status_code, 200, select.text)
+
+            modified_response = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "s3-modify-request",
+                    "content": "餐厅保留，只把活动换近一点",
+                },
+            )
+            self.assertEqual(modified_response.status_code, 200, modified_response.text)
+            modified = modified_response.json()["data"]
+            self.assertEqual(len(modified["plans"]), 1)
+            self.assertNotEqual(modified["plan_version_id"], old_version_id)
+            self.assertEqual(
+                modified["conversation_command"]["operation"],
+                "replace",
+            )
+            self.assertEqual(
+                {stop["resource_id"] for stop in modified["plans"][0]["stops"]},
+                {"activity-near", "restaurant-kept"},
+            )
+            self.assertEqual(
+                modified["plan_diff"]["locked_stops"][0]["resource_id"],
+                "restaurant-kept",
+            )
+            self.assertEqual(
+                modified["plan_diff"]["from_plan_version_id"],
+                old_version_id,
+            )
+            self.assertEqual(
+                modified["plan_diff"]["to_plan_version_id"],
+                modified["plan_version_id"],
+            )
+            replay = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "s3-modify-request",
+                    "content": "餐厅保留，只把活动换近一点",
+                },
+            )
+            self.assertEqual(replay.json()["data"], modified)
+
+        with TestClient(build_app()) as restarted:
+            view = restarted.get(
+                f"/api/sessions/{session_id}",
+                headers=self.headers,
+            ).json()["data"]
+            self.assertEqual(view["active_plan_version_id"], modified["plan_version_id"])
+            self.assertIsNone(view["selected_plan_id"])
+            self.assertEqual(len(view["plan_versions"]), 2)
+            self.assertEqual(
+                view["plan_versions"][-1]["supersedes_version_id"],
+                old_version_id,
+            )
+            self.assertEqual(
+                view["response_history"][-1]["plan_diff"],
+                modified["plan_diff"],
+            )
+            self.assertEqual(
+                view["response_history"][-1]["conversation_command"],
+                modified["conversation_command"],
+            )
 
     def test_selection_persists_across_app_restart(self) -> None:
         session_id = self._create_session()

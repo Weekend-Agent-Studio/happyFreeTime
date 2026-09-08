@@ -12,14 +12,29 @@ from enum import Enum
 from itertools import product
 from zoneinfo import ZoneInfo
 
-from app.domain.catalog import ConstraintViolation, PriceKind, ResourceType, StopCandidate
-from app.domain.constraints import NormalizedConstraints, StopRole
+from app.domain.catalog import (
+    CatalogResult,
+    ConstraintViolation,
+    PriceKind,
+    ResourceType,
+    StopCandidate,
+)
+from app.domain.constraints import (
+    CommandOperation,
+    ConversationCommand,
+    NormalizedConstraints,
+    QuestionDecision,
+    StopRole,
+    TargetReference,
+)
 from app.domain.planning import (
     CandidateSet,
     ConstraintConflict,
     Plan,
     PlanPace,
     PlanPriceStatus,
+    PlanModificationResult,
+    PlanDiff,
     PlanWarning,
     PlanStrategy,
     PlanSkeleton,
@@ -29,7 +44,9 @@ from app.domain.planning import (
     RouteSource,
     ScoreContribution,
     Stop,
+    StopReplacement,
     StopType,
+    LockedStop,
 )
 from app.domain.providers import (
     AvailabilityCheck,
@@ -82,6 +99,17 @@ _ROLE_RESOURCE_TYPES: dict[StopRole, frozenset[ResourceType]] = {
     StopRole.DINNER: frozenset({ResourceType.RESTAURANT}),
     StopRole.BREAK: frozenset({ResourceType.CAFE, ResourceType.DESSERT}),
 }
+
+
+class _StaticCatalog:
+    """Request-scoped Catalog view used to enforce already-resolved locks."""
+
+    def __init__(self, result: CatalogResult) -> None:
+        self._result = result.model_copy(deep=True)
+
+    def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
+        del constraints
+        return self._result.model_copy(deep=True)
 
 
 class RepairOutcome(str, Enum):
@@ -521,6 +549,205 @@ class PlanningService:
                 relaxation_options=relaxation_options,
             ),
             planning_intent_decision=planning_intent_decision,
+        )
+
+    def modify_selected_plan(
+        self,
+        *,
+        selected_plan: Plan,
+        constraints: NormalizedConstraints,
+        command: ConversationCommand,
+    ) -> PlanModificationResult:
+        """Apply the Resume V1 KEEP + REPLACE contract through the full planner.
+
+        User-language references are resolved only against the selected Plan. The
+        scoped Catalog then makes the resolved lock structural: the ordinary
+        Planner, route reconstruction, Availability checks and Verifier run
+        unchanged, but cannot silently substitute the locked resource.
+        """
+        if (
+            command.operation != CommandOperation.REPLACE
+            or command.target is None
+            or not command.constraint_patch.prefer_shorter_travel
+        ):
+            return PlanModificationResult(
+                candidate_set=CandidateSet(
+                    conflict=ConstraintConflict(
+                        code="UNSUPPORTED_MODIFICATION",
+                        message="当前版本只支持保留餐厅并把唯一活动换得更近。",
+                        fields=["conversation_command"],
+                        relaxation_options=["保留餐厅，只把活动换近一点"],
+                    )
+                )
+            )
+        target_matches = _resolve_stop_reference(selected_plan, command.target)
+        if len(target_matches) != 1:
+            return PlanModificationResult(
+                question=QuestionDecision(
+                    need_question=True,
+                    field="target_reference",
+                    question="需要明确要替换哪一个活动，请说明第几站。",
+                    severity="blocking",
+                )
+            )
+        if len(command.locked_targets) != 1:
+            return PlanModificationResult(
+                question=QuestionDecision(
+                    need_question=True,
+                    field="locked_stop",
+                    question="需要明确要保留哪一家餐厅。",
+                    severity="blocking",
+                )
+            )
+        locked_matches = _resolve_stop_reference(
+            selected_plan,
+            command.locked_targets[0],
+        )
+        if len(locked_matches) != 1:
+            return PlanModificationResult(
+                question=QuestionDecision(
+                    need_question=True,
+                    field="locked_stop",
+                    question="无法唯一定位要保留的餐厅，请说明第几站或餐厅名称。",
+                    severity="blocking",
+                )
+            )
+
+        if selected_plan.skeleton_id != _ACTIVITY_MEAL_SKELETON.skeleton_id:
+            return PlanModificationResult(
+                candidate_set=CandidateSet(
+                    conflict=ConstraintConflict(
+                        code="UNSUPPORTED_MODIFICATION_STRUCTURE",
+                        message="当前版本只支持修改一项活动加一项餐饮的两站方案。",
+                        fields=["plan_structure"],
+                        relaxation_options=["选择一个两站方案后重试"],
+                    )
+                )
+            )
+
+        target_index, target_stop = target_matches[0]
+        locked_index, locked_stop = locked_matches[0]
+        if target_index == locked_index or target_stop.role != StopRole.ACTIVITY:
+            return PlanModificationResult(
+                candidate_set=CandidateSet(
+                    conflict=ConstraintConflict(
+                        code="INVALID_MODIFICATION_TARGETS",
+                        message="替换目标和保留目标必须是不同的活动与餐厅。",
+                        fields=["target_reference", "locked_stop"],
+                        relaxation_options=["明确活动和要保留的餐厅"],
+                    )
+                )
+            )
+
+        recalled = self._catalog.recall(constraints)
+        candidate_ids = {candidate.resource_id for candidate in recalled.candidates}
+        if locked_stop.resource_id not in candidate_ids:
+            return PlanModificationResult(
+                candidate_set=CandidateSet(
+                    catalog_violations=recalled.violations,
+                    catalog_warnings=recalled.warnings,
+                    conflict=ConstraintConflict(
+                        code="LOCKED_STOP_UNAVAILABLE",
+                        message="要保留的餐厅已不满足当前约束，系统没有擅自解除锁定。",
+                        fields=["locked_stop"],
+                        relaxation_options=["重新选择方案或明确解除餐厅锁定"],
+                    ),
+                )
+            )
+
+        scoped_candidates = [
+            candidate
+            for candidate in recalled.candidates
+            if candidate.resource_id == locked_stop.resource_id
+            or (
+                candidate.resource_type == ResourceType.ACTIVITY
+                and candidate.resource_id != target_stop.resource_id
+            )
+        ]
+        scoped_catalog = _StaticCatalog(
+            recalled.model_copy(update={"candidates": scoped_candidates})
+        )
+        replanned = PlanningService(
+            weather_provider=self._weather_provider,
+            route_provider=self._route_provider,
+            availability_provider=self._availability_provider,
+            catalog=scoped_catalog,
+            planning_intent_provider=RuleBasedPlanningIntentProvider(),
+        ).plan(constraints)
+        if not replanned.plans:
+            conflict = replanned.conflict or ConstraintConflict(
+                code="NO_REPLACEMENT_PLAN",
+                message="保留餐厅后没有通过全部硬约束的替换方案。",
+                fields=["locked_stop", "replacement"],
+                relaxation_options=["放宽距离或时间约束"],
+            )
+            return PlanModificationResult(
+                candidate_set=replanned.model_copy(update={"conflict": conflict})
+            )
+
+        base_distance = _total_route_distance(selected_plan)
+        eligible = [
+            plan
+            for plan in replanned.plans
+            if plan.skeleton_id == selected_plan.skeleton_id
+            and locked_stop.resource_id
+            in {stop.resource_id for stop in plan.stops}
+            and target_stop.resource_id
+            not in {stop.resource_id for stop in plan.stops}
+            and _total_route_distance(plan) < base_distance - 1e-6
+        ]
+        if not eligible:
+            return PlanModificationResult(
+                candidate_set=replanned.model_copy(
+                    update={
+                        "plans": [],
+                        "conflict": ConstraintConflict(
+                            code="NO_CLOSER_REPLACEMENT",
+                            message="保留餐厅后，没有找到通勤距离确实更短的活动。",
+                            fields=["replacement", "route_distance"],
+                            relaxation_options=["允许距离相近的活动或更换餐厅"],
+                        ),
+                    }
+                )
+            )
+
+        modified = min(
+            eligible,
+            key=lambda plan: (_total_route_distance(plan), -plan.total_score, plan.plan_id),
+        )
+        replacement_stop = modified.stops[target_index]
+        resolved_lock = LockedStop(
+            source_plan_id=selected_plan.plan_id,
+            stop_index=locked_index,
+            resource_id=locked_stop.resource_id,
+            role=locked_stop.role,
+        )
+        plan_diff = PlanDiff(
+            base_plan_id=selected_plan.plan_id,
+            new_plan_id=modified.plan_id,
+            locked_stops=(resolved_lock,),
+            replacements=(
+                StopReplacement(
+                    stop_index=target_index,
+                    role=target_stop.role,
+                    before_resource_id=target_stop.resource_id,
+                    before_name=target_stop.name,
+                    after_resource_id=replacement_stop.resource_id,
+                    after_name=replacement_stop.name,
+                ),
+            ),
+            route_distance_delta_km=round(
+                _total_route_distance(modified) - base_distance,
+                3,
+            ),
+            duration_delta_minutes=(
+                modified.total_duration_minutes - selected_plan.total_duration_minutes
+            ),
+            price_delta=modified.total_price - selected_plan.total_price,
+        )
+        return PlanModificationResult(
+            candidate_set=replanned.model_copy(update={"plans": [modified]}),
+            plan_diff=plan_diff,
         )
 
     def _rebuild_route_timeline(
@@ -1764,6 +1991,40 @@ def _matching_requested_tags(
         for item in dict.fromkeys(requested)
         if item.strip().casefold() in available_normalized
     ]
+
+
+def _resolve_stop_reference(
+    plan: Plan,
+    reference: TargetReference,
+) -> list[tuple[int, Stop]]:
+    """Resolve a proposed reference only inside the authorized selected Plan."""
+    matches: list[tuple[int, Stop]] = []
+    for index, stop in enumerate(plan.stops):
+        if reference.stop_index is not None and index != reference.stop_index:
+            continue
+        if reference.resource_id is not None and stop.resource_id != reference.resource_id:
+            continue
+        if reference.role is not None:
+            role_matches = stop.role == reference.role
+            if reference.role == StopRole.MEAL:
+                role_matches = stop.role in {
+                    StopRole.MEAL,
+                    StopRole.LUNCH,
+                    StopRole.DINNER,
+                }
+            if not role_matches:
+                continue
+        if (
+            reference.resource_type is not None
+            and stop.type.value != reference.resource_type.value
+        ):
+            continue
+        matches.append((index, stop))
+    return matches
+
+
+def _total_route_distance(plan: Plan) -> float:
+    return sum(leg.distance_km for leg in plan.route_legs)
 
 
 def _haversine_km(origin: GeoPoint, destination: GeoPoint) -> float:

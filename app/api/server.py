@@ -14,7 +14,7 @@ from app.providers.geocoding import build_geocoding_provider
 from app.providers.availability import DemoAvailabilityProvider
 from app.providers.web_map import build_web_map_provider
 from app.services.demo_router import DemoRouter
-from app.services.router_extractor import build_default_router_extractor
+from app.services.router_extractor import build_default_turn_interpreter
 from app.services.catalog import SnapshotCatalog
 from app.services.planning_intent import build_default_planning_intent_provider
 from app.services.demo_world import DemoCatalog
@@ -38,7 +38,7 @@ def build_router():
         raise RuntimeError(
             "HFT_DEMO_MODE=0 requires LLM_API; set HFT_DEMO_MODE=1 for offline mode"
         )
-    return build_default_router_extractor()
+    return build_default_turn_interpreter()
 
 
 router = build_router()

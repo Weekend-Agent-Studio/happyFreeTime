@@ -194,8 +194,32 @@ export type PlanWarning = {
   stale: boolean;
 };
 
+export type PlanDiff = {
+  from_plan_version_id: string | null;
+  to_plan_version_id: string | null;
+  base_plan_id: string;
+  new_plan_id: string;
+  locked_stops: Array<{
+    source_plan_id: string;
+    stop_index: number;
+    resource_id: string;
+    role: Stop["role"];
+  }>;
+  replacements: Array<{
+    stop_index: number;
+    role: Stop["role"];
+    before_resource_id: string;
+    before_name: string;
+    after_resource_id: string;
+    after_name: string;
+  }>;
+  route_distance_delta_km: number;
+  duration_delta_minutes: number;
+  price_delta: number;
+};
+
 export type AgentResponse = {
-  /** needs_input 表示 Graph 已在 interrupt 暂停，下一条消息将恢复该会话。 */
+  /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
   status: "completed" | "needs_input";
   reply: string;
   question: { field: string; question: string; severity: string } | null;
@@ -213,6 +237,8 @@ export type AgentResponse = {
   warnings?: PlanWarning[];
   poi_presentations: PoiPresentation[];
   plan_version_id?: string | null;
+  conversation_command?: Record<string, unknown> | null;
+  plan_diff?: PlanDiff | null;
 };
 
 export type ChatMessage = {

@@ -1,6 +1,6 @@
 """使用真实 LLM 的语义入口。
 
-RouterExtractor 只把自然语言转换成 Interpretation，不负责查询天气、解析日期、
+TurnInterpreter 只把自然语言转换成 Interpretation，不负责查询天气、解析日期、
 补默认值或生成方案。这个职责限制让一次 LLM 调用更稳定，也使后续确定性逻辑
 可以脱离模型单独测试。
 """
@@ -31,6 +31,7 @@ class RouterContext(BaseModel):
     current_date: date
     timezone: str = "Asia/Shanghai"
     has_plans: bool = False
+    has_selected_plan: bool = False
     previous_intent: Intent | None = None
 
 
@@ -40,7 +41,7 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 1. 识别用户的主要意图和相关意图置信度。
 2. 从用户原话中抽取规划约束，保留原始表达。
 3. 为抽取结果记录简短证据片段和置信度。
-4. 识别方案选择、修改目标和取消目标。
+4. 将创建、选择或修改请求写成受 Schema 限制的 conversation_command。
 
 可用意图：plan_outing、find_activity、check_weather、refine_plan、execute_plan、cancel_execution、chitchat。
 
@@ -57,6 +58,9 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
    exact_stop_count 的排他短语和 required_stop_roles 的晚餐短语。没有排他语义时，
    不要从“想吃晚饭”“晚饭后散步”等表达推断一站行程。
 - 不调用工具，不生成地点、价格、库存、路线等事实。
+- “餐厅保留，只把活动换近一点”输出 operation=replace，target.role=activity，
+  locked_targets 中使用 resource_type=restaurant，constraint_patch.prefer_shorter_travel=true。
+  只保留用户语言引用，不猜测 resource_id；对象解析和锁定由 Harness 完成。
 - “严格控制预算”“千万别超预算”等表达令 strict_budget=true；只有明确金额才填写 budget_per_person。
 - 有儿童时尽量提取 children 和 child_age；不能确定时保持为空。
 - 由用户原话间接推断、而非直接陈述的字段写入 inferred_fields；例如从“约会”推断同行人数时写入 party。
@@ -64,7 +68,7 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 """
 
 
-class RouterExtractor:
+class TurnInterpreter:
     """将一轮用户输入转换成通过 Pydantic 校验的 Interpretation。
 
     首次结构化输出失败时只重试一次；第二次仍失败则返回显式澄清意图，避免
@@ -118,13 +122,18 @@ class RouterExtractor:
         ]
         if context.has_plans:
             lines.append("会话中已有候选方案。")
+        if context.has_selected_plan:
+            lines.append("用户已经显式选择当前版本中的一个方案。")
         if context.previous_intent is not None:
             lines.append(f"上一轮主要意图：{context.previous_intent.value}")
         return "\n".join(lines)
 
 
-def build_default_router_extractor() -> RouterExtractor:
-    """根据环境变量创建 OpenAI 兼容的生产 Router。"""
+RouterExtractor = TurnInterpreter
+
+
+def build_default_turn_interpreter() -> TurnInterpreter:
+    """根据环境变量创建 OpenAI 兼容的生产 TurnInterpreter。"""
     llm = ChatOpenAI(
         model=os.getenv("MODEL_NAME", "deepseek-v4-flash"),
         api_key=os.getenv("LLM_API"),
@@ -132,4 +141,7 @@ def build_default_router_extractor() -> RouterExtractor:
         temperature=0.0,
         extra_body={"thinking": {"type": "disabled"}},
     )
-    return RouterExtractor(llm.with_structured_output(Interpretation))
+    return TurnInterpreter(llm.with_structured_output(Interpretation))
+
+
+build_default_router_extractor = build_default_turn_interpreter

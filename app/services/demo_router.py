@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import re
 
-from app.domain.constraints import Intent, Interpretation, RawConstraints, StopRole
+from app.domain.catalog import ResourceType
+from app.domain.constraints import (
+    CommandOperation,
+    ConstraintPatch,
+    ConversationCommand,
+    Intent,
+    Interpretation,
+    RawConstraints,
+    StopRole,
+    TargetReference,
+)
 from app.services.router_extractor import RouterContext
 
 
@@ -22,6 +32,35 @@ class DemoRouter:
                 primary_intent=Intent.CHITCHAT,
                 intent_scores={Intent.CHITCHAT: 1.0},
                 reply="你好，我可以帮你规划活动、餐厅和两站之间的行程。",
+            )
+
+        if (
+            "餐厅保留" in text
+            and "活动" in text
+            and "换" in text
+            and any(phrase in text for phrase in ("近一点", "近点", "更近"))
+        ):
+            return Interpretation(
+                primary_intent=Intent.REFINE_PLAN,
+                intent_scores={Intent.REFINE_PLAN: 1.0},
+                conversation_command=ConversationCommand(
+                    operation=CommandOperation.REPLACE,
+                    target=TargetReference(
+                        role=StopRole.ACTIVITY,
+                        raw_text="活动",
+                    ),
+                    locked_targets=(
+                        TargetReference(
+                            resource_type=ResourceType.RESTAURANT,
+                            raw_text="餐厅",
+                        ),
+                    ),
+                    constraint_patch=ConstraintPatch(prefer_shorter_travel=True),
+                    evidence={
+                        "replace": "活动换近一点",
+                        "keep": "餐厅保留",
+                    },
+                ),
             )
 
         # 反问答案会与原问题拼成一段文本重新进入 Router，因此正则可以同时

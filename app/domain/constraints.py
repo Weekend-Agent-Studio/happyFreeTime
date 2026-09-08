@@ -14,6 +14,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.catalog import ResourceType
 from app.domain.providers import GeocodingFact
 
 
@@ -55,6 +56,66 @@ class StopRole(str, Enum):
     LUNCH = "lunch"
     DINNER = "dinner"
     BREAK = "break"
+
+
+class CommandOperation(str, Enum):
+    """The bounded action requested by one interpreted conversation turn."""
+
+    CREATE = "create"
+    SELECT = "select"
+    KEEP = "keep"
+    REPLACE = "replace"
+    UNSUPPORTED = "unsupported"
+
+
+class TargetReference(BaseModel):
+    """A user-language reference that has not yet been authorized or resolved."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: StopRole | None = None
+    resource_type: ResourceType | None = None
+    stop_index: int | None = Field(default=None, ge=0)
+    resource_id: str | None = None
+    raw_text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_reference_dimension(self) -> "TargetReference":
+        if (
+            self.role is None
+            and self.resource_type is None
+            and self.stop_index is None
+            and self.resource_id is None
+        ):
+            raise ValueError("target reference requires a role, stop index, or resource id")
+        return self
+
+
+class ConstraintPatch(BaseModel):
+    """The small, explicit modification vocabulary supported by Resume V1."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    prefer_shorter_travel: bool = False
+
+
+class ConversationCommand(BaseModel):
+    """A validated proposal to operate on session state; it grants no mutation rights."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: CommandOperation
+    target: TargetReference | None = None
+    locked_targets: tuple[TargetReference, ...] = ()
+    constraint_patch: ConstraintPatch = Field(default_factory=ConstraintPatch)
+    evidence: dict[str, str] = Field(default_factory=dict)
+    confidence: float = Field(default=1.0, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_replace_contract(self) -> "ConversationCommand":
+        if self.operation == CommandOperation.REPLACE and self.target is None:
+            raise ValueError("replace command requires a target")
+        return self
 
 
 class ActorContext(BaseModel):
@@ -142,6 +203,7 @@ class Interpretation(BaseModel):
     raw_constraints: RawConstraints = Field(default_factory=RawConstraints)
     selected_plan_index: int | None = Field(default=None, ge=0)
     target_reference: str | None = None
+    conversation_command: ConversationCommand | None = None
     extraction_confidence: dict[str, float] = Field(default_factory=dict)
     evidence_map: dict[str, str] = Field(default_factory=dict)
     inferred_fields: set[str] = Field(default_factory=set)
