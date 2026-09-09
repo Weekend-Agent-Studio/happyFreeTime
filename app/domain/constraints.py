@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date as Date
 from enum import Enum
-from typing import Generic, TypeVar
+from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -99,15 +99,57 @@ class ConstraintPatch(BaseModel):
     prefer_shorter_travel: bool = False
 
 
+class CriterionStrength(str, Enum):
+    """How strongly one replacement criterion constrains candidate selection."""
+
+    PREFERRED = "preferred"
+    REQUIRED = "required"
+
+
+class SemanticCriterion(BaseModel):
+    """A soft, evidence-bearing preference for the replacement resource."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["semantic"] = "semantic"
+    text: str = Field(min_length=1)
+    # Demo World facts cannot prove semantic absolutes; required semantic
+    # criteria remain deliberately out of this first bounded slice.
+    strength: Literal["preferred"] = "preferred"
+
+
+class RouteObjective(BaseModel):
+    """A deterministic objective whose postcondition can be verified."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["route_objective"] = "route_objective"
+    metric: Literal["total_route_distance"] = "total_route_distance"
+    direction: Literal["decrease"] = "decrease"
+    strength: Literal["required"] = "required"
+
+
+ReplacementCriterion = Annotated[
+    SemanticCriterion | RouteObjective,
+    Field(discriminator="kind"),
+]
+
+
 class ConversationCommand(BaseModel):
     """A validated proposal to operate on session state; it grants no mutation rights."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation: CommandOperation
+    # Optional client anchors are checked by the API against the session
+    # snapshot.  They are additive so legacy natural-language checkpoints can
+    # still deserialize without these fields.
+    base_plan_version_id: str | None = None
+    base_plan_id: str | None = None
     target: TargetReference | None = None
     locked_targets: tuple[TargetReference, ...] = ()
     constraint_patch: ConstraintPatch = Field(default_factory=ConstraintPatch)
+    replacement_criteria: tuple[ReplacementCriterion, ...] = ()
     evidence: dict[str, str] = Field(default_factory=dict)
     confidence: float = Field(default=1.0, ge=0, le=1)
 
@@ -116,6 +158,23 @@ class ConversationCommand(BaseModel):
         if self.operation == CommandOperation.REPLACE and self.target is None:
             raise ValueError("replace command requires a target")
         return self
+
+
+def effective_replacement_criteria(
+    command: ConversationCommand,
+) -> tuple[ReplacementCriterion, ...]:
+    """Return one canonical criterion tuple while supporting old checkpoints.
+
+    S3 stored ``ConstraintPatch.prefer_shorter_travel`` before the typed
+    replacement vocabulary existed. Keeping this conversion in one place means
+    callers never need to interpret both representations independently.
+    """
+    criteria = list(command.replacement_criteria)
+    if command.constraint_patch.prefer_shorter_travel and not any(
+        item.kind == "route_objective" for item in criteria
+    ):
+        criteria.append(RouteObjective())
+    return tuple(criteria)
 
 
 class ActorContext(BaseModel):

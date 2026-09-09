@@ -7,11 +7,15 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
     ConversationCommand,
+    RouteObjective,
+    SemanticCriterion,
     StopRole,
     TargetReference,
     TimeWindow,
 )
-from app.domain.providers import GeoPoint
+from app.domain.planning import LockedStop
+from app.domain.providers import AvailabilityStatus, GeoPoint
+from app.providers.availability import MockAvailabilityProvider
 from app.services.catalog import InMemoryCatalog
 from app.services.planning import PlanningService
 from tests.test_native_planning import candidate
@@ -175,6 +179,114 @@ class PlanModificationTest(unittest.TestCase):
         self.assertEqual(result.question.field, "target_reference")
         self.assertIsNone(result.candidate_set)
 
+    def test_four_stop_replaces_only_the_explicit_second_activity(self) -> None:
+        activity_one = candidate(
+            "activity-one",
+            ResourceType.ACTIVITY,
+            "首站展览",
+            ["展览"],
+            duration_minutes=60,
+            open_hours={"sat": "09:00-18:00"},
+        )
+        lunch = candidate(
+            "lunch-fixed",
+            ResourceType.RESTAURANT,
+            "固定午餐",
+            ["午餐"],
+            duration_minutes=60,
+            open_hours={"sat": "11:00-14:00"},
+        )
+        activity_two = candidate(
+            "activity-two",
+            ResourceType.ACTIVITY,
+            "下午展览",
+            ["展览"],
+            duration_minutes=300,
+            open_hours={"sat": "12:00-18:00"},
+        )
+        dinner = candidate(
+            "dinner-fixed",
+            ResourceType.RESTAURANT,
+            "固定晚餐",
+            ["晚餐"],
+            duration_minutes=60,
+            open_hours={"sat": "17:00-21:00"},
+        )
+        replacement = candidate(
+            "activity-replacement",
+            ResourceType.ACTIVITY,
+            "替换展览",
+            ["展览"],
+            duration_minutes=300,
+            open_hours={"sat": "12:00-18:00"},
+        )
+        constraints = planning_constraints(
+            budget=1_000,
+            max_distance_km=30,
+            time_end="21:00",
+        ).model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="10:00", end="21:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                )
+            }
+        )
+        service = PlanningService(
+            catalog=InMemoryCatalog(
+                [activity_one, lunch, activity_two, dinner, replacement]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        )
+        generated = service.plan(constraints)
+        selected = next(
+            plan
+            for plan in generated.plans
+            if len(plan.stops) == 4
+            and plan.stops[2].resource_id == "activity-two"
+        )
+        command = ConversationCommand(
+            operation=CommandOperation.REPLACE,
+            target=TargetReference(
+                stop_index=2,
+                resource_id="activity-two",
+                role=StopRole.ACTIVITY,
+                raw_text="下午展览",
+            ),
+            replacement_criteria=(),
+        )
+
+        result = service.modify_selected_plan(
+            selected_plan=selected,
+            constraints=constraints,
+            command=command,
+        )
+
+        self.assertIsNone(result.question)
+        self.assertEqual(len(result.candidate_set.plans), 1)
+        modified = result.candidate_set.plans[0]
+        self.assertEqual(len(modified.stops), len(selected.stops))
+        self.assertEqual(modified.skeleton_id, selected.skeleton_id)
+        self.assertNotEqual(modified.stops[2].resource_id, selected.stops[2].resource_id)
+        self.assertEqual(modified.stops[2].role, selected.stops[2].role)
+        for index in (0, 1, 3):
+            self.assertEqual(
+                (modified.stops[index].resource_id, modified.stops[index].role),
+                (selected.stops[index].resource_id, selected.stops[index].role),
+            )
+        self.assertEqual(
+            result.plan_diffs[0].locked_stops,
+            tuple(
+                LockedStop(
+                    source_plan_id=selected.plan_id,
+                    stop_index=index,
+                    resource_id=selected.stops[index].resource_id,
+                    role=selected.stops[index].role,
+                )
+                for index in (0, 1, 3)
+            ),
+        )
+
     def test_unavailable_locked_restaurant_is_not_silently_released(self) -> None:
         restaurant = candidate("restaurant-kept", ResourceType.RESTAURANT, "保留餐厅", ["餐厅"])
         old_activity = candidate("activity-old", ResourceType.ACTIVITY, "原活动", ["展览"])
@@ -197,6 +309,161 @@ class PlanModificationTest(unittest.TestCase):
         self.assertEqual(result.candidate_set.plans, [])
         self.assertEqual(result.candidate_set.conflict.code, "LOCKED_STOP_UNAVAILABLE")
         self.assertIsNone(result.plan_diff)
+
+    def test_replacement_returns_two_verified_candidates_with_candidate_diffs(self) -> None:
+        restaurant = candidate(
+            "restaurant-fixed",
+            ResourceType.RESTAURANT,
+            "固定晚餐",
+            ["餐厅"],
+        )
+        old_activity = candidate(
+            "activity-old",
+            ResourceType.ACTIVITY,
+            "旧展览",
+            ["展览"],
+        )
+        quiet_activity = candidate(
+            "activity-quiet",
+            ResourceType.ACTIVITY,
+            "安静展览",
+            ["展览"],
+            scene_tags=["安静"],
+        )
+        park_activity = candidate(
+            "activity-park",
+            ResourceType.ACTIVITY,
+            "安静公园",
+            ["公园"],
+            scene_tags=["安静"],
+        )
+        constraints = planning_constraints(
+            budget=1_000,
+            max_distance_km=30,
+            time_end="20:00",
+        )
+        service = PlanningService(
+            catalog=InMemoryCatalog(
+                [restaurant, old_activity, quiet_activity, park_activity]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        )
+        selected = next(
+            plan
+            for plan in service.plan(constraints).plans
+            if any(stop.resource_id == "activity-old" for stop in plan.stops)
+        )
+        result = service.modify_selected_plan(
+            selected_plan=selected,
+            constraints=constraints,
+            command=ConversationCommand(
+                operation=CommandOperation.REPLACE,
+                target=TargetReference(
+                    stop_index=0,
+                    resource_id="activity-old",
+                    role=StopRole.ACTIVITY,
+                    raw_text="旧展览",
+                ),
+                replacement_criteria=(
+                    SemanticCriterion(text="安静"),
+                ),
+            ),
+        )
+
+        self.assertIsNone(result.question)
+        self.assertIsNotNone(result.candidate_set)
+        self.assertEqual(len(result.candidate_set.plans), 2)
+        self.assertEqual(len(result.plan_diffs), 2)
+        self.assertEqual(
+            {diff.new_plan_id for diff in result.plan_diffs},
+            {plan.plan_id for plan in result.candidate_set.plans},
+        )
+        for plan, diff in zip(result.candidate_set.plans, result.plan_diffs, strict=True):
+            self.assertEqual(diff.new_plan_id, plan.plan_id)
+            self.assertEqual(len(diff.replacements), 1)
+            self.assertEqual(
+                [(stop.resource_id, stop.role) for stop in plan.stops[1:]],
+                [(stop.resource_id, stop.role) for stop in selected.stops[1:]],
+            )
+            self.assertTrue(diff.locked_stops)
+
+    def test_replacement_never_verifies_candidates_without_availability_facts(self) -> None:
+        restaurant = candidate(
+            "restaurant-fixed",
+            ResourceType.RESTAURANT,
+            "固定晚餐",
+            ["餐厅"],
+        )
+        old_activity = candidate(
+            "activity-old",
+            ResourceType.ACTIVITY,
+            "原活动",
+            ["展览"],
+        )
+        replacements = [
+            candidate(
+                f"activity-new-{index}",
+                ResourceType.ACTIVITY,
+                f"候选活动 {index}",
+                ["展览"],
+            )
+            for index in range(8)
+        ]
+        constraints = planning_constraints(
+            budget=1_000,
+            max_distance_km=30,
+            time_end="20:00",
+        )
+        selected = PlanningService(
+            catalog=InMemoryCatalog([restaurant, old_activity]),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(constraints).plans[0]
+
+        class RecordingAvailabilityProvider(MockAvailabilityProvider):
+            def __init__(self) -> None:
+                super().__init__(
+                    statuses={},
+                    default_status=AvailabilityStatus.AVAILABLE,
+                )
+                self.requests = []
+
+            def check(self, request):
+                self.requests.append(request)
+                return super().check(request)
+
+        availability = RecordingAvailabilityProvider()
+        service = PlanningService(
+            catalog=InMemoryCatalog([restaurant, old_activity, *replacements]),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=availability,
+        )
+        result = service.modify_selected_plan(
+            selected_plan=selected,
+            constraints=constraints,
+            command=ConversationCommand(
+                operation=CommandOperation.REPLACE,
+                target=TargetReference(
+                    stop_index=0,
+                    resource_id="activity-old",
+                    role=StopRole.ACTIVITY,
+                    raw_text="原活动",
+                ),
+            ),
+        )
+
+        self.assertIsNone(result.question)
+        self.assertTrue(result.candidate_set.plans)
+        self.assertLessEqual(len(availability.requests), 6)
+        checked_ids = {
+            check.resource_id
+            for request in availability.requests
+            for check in request.checks
+        }
+        returned_replacements = {
+            plan.stops[0].resource_id for plan in result.candidate_set.plans
+        }
+        self.assertTrue(returned_replacements)
+        self.assertTrue(returned_replacements <= checked_ids)
 
 
 if __name__ == "__main__":

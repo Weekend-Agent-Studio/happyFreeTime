@@ -20,6 +20,7 @@ from app.domain.constraints import (
     ActorContext,
     CommandOperation,
     ConstraintPatch,
+    CriterionStrength,
     ConversationCommand,
     ConstraintSource,
     EnrichmentResult,
@@ -28,6 +29,8 @@ from app.domain.constraints import (
     Interpretation,
     NormalizedConstraints,
     QuestionDecision,
+    RouteObjective,
+    SemanticCriterion,
     StopRole,
     TargetReference,
 )
@@ -109,6 +112,8 @@ class EntryState(TypedDict, total=False):
     active_constraints: NormalizedConstraints | None
     selected_plan: Plan | None
     plan_diff: PlanDiff | None
+    plan_diffs: tuple[PlanDiff, ...]
+    conversation_command_override: ConversationCommand | None
     modification_question: QuestionDecision | None
 
 
@@ -144,21 +149,51 @@ def build_entry_graph(
 
     def router_node(state: EntryState) -> dict[str, object]:
         actor = state["actor"]
-        environment = environment_provider(actor)
-        interpretation = router.interpret(
-            state["user_input"],
-            RouterContext(
-                current_date=environment.now.date(),
-                timezone=actor.timezone,
-                has_plans=state.get("has_plans", False),
-                has_selected_plan=state.get("selected_plan") is not None,
-                previous_intent=(
-                    state["interpretation"].primary_intent
-                    if state.get("interpretation")
-                    else None
+        structured_command = state.get("conversation_command_override")
+        if structured_command is not None:
+            # UI commands already passed Pydantic validation and carry an
+            # explicit selected-plan target.  They do not need an LLM round trip;
+            # the command still goes through the same service authorization and
+            # verification checks as a natural-language command.
+            interpretation = Interpretation(
+                primary_intent=(
+                    Intent.REFINE_PLAN
+                    if structured_command.operation == CommandOperation.REPLACE
+                    else Intent.CLARIFY
                 ),
-            ),
-        )
+                intent_scores={
+                    (
+                        Intent.REFINE_PLAN
+                        if structured_command.operation == CommandOperation.REPLACE
+                        else Intent.CLARIFY
+                    ): 1.0
+                },
+                conversation_command=structured_command,
+                reply=(
+                    "正在按选中方案替换一个站点。"
+                    if structured_command.operation == CommandOperation.REPLACE
+                    else "当前结构化操作暂不支持。"
+                ),
+                requires_clarification=(
+                    structured_command.operation != CommandOperation.REPLACE
+                ),
+            )
+        else:
+            environment = environment_provider(actor)
+            interpretation = router.interpret(
+                state["user_input"],
+                RouterContext(
+                    current_date=environment.now.date(),
+                    timezone=actor.timezone,
+                    has_plans=state.get("has_plans", False),
+                    has_selected_plan=state.get("selected_plan") is not None,
+                    previous_intent=(
+                        state["interpretation"].primary_intent
+                        if state.get("interpretation")
+                        else None
+                    ),
+                ),
+            )
         # 这些派生值只属于当前解释轮次。反问恢复或用户修改需求时必须清空，
         # 否则新请求可能误用上一轮的假设、Gate 决策或候选方案。
         return {
@@ -168,6 +203,8 @@ def build_entry_graph(
             "candidate_set": None,
             "ready_for_planning": False,
             "plan_diff": None,
+            "plan_diffs": (),
+            "conversation_command_override": None,
             "modification_question": None,
         }
 
@@ -223,6 +260,7 @@ def build_entry_graph(
         return {
             "candidate_set": outcome.candidate_set,
             "plan_diff": outcome.plan_diff,
+            "plan_diffs": outcome.plan_diffs,
             "modification_question": outcome.question,
         }
 
@@ -340,6 +378,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             Interpretation,
             CommandOperation,
             ConstraintPatch,
+            CriterionStrength,
             ConversationCommand,
             NormalizedConstraints,
             LockedStop,
@@ -365,6 +404,8 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             RouteFact,
             RouteMode,
             RouteSource,
+            RouteObjective,
+            SemanticCriterion,
             StopRole,
             TargetReference,
             StopReplacement,

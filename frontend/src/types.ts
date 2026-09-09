@@ -218,6 +218,23 @@ export type PlanDiff = {
   price_delta: number;
 };
 
+export type ReplacementCriterion =
+  | { kind: "semantic"; text: string; strength: "preferred" }
+  | { kind: "route_objective"; metric: "total_route_distance"; direction: "decrease"; strength: "required" };
+
+export type ConversationCommand = {
+  operation: "replace";
+  base_plan_version_id?: string;
+  base_plan_id?: string;
+  target: {
+    stop_index: number;
+    resource_id: string;
+    role?: Stop["role"];
+    raw_text: string;
+  };
+  replacement_criteria: ReplacementCriterion[];
+};
+
 export type AgentResponse = {
   /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
   status: "completed" | "needs_input";
@@ -239,6 +256,7 @@ export type AgentResponse = {
   plan_version_id?: string | null;
   conversation_command?: Record<string, unknown> | null;
   plan_diff?: PlanDiff | null;
+  plan_diffs?: PlanDiff[];
 };
 
 export type ChatMessage = {

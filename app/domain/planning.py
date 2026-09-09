@@ -233,6 +233,18 @@ class PlanDiff(BaseModel):
     duration_delta_minutes: int
     price_delta: int
 
+    @model_validator(mode="after")
+    def validate_single_stop_change(self) -> "PlanDiff":
+        if len(self.replacements) != 1:
+            raise ValueError("a single-stop modification diff requires exactly one replacement")
+        target_index = self.replacements[0].stop_index
+        lock_indexes = [item.stop_index for item in self.locked_stops]
+        if len(lock_indexes) != len(set(lock_indexes)):
+            raise ValueError("locked stops in a modification diff must be unique")
+        if target_index in set(lock_indexes):
+            raise ValueError("the replacement target cannot also be a locked stop")
+        return self
+
 
 class ConstraintConflict(BaseModel):
     """没有可行方案时返回的结构化冲突，而不是让模型编造一个结果。"""
@@ -273,24 +285,42 @@ class CandidateSet(BaseModel):
 
 
 class PlanModificationResult(BaseModel):
-    """The bounded outcome of applying one supported command to a selected Plan."""
+    """The bounded outcome of applying one supported command to a selected Plan.
+
+    A replacement request may produce more than one independently verified
+    candidate.  ``plan_diffs`` is therefore aligned with ``candidate_set.plans``
+    by ``new_plan_id``.  ``plan_diff`` remains a read-only compatibility view for
+    callers written against the original single-candidate contract; new code
+    must use ``plan_diffs``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     candidate_set: CandidateSet | None = None
-    plan_diff: PlanDiff | None = None
+    plan_diffs: tuple[PlanDiff, ...] = ()
     question: QuestionDecision | None = None
+
+    @property
+    def plan_diff(self) -> PlanDiff | None:
+        """Return the first diff for backwards-compatible read access."""
+
+        return self.plan_diffs[0] if self.plan_diffs else None
 
     @model_validator(mode="after")
     def validate_outcome(self) -> "PlanModificationResult":
         if self.question is not None:
-            if self.candidate_set is not None or self.plan_diff is not None:
+            if self.candidate_set is not None or self.plan_diffs:
                 raise ValueError("a modification question cannot also contain a result")
             return self
         if self.candidate_set is None:
             raise ValueError("a modification outcome requires a candidate set or question")
-        if self.candidate_set.plans and self.plan_diff is None:
-            raise ValueError("a successful modification requires a plan diff")
-        if not self.candidate_set.plans and self.plan_diff is not None:
-            raise ValueError("a failed modification cannot contain a plan diff")
+        if self.candidate_set.plans:
+            if len(self.plan_diffs) != len(self.candidate_set.plans):
+                raise ValueError("each modification candidate requires exactly one plan diff")
+            plan_ids = {plan.plan_id for plan in self.candidate_set.plans}
+            diff_ids = [diff.new_plan_id for diff in self.plan_diffs]
+            if len(set(diff_ids)) != len(diff_ids) or set(diff_ids) != plan_ids:
+                raise ValueError("modification plan diffs must match candidate plan ids")
+        elif self.plan_diffs:
+            raise ValueError("a failed modification cannot contain plan diffs")
         return self

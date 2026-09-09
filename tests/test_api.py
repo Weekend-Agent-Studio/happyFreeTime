@@ -146,6 +146,11 @@ class LocationRuleRouter:
         )
 
 
+class ExplodingRouter:
+    def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        raise AssertionError("structured replacement must bypass TurnInterpreter")
+
+
 class FixedReplayRouteProvider:
     def route(self, request: RouteRequest) -> RouteFact:
         return RouteFact(
@@ -408,6 +413,170 @@ class ApiTest(unittest.TestCase):
                 view["response_history"][-1]["conversation_command"],
                 modified["conversation_command"],
             )
+
+    def test_structured_replacement_bypasses_router_and_persists_candidate_diffs(self) -> None:
+        restaurant = candidate(
+            "restaurant-fixed",
+            ResourceType.RESTAURANT,
+            "固定晚餐",
+            ["餐厅"],
+        )
+        old_activity = candidate(
+            "activity-old",
+            ResourceType.ACTIVITY,
+            "旧展览",
+            ["展览"],
+        )
+        replacement_one = candidate(
+            "activity-new-one",
+            ResourceType.ACTIVITY,
+            "安静展览",
+            ["展览"],
+            scene_tags=["安静"],
+        )
+        replacement_two = candidate(
+            "activity-new-two",
+            ResourceType.ACTIVITY,
+            "安静公园",
+            ["公园"],
+            scene_tags=["安静"],
+        )
+        database_path = Path(self.temp_dir.name) / "structured-modification.db"
+        initial_app = create_app(
+            database_path=database_path,
+            router=RuleRouter(),
+            environment_provider=lambda _: self.environment,
+            weather_provider=ReplayWeatherProvider(
+                store=self.replay_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+            catalog=InMemoryCatalog(
+                [restaurant, old_activity, replacement_one, replacement_two]
+            ),
+        )
+        with TestClient(initial_app) as client:
+            session_id = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            initial = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={"request_id": "structured-initial", "content": "今天下午出去玩"},
+            ).json()["data"]
+            selected_id = next(
+                plan["plan_id"]
+                for plan in initial["plans"]
+                if any(stop["resource_id"] == "activity-old" for stop in plan["stops"])
+            )
+            client.post(
+                f"/api/sessions/{session_id}/plans/{selected_id}/select",
+                headers=self.headers,
+            )
+
+        restarted_app = create_app(
+            database_path=database_path,
+            router=ExplodingRouter(),
+            environment_provider=lambda _: self.environment,
+            weather_provider=ReplayWeatherProvider(
+                store=self.replay_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+            catalog=InMemoryCatalog(
+                [restaurant, old_activity, replacement_one, replacement_two]
+            ),
+        )
+        with TestClient(restarted_app) as client:
+            selected_plan = next(
+                plan
+                for plan in client.get(
+                    f"/api/sessions/{session_id}", headers=self.headers
+                ).json()["data"]["plans"]
+                if plan["plan_id"] == selected_id
+            )
+            target_index = next(
+                index
+                for index, stop in enumerate(selected_plan["stops"])
+                if stop["resource_id"] == "activity-old"
+            )
+            modified_response = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "structured-replace",
+                    "content": "更换旧展览：希望安静",
+                    "conversation_command": {
+                        "operation": "replace",
+                        "base_plan_version_id": initial["plan_version_id"],
+                        "base_plan_id": selected_id,
+                        "target": {
+                            "stop_index": target_index,
+                            "resource_id": "activity-old",
+                            "role": "activity",
+                            "raw_text": "旧展览",
+                        },
+                        "replacement_criteria": [
+                            {"kind": "semantic", "text": "安静", "strength": "preferred"}
+                        ],
+                    },
+                },
+            )
+            self.assertEqual(modified_response.status_code, 200, modified_response.text)
+            modified = modified_response.json()["data"]
+            self.assertEqual(len(modified["plans"]), 2)
+            self.assertEqual(len(modified["plan_diffs"]), 2)
+            self.assertIsNone(modified["plan_diff"])
+            self.assertEqual(
+                {diff["new_plan_id"] for diff in modified["plan_diffs"]},
+                {plan["plan_id"] for plan in modified["plans"]},
+            )
+            view = client.get(
+                f"/api/sessions/{session_id}", headers=self.headers
+            ).json()["data"]
+            self.assertEqual(view["active_plan_version_id"], modified["plan_version_id"])
+            self.assertIsNone(view["selected_plan_id"])
+
+    def test_structured_replace_requires_both_plan_anchors_without_state_change(self) -> None:
+        session_id = self._create_session()
+        initial = self._send_message(session_id, "今天下午出去玩").json()["data"]
+        selected_id = initial["plans"][0]["plan_id"]
+        self.client.post(
+            f"/api/sessions/{session_id}/plans/{selected_id}/select",
+            headers=self.headers,
+        )
+        selected = self._session_view(session_id)
+        selected_plan = next(
+            plan for plan in selected["plans"] if plan["plan_id"] == selected_id
+        )
+        target_index = next(
+            index
+            for index, stop in enumerate(selected_plan["stops"])
+            if stop["role"] == "activity"
+        )
+        before = self._session_view(session_id)
+        for missing_key in ("base_plan_version_id", "base_plan_id"):
+            command = {
+                "operation": "replace",
+                "base_plan_version_id": initial["plan_version_id"],
+                "base_plan_id": selected_id,
+                "target": {
+                    "stop_index": target_index,
+                    "resource_id": selected_plan["stops"][target_index]["resource_id"],
+                    "role": "activity",
+                    "raw_text": "活动",
+                },
+            }
+            command.pop(missing_key)
+            response = self.client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": f"structured-missing-{missing_key}",
+                    "content": "结构化替换",
+                    "conversation_command": command,
+                },
+            )
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(self._session_view(session_id), before)
 
     def test_selection_persists_across_app_restart(self) -> None:
         session_id = self._create_session()

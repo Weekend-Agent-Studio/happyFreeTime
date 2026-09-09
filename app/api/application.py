@@ -20,7 +20,12 @@ from app.api.schemas import (
     SessionMessageResponse,
     SessionSummaryResponse,
 )
-from app.domain.constraints import ActorContext, IdentityType, NormalizedConstraints
+from app.domain.constraints import (
+    ActorContext,
+    CommandOperation,
+    IdentityType,
+    NormalizedConstraints,
+)
 from app.domain.planning import Plan
 from app.providers.weather import WeatherProvider
 from app.providers.route import RouteProvider
@@ -237,6 +242,42 @@ def create_app(
         if repository.get_session(x_user_id, session_id) is None:
             raise HTTPException(status_code=404, detail="session not found")
 
+        # Validate structured replacement anchors before creating a planning
+        # run or user message.  Invalid UI commands must be side-effect free;
+        # natural-language commands are still interpreted by the Graph and do
+        # not enter this boundary check.
+        if (
+            request.conversation_command is not None
+            and request.conversation_command.operation == CommandOperation.REPLACE
+        ):
+            command = request.conversation_command
+            session_snapshot = repository.get_session_snapshot(
+                x_user_id,
+                session_id,
+            )
+            if command.base_plan_version_id is None or command.base_plan_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "结构化替换请求必须同时提供 base_plan_version_id "
+                        "和 base_plan_id"
+                    ),
+                )
+            if (
+                session_snapshot is None
+                or command.base_plan_version_id
+                != session_snapshot.active_plan_version_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="修改请求基于的方案版本已不是当前 active 版本",
+                )
+            if command.base_plan_id != session_snapshot.selected_plan_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="修改请求基于的方案已不是当前 selected 方案",
+                )
+
         try:
             run = repository.begin_planning_run(
                 user_id=x_user_id,
@@ -264,6 +305,42 @@ def create_app(
                     x_user_id,
                     session_id,
                 )
+                if request.conversation_command is not None:
+                    command = request.conversation_command
+                    if command.operation == CommandOperation.REPLACE and (
+                        command.base_plan_version_id is None
+                        or command.base_plan_id is None
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "结构化替换请求必须同时提供 base_plan_version_id "
+                                "和 base_plan_id"
+                            ),
+                        )
+                    if (
+                        command.base_plan_version_id is not None
+                        and (
+                            session_snapshot is None
+                            or command.base_plan_version_id
+                            != session_snapshot.active_plan_version_id
+                        )
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="修改请求基于的方案版本已不是当前 active 版本",
+                        )
+                    if (
+                        command.base_plan_id is not None
+                        and (
+                            session_snapshot is None
+                            or command.base_plan_id != session_snapshot.selected_plan_id
+                        )
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="修改请求基于的方案已不是当前 selected 方案",
+                        )
                 active_plan_payloads = repository.list_plans(x_user_id, session_id)
                 selected_plan = next(
                     (
@@ -296,6 +373,11 @@ def create_app(
                             else None
                         ),
                         "selected_plan": selected_plan,
+                        # A structured UI command is already validated at the
+                        # HTTP boundary.  Passing it as an explicit Graph input
+                        # keeps the natural-language interpreter out of this
+                        # deterministic action path.
+                        "conversation_command_override": request.conversation_command,
                     },
                     config=config,
                 )
@@ -373,25 +455,34 @@ def create_app(
                 reply = conflict.message
 
             plan_version_id = uuid.uuid4().hex if plans else None
-            plan_diff = result.get("plan_diff")
-            supersedes_version_id = (
-                result.get("active_plan_version_id")
-                if plans and plan_diff is not None
+            raw_plan_diffs = result.get("plan_diffs") or ()
+            # Checkpoints created before the candidate-level contract may only
+            # expose one ``plan_diff``.  Read it for compatibility, but every
+            # newly produced response is serialized through ``plan_diffs``.
+            if not raw_plan_diffs and result.get("plan_diff") is not None:
+                raw_plan_diffs = (result["plan_diff"],)
+            plan_diffs = list(raw_plan_diffs)
+            interpretation_command = (
+                interpretation.conversation_command
+                if interpretation is not None
                 else None
             )
-            if plan_diff is not None and plan_version_id is not None:
-                plan_diff = plan_diff.model_copy(
-                    update={
-                        "from_plan_version_id": supersedes_version_id,
-                        "to_plan_version_id": plan_version_id,
-                    }
-                )
-                replacement = plan_diff.replacements[0]
-                reply = (
-                    f"已保留餐厅，并将“{replacement.before_name}”替换为"
-                    f"“{replacement.after_name}”；总通勤距离缩短 "
-                    f"{abs(plan_diff.route_distance_delta_km):.1f} km。"
-                )
+            supersedes_version_id = (
+                result.get("active_plan_version_id")
+                if plans and plan_diffs
+                else None
+            )
+            if plan_diffs and plan_version_id is not None:
+                plan_diffs = [
+                    diff.model_copy(
+                        update={
+                            "from_plan_version_id": supersedes_version_id,
+                            "to_plan_version_id": plan_version_id,
+                        }
+                    )
+                    for diff in plan_diffs
+                ]
+                reply = _modification_reply(plan_diffs)
             enrichment = result.get("enrichment")
             normalized_constraints_json = (
                 effective_constraints.model_dump_json()
@@ -454,11 +545,22 @@ def create_app(
                     and interpretation.conversation_command is not None
                     else None
                 ),
+                # ``plan_diff`` is intentionally left empty for new responses;
+                # old persisted responses remain readable by AgentResponse.  A
+                # legacy natural-language command that still uses the original
+                # ConstraintPatch gets the old convenience field as well; the
+                # new structured criterion path never aliases a candidate diff.
                 plan_diff=(
-                    plan_diff.model_dump(mode="json")
-                    if plan_diff is not None
+                    plan_diffs[0].model_dump(mode="json")
+                    if (
+                        plan_diffs
+                        and interpretation_command is not None
+                        and interpretation_command.constraint_patch.prefer_shorter_travel
+                        and not interpretation_command.replacement_criteria
+                    )
                     else None
                 ),
+                plan_diffs=[diff.model_dump(mode="json") for diff in plan_diffs],
             )
             repository.complete_planning_run(
                 user_id=x_user_id,
@@ -491,10 +593,33 @@ def _dump_assumptions(result: dict) -> list[dict]:
     return [item.model_dump(mode="json") for item in enrichment.assumptions]
 
 
+def _modification_reply(plan_diffs: list) -> str:
+    """Describe candidate-level changes without assuming a restaurant target."""
+
+    count = len(plan_diffs)
+    locked_counts = {
+        len(diff.locked_stops)
+        for diff in plan_diffs
+    }
+    locked_text = (
+        f"其他 {next(iter(locked_counts))} 站保持不变"
+        if len(locked_counts) == 1
+        else "其他站点保持各自原位置"
+    )
+    if count == 1:
+        replacement = plan_diffs[0].replacements[0]
+        return (
+            f"找到 1 个替换方案：将第 {replacement.stop_index + 1} 站“{replacement.before_name}”"
+            f"替换为“{replacement.after_name}”；{locked_text}。"
+        )
+    return f"找到 {count} 个单站替换方案；{locked_text}，每个候选都已重新核验。"
+
+
 def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
     """把规划实际使用的约束转换成稳定的前端摘要。"""
     enrichment = result.get("enrichment")
-    if enrichment is None:
+    constraints = enrichment.constraints if enrichment is not None else result.get("active_constraints")
+    if constraints is None:
         return []
     summary = []
     for field in (
@@ -511,7 +636,7 @@ def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
         "return_by",
         "total_distance_km",
     ):
-        constraint = getattr(enrichment.constraints, field)
+        constraint = getattr(constraints, field)
         if constraint is None:
             continue
         summary.append(

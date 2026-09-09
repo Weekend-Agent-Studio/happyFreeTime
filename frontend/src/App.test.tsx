@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,6 +82,10 @@ function presentation(resourceId: string, name: string) {
 describe("planning workspace", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
+    api.listSessions.mockReset();
+    api.createSession.mockReset();
+    api.sendMessage.mockReset();
+    api.selectPlan.mockReset();
     api.listSessions.mockResolvedValue([]);
     api.createSession.mockResolvedValue("session-test");
     api.sendMessage.mockResolvedValue(response);
@@ -401,6 +405,115 @@ describe("planning workspace", () => {
     expect(await screen.findByText("已选择这个方案")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
     expect(api.selectPlan).toHaveBeenCalledWith("session-test", "plan-two");
+  });
+
+  it("exposes POI essentials in the collapsed timeline summary", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
+    expect(detailDisclosure).not.toBeNull();
+    expect(detailDisclosure?.open).toBe(false);
+    expect(detailDisclosure?.querySelector(".stop-image.thumb")).not.toBeNull();
+    expect(detailDisclosure?.querySelector(".poi-summary-time")).toHaveTextContent("本次安排 14:10–15:10");
+    expect(within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" })).toBeDisabled();
+  });
+
+  it("sends an anchored structured command for one selected stop", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, plan_version_id: "v1" }).mockResolvedValueOnce({
+      ...response,
+      plan_version_id: "v2",
+      plans: [plan("replacement-plan", "替换后方案")],
+      plan_diffs: [{
+        from_plan_version_id: "v1",
+        to_plan_version_id: "v2",
+        base_plan_id: "plan-one",
+        new_plan_id: "replacement-plan",
+        locked_stops: [{ source_plan_id: "plan-one", stop_index: 1, resource_id: "plan-one-meal", role: "meal" }],
+        replacements: [{ stop_index: 0, role: "activity", before_resource_id: "plan-one-activity", before_name: "展览", after_resource_id: "new-activity", after_name: "新展览" }],
+        route_distance_delta_km: -1,
+        duration_delta_minutes: 0,
+        price_delta: 0,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
+    expect(detailDisclosure).not.toBeNull();
+    fireEvent.click(detailDisclosure?.querySelector("summary") as HTMLElement);
+    const replaceButton = within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" });
+    expect(replaceButton).not.toBeDisabled();
+    await user.click(replaceButton);
+    expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("第 1 站");
+    expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("快捷条件会立即提交");
+    expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("下方输入自定义偏好后点击发送");
+    expect(screen.getByPlaceholderText("例如：想吃少辣的，环境安静一点（可选）")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("描述替换偏好（可选）"), "安静");
+    await user.click(screen.getByRole("button", { name: "全程更近" }));
+
+    const command = api.sendMessage.mock.calls.at(-1)?.[3];
+    expect(command).toMatchObject({
+      operation: "replace",
+      base_plan_version_id: "v1",
+      base_plan_id: "plan-one",
+      target: { stop_index: 0, resource_id: "plan-one-activity" },
+      replacement_criteria: [
+        { kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" },
+        { kind: "semantic", text: "安静", strength: "preferred" },
+      ],
+    });
+  });
+
+  it("submits a replacement immediately when a preset is chosen", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, plan_version_id: "v1" }).mockResolvedValueOnce({
+      ...response,
+      plan_version_id: "v2",
+      plans: [plan("replacement-plan", "替换后方案")],
+      plan_diffs: [{
+        from_plan_version_id: "v1",
+        to_plan_version_id: "v2",
+        base_plan_id: "plan-one",
+        new_plan_id: "replacement-plan",
+        locked_stops: [{ source_plan_id: "plan-one", stop_index: 1, resource_id: "plan-one-meal", role: "meal" }],
+        replacements: [{ stop_index: 0, role: "activity", before_resource_id: "plan-one-activity", before_name: "展览", after_resource_id: "new-activity", after_name: "新展览" }],
+        route_distance_delta_km: -1,
+        duration_delta_minutes: 0,
+        price_delta: 0,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
+    expect(detailDisclosure).not.toBeNull();
+    fireEvent.click(detailDisclosure?.querySelector("summary") as HTMLElement);
+    await user.click(within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" }));
+
+    await user.click(screen.getByRole("button", { name: "全程更近" }));
+
+    await waitFor(() => expect(api.sendMessage.mock.calls.length).toBe(2));
+    const command = api.sendMessage.mock.calls.at(-1)?.[3];
+    expect(command).toMatchObject({
+      operation: "replace",
+      base_plan_version_id: "v1",
+      base_plan_id: "plan-one",
+      target: { stop_index: 0, resource_id: "plan-one-activity" },
+      replacement_criteria: [
+        { kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" },
+      ],
+    });
   });
 
   it("does not show a fake selection when the backend rejects it", async () => {

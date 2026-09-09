@@ -5,7 +5,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.constraints import ConstraintSource
+from app.domain.constraints import ConstraintSource, ConversationCommand
 
 
 T = TypeVar("T")
@@ -22,6 +22,10 @@ class MessageRequest(BaseModel):
 
     request_id: str = Field(min_length=8, max_length=64)
     content: str = Field(min_length=1, max_length=4000)
+    # Structured UI actions bypass semantic interpretation but still enter the
+    # same Graph authorization and planning service.  It is additive so old
+    # natural-language clients remain valid.
+    conversation_command: ConversationCommand | None = None
 
 
 class SessionSummaryResponse(BaseModel):
@@ -81,6 +85,7 @@ class AgentResponse(BaseModel):
     planning_intent_decision: dict[str, Any] | None = None
     conversation_command: dict[str, Any] | None = None
     plan_diff: dict[str, Any] | None = None
+    plan_diffs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PlanVersionSummary(BaseModel):

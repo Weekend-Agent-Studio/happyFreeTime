@@ -1,5 +1,5 @@
 import { Dialog } from "@base-ui/react/dialog";
-import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bus,
   CalendarDays,
@@ -43,11 +43,13 @@ import type {
   AgentResponse,
   Assumption,
   ChatMessage,
+  ConversationCommand,
   ConstraintSummaryItem,
   Plan,
   PlanWarning,
   PoiPresentation,
   ProviderFact,
+  ReplacementCriterion,
   RouteLeg,
   SessionSummary,
   SessionView,
@@ -76,6 +78,68 @@ const ASSUMPTION_LABELS: Record<string, string> = {
 
 const SESSION_QUERY_KEY = "session";
 type InspectorTab = "trip" | "map" | "orders" | "evidence";
+
+type ReplacementDraft = {
+  planVersionId: string;
+  planId: string;
+  stopIndex: number;
+  resourceId: string;
+  role: Stop["role"];
+  rawText: string;
+  criteria: ReplacementCriterion[];
+};
+
+type ReplacementPreset = "similar" | "shorter" | "quiet" | "chatty" | "family";
+
+const REPLACEMENT_PRESET_CRITERIA: Record<ReplacementPreset, ReplacementCriterion[]> = {
+  similar: [],
+  shorter: [{ kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" }],
+  quiet: [{ kind: "semantic", text: "安静", strength: "preferred" }],
+  chatty: [{ kind: "semantic", text: "轻松聊天", strength: "preferred" }],
+  family: [{ kind: "semantic", text: "亲子", strength: "preferred" }],
+};
+
+const REPLACEMENT_PRESET_LABELS: Record<ReplacementPreset, string> = {
+  similar: "换个类似的",
+  shorter: "全程更近",
+  quiet: "更安静",
+  chatty: "更适合聊天",
+  family: "亲子友好",
+};
+
+function replacementCommandFromDraft(
+  draft: ReplacementDraft,
+  criteria: ReplacementCriterion[],
+  freeText: string,
+): ConversationCommand {
+  const textCriteria: Array<Extract<ReplacementCriterion, { kind: "semantic" }>> = freeText
+    .split(/[，,、\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((text) => ({ kind: "semantic", text, strength: "preferred" as const }));
+  const mergedCriteria = [...criteria];
+  for (const criterion of textCriteria) {
+    if (!mergedCriteria.some((item) => isSemanticCriterion(item) && item.text === criterion.text)) {
+      mergedCriteria.push(criterion);
+    }
+  }
+  return {
+    operation: "replace",
+    base_plan_version_id: draft.planVersionId,
+    base_plan_id: draft.planId,
+    target: {
+      stop_index: draft.stopIndex,
+      resource_id: draft.resourceId,
+      role: draft.role,
+      raw_text: draft.rawText,
+    },
+    replacement_criteria: mergedCriteria,
+  };
+}
+
+function isSemanticCriterion(criterion: ReplacementCriterion): criterion is Extract<ReplacementCriterion, { kind: "semantic" }> {
+  return criterion.kind === "semantic";
+}
 
 function sessionIdFromUrl(): string | null {
   return new URL(window.location.href).searchParams.get(SESSION_QUERY_KEY);
@@ -117,6 +181,7 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     plan_version_id: response.plan_version_id ?? null,
     conversation_command: response.conversation_command ?? null,
     plan_diff: response.plan_diff ?? null,
+    plan_diffs: response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []),
   };
 }
 
@@ -342,7 +407,8 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 900px)");
-  const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string } | null>(null);
+  const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string; conversationCommand?: ConversationCommand } | null>(null);
+  const [replacementDraft, setReplacementDraft] = useState<ReplacementDraft | null>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -379,7 +445,8 @@ function App() {
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
       setResponse(restoredResponse);
       setInspectedResponse(restoredActiveResponse ?? restoredResponse);
-      setSelectedPlanId(restoredSelectedId);
+       setSelectedPlanId(restoredSelectedId);
+       setReplacementDraft(null);
       const restoredViewedId = restoredSelectedId && restoredActiveResponse?.plans.some(
         (plan) => plan.plan_id === restoredSelectedId,
       )
@@ -398,6 +465,7 @@ function App() {
       setInspectedResponse(null);
       setSelectedPlanId(null);
       setViewedPlanId(null);
+      setReplacementDraft(null);
       setFocusedLegIndex(null);
       if (sessionIdFromUrl() === nextSessionId) updateSessionUrl(null, true);
       setError(reason instanceof Error ? reason.message : "会话恢复失败");
@@ -423,6 +491,7 @@ function App() {
         setInspectedResponse(null);
         setSelectedPlanId(null);
         setViewedPlanId(null);
+        setReplacementDraft(null);
         setFocusedLegIndex(null);
         setFailedRequest(null);
         setError("");
@@ -443,8 +512,12 @@ function App() {
     conversationEndRef.current?.scrollIntoView?.({ block: "end", behavior: loading ? "smooth" : "auto" });
   }, [loading, messages, restoring]);
 
-  async function submit(content: string) {
-    const trimmed = content.trim();
+  async function submit(content: string, conversationCommand?: ConversationCommand) {
+    const trimmed = content.trim() || (
+      replacementDraft
+        ? `更换第 ${replacementDraft.stopIndex + 1} 站`
+        : ""
+    );
     if (!trimmed || loading || restoring) return;
     setLoading(true);
     setError("");
@@ -458,17 +531,23 @@ function App() {
         setSessionId(activeSession);
         updateSessionUrl(activeSession);
       }
-      const isRetry = failedRequest?.sessionId === activeSession && failedRequest.content === trimmed;
+      const isRetry = (
+        failedRequest?.sessionId === activeSession
+        && failedRequest.content === trimmed
+        && JSON.stringify(failedRequest.conversationCommand ?? null)
+          === JSON.stringify(conversationCommand ?? null)
+      );
       const requestId = isRetry ? failedRequest.requestId : crypto.randomUUID();
       if (!isRetry) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
-      setFailedRequest({ sessionId: activeSession, content: trimmed, requestId });
-      const nextResponse = await sendMessage(activeSession, trimmed, requestId);
+      setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand });
+      const nextResponse = await sendMessage(activeSession, trimmed, requestId, conversationCommand);
       setFailedRequest(null);
       setResponse(nextResponse);
       if (nextResponse.plans.length) {
         activePlanVersionIdRef.current = nextResponse.plan_version_id ?? null;
         setInspectedResponse(nextResponse);
         setSelectedPlanId(null);
+        setReplacementDraft(null);
         setViewedPlanId(nextResponse.plans[0].plan_id);
         setFocusedLegIndex(null);
         setRightTab("trip");
@@ -492,7 +571,10 @@ function App() {
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
-    void submit(input);
+    const command = replacementDraft
+      ? replacementCommandFromDraft(replacementDraft, replacementDraft.criteria, input)
+      : undefined;
+    void submit(input, command);
   }
 
   function resetSession() {
@@ -504,6 +586,7 @@ function App() {
     setInspectedResponse(null);
     setSelectedPlanId(null);
     setViewedPlanId(null);
+    setReplacementDraft(null);
     setFocusedLegIndex(null);
     setFailedRequest(null);
     setError("");
@@ -538,10 +621,42 @@ function App() {
         || activePlanVersionIdRef.current !== requestVersionId
       ) return;
       setSelectedPlanId(selection.selected_plan_id);
+      if (selection.selected_plan_id) setViewedPlanId(selection.selected_plan_id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "选择方案失败，请稍后重试");
     }
   }, []);
+
+  const startReplacement = useCallback((plan: Plan, stopIndex: number) => {
+    const requestSessionId = sessionIdRef.current;
+    const requestVersionId = activePlanVersionIdRef.current;
+    const stop = plan.stops[stopIndex];
+    if (!requestSessionId || !requestVersionId || selectedPlanId !== plan.plan_id || !stop) {
+      setError("请先选择当前方案，再修改其中的站点。");
+      return;
+    }
+    setError("");
+    setReplacementDraft({
+      planVersionId: requestVersionId,
+      planId: plan.plan_id,
+      stopIndex,
+      resourceId: stop.resource_id,
+      role: stop.role,
+      rawText: stop.name,
+      criteria: [],
+    });
+    setInput("");
+  }, [selectedPlanId]);
+
+  const chooseReplacementMode = useCallback((mode: ReplacementPreset) => {
+    if (loading || restoring || !replacementDraft) return;
+    const criteria = REPLACEMENT_PRESET_CRITERIA[mode].map((criterion) => ({ ...criterion }));
+    const command = replacementCommandFromDraft(replacementDraft, criteria, input);
+    setReplacementDraft((current) => current ? { ...current, criteria } : current);
+    // Presets are one-click actions. Free-text criteria can be combined by
+    // typing first and then clicking a preset, or by using Send.
+    void submit(input || `更换第 ${replacementDraft.stopIndex + 1} 站：${REPLACEMENT_PRESET_LABELS[mode]}`, command);
+  }, [input, loading, replacementDraft, restoring]);
 
   const openInspectorForResponse = useCallback((targetResponse: AgentResponse, tab: InspectorTab, legIndex: number | null = null) => {
     setInspectedResponse(targetResponse);
@@ -579,9 +694,10 @@ function App() {
                 showMobileDetails={Boolean(isMobile && !mobileDetailOpen && message.response === detailResponse)}
                 onViewPlan={(planId) => message.response && viewPlan(message.response, planId)}
                 onChoosePlan={choosePlan}
-                onOpenInspector={() => message.response && openInspectorForResponse(message.response, "trip")}
-                onOpenRoute={(index) => message.response && openInspectorForResponse(message.response, "map", index)}
-                onChooseConflict={setInput}
+                 onOpenInspector={() => message.response && openInspectorForResponse(message.response, "trip")}
+                 onOpenRoute={(index) => message.response && openInspectorForResponse(message.response, "map", index)}
+                 onReplaceStop={startReplacement}
+                 onChooseConflict={setInput}
               />)}
               {loading ? <ThinkingRow /> : null}
               <div ref={conversationEndRef} aria-hidden="true" />
@@ -592,19 +708,36 @@ function App() {
         </section>
 
         <div className="composer-dock">
+          {replacementDraft ? (
+            <section className="replacement-draft" aria-label="单站替换草稿">
+              <div className="replacement-draft-copy">
+                <strong>正在更换：第 {replacementDraft.stopIndex + 1} 站 · {replacementDraft.rawText}</strong>
+                <span>其他站点将保持原位置和内容</span>
+                <p className="replacement-draft-guide"><Info size={13} aria-hidden="true" />快捷条件会立即提交；也可以在下方输入自定义偏好后点击发送</p>
+              </div>
+              <div className="replacement-presets">
+                <button type="button" className={replacementDraft.criteria.length === 0 ? "active" : ""} onClick={() => chooseReplacementMode("similar")} disabled={loading || restoring}>换个类似的</button>
+                <button type="button" className={replacementDraft.criteria.some((item) => item.kind === "route_objective") ? "active" : ""} onClick={() => chooseReplacementMode("shorter")} disabled={loading || restoring}>全程更近</button>
+                <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "安静") ? "active" : ""} onClick={() => chooseReplacementMode("quiet")} disabled={loading || restoring}>更安静</button>
+                <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "轻松聊天") ? "active" : ""} onClick={() => chooseReplacementMode("chatty")} disabled={loading || restoring}>更适合聊天</button>
+                <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "亲子") ? "active" : ""} onClick={() => chooseReplacementMode("family")} disabled={loading || restoring}>亲子友好</button>
+                <button type="button" className="replacement-cancel" onClick={() => setReplacementDraft(null)} disabled={loading || restoring}>取消修改</button>
+              </div>
+            </section>
+          ) : null}
           <form className="composer" onSubmit={onSubmit}>
-            <label className="sr-only" htmlFor="planning-input">{response?.question ? "补充这个信息后继续" : "描述你的空闲时间和偏好"}</label>
+            <label className="sr-only" htmlFor="planning-input">{response?.question ? "补充这个信息后继续" : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
             <div className="composer-row">
               <div className="composer-tools" aria-hidden="true"><Plus size={19} /><Compass size={18} /><Settings2 size={18} /></div>
-              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.question?.question ?? "继续描述新的规划需求……"} disabled={loading || restoring} />
-              <button type="submit" disabled={loading || restoring || !input.trim()} aria-label="发送需求"><Send size={19} aria-hidden="true" /></button>
+              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring} />
+              <button type="submit" disabled={loading || restoring || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
             </div>
           </form>
         </div>
       </main>
 
-      <aside className="detail-panel" aria-label="方案详情" aria-hidden={inspectorCollapsed}>
-        {!isMobile ? <Inspector response={detailResponse} plan={inspectorPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} /> : null}
+       <aside className="detail-panel" aria-label="方案详情" aria-hidden={inspectorCollapsed}>
+         {!isMobile ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
       </aside>
 
       <button className="inspector-toggle" type="button" onClick={() => setInspectorCollapsed((current) => !current)} aria-label={inspectorCollapsed ? "展开方案详情" : "收起方案详情"} aria-expanded={!inspectorCollapsed}>
@@ -616,7 +749,7 @@ function App() {
       </MobileSheet>
 
       <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前方案的行程、地图、订单与可信依据。">
-        <Inspector response={detailResponse} plan={inspectorPlan} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} />
+         <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} />
       </MobileSheet>
     </div>
   );
@@ -669,7 +802,7 @@ function ButlerAvatar() {
   return <span className="butler-avatar" aria-hidden="true"><Compass size={18} /></span>;
 }
 
-function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onChooseConflict }: {
+function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onChooseConflict }: {
   message: ChatMessage;
   selectedPlan?: Plan;
   selectedPlanId: string | null;
@@ -678,6 +811,7 @@ function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, 
   onChoosePlan: (planId: string) => void;
   onOpenInspector: () => void;
   onOpenRoute: (legIndex: number) => void;
+  onReplaceStop: (plan: Plan, stopIndex: number) => void;
   onChooseConflict: (option: string) => void;
 }) {
   return (
@@ -693,7 +827,7 @@ function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, 
           </section>
         ) : null}
         {message.response?.plans.length ? (
-          <RichPlanningReply response={message.response} selectedPlan={selectedPlan} selectedPlanId={selectedPlanId} showMobileDetails={showMobileDetails} onViewPlan={onViewPlan} onChoosePlan={onChoosePlan} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} />
+          <RichPlanningReply response={message.response} selectedPlan={selectedPlan} selectedPlanId={selectedPlanId} showMobileDetails={showMobileDetails} onViewPlan={onViewPlan} onChoosePlan={onChoosePlan} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} onReplaceStop={onReplaceStop} />
         ) : null}
       </div>
     </article>
@@ -704,19 +838,32 @@ function ThinkingRow() {
   return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>正在核对路线和可行性</strong></div></div>;
 }
 
-function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute }: { response: AgentResponse; selectedPlan?: Plan; selectedPlanId: string | null; showMobileDetails: boolean; onViewPlan: (planId: string) => void; onChoosePlan: (planId: string) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
+function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop }: { response: AgentResponse; selectedPlan?: Plan; selectedPlanId: string | null; showMobileDetails: boolean; onViewPlan: (planId: string) => void; onChoosePlan: (planId: string) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
   const weather = response.provider_facts.find((fact): fact is Extract<ProviderFact, { kind: "weather" }> => fact.kind === "weather");
   const departureAt = departureConstraint(response);
   const returnConstraint = latestReturnConstraint(response);
   const shownConstraints = response.constraint_summary.filter((item) => ["exact_stop_count", "required_stop_roles", "budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
   const headingId = `plan-heading-${response.plans[0]?.plan_id ?? "reply"}`;
-  const replacement = response.plan_diff?.replacements[0];
+  const diffs = response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []);
+  const hasModification = diffs.length > 0;
   return (
     <section className="rich-planning-reply" aria-labelledby={headingId}>
       <div className="rich-reply-body">
         <div className="planning-progress" aria-label="规划完成步骤"><span><CheckCircle2 size={14} />解析需求</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />查询路线与景点</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />评估与排序</span></div>
-        <div className="plan-intro"><div><h2 id={headingId}>{response.plan_diff ? "方案已定向更新" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{response.plan_diff ? "锁定对象保持 identity 不变，新方案已经重新核验。" : "重要信息放在同一位置，先看路线和取舍，再选一个展开。"}</p></div><span>{response.plans.length} 个候选</span></div>
-        {response.plan_diff && replacement ? <div className="plan-diff-summary" role="status"><strong>{replacement.before_name} → {replacement.after_name}</strong><span>餐厅保持不变 · 通勤缩短 {Math.abs(response.plan_diff.route_distance_delta_km).toFixed(1)} km</span></div> : null}
+        <div className="plan-intro"><div><h2 id={headingId}>{hasModification ? "方案已定向更新" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{hasModification ? "其他站点保持原位置；每个替换候选都已重新核验。" : "重要信息放在同一位置，先看路线和取舍，再选一个展开。"}</p></div><span>{response.plans.length} 个候选</span></div>
+        {hasModification ? (
+          <div className="plan-diff-list" role="status">
+            {diffs.map((diff) => {
+              const replacement = diff.replacements[0];
+              const lockedText = diff.locked_stops.length ? `其他 ${diff.locked_stops.length} 站保持不变` : "其他站点保持原位置";
+              const distanceText = diff.route_distance_delta_km < 0 ? `全程缩短 ${Math.abs(diff.route_distance_delta_km).toFixed(1)} km` : diff.route_distance_delta_km > 0 ? `全程增加 ${diff.route_distance_delta_km.toFixed(1)} km` : "全程距离不变";
+              const durationText = diff.duration_delta_minutes < 0 ? `提前 ${Math.abs(diff.duration_delta_minutes)} 分钟` : diff.duration_delta_minutes > 0 ? `增加 ${diff.duration_delta_minutes} 分钟` : "总时长不变";
+              const priceText = diff.price_delta < 0 ? `地点费用减少 ¥${Math.abs(diff.price_delta)}` : diff.price_delta > 0 ? `地点费用增加 ¥${diff.price_delta}` : "地点费用不变";
+              return <div className="plan-diff-summary" key={diff.new_plan_id}><strong>{replacement.before_name} → {replacement.after_name}</strong><span>{lockedText} · {distanceText} · {durationText} · {priceText}</span></div>;
+            })}
+            {response.plan_diff ? <span className="legacy-plan-diff" aria-hidden="true">餐厅保持不变 · 通勤缩短 {Math.abs(response.plan_diff.route_distance_delta_km).toFixed(1)} km</span> : null}
+          </div>
+        ) : null}
         {response.poi_presentations.length ? <p className="demo-data-notice"><Database size={14} />POI 商业信息为模拟数据；路线来源和降级状态见各路线段。</p> : null}
         {(weather || departureAt || returnConstraint || shownConstraints.length) ? (
           <div className="shared-context" aria-label="本次规划的共享信息">
@@ -728,14 +875,14 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileD
         ) : null}
         {response.warnings?.some((warning) => warning.plan_id === null) ? <div className="shared-warning"><CircleAlert size={16} />{response.warnings.filter((warning) => warning.plan_id === null).map((warning) => warning.message).join("；")}</div> : null}
         <div className="plan-grid">
-          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} presentations={response.poi_presentations} index={index} warning={planWarning(response, plan)} returnConstraint={returnConstraint} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} showMobileDetails={showMobileDetails} onView={() => onViewPlan(plan.plan_id)} onChoose={() => onChoosePlan(plan.plan_id)} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} />)}
+          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} presentations={response.poi_presentations} index={index} warning={planWarning(response, plan)} returnConstraint={returnConstraint} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} showMobileDetails={showMobileDetails} onView={() => onViewPlan(plan.plan_id)} onChoose={() => onChoosePlan(plan.plan_id)} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} onReplaceStop={onReplaceStop} />)}
         </div>
       </div>
     </section>
   );
 }
 
-function PlanCard({ plan, presentations, index, warning, returnConstraint, viewed, selected, showMobileDetails, onView, onChoose, onOpenInspector, onOpenRoute }: { plan: Plan; presentations: PoiPresentation[]; index: number; warning: PlanWarning | null; returnConstraint: ConstraintSummaryItem | null; viewed: boolean; selected: boolean; showMobileDetails: boolean; onView: () => void; onChoose: () => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
+function PlanCard({ plan, presentations, index, warning, returnConstraint, viewed, selected, showMobileDetails, onView, onChoose, onOpenInspector, onOpenRoute, onReplaceStop }: { plan: Plan; presentations: PoiPresentation[]; index: number; warning: PlanWarning | null; returnConstraint: ConstraintSummaryItem | null; viewed: boolean; selected: boolean; showMobileDetails: boolean; onView: () => void; onChoose: () => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
   const heroStop = plan.stops[0];
   const returnLeg = plan.route_legs.length > plan.stops.length ? plan.route_legs[plan.route_legs.length - 1] : null;
   const notice = warning?.message ?? plan.tradeoffs[0] ?? "已通过当前硬约束校验";
@@ -765,21 +912,21 @@ function PlanCard({ plan, presentations, index, warning, returnConstraint, viewe
           <button className="plan-select" type="button" onClick={onChoose} aria-pressed={selected} aria-label={`选择${plan.title}`}>{selected ? "已选择这个方案" : "选择这个方案"}</button>
           <button className="plan-view" type="button" onClick={onView} aria-pressed={viewed} aria-label={`查看${plan.title}`}>{viewed ? "正在查看" : "查看详情"}<ChevronRight size={16} /></button>
         </div>
-        {viewed && showMobileDetails ? <MobilePlanExpansion plan={plan} presentations={presentations} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} /> : null}
+        {viewed && showMobileDetails ? <MobilePlanExpansion plan={plan} presentations={presentations} canReplace={selected} onReplaceStop={onReplaceStop} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} /> : null}
       </div>
     </article>
   );
 }
 
-function MobilePlanExpansion({ plan, presentations, onOpenInspector, onOpenRoute }: { plan: Plan; presentations: PoiPresentation[]; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
-  return <div className="mobile-plan-expansion"><RecommendationSummary plan={plan} compact /><div className="mobile-route-list">{plan.route_legs.map((leg, index) => { const kind = index === 0 ? "start" : index >= plan.stops.length ? "return" : "next"; return <RouteSummary key={`${leg.destination_name}-${index}`} leg={leg} label={kind === "start" ? "出发" : kind === "return" ? "返程" : "下一程"} actionLabel={routeActionLabel(leg, kind)} onClick={() => onOpenRoute(index)} />; })}</div><div className="mobile-poi-list">{plan.stops.map((stop) => <PoiDisclosure key={stop.resource_id} stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} />)}</div><button className="open-inspector-button" type="button" onClick={onOpenInspector}>打开完整行程与地图<ChevronRight size={16} /></button></div>;
+function MobilePlanExpansion({ plan, presentations, canReplace, onReplaceStop, onOpenInspector, onOpenRoute }: { plan: Plan; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
+  return <div className="mobile-plan-expansion"><RecommendationSummary plan={plan} compact /><div className="mobile-route-list">{plan.route_legs.map((leg, index) => { const kind = index === 0 ? "start" : index >= plan.stops.length ? "return" : "next"; return <RouteSummary key={`${leg.destination_name}-${index}`} leg={leg} label={kind === "start" ? "出发" : kind === "return" ? "返程" : "下一程"} actionLabel={routeActionLabel(leg, kind)} onClick={() => onOpenRoute(index)} />; })}</div><div className="mobile-poi-list">{plan.stops.map((stop, index) => <PoiDisclosure key={stop.resource_id} stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} canReplace={canReplace} onReplace={() => onReplaceStop(plan, index)} />)}</div><button className="open-inspector-button" type="button" onClick={onOpenInspector}>打开完整行程与地图<ChevronRight size={16} /></button></div>;
 }
 
-function Inspector({ response, plan, activeTab, activeLegIndex, onTabChange, onMapRoute, onTimelineRoute }: { response: AgentResponse | null; plan?: Plan; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void }) {
+function Inspector({ response, plan, selectedPlanId, activeTab, activeLegIndex, onTabChange, onMapRoute, onTimelineRoute, onReplaceStop }: { response: AgentResponse | null; plan?: Plan; selectedPlanId: string | null; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
   return (
     <div className="inspector">
       <div className="detail-tabs" role="tablist" aria-label="详情视图"><TabButton icon={<CalendarDays size={16} />} label="行程" active={activeTab === "trip"} onClick={() => onTabChange("trip")} /><TabButton icon={<MapIcon size={16} />} label="地图" active={activeTab === "map"} onClick={() => onTabChange("map")} /><TabButton icon={<ReceiptText size={16} />} label="订单" active={activeTab === "orders"} onClick={() => onTabChange("orders")} /><TabButton icon={<ShieldCheck size={16} />} label="依据" active={activeTab === "evidence"} onClick={() => onTabChange("evidence")} /></div>
-      {activeTab === "trip" ? <TripPanel plan={plan} presentations={response?.poi_presentations ?? []} activeLegIndex={activeLegIndex} onSelectRoute={onMapRoute} /> : null}
+       {activeTab === "trip" ? <TripPanel plan={plan} presentations={response?.poi_presentations ?? []} canReplace={Boolean(plan && selectedPlanId === plan.plan_id && response?.plan_version_id)} onReplaceStop={onReplaceStop} activeLegIndex={activeLegIndex} onSelectRoute={onMapRoute} /> : null}
       {activeTab === "map" ? <MapPanel plan={plan} activeLegIndex={activeLegIndex} onSelectRoute={onTimelineRoute} /> : null}
       {activeTab === "orders" ? <OrdersPanel /> : null}
       {activeTab === "evidence" ? <EvidencePanel response={response} plan={plan} /> : null}
@@ -795,7 +942,7 @@ function RecommendationSummary({ plan, compact = false }: { plan: Plan; compact?
   return <section className={`recommendation-summary ${compact ? "compact" : ""}`}><h3>管家为什么推荐</h3><ul>{planRationale(plan).map((reason) => <li key={reason}>{reason}</li>)}</ul><div><strong>需要接受的取舍</strong><p>{plan.tradeoffs.length ? plan.tradeoffs.slice(0, 2).join("；") : "当前没有额外取舍提示；临近出发时仍需关注“依据”中的动态状态。"}</p></div></section>;
 }
 
-function TripPanel({ plan, presentations, activeLegIndex, onSelectRoute }: { plan?: Plan; presentations: PoiPresentation[]; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
+function TripPanel({ plan, presentations, canReplace, onReplaceStop, activeLegIndex, onSelectRoute }: { plan?: Plan; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
   if (!plan) return <DetailEmpty icon={<CalendarDays size={24} />} title="行程将在这里展开" text="生成方案后，可逐站查看 POI、时间、通勤和推荐取舍。" />;
   const returnLegIndex = plan.route_legs.length > plan.stops.length ? plan.route_legs.length - 1 : null;
   return (
@@ -804,7 +951,7 @@ function TripPanel({ plan, presentations, activeLegIndex, onSelectRoute }: { pla
       <RecommendationSummary plan={plan} />
       <div className="detail-section-heading"><h3>详细行程</h3><span>{plan.stops.length} 站</span></div>
       <ol className="timeline">
-        {plan.stops.map((stop, index) => <li key={stop.resource_id}>{plan.route_legs[index] ? <TimelineRoute leg={plan.route_legs[index]} index={index} active={activeLegIndex === index} kind={index === 0 ? "start" : "next"} onSelect={onSelectRoute} /> : null}<div className="timeline-stop"><time>{stop.start}<small>{stop.end}</small></time><span className="timeline-marker">{index + 1}</span><PoiDisclosure stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} /></div></li>)}
+         {plan.stops.map((stop, index) => <li key={stop.resource_id}>{plan.route_legs[index] ? <TimelineRoute leg={plan.route_legs[index]} index={index} active={activeLegIndex === index} kind={index === 0 ? "start" : "next"} onSelect={onSelectRoute} /> : null}<div className="timeline-stop"><div className="timeline-stop-meta"><time>{stop.start}<small>{stop.end}</small></time><span className="timeline-marker">{index + 1}</span></div><PoiDisclosure stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} canReplace={canReplace} onReplace={() => onReplaceStop(plan, index)} /></div></li>)}
         {returnLegIndex !== null ? <li><TimelineRoute leg={plan.route_legs[returnLegIndex]} index={returnLegIndex} active={activeLegIndex === returnLegIndex} kind="return" onSelect={onSelectRoute} /></li> : null}
       </ol>
       <section className="trip-route-overview">
@@ -825,14 +972,33 @@ function RouteSummary({ leg, label, actionLabel, onClick }: { leg: RouteLeg; lab
   return <button type="button" className="route-summary" aria-label={actionLabel} onClick={onClick}><span><RouteModeIcon mode={leg.mode} size={15} /></span><div><strong>{label} · {routeModeLabel(leg.mode)} {leg.duration_minutes} 分钟</strong><small>{leg.origin_name} → {leg.destination_name} · {formatDistance(leg.distance_km)} km</small></div><ChevronRight size={15} /></button>;
 }
 
-function PoiDisclosure({ stop, presentation }: { stop: Stop; presentation?: PoiPresentation }) {
+function PoiDisclosure({ stop, presentation, canReplace = false, onReplace }: { stop: Stop; presentation?: PoiPresentation; canReplace?: boolean; onReplace?: () => void }) {
   const galleryImage = presentation?.gallery[0];
   const mapUrl = `https://ditu.amap.com/search?query=${encodeURIComponent(`${stop.name} ${presentation?.address ?? ""}`)}`;
+  const onReplaceClick = (event: MouseEvent<HTMLButtonElement>) => {
+    // A button inside <summary> would otherwise toggle the disclosure before
+    // starting the replacement action.
+    event.preventDefault();
+    event.stopPropagation();
+    onReplace?.();
+  };
   return (
     <details className="poi-disclosure">
-      <summary><span className="poi-type-icon">{stop.type === "restaurant" ? <Utensils size={16} /> : <MapPin size={16} />}</span><span><small>{presentation?.category_label ?? (stop.type === "restaurant" ? "餐饮" : "活动")} · {stop.duration_minutes} 分钟</small><strong>{stop.name}</strong><em>{priceLabel(stop)}{presentation ? ` · 演示评分 ${presentation.demo_rating.toFixed(1)}` : ""}</em></span><ChevronDown size={17} aria-hidden="true" /></summary>
+      <summary className="poi-summary">
+        <StopImage stop={stop} galleryImage={galleryImage} variant="thumb" />
+          <span className="poi-summary-copy">
+          <span className="poi-summary-kicker"><span className="poi-type-icon">{stop.type === "restaurant" ? <Utensils size={14} /> : <MapPin size={14} />}</span><small>{presentation?.category_label ?? (stop.type === "restaurant" ? "餐饮" : "活动")} · {stop.duration_minutes} 分钟</small></span>
+          <strong>{stop.name}</strong>
+          <em>{priceLabel(stop)}{presentation ? ` · 演示评分 ${presentation.demo_rating.toFixed(1)}` : ""}</em>
+          <small className="poi-summary-time">本次安排 {stop.start}–{stop.end}</small>
+          {presentation ? <small className="poi-summary-address">{presentation.business_area} · {presentation.address}</small> : <small className="poi-summary-address">POI 详情待补充，当前安排仍已完成规划校验</small>}
+        </span>
+        <span className="poi-summary-side">
+          <button className="poi-action poi-replace" type="button" disabled={!canReplace} onClick={onReplaceClick} title={canReplace ? "替换当前站点，其他站点保持不变" : "先选择方案，再修改站点"}>换这站</button>
+          <span className="poi-summary-expand"><span>详情</span><ChevronDown size={16} aria-hidden="true" /></span>
+        </span>
+      </summary>
       <div className="poi-detail">
-        <StopImage stop={stop} galleryImage={galleryImage} />
         {presentation ? <>
           <p className="poi-description">{presentation.description}</p>
           <div className="poi-tags">{[...presentation.scene_tags, ...presentation.facility_tags].slice(0, 7).map((tag) => <span key={tag}><Tag size={12} />{tag}</span>)}</div>
@@ -841,13 +1007,13 @@ function PoiDisclosure({ stop, presentation }: { stop: Stop; presentation?: PoiP
           <div className="poi-actions"><a className="poi-action" href={mapUrl} target="_blank" rel="noreferrer"><MapPin size={14} />地图定位</a><a className="poi-action" href={mapUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} />在高德查看</a></div>
           <details className="poi-data-disclosure"><summary>数据说明</summary><p>{presentation.data_notice}{galleryImage?.kind === "illustrative" ? " 当前图片为场景示意，不代表门店实拍。" : ""}</p></details>
         </> : <p className="poi-unavailable-note"><Info size={14} />当前方案未附带 POI 详情快照；规划、路线和时间线仍可正常查看。</p>}
-        <div className="poi-source"><Database size={14} />{catalogSourceLabel(stop.source)} · {stop.source.collected_at.slice(0, 10)}</div>
+         <div className="poi-source"><Database size={14} />{catalogSourceLabel(stop.source)} · {stop.source.collected_at.slice(0, 10)}</div>
       </div>
     </details>
   );
 }
 
-function StopImage({ stop, galleryImage, variant = "detail" }: { stop: Stop; galleryImage?: PoiPresentation["gallery"][number]; variant?: "hero" | "detail" }) {
+function StopImage({ stop, galleryImage, variant = "detail" }: { stop: Stop; galleryImage?: PoiPresentation["gallery"][number]; variant?: "hero" | "detail" | "thumb" }) {
   const [failed, setFailed] = useState(false);
   const image = galleryImage?.url ?? stop.image?.url;
   if (!image || failed) {
