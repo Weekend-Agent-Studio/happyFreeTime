@@ -27,6 +27,9 @@ from app.domain.constraints import (
     NormalizedConstraints,
 )
 from app.domain.planning import Plan
+from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
+from app.domain.semantics import SemanticRequest
+from app.domain.runtime import RuntimeDecision
 from app.providers.weather import WeatherProvider
 from app.providers.route import RouteProvider
 from app.providers.geocoding import GeocodingProvider
@@ -35,6 +38,10 @@ from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
 from app.services.candidate_retriever import CandidateRetriever
 from app.services.planning_intent import PlanningIntentProvider
+from app.services.recommendation_advisor import (
+    RecommendationAdvisor,
+    build_default_recommendation_advisor,
+)
 from app.services.presenter import present_candidate_set
 from app.services.poi_presentation import EmptyPoiPresentationProvider, PoiPresentationProvider
 from app.orchestration.entry_graph import (
@@ -59,6 +66,7 @@ def create_app(
     catalog: Catalog | None = None,
     planning_intent_provider: PlanningIntentProvider | None = None,
     candidate_retriever: CandidateRetriever | None = None,
+    recommendation_advisor: RecommendationAdvisor | None = None,
     poi_presentation_provider: PoiPresentationProvider | None = None,
     web_map_provider: WebMapProvider | None = None,
 ) -> FastAPI:
@@ -91,6 +99,7 @@ def create_app(
     )
     browser_map = web_map_provider or DisabledWebMapProvider()
     presentation_provider = poi_presentation_provider or EmptyPoiPresentationProvider()
+    advisor = recommendation_advisor or build_default_recommendation_advisor()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -496,6 +505,30 @@ def create_app(
                 else None
             )
 
+            recommendation_advice: RecommendationAdvice | None = None
+            if plans and effective_constraints is not None:
+                recommendation_advice = advisor.advise(
+                    RecommendationAdviceRequest(
+                        constraints=effective_constraints,
+                        semantic_request=(
+                            candidate_set.semantic_request
+                            if candidate_set is not None
+                            else SemanticRequest()
+                        ),
+                        verified_plans=tuple(plans),
+                        retrieval_evidence=tuple(
+                            candidate_set.retrieval_evidence
+                            if candidate_set is not None
+                            else ()
+                        ),
+                        plan_diffs=tuple(plan_diffs),
+                    )
+                )
+                runtime_decisions = [
+                    *runtime_decisions,
+                    _recommendation_runtime_decision(recommendation_advice),
+                ]
+
             response = AgentResponse(
                 status="completed",
                 reply=reply,
@@ -545,6 +578,14 @@ def create_app(
                     if candidate_set and candidate_set.planning_intent_decision is not None
                     else None
                 ),
+                retrieval_evidence=(
+                    [
+                        item.model_dump(mode="json")
+                        for item in candidate_set.retrieval_evidence
+                    ]
+                    if candidate_set
+                    else []
+                ),
                 runtime_decisions=runtime_decisions,
                 retrieval_mode=(candidate_set.retrieval_mode if candidate_set else None),
                 retrieval_index_version=(
@@ -572,6 +613,11 @@ def create_app(
                     else None
                 ),
                 plan_diffs=[diff.model_dump(mode="json") for diff in plan_diffs],
+                recommendation_advice=(
+                    recommendation_advice.model_dump(mode="json")
+                    if recommendation_advice is not None
+                    else None
+                ),
             )
             repository.complete_planning_run(
                 user_id=x_user_id,
@@ -615,6 +661,22 @@ def _dump_runtime_decisions(result: dict, snapshot: object | None = None) -> lis
         else item
         for item in decisions
     ]
+
+
+def _recommendation_runtime_decision(
+    advice: RecommendationAdvice,
+) -> RuntimeDecision:
+    """Expose the advisor's bounded runtime metadata in the common trace."""
+
+    return RuntimeDecision(
+        stage="recommendation_advisor",
+        adapter=advice.adapter,
+        model_invoked=advice.model_invoked,
+        model_name=advice.model_name,
+        attempts=advice.attempts,
+        fallback_reason=advice.fallback_reason,
+        latency_ms=advice.latency_ms,
+    )
 
 
 def _modification_reply(plan_diffs: list) -> str:

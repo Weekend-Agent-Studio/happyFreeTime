@@ -218,6 +218,43 @@ export type PlanDiff = {
   price_delta: number;
 };
 
+export type EvidenceRef = {
+  evidence_id: string;
+  source_type: "user_message" | "poi_profile" | "fixture_aspect" | "provider";
+  source_field: string;
+  summary: string;
+  source_ref: string | null;
+  confidence: number;
+};
+
+export type NeedSummary = {
+  need_id: string;
+  text: string;
+  user_evidence_ids: string[];
+};
+
+export type PlanAdvice = {
+  plan_id: string;
+  reason: string;
+  matched_need_ids: string[];
+  supporting_evidence_ids: string[];
+  tradeoffs: string[];
+};
+
+export type RecommendationAdvice = {
+  recommended_plan_id: string;
+  understood_needs: NeedSummary[];
+  overall_reason: string;
+  plans: PlanAdvice[];
+  adapter: "rule_based" | "llm" | "fallback";
+  fallback_reason: string | null;
+  prompt_version: string;
+  model_name: string | null;
+  model_invoked: boolean;
+  attempts: number;
+  latency_ms: number;
+};
+
 export type RuntimeDecision = {
   stage: "turn_interpreter" | "planning_intent" | "candidate_retrieval" | "recommendation_advisor";
   adapter: string;
@@ -267,11 +304,13 @@ export type AgentResponse = {
   poi_presentations: PoiPresentation[];
   plan_version_id?: string | null;
   runtime_decisions?: RuntimeDecision[];
+  retrieval_evidence?: EvidenceRef[];
   retrieval_mode?: string | null;
   retrieval_index_version?: string | null;
   conversation_command?: Record<string, unknown> | null;
   plan_diff?: PlanDiff | null;
   plan_diffs?: PlanDiff[];
+  recommendation_advice?: RecommendationAdvice | null;
 };
 
 export type ChatMessage = {

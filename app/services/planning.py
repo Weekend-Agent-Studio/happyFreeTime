@@ -11,6 +11,7 @@ from datetime import datetime, time, timedelta
 from enum import Enum
 from itertools import product
 from time import perf_counter
+from typing import Sequence
 from zoneinfo import ZoneInfo
 
 from app.domain.catalog import (
@@ -126,6 +127,26 @@ def _retrieval_runtime(result: RetrievedCandidateSet) -> RuntimeDecision:
         query_count=result.query_count,
         candidate_count=result.candidate_count,
     )
+
+
+def _retrieval_evidence_for_plans(
+    retrieved: RetrievedCandidateSet,
+    plans: Sequence[Plan],
+) -> list[EvidenceRef]:
+    """Keep only profile citations attached to resources in returned plans."""
+
+    selected_ids = {
+        stop.resource_id
+        for plan in plans
+        for stop in plan.stops
+    }
+    evidence_by_id: dict[str, EvidenceRef] = {}
+    for item in retrieved.items:
+        if item.candidate.resource_id not in selected_ids:
+            continue
+        for evidence in item.matched_profile_evidence:
+            evidence_by_id.setdefault(evidence.evidence_id, evidence)
+    return list(evidence_by_id.values())
 
 
 class RepairOutcome(str, Enum):
@@ -564,6 +585,8 @@ class PlanningService:
                 retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
+                semantic_request=planning_intent.semantic_request,
+                retrieval_evidence=_retrieval_evidence_for_plans(retrieved, plans),
             )
 
         if route_candidates:
@@ -1072,6 +1095,7 @@ class PlanningService:
                     retrieval_runtime_decision=retrieval_runtime_decision,
                     retrieval_mode=retrieved_replacements.mode,
                     retrieval_index_version=retrieved_replacements.index_version,
+                    semantic_request=replacement_semantic_request,
                 )
             )
 
@@ -1115,6 +1139,11 @@ class PlanningService:
             retrieval_runtime_decision=retrieval_runtime_decision,
             retrieval_mode=retrieved_replacements.mode,
             retrieval_index_version=retrieved_replacements.index_version,
+            semantic_request=replacement_semantic_request,
+            retrieval_evidence=_retrieval_evidence_for_plans(
+                retrieved_replacements,
+                plans,
+            ),
         )
         diffs = tuple(
             PlanDiff(

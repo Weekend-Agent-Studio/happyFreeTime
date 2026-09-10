@@ -135,6 +135,38 @@ describe("planning workspace", () => {
     expect(screen.queryByPlaceholderText(/餐厅保留|换近一点/)).not.toBeInTheDocument();
   });
 
+  it("renders grounded recommendation advice and marks the recommended plan", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      recommendation_advice: {
+        recommended_plan_id: "plan-two",
+        understood_needs: [{ need_id: "need.user.preferences.1", text: "轻松约会", user_evidence_ids: ["user.preferences.1"] }],
+        overall_reason: "方案二更直接回应了轻松约会需求。",
+        plans: [
+          { plan_id: "plan-one", reason: "方案一回应了你的需求。", matched_need_ids: ["need.user.preferences.1"], supporting_evidence_ids: ["user.preferences.1"], tradeoffs: ["路线更长"] },
+          { plan_id: "plan-two", reason: "方案二更适合轻松约会。", matched_need_ids: ["need.user.preferences.1"], supporting_evidence_ids: ["user.preferences.1"], tradeoffs: ["可选活动较少"] },
+        ],
+        adapter: "rule_based",
+        fallback_reason: null,
+        prompt_version: "rule-based.v1",
+        model_name: null,
+        model_invoked: false,
+        attempts: 0,
+        latency_ms: 0,
+      },
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排一个轻松的约会");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("本轮理解");
+    expect(screen.getByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("最推荐：方案二");
+    expect(screen.getByText("方案二更适合轻松约会。")).toBeInTheDocument();
+    expect(screen.getAllByText("主要取舍").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "方案二", level: 3 }).closest(".plan-card")).toHaveClass("recommended");
+  });
+
   it("shows the locked stop and replacement evidence for a modified plan", async () => {
     const user = userEvent.setup();
     api.sendMessage.mockResolvedValue({

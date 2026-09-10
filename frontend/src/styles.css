@@ -217,6 +217,16 @@ h2, h3, p { margin-top: 0; }
 .shared-context > span:first-child { background: rgba(255, 247, 208, .82); color: #5d4e28; }
 .shared-context strong { margin-right: 2px; color: #1e2b3f; }
 .shared-warning { display: flex; gap: 7px; align-items: flex-start; margin-bottom: 10px; padding: 9px 10px; color: #665725; background: rgba(255, 247, 215, .7); border-radius: 10px; font-size: 11px; line-height: 1.5; }
+.recommendation-advice-panel { margin: 0 0 12px; padding: 13px 14px; color: #263c57; background: linear-gradient(135deg, rgba(235, 246, 255, .94), rgba(249, 252, 255, .86)); border: 1px solid rgba(77, 139, 199, .18); border-radius: 13px; }
+.recommendation-advice-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.recommendation-advice-kicker { display: inline-flex; align-items: center; gap: 5px; color: #2476b8; font-size: 10px; font-weight: 780; }
+.recommendation-advice-panel h3 { margin: 4px 0 0; color: #183554; font-size: 15px; }
+.recommendation-advice-trust { flex: 0 0 auto; color: #69809a; font-size: 10px; }
+.understood-needs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.understood-needs span { padding: 5px 8px; color: #3d5872; background: rgba(255, 255, 255, .78); border-radius: 999px; font-size: 10px; }
+.recommendation-advice-overall { margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(84, 132, 177, .16); }
+.recommendation-advice-overall strong { color: #1d588c; font-size: 12px; }
+.recommendation-advice-overall p { margin: 4px 0 0; color: #526981; font-size: 11px; line-height: 1.55; }
 
 .plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .plan-card { min-width: 0; overflow: hidden; background: rgba(255, 255, 255, .88); border-radius: 15px; box-shadow: 0 8px 24px rgba(52, 82, 119, .09); transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out), outline-color 180ms ease; outline: 2px solid transparent; }
@@ -230,6 +240,7 @@ h2, h3, p { margin-top: 0; }
 .plan-title { position: absolute; left: 12px; right: 12px; bottom: 10px; color: white; text-shadow: 0 2px 12px rgba(0,0,0,.36); }
 .plan-title span { display: inline-flex; margin-bottom: 3px; padding: 3px 6px; color: #18304b; background: rgba(255, 223, 111, .92); border-radius: 6px; font-size: 9px; font-weight: 800; text-shadow: none; }
 .plan-title h3 { margin: 0; font-size: 17px; line-height: 1.2; letter-spacing: -.02em; }
+.recommended-badge { position: absolute; top: 10px; right: 10px; padding: 5px 7px; color: #553f0e; background: rgba(255, 225, 123, .95); border-radius: 7px; font-size: 10px; font-weight: 800; }
 .plan-card-body { display: flex; flex-direction: column; padding: 11px; }
 .plan-metrics { min-height: 35px; display: flex; flex-wrap: wrap; align-items: center; gap: 7px 10px; color: #5c6a80; font-size: 11px; font-variant-numeric: tabular-nums; }
 .plan-metrics span { display: flex; align-items: center; gap: 4px; }
@@ -246,6 +257,10 @@ h2, h3, p { margin-top: 0; }
 .return-meta { margin-top: 5px; padding-top: 7px; color: #59667c; border-top: 1px solid rgba(112, 139, 175, .15); font-size: 10px; font-variant-numeric: tabular-nums; }
 .route-source { display: flex; align-items: center; gap: 5px; margin: 8px 0; color: #667791; font-size: 10px; }
 .route-source svg { color: var(--sky); }
+.plan-card-advice { margin: 2px 0 8px; padding: 9px 10px; color: #3f526b; background: #f4f8fc; border-radius: 9px; }
+.plan-card-advice strong { display: block; color: #2d5d86; font-size: 10px; }
+.plan-card-advice strong:not(:first-child) { margin-top: 7px; }
+.plan-card-advice p { margin: 3px 0 0; color: #5d6d82; font-size: 10px; line-height: 1.5; }
 .plan-card-actions { display: flex; gap: 8px; margin-top: 4px; }
 .plan-select { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 5px; color: #0e69ca; background: transparent; border: 1px solid rgba(25, 121, 230, .32); border-radius: 10px; font-size: 12px; font-weight: 780; }
 .plan-view { min-height: 44px; padding: 0 12px; display: flex; align-items: center; justify-content: center; gap: 5px; color: #5a6b83; background: transparent; border: 1px solid rgba(90, 107, 131, .28); border-radius: 10px; font-size: 12px; font-weight: 700; }
@@ -290,6 +305,7 @@ h2, h3, p { margin-top: 0; }
 .detail-title p { margin-bottom: 0; color: #637187; font-size: 12px; }
 .recommendation-summary { margin: 0 16px 15px; padding: 13px; color: #433a25; background: linear-gradient(135deg, rgba(255, 246, 207, .9), rgba(255, 251, 235, .7)); border-radius: 13px; }
 .recommendation-summary h3 { margin-bottom: 8px; color: #5a481c; font-size: 13px; }
+.recommendation-explanation-label { display: inline-flex; margin: -2px 0 3px; color: #7b6a3f; font-size: 10px; font-weight: 700; }
 .recommendation-summary ul { margin: 0; padding-left: 17px; }
 .recommendation-summary li { margin: 4px 0; font-size: 12px; line-height: 1.6; }
 .recommendation-summary > div { margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(129, 104, 46, .15); }
@@ -464,6 +480,8 @@ h2, h3, p { margin-top: 0; }
   .planning-progress { overflow-x: auto; white-space: nowrap; }
   .plan-intro { align-items: center; }
   .plan-intro h2 { font-size: 17px; }
+  .recommendation-advice-heading { display: block; }
+  .recommendation-advice-trust { display: block; margin-top: 5px; }
   .shared-context { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   .shared-context > span { flex: 0 0 auto; }
   .plan-grid { display: flex; flex-direction: column; gap: 10px; }

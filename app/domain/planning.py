@@ -18,7 +18,7 @@ from app.domain.catalog import (
     PriceKind,
 )
 from app.domain.constraints import QuestionDecision, StopRole
-from app.domain.semantics import SemanticRequest
+from app.domain.semantics import EvidenceRef, SemanticRequest
 from app.domain.providers import (
     AvailabilityFact,
     GeocodingFact,
@@ -293,6 +293,11 @@ class CandidateSet(BaseModel):
     retrieval_runtime_decision: RuntimeDecision | None = None
     retrieval_mode: str | None = None
     retrieval_index_version: str | None = None
+    # The exact semantic request and profile citations used by the Retriever
+    # travel with the verified value so downstream recommendation advice does
+    # not need to reconstruct or silently broaden retrieval evidence.
+    semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
+    retrieval_evidence: list[EvidenceRef] = Field(default_factory=list)
 
 
 class PlanModificationResult(BaseModel):

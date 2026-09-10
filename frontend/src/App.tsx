@@ -46,9 +46,11 @@ import type {
   ConversationCommand,
   ConstraintSummaryItem,
   Plan,
+  PlanAdvice,
   PlanWarning,
   PoiPresentation,
   ProviderFact,
+  RecommendationAdvice,
   ReplacementCriterion,
   RouteLeg,
   RuntimeDecision,
@@ -181,12 +183,14 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     warnings: response.warnings ?? [],
     poi_presentations: response.poi_presentations ?? [],
     plan_version_id: response.plan_version_id ?? null,
+    retrieval_evidence: response.retrieval_evidence ?? [],
     runtime_decisions: response.runtime_decisions ?? [],
     retrieval_mode: response.retrieval_mode ?? null,
     retrieval_index_version: response.retrieval_index_version ?? null,
     conversation_command: response.conversation_command ?? null,
     plan_diff: response.plan_diff ?? null,
     plan_diffs: response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []),
+    recommendation_advice: response.recommendation_advice ?? null,
   };
 }
 
@@ -419,6 +423,16 @@ function departureConstraint(response: AgentResponse): ConstraintSummaryItem | n
 function planRationale(plan: Plan): string[] {
   if (plan.highlights.length) return plan.highlights.slice(0, 3);
   return [`这套方案以“${strategyLabel(plan.strategy)}”为主要取向，时间线和已知硬约束已经过规划校验。`];
+}
+
+function planAdviceFor(advice: RecommendationAdvice | null | undefined, planId: string): PlanAdvice | undefined {
+  return advice?.plans.find((item) => item.plan_id === planId);
+}
+
+function adviceAdapterLabel(advice: RecommendationAdvice): string {
+  if (advice.adapter === "llm") return "AI 推荐解释";
+  if (advice.adapter === "fallback") return "规则兜底解释";
+  return "确定性推荐解释";
 }
 
 function routeActionLabel(leg: RouteLeg, kind: "start" | "next" | "return"): string {
@@ -890,6 +904,28 @@ function ThinkingRow() {
   return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>正在核对路线和可行性</strong></div></div>;
 }
 
+function RecommendationAdvicePanel({ advice, plans }: { advice?: RecommendationAdvice | null; plans: Plan[] }) {
+  if (!advice) return null;
+  const recommendedPlan = plans.find((plan) => plan.plan_id === advice.recommended_plan_id);
+  const needs = advice.understood_needs.slice(0, 6);
+  return (
+    <section className="recommendation-advice-panel" aria-label="本轮推荐解释">
+      <div className="recommendation-advice-heading">
+        <div>
+          <span className="recommendation-advice-kicker"><Sparkles size={13} />{adviceAdapterLabel(advice)}</span>
+          <h3>本轮理解</h3>
+        </div>
+        <span className="recommendation-advice-trust">基于已验证方案，不改变行程事实</span>
+      </div>
+      {needs.length ? <div className="understood-needs">{needs.map((need) => <span key={need.need_id}>{need.text}</span>)}</div> : null}
+      <div className="recommendation-advice-overall">
+        <strong>{recommendedPlan ? `最推荐：${recommendedPlan.title}` : "最推荐方案"}</strong>
+        <p>{advice.overall_reason}</p>
+      </div>
+    </section>
+  );
+}
+
 function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop }: { response: AgentResponse; selectedPlan?: Plan; selectedPlanId: string | null; showMobileDetails: boolean; onViewPlan: (planId: string) => void; onChoosePlan: (planId: string) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
   const weather = response.provider_facts.find((fact): fact is Extract<ProviderFact, { kind: "weather" }> => fact.kind === "weather");
   const departureAt = departureConstraint(response);
@@ -926,25 +962,27 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileD
           </div>
         ) : null}
         {response.warnings?.some((warning) => warning.plan_id === null) ? <div className="shared-warning"><CircleAlert size={16} />{response.warnings.filter((warning) => warning.plan_id === null).map((warning) => warning.message).join("；")}</div> : null}
+        <RecommendationAdvicePanel advice={response.recommendation_advice} plans={response.plans} />
         <div className="plan-grid">
-          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} presentations={response.poi_presentations} index={index} warning={planWarning(response, plan)} returnConstraint={returnConstraint} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} showMobileDetails={showMobileDetails} onView={() => onViewPlan(plan.plan_id)} onChoose={() => onChoosePlan(plan.plan_id)} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} onReplaceStop={onReplaceStop} />)}
+          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} advice={planAdviceFor(response.recommendation_advice, plan.plan_id)} recommended={response.recommendation_advice?.recommended_plan_id === plan.plan_id} presentations={response.poi_presentations} index={index} warning={planWarning(response, plan)} returnConstraint={returnConstraint} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} showMobileDetails={showMobileDetails} onView={() => onViewPlan(plan.plan_id)} onChoose={() => onChoosePlan(plan.plan_id)} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} onReplaceStop={onReplaceStop} />)}
         </div>
       </div>
     </section>
   );
 }
 
-function PlanCard({ plan, presentations, index, warning, returnConstraint, viewed, selected, showMobileDetails, onView, onChoose, onOpenInspector, onOpenRoute, onReplaceStop }: { plan: Plan; presentations: PoiPresentation[]; index: number; warning: PlanWarning | null; returnConstraint: ConstraintSummaryItem | null; viewed: boolean; selected: boolean; showMobileDetails: boolean; onView: () => void; onChoose: () => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
+function PlanCard({ plan, advice, recommended = false, presentations, index, warning, returnConstraint, viewed, selected, showMobileDetails, onView, onChoose, onOpenInspector, onOpenRoute, onReplaceStop }: { plan: Plan; advice?: PlanAdvice; recommended?: boolean; presentations: PoiPresentation[]; index: number; warning: PlanWarning | null; returnConstraint: ConstraintSummaryItem | null; viewed: boolean; selected: boolean; showMobileDetails: boolean; onView: () => void; onChoose: () => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
   const heroStop = plan.stops[0];
   const returnLeg = plan.route_legs.length > plan.stops.length ? plan.route_legs[plan.route_legs.length - 1] : null;
   const notice = warning?.message ?? plan.tradeoffs[0] ?? "已通过当前硬约束校验";
   return (
-    <article className={`plan-card ${viewed ? "viewed" : ""} ${selected ? "selected" : ""}`}>
+    <article className={`plan-card ${viewed ? "viewed" : ""} ${selected ? "selected" : ""} ${recommended ? "recommended" : ""}`}>
       <div className="plan-visual">
         {heroStop ? <StopImage stop={heroStop} variant="hero" /> : <div className="stop-image hero placeholder"><ImageIcon size={22} /></div>}
         <div className="plan-visual-scrim" />
         <span className="plan-rank">{index + 1}</span>
         <div className="plan-title"><span>{strategyLabel(plan.strategy)}</span><h3>{plan.title}</h3></div>
+        {recommended ? <span className="recommended-badge">最推荐</span> : null}
       </div>
       <div className="plan-card-body">
         <div className="plan-metrics"><span><Clock3 size={15} />{Math.floor(plan.total_duration_minutes / 60)} 小时 {plan.total_duration_minutes % 60 || ""}{plan.total_duration_minutes % 60 ? " 分" : ""}</span><span title="地点费用，不含交通" aria-label={`地点费用，不含交通：${planPriceLabel(plan)}`}><CircleDollarSign size={15} />{planPriceLabel(plan)} · 地点费用，不含交通</span><span><Route size={15} />{totalDistance(plan).toFixed(1)} km</span></div>
@@ -960,25 +998,27 @@ function PlanCard({ plan, presentations, index, warning, returnConstraint, viewe
         </div>
         {returnConstraint && returnLeg ? <div className="return-meta">预计 {returnLeg.end} 到家 · 目标 {displayConstraint(returnConstraint)}</div> : null}
         <div className="route-source"><Navigation size={14} />路线来源：{[...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))].join(" / ") || "待查询"}</div>
+        {advice ? <div className="plan-card-advice"><strong>适合你的原因</strong><p>{advice.reason}</p>{advice.tradeoffs.length ? <><strong>主要取舍</strong><p>{advice.tradeoffs.slice(0, 2).join("；")}</p></> : null}</div> : null}
         <div className="plan-card-actions">
           <button className="plan-select" type="button" onClick={onChoose} aria-pressed={selected} aria-label={`选择${plan.title}`}>{selected ? "已选择这个方案" : "选择这个方案"}</button>
           <button className="plan-view" type="button" onClick={onView} aria-pressed={viewed} aria-label={`查看${plan.title}`}>{viewed ? "正在查看" : "查看详情"}<ChevronRight size={16} /></button>
         </div>
-        {viewed && showMobileDetails ? <MobilePlanExpansion plan={plan} presentations={presentations} canReplace={selected} onReplaceStop={onReplaceStop} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} /> : null}
+        {viewed && showMobileDetails ? <MobilePlanExpansion plan={plan} advice={advice} presentations={presentations} canReplace={selected} onReplaceStop={onReplaceStop} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} /> : null}
       </div>
     </article>
   );
 }
 
-function MobilePlanExpansion({ plan, presentations, canReplace, onReplaceStop, onOpenInspector, onOpenRoute }: { plan: Plan; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
-  return <div className="mobile-plan-expansion"><RecommendationSummary plan={plan} compact /><div className="mobile-route-list">{plan.route_legs.map((leg, index) => { const kind = index === 0 ? "start" : index >= plan.stops.length ? "return" : "next"; return <RouteSummary key={`${leg.destination_name}-${index}`} leg={leg} label={kind === "start" ? "出发" : kind === "return" ? "返程" : "下一程"} actionLabel={routeActionLabel(leg, kind)} onClick={() => onOpenRoute(index)} />; })}</div><div className="mobile-poi-list">{plan.stops.map((stop, index) => <PoiDisclosure key={stop.resource_id} stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} canReplace={canReplace} onReplace={() => onReplaceStop(plan, index)} />)}</div><button className="open-inspector-button" type="button" onClick={onOpenInspector}>打开完整行程与地图<ChevronRight size={16} /></button></div>;
+function MobilePlanExpansion({ plan, advice, presentations, canReplace, onReplaceStop, onOpenInspector, onOpenRoute }: { plan: Plan; advice?: PlanAdvice; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; onOpenInspector: () => void; onOpenRoute: (legIndex: number) => void }) {
+  return <div className="mobile-plan-expansion"><RecommendationSummary plan={plan} advice={advice} compact /><div className="mobile-route-list">{plan.route_legs.map((leg, index) => { const kind = index === 0 ? "start" : index >= plan.stops.length ? "return" : "next"; return <RouteSummary key={`${leg.destination_name}-${index}`} leg={leg} label={kind === "start" ? "出发" : kind === "return" ? "返程" : "下一程"} actionLabel={routeActionLabel(leg, kind)} onClick={() => onOpenRoute(index)} />; })}</div><div className="mobile-poi-list">{plan.stops.map((stop, index) => <PoiDisclosure key={stop.resource_id} stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} canReplace={canReplace} onReplace={() => onReplaceStop(plan, index)} />)}</div><button className="open-inspector-button" type="button" onClick={onOpenInspector}>打开完整行程与地图<ChevronRight size={16} /></button></div>;
 }
 
 function Inspector({ response, plan, selectedPlanId, activeTab, activeLegIndex, onTabChange, onMapRoute, onTimelineRoute, onReplaceStop }: { response: AgentResponse | null; plan?: Plan; selectedPlanId: string | null; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
+  const advice = plan ? planAdviceFor(response?.recommendation_advice, plan.plan_id) : undefined;
   return (
     <div className="inspector">
       <div className="detail-tabs" role="tablist" aria-label="详情视图"><TabButton icon={<CalendarDays size={16} />} label="行程" active={activeTab === "trip"} onClick={() => onTabChange("trip")} /><TabButton icon={<MapIcon size={16} />} label="地图" active={activeTab === "map"} onClick={() => onTabChange("map")} /><TabButton icon={<ReceiptText size={16} />} label="订单" active={activeTab === "orders"} onClick={() => onTabChange("orders")} /><TabButton icon={<ShieldCheck size={16} />} label="依据" active={activeTab === "evidence"} onClick={() => onTabChange("evidence")} /></div>
-       {activeTab === "trip" ? <TripPanel plan={plan} presentations={response?.poi_presentations ?? []} canReplace={Boolean(plan && selectedPlanId === plan.plan_id && response?.plan_version_id)} onReplaceStop={onReplaceStop} activeLegIndex={activeLegIndex} onSelectRoute={onMapRoute} /> : null}
+       {activeTab === "trip" ? <TripPanel plan={plan} advice={advice} presentations={response?.poi_presentations ?? []} canReplace={Boolean(plan && selectedPlanId === plan.plan_id && response?.plan_version_id)} onReplaceStop={onReplaceStop} activeLegIndex={activeLegIndex} onSelectRoute={onMapRoute} /> : null}
       {activeTab === "map" ? <MapPanel plan={plan} activeLegIndex={activeLegIndex} onSelectRoute={onTimelineRoute} /> : null}
       {activeTab === "orders" ? <OrdersPanel /> : null}
       {activeTab === "evidence" ? <EvidencePanel response={response} plan={plan} /> : null}
@@ -990,17 +1030,19 @@ function TabButton({ icon, label, active, onClick }: { icon: ReactNode; label: s
   return <button type="button" role="tab" aria-selected={active} className={active ? "active" : ""} onClick={onClick}>{icon}<span>{label}</span></button>;
 }
 
-function RecommendationSummary({ plan, compact = false }: { plan: Plan; compact?: boolean }) {
-  return <section className={`recommendation-summary ${compact ? "compact" : ""}`}><h3>管家为什么推荐</h3><ul>{planRationale(plan).map((reason) => <li key={reason}>{reason}</li>)}</ul><div><strong>需要接受的取舍</strong><p>{plan.tradeoffs.length ? plan.tradeoffs.slice(0, 2).join("；") : "当前没有额外取舍提示；临近出发时仍需关注“依据”中的动态状态。"}</p></div></section>;
+function RecommendationSummary({ plan, advice, compact = false }: { plan: Plan; advice?: PlanAdvice; compact?: boolean }) {
+  const reasons = advice ? [advice.reason] : planRationale(plan);
+  const tradeoffs = advice?.tradeoffs.length ? advice.tradeoffs : plan.tradeoffs;
+  return <section className={`recommendation-summary ${compact ? "compact" : ""}`}><h3>管家为什么推荐</h3>{advice ? <span className="recommendation-explanation-label">推荐解释 · 基于已验证事实</span> : null}<ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul><div><strong>主要取舍</strong><p>{tradeoffs.length ? tradeoffs.slice(0, 2).join("；") : "当前没有额外取舍提示；临近出发时仍需关注“依据”中的动态状态。"}</p></div></section>;
 }
 
-function TripPanel({ plan, presentations, canReplace, onReplaceStop, activeLegIndex, onSelectRoute }: { plan?: Plan; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
+function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, activeLegIndex, onSelectRoute }: { plan?: Plan; advice?: PlanAdvice; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
   if (!plan) return <DetailEmpty icon={<CalendarDays size={24} />} title="行程将在这里展开" text="生成方案后，可逐站查看 POI、时间、通勤和推荐取舍。" />;
   const returnLegIndex = plan.route_legs.length > plan.stops.length ? plan.route_legs.length - 1 : null;
   return (
     <div className="trip-detail">
       <div className="detail-title"><span>{strategyLabel(plan.strategy)}</span><h2>{plan.title}</h2><p>{planPriceLabel(plan)}（地点费用，不含交通）· {plan.total_duration_minutes} 分钟 · {totalDistance(plan).toFixed(1)} km</p></div>
-      <RecommendationSummary plan={plan} />
+      <RecommendationSummary plan={plan} advice={advice} />
       <div className="detail-section-heading"><h3>详细行程</h3><span>{plan.stops.length} 站</span></div>
       <ol className="timeline">
          {plan.stops.map((stop, index) => <li key={stop.resource_id}>{plan.route_legs[index] ? <TimelineRoute leg={plan.route_legs[index]} index={index} active={activeLegIndex === index} kind={index === 0 ? "start" : "next"} onSelect={onSelectRoute} /> : null}<div className="timeline-stop"><div className="timeline-stop-meta"><time>{stop.start}<small>{stop.end}</small></time><span className="timeline-marker">{index + 1}</span></div><PoiDisclosure stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} canReplace={canReplace} onReplace={() => onReplaceStop(plan, index)} /></div></li>)}

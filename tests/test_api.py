@@ -29,6 +29,7 @@ from app.providers.weather import (
 from app.services.enrichment import EnvironmentContext
 from app.services.catalog import InMemoryCatalog
 from app.services.demo_router import DemoRouter
+from app.services.recommendation_advisor import RuleBasedRecommendationAdvisor
 from app.services.router_extractor import RouterContext
 from tests.test_native_planning import candidate
 from app.domain.catalog import ResourceType
@@ -166,6 +167,16 @@ class FixedReplayRouteProvider:
         )
 
 
+class CountingRecommendationAdvisor:
+    def __init__(self) -> None:
+        self.calls = 0
+        self._delegate = RuleBasedRecommendationAdvisor()
+
+    def advise(self, request):
+        self.calls += 1
+        return self._delegate.advise(request)
+
+
 class ApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -294,6 +305,71 @@ class ApiTest(unittest.TestCase):
 
         view = self._session_view(session_id)
         self.assertEqual(view["selected_plan_id"], second_plan_id)
+
+    def test_recommendation_advice_is_returned_and_restored_with_verified_plans(self) -> None:
+        session_id = self._create_session()
+
+        result = self._send_message(session_id, "今天下午出去玩，想安排得轻松一点")
+
+        self.assertEqual(result.status_code, 200, result.text)
+        body = result.json()["data"]
+        self.assertIsNotNone(body["recommendation_advice"])
+        advice = body["recommendation_advice"]
+        self.assertIn(
+            advice["recommended_plan_id"],
+            {plan["plan_id"] for plan in body["plans"]},
+        )
+        self.assertEqual(
+            {item["plan_id"] for item in advice["plans"]},
+            {plan["plan_id"] for plan in body["plans"]},
+        )
+        self.assertTrue(
+            any(
+                decision["stage"] == "recommendation_advisor"
+                for decision in body["runtime_decisions"]
+            )
+        )
+
+        restored = self._session_view(session_id)
+        self.assertEqual(restored["latest_response"]["recommendation_advice"], advice)
+        self.assertEqual(restored["response_history"][-1]["recommendation_advice"], advice)
+
+    def test_recommendation_advisor_is_not_reinvoked_for_idempotent_replay(self) -> None:
+        advisor = CountingRecommendationAdvisor()
+        database_path = Path(self.temp_dir.name) / "recommendation-idempotency.db"
+        with TestClient(
+            create_app(
+                database_path=database_path,
+                router=RuleRouter(),
+                environment_provider=lambda _: self.environment,
+                weather_provider=ReplayWeatherProvider(
+                    store=self.replay_store,
+                    clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+                ),
+                route_provider=FixedReplayRouteProvider(),
+                recommendation_advisor=advisor,
+            )
+        ) as client:
+            session_id = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            payload = {
+                "request_id": "recommendation-replay-001",
+                "content": "今天下午出去玩",
+            }
+            first = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json=payload,
+            )
+            replay = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json=payload,
+            )
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(first.json(), replay.json())
+        self.assertEqual(advisor.calls, 1)
 
     def test_keep_and_replace_creates_superseding_version_and_restores_diff(self) -> None:
         restaurant = candidate(
