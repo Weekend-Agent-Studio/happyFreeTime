@@ -96,6 +96,15 @@ class DemoRouterTest(unittest.TestCase):
             self.assertIsNone(result.raw_constraints.exact_stop_count)
             self.assertEqual(result.raw_constraints.required_stop_roles, ())
 
+    def test_all_day_language_is_preserved_as_a_finite_time_scope(self) -> None:
+        result = self.router.interpret(
+            "明天和女朋友玩一整天，不希望太累",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.time_text, "一整天")
+        self.assertEqual(result.raw_constraints.time_scope.value, "all_day")
+
 
 if __name__ == "__main__":
     unittest.main()

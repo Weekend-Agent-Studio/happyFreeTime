@@ -19,6 +19,7 @@ from app.domain.constraints import (
     NormalizedConstraints,
     PartyProfile,
     StopRole,
+    TimeScope,
     TimeWindow,
 )
 from app.domain.providers import GeocodeRequest, GeocodeResolution, GeocodingFact
@@ -43,6 +44,8 @@ class EnrichmentService:
     DEFAULT_BUDGET = 120
     DEFAULT_DISTANCE_KM = 8.0
     DEFAULT_OUTING_MINUTES = 4 * 60
+    ALL_DAY_START = "09:00"
+    ALL_DAY_END = "21:00"
 
     def __init__(self, geocoding_provider: GeocodingProvider | None = None) -> None:
         self._geocoding_provider = geocoding_provider
@@ -134,16 +137,62 @@ class EnrichmentService:
             else None
         )
 
+        # TimeScope is a small semantic vocabulary owned by the interpreter.
+        # Keep a legacy text fallback for old adapters/checkpoints, but do not
+        # silently treat an explicit unknown expression as an afternoon default.
+        time_scope = raw.time_scope or self._infer_time_scope(raw.time_text)
+        time_scope_value = (
+            ConstraintValue[TimeScope](
+                value=time_scope,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=raw.time_text,
+                confidence=(
+                    self._confidence(interpretation, "time_scope")
+                    or self._confidence(interpretation, "time_text")
+                ),
+                rule_id="time.scope.zh_cn.v1",
+            )
+            if time_scope is not None
+            else None
+        )
         normalized_time = self._normalize_time_window(raw.time_text)
+        if time_scope == TimeScope.ALL_DAY:
+            normalized_time = TimeWindow(
+                start=self.ALL_DAY_START,
+                end=self.ALL_DAY_END,
+            )
+        elif normalized_time is None and time_scope in {
+            TimeScope.MORNING,
+            TimeScope.AFTERNOON,
+            TimeScope.EVENING,
+        }:
+            normalized_time = self._time_window_for_scope(time_scope)
         time_value = None
         if normalized_time is not None:
             time_value = ConstraintValue[TimeWindow](
                 value=normalized_time,
-                source=ConstraintSource.USER_INFERRED,
+                source=(
+                    ConstraintSource.DEFAULT_RULE
+                    if time_scope == TimeScope.ALL_DAY
+                    else ConstraintSource.USER_INFERRED
+                ),
                 raw_text=raw.time_text,
                 confidence=self._confidence(interpretation, "time_text"),
-                rule_id="time.period.zh_cn.v1",
+                rule_id=(
+                    "time.all_day.default_window.v1"
+                    if time_scope == TimeScope.ALL_DAY
+                    else "time.period.zh_cn.v1"
+                ),
             )
+            if time_scope == TimeScope.ALL_DAY:
+                assumptions.append(
+                    Assumption(
+                        field="time_window",
+                        value=normalized_time.model_dump(),
+                        reason="“全天”按 09:00–21:00 的可见产品规则规划",
+                        rule_id="time.all_day.default_window.v1",
+                    )
+                )
         elif (
             raw.time_text is None
             and departure_at is None
@@ -324,6 +373,7 @@ class EnrichmentService:
 
         constraints = NormalizedConstraints(
             date=date_value,
+            time_scope=time_scope_value,
             time_window=time_value,
             duration_minutes=(
                 ConstraintValue[int](
@@ -428,6 +478,33 @@ class EnrichmentService:
                 end=f"{int(end_hour):02d}:{int(end_minute or 0):02d}",
             )
         return None
+
+    @staticmethod
+    def _infer_time_scope(raw_text: str | None) -> TimeScope | None:
+        """Compatibility mapping for legacy adapters that only emit time_text."""
+
+        if not raw_text:
+            return None
+        text = raw_text.strip()
+        if text in {"一整天", "全天", "从早到晚", "玩一天"}:
+            return TimeScope.ALL_DAY
+        if text == "上午":
+            return TimeScope.MORNING
+        if text == "下午":
+            return TimeScope.AFTERNOON
+        if text == "晚上":
+            return TimeScope.EVENING
+        if re.search(r"\d{1,2}:?\d{2}.*[-到至].*\d{1,2}:?\d{2}", text):
+            return TimeScope.EXPLICIT_RANGE
+        return None
+
+    @staticmethod
+    def _time_window_for_scope(scope: TimeScope) -> TimeWindow:
+        return {
+            TimeScope.MORNING: TimeWindow(start="09:00", end="12:00"),
+            TimeScope.AFTERNOON: TimeWindow(start="14:00", end="18:00"),
+            TimeScope.EVENING: TimeWindow(start="18:00", end="22:00"),
+        }[scope]
 
     @staticmethod
     def _normalize_return_by(

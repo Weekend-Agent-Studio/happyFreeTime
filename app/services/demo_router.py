@@ -15,6 +15,7 @@ from app.domain.constraints import (
     RawConstraints,
     StopRole,
     TargetReference,
+    TimeScope,
 )
 from app.domain.runtime import RuntimeDecision
 from app.services.router_extractor import RouterContext
@@ -76,10 +77,32 @@ class DemoRouter:
             (phrase for phrase in ("今天", "明天", "后天", "周六") if phrase in text),
             None,
         )
+        time_scope = None
         time_text = next(
-            (phrase for phrase in ("上午", "中午", "下午", "晚上") if phrase in text),
+            (
+                phrase
+                for phrase in (
+                    "一整天",
+                    "全天",
+                    "从早到晚",
+                    "玩一天",
+                    "上午",
+                    "中午",
+                    "下午",
+                    "晚上",
+                )
+                if phrase in text
+            ),
             None,
         )
+        if time_text in {"一整天", "全天", "从早到晚", "玩一天"}:
+            time_scope = TimeScope.ALL_DAY
+        elif time_text == "上午":
+            time_scope = TimeScope.MORNING
+        elif time_text == "下午":
+            time_scope = TimeScope.AFTERNOON
+        elif time_text == "晚上":
+            time_scope = TimeScope.EVENING
         departure_match = re.search(
             r"(?:(?:上午|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
             r"\s*(?:准时\s*)?(?:出发|离开)",
@@ -147,6 +170,7 @@ class DemoRouter:
         raw = RawConstraints(
             date_text=date_text,
             time_text=time_text,
+            time_scope=time_scope,
             departure_at_text=(departure_match.group(0) if departure_match else None),
             exact_stop_count=1 if dinner_only else None,
             required_stop_roles=(StopRole.DINNER,) if dinner_only else (),

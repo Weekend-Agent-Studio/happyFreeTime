@@ -15,6 +15,7 @@ from app.domain.constraints import (
     NormalizedConstraints,
     RawConstraints,
     StopRole,
+    TimeScope,
 )
 from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext, EnrichmentService
@@ -88,6 +89,31 @@ class EnrichmentServiceTest(unittest.TestCase):
 
         self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "14:30", "end": "18:30"})
         self.assertIn("time_window", {item.field for item in result.assumptions})
+
+    def test_all_day_compiles_to_visible_policy_window_instead_of_afternoon(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                date_text="明天",
+                time_text="一整天",
+                time_scope=TimeScope.ALL_DAY,
+            ),
+            evidence_map={"time_text": "一整天"},
+            extraction_confidence={"time_text": 1.0},
+        )
+        actor = ActorContext(user_id="demo", session_id="all-day", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.time_scope.value, TimeScope.ALL_DAY)
+        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "09:00", "end": "21:00"})
+        self.assertEqual(result.constraints.time_window.source, ConstraintSource.DEFAULT_RULE)
+        self.assertIn("全天", result.assumptions[0].reason)
 
     def test_dinner_only_infers_an_evening_window_without_overriding_explicit_time(self) -> None:
         actor = ActorContext(user_id="demo", session_id="dinner", identity_type=IdentityType.DEMO)

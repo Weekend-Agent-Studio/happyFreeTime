@@ -33,6 +33,7 @@ from app.domain.constraints import (
     SemanticCriterion,
     StopRole,
     TargetReference,
+    TimeScope,
 )
 from app.domain.planning import (
     CandidateSet,
@@ -434,6 +435,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             RouteObjective,
             SemanticCriterion,
             StopRole,
+            TimeScope,
             TargetReference,
             StopReplacement,
             StopType,

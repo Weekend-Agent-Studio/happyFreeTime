@@ -58,6 +58,16 @@ class StopRole(str, Enum):
     BREAK = "break"
 
 
+class TimeScope(str, Enum):
+    """有限的时间语义；具体边界仍由 Enrichment 的产品规则决定。"""
+
+    MORNING = "morning"
+    AFTERNOON = "afternoon"
+    EVENING = "evening"
+    ALL_DAY = "all_day"
+    EXPLICIT_RANGE = "explicit_range"
+
+
 class CommandOperation(str, Enum):
     """The bounded action requested by one interpreted conversation turn."""
 
@@ -223,6 +233,7 @@ class RawConstraints(BaseModel):
 
     date_text: str | None = None
     time_text: str | None = None
+    time_scope: TimeScope | None = None
     departure_at_text: str | None = None
     departure_at: str | None = None
     exact_stop_count: int | None = Field(default=None, ge=1, le=4)
@@ -334,6 +345,7 @@ class NormalizedConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     date: ConstraintValue[Date] | None = None
+    time_scope: ConstraintValue[TimeScope] | None = None
     time_window: ConstraintValue[TimeWindow] | None = None
     duration_minutes: ConstraintValue[int] | None = None
     location: ConstraintValue[GeoLocation] | None = None

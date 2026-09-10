@@ -65,6 +65,7 @@ const SUGGESTIONS = [
 
 const ASSUMPTION_LABELS: Record<string, string> = {
   date: "日期",
+  time_scope: "时间范围",
   time_window: "时间",
   departure_at: "准时出发",
   exact_stop_count: "停靠站数",
@@ -253,6 +254,15 @@ function displayAssumption(assumption: Assumption): string {
 }
 
 function displayConstraint(item: ConstraintSummaryItem): string {
+  if (item.field === "time_scope") {
+    return ({
+      morning: "上午",
+      afternoon: "下午",
+      evening: "晚上",
+      all_day: "全天",
+      explicit_range: "明确时间段",
+    } as Record<string, string>)[String(item.value)] ?? String(item.value);
+  }
   if (item.field === "party" && typeof item.value === "object") {
     const value = item.value as { adults?: number; children?: number };
     const total = (value.adults ?? 0) + (value.children ?? 0);
@@ -880,7 +890,7 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileD
   const weather = response.provider_facts.find((fact): fact is Extract<ProviderFact, { kind: "weather" }> => fact.kind === "weather");
   const departureAt = departureConstraint(response);
   const returnConstraint = latestReturnConstraint(response);
-  const shownConstraints = response.constraint_summary.filter((item) => ["exact_stop_count", "required_stop_roles", "budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
+  const shownConstraints = response.constraint_summary.filter((item) => ["time_scope", "exact_stop_count", "required_stop_roles", "budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
   const headingId = `plan-heading-${response.plans[0]?.plan_id ?? "reply"}`;
   const diffs = response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []);
   const hasModification = diffs.length > 0;
