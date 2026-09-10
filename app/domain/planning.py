@@ -290,6 +290,8 @@ class CandidateSet(BaseModel):
     # being read from mutable service state.  This keeps concurrent requests
     # from accidentally displaying another request's model/fallback decision.
     runtime_decision: RuntimeDecision | None = None
+    retrieval_mode: str | None = None
+    retrieval_index_version: str | None = None
 
 
 class PlanModificationResult(BaseModel):

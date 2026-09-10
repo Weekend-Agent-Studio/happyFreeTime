@@ -214,7 +214,15 @@ def build_rule_based_planning_intent(
         for item in constraints.preferences
         if item.strip()
     }
-    if preferences & {"轻松", "松弛", "不赶", "休闲"}:
+    if preferences & {
+        "轻松",
+        "松弛",
+        "不赶",
+        "休闲",
+        "不希望太累",
+        "不太累",
+        "不累",
+    }:
         pace = PlanPace.RELAXED
         maximum_stops = 2
     elif preferences & {"丰富", "充实", "多玩几个", "尽量多"}:
@@ -402,7 +410,7 @@ def _build_rule_semantic_request(
     """Translate known preferences to finite objectives while retaining text."""
 
     objective_aliases: dict[str, tuple[str, ...]] = {
-        "low_fatigue": ("轻松", "松弛", "不赶", "休闲", "不累", "不希望太累"),
+        "low_fatigue": ("轻松", "松弛", "不赶", "休闲", "不累", "不希望太累", "慢慢走"),
         "shorter_travel": ("近一点", "更近", "近点", "少走", "步行可达"),
         "novelty": ("新鲜感", "新奇", "新意", "有意思"),
         "quiet": ("安静", "清静"),

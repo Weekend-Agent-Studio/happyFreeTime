@@ -182,6 +182,8 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     poi_presentations: response.poi_presentations ?? [],
     plan_version_id: response.plan_version_id ?? null,
     runtime_decisions: response.runtime_decisions ?? [],
+    retrieval_mode: response.retrieval_mode ?? null,
+    retrieval_index_version: response.retrieval_index_version ?? null,
     conversation_command: response.conversation_command ?? null,
     plan_diff: response.plan_diff ?? null,
     plan_diffs: response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []),
@@ -1085,6 +1087,7 @@ function EvidencePanel({ response, plan }: { response: AgentResponse | null; pla
       <div className="detail-title"><span>可信状态</span><h2>证据与数据</h2><p>只展示系统实际获得的事实、来源和降级状态。</p></div>
       <div className="evidence-list">
         {response.runtime_decisions?.map((decision, index) => <RuntimeDecisionEvidence key={`${decision.stage}-${index}`} decision={decision} />)}
+        {response.retrieval_mode ? <article className="evidence-row"><span className="evidence-icon"><Database size={17} /></span><div><strong>候选召回 · {response.retrieval_mode === "hybrid" ? "Hybrid 本地语义索引" : "规则基线"}</strong><p>只对 Catalog 已通过硬过滤的候选排序</p><small>{response.retrieval_index_version ?? "索引版本未提供"}</small></div></article> : null}
         {response.provider_facts.map((fact, index) => <ProviderEvidence key={`${fact.kind}-${index}`} fact={fact} />)}
         {plan.route_legs.map((leg, index) => <article className={`evidence-row ${leg.degraded ? "warning" : ""}`} key={`${leg.destination_name}-${index}`}><span className="evidence-icon"><Route size={17} /></span><div><strong>路线 · {leg.origin_name} → {leg.destination_name}</strong><p>{routeSourceLabel(leg.source)} · {leg.provider_mode} · {leg.distance_km} km / {leg.duration_minutes} 分钟</p><small>{leg.degraded ? `降级：${leg.degraded_reason ?? "原因未提供"}` : `核验于 ${safeDateTime(leg.verified_at)}`}</small></div></article>)}
         {sources.map((source) => <article className="evidence-row" key={source.source_uri}><span className="evidence-icon"><Database size={17} /></span><div><strong>POI 目录 · {source.source_name}</strong><p>{source.source_license} · {source.verification_status === "verified" ? "已核验" : source.verification_status === "stale" ? "需复核" : "未核验"}</p><small>采集于 {safeDateTime(source.collected_at)}</small></div></article>)}

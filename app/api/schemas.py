@@ -85,6 +85,8 @@ class AgentResponse(BaseModel):
     plan_version_id: str | None = None
     planning_intent_decision: dict[str, Any] | None = None
     runtime_decisions: list[RuntimeDecision] = Field(default_factory=list)
+    retrieval_mode: str | None = None
+    retrieval_index_version: str | None = None
     conversation_command: dict[str, Any] | None = None
     plan_diff: dict[str, Any] | None = None
     plan_diffs: list[dict[str, Any]] = Field(default_factory=list)

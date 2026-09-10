@@ -63,6 +63,7 @@ from app.domain.providers import (
     WeatherRequest,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.semantics import compile_replacement_semantics
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.availability import AvailabilityProvider, MockAvailabilityProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
@@ -77,6 +78,10 @@ from app.services.planning_intent import (
     build_rule_based_planning_intent,
 )
 from app.services.plan_verifier import PlanVerifier, VerificationFinding
+from app.services.candidate_retriever import (
+    CandidateRetriever,
+    build_default_candidate_retriever,
+)
 
 
 _PREFERENCE_ALIASES: dict[str, frozenset[str]] = {
@@ -190,6 +195,7 @@ class PlanningService:
         availability_provider: AvailabilityProvider | None = None,
         catalog: Catalog | None = None,
         planning_intent_provider: PlanningIntentProvider | None = None,
+        candidate_retriever: CandidateRetriever | None = None,
     ) -> None:
         self._weather_provider = weather_provider or clear_mock_weather()
         self._route_provider = route_provider or LocalEstimateRouteProvider()
@@ -199,6 +205,7 @@ class PlanningService:
         self._planning_intent_provider = (
             planning_intent_provider or RuleBasedPlanningIntentProvider()
         )
+        self._candidate_retriever = candidate_retriever or build_default_candidate_retriever()
 
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         runtime_decision = self._not_run_runtime(
@@ -273,11 +280,21 @@ class PlanningService:
             for candidate in catalog_result.candidates
             if candidate.resource_id not in weather_removed_ids
         ]
+        retrieved = self._candidate_retriever.retrieve(
+            candidates,
+            semantic_request=planning_intent.semantic_request,
+        )
+        candidates = [item.candidate for item in retrieved.items]
         local_result = _rank_skeleton_plans(
             candidates,
             constraints,
             _select_plan_skeletons(constraints, planning_intent),
             planning_intent,
+            semantic_scores=(
+                {item.candidate.resource_id: item.score for item in retrieved.items}
+                if retrieved.mode != "rule"
+                else None
+            ),
         )
         if weather_removed and not any(
             candidate.resource_type == ResourceType.ACTIVITY
@@ -431,6 +448,8 @@ class PlanningService:
                 warnings=warnings,
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
+                retrieval_mode=retrieved.mode,
+                retrieval_index_version=retrieved.index_version,
             )
 
         if route_candidates:
@@ -475,6 +494,8 @@ class PlanningService:
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
+                retrieval_mode=retrieved.mode,
+                retrieval_index_version=retrieved.index_version,
             )
 
         # 严格预算是硬约束：没有满足条件的结果时返回结构化冲突，不能偷偷放宽
@@ -506,6 +527,8 @@ class PlanningService:
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
+                retrieval_mode=retrieved.mode,
+                retrieval_index_version=retrieved.index_version,
             )
 
         conflict_fields = [
@@ -563,6 +586,8 @@ class PlanningService:
             ),
             planning_intent_decision=planning_intent_decision,
             runtime_decision=runtime_decision,
+            retrieval_mode=retrieved.mode,
+            retrieval_index_version=retrieved.index_version,
         )
 
     def modify_selected_plan(
@@ -726,6 +751,22 @@ class PlanningService:
             isinstance(criterion, RouteObjective)
             for criterion in criteria
         )
+        replacement_semantic_request = compile_replacement_semantics(
+            criteria,
+            target_role=target_stop.role,
+            evidence=command.evidence,
+        )
+        retrieved_replacements = self._candidate_retriever.retrieve(
+            replacement_candidates,
+            semantic_request=replacement_semantic_request,
+            target_role=target_stop.role,
+            exclusions=fixed_ids | {target_stop.resource_id},
+        )
+        retrieval_scores = {
+            item.candidate.resource_id: item.score
+            for item in retrieved_replacements.items
+        }
+        replacement_candidates = [item.candidate for item in retrieved_replacements.items]
         origin = GeoPoint(
             latitude=constraints.location.value.latitude,
             longitude=constraints.location.value.longitude,
@@ -738,7 +779,7 @@ class PlanningService:
             for stop in selected_plan.stops
         )
 
-        def candidate_rank(candidate: StopCandidate) -> tuple[int, float, str]:
+        def candidate_rank(candidate: StopCandidate) -> tuple[float, int, float, str]:
             semantic_matches = sum(
                 len(_matching_terms(criterion.text, _candidate_terms(candidate)))
                 for criterion in semantic_criteria
@@ -750,7 +791,16 @@ class PlanningService:
                 origin,
                 has_return_leg=constraints.return_by is not None,
             )
-            return (-semantic_matches, cheap_distance, candidate.resource_id)
+            return (
+                (
+                    -retrieval_scores.get(candidate.resource_id, 0.0)
+                    if retrieved_replacements.mode != "rule"
+                    else 0.0
+                ),
+                -semantic_matches,
+                cheap_distance,
+                candidate.resource_id,
+            )
 
         replacement_candidates.sort(key=candidate_rank)
         # Route and availability budgets are shared with normal planning.  A
@@ -789,6 +839,11 @@ class PlanningService:
                 skeleton,
                 constraints,
                 modification_intent,
+                semantic_scores=(
+                    retrieval_scores
+                    if retrieved_replacements.mode != "rule"
+                    else None
+                ),
             )
             if local_plan is None:
                 del rejected_field
@@ -894,6 +949,8 @@ class PlanningService:
                         fields=["replacement"] + (["route_distance"] if needs_shorter_route else []),
                         relaxation_options=["允许距离相近的地点" if needs_shorter_route else "放宽时间、距离或预算约束"],
                     ),
+                    retrieval_mode=retrieved_replacements.mode,
+                    retrieval_index_version=retrieved_replacements.index_version,
                 )
             )
 
@@ -934,6 +991,8 @@ class PlanningService:
                 verification_warnings,
                 recalled.warnings,
             ),
+            retrieval_mode=retrieved_replacements.mode,
+            retrieval_index_version=retrieved_replacements.index_version,
         )
         diffs = tuple(
             PlanDiff(
@@ -1608,6 +1667,7 @@ def _rank_skeleton_plans(
     constraints: NormalizedConstraints,
     skeletons: tuple[PlanSkeleton, ...],
     planning_intent: PlanningIntent,
+    semantic_scores: dict[str, float] | None = None,
 ) -> _LocalPlanningResult:
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
@@ -1636,6 +1696,7 @@ def _rank_skeleton_plans(
                 skeleton,
                 constraints,
                 planning_intent,
+                semantic_scores=semantic_scores,
             )
             if plan is not None:
                 plans.append(plan)
@@ -1731,6 +1792,7 @@ def _build_local_plan(
     skeleton: PlanSkeleton,
     constraints: NormalizedConstraints,
     planning_intent: PlanningIntent,
+    semantic_scores: dict[str, float] | None = None,
 ) -> tuple[Plan | None, str | None]:
     if len(sequence) != len(skeleton.roles):
         raise ValueError("plan sequence must fill every skeleton role")
@@ -1839,6 +1901,16 @@ def _build_local_plan(
         max(0.0, 5.0 - total_distance / 2),
         1,
     )
+    semantic_score = round(
+        min(
+            12.0,
+            8.0 * sum(
+                (semantic_scores or {}).get(candidate.resource_id, 0.0)
+                for candidate in sequence
+            ),
+        ),
+        1,
+    )
     if (
         skeleton.skeleton_id
         in {
@@ -1894,6 +1966,23 @@ def _build_local_plan(
                 f"leg_{index}_distance_km={distance:.2f}"
                 for index, distance in enumerate(route_distances, start=1)
             ],
+        ),
+        *(
+            [
+                ScoreContribution(
+                    rule_id="planning.semantic_retrieval.v1",
+                    dimension="semantic_relevance",
+                    points=semantic_score,
+                    message="按候选语义召回相关性进行软排序，未改变硬约束判定。",
+                    evidence=[
+                        f"{candidate.resource_id}={round((semantic_scores or {}).get(candidate.resource_id, 0.0), 3)}"
+                        for candidate in sequence
+                        if (semantic_scores or {}).get(candidate.resource_id, 0.0) > 0
+                    ],
+                )
+            ]
+            if semantic_scores is not None
+            else []
         ),
     ]
     if requested_preferences:

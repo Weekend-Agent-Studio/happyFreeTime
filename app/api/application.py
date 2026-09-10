@@ -33,6 +33,7 @@ from app.providers.geocoding import GeocodingProvider
 from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
+from app.services.candidate_retriever import CandidateRetriever
 from app.services.planning_intent import PlanningIntentProvider
 from app.services.presenter import present_candidate_set
 from app.services.poi_presentation import EmptyPoiPresentationProvider, PoiPresentationProvider
@@ -57,6 +58,7 @@ def create_app(
     availability_provider: AvailabilityProvider | None = None,
     catalog: Catalog | None = None,
     planning_intent_provider: PlanningIntentProvider | None = None,
+    candidate_retriever: CandidateRetriever | None = None,
     poi_presentation_provider: PoiPresentationProvider | None = None,
     web_map_provider: WebMapProvider | None = None,
 ) -> FastAPI:
@@ -84,6 +86,7 @@ def create_app(
         availability_provider=availability_provider,
         catalog=catalog,
         planning_intent_provider=planning_intent_provider,
+        candidate_retriever=candidate_retriever,
         checkpointer=checkpointer,
     )
     browser_map = web_map_provider or DisabledWebMapProvider()
@@ -543,6 +546,10 @@ def create_app(
                     else None
                 ),
                 runtime_decisions=runtime_decisions,
+                retrieval_mode=(candidate_set.retrieval_mode if candidate_set else None),
+                retrieval_index_version=(
+                    candidate_set.retrieval_index_version if candidate_set else None
+                ),
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")
                     if interpretation

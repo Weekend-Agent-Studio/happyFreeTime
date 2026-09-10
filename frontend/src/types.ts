@@ -267,6 +267,8 @@ export type AgentResponse = {
   poi_presentations: PoiPresentation[];
   plan_version_id?: string | null;
   runtime_decisions?: RuntimeDecision[];
+  retrieval_mode?: string | null;
+  retrieval_index_version?: string | null;
   conversation_command?: Record<string, unknown> | null;
   plan_diff?: PlanDiff | null;
   plan_diffs?: PlanDiff[];
