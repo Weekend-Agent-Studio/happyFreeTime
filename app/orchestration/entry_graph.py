@@ -65,6 +65,13 @@ from app.domain.providers import (
     WeatherFact,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.semantics import (
+    EvidenceRef,
+    SemanticQuery,
+    SemanticRequest,
+    SoftObjective,
+    SoftObjectiveKind,
+)
 from app.domain.catalog import (
     CatalogWarningCode,
     CatalogSource,
@@ -441,6 +448,11 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             StopType,
             WeatherFact,
             RuntimeDecision,
+            EvidenceRef,
+            SemanticQuery,
+            SemanticRequest,
+            SoftObjective,
+            SoftObjectiveKind,
             VerificationStatus,
             ViolationCode,
         ],

@@ -15,6 +15,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.domain.constraints import NormalizedConstraints, StopRole
+from app.domain.semantics import EvidenceRef, SemanticQuery, SemanticRequest, SoftObjective
 from app.domain.planning import (
     PlanPace,
     PlanSkeleton,
@@ -205,6 +206,7 @@ def build_rule_based_planning_intent(
                 "required_stop_roles": constraints.required_stop_roles.raw_text or StopRole.DINNER.value,
                 "time_window": f"{window.start}-{window.end}",
             },
+            semantic_request=_build_rule_semantic_request(constraints),
         )
 
     preferences = {
@@ -250,6 +252,7 @@ def build_rule_based_planning_intent(
             "time_window": f"{window.start}-{window.end}",
             "pace": pace.value,
         },
+        semantic_request=_build_rule_semantic_request(constraints),
     )
 
 
@@ -386,6 +389,108 @@ def _accept_proposal(
         maximum_stops=proposal.maximum_stops,
         pace=proposal.pace,
         evidence=_sanitize_evidence(proposal.evidence, constraints, baseline),
+        semantic_request=_sanitize_semantic_request(
+            proposal.semantic_request,
+            baseline.semantic_request,
+        ),
+    )
+
+
+def _build_rule_semantic_request(
+    constraints: NormalizedConstraints,
+) -> SemanticRequest:
+    """Translate known preferences to finite objectives while retaining text."""
+
+    objective_aliases: dict[str, tuple[str, ...]] = {
+        "low_fatigue": ("轻松", "松弛", "不赶", "休闲", "不累", "不希望太累"),
+        "shorter_travel": ("近一点", "更近", "近点", "少走", "步行可达"),
+        "novelty": ("新鲜感", "新奇", "新意", "有意思"),
+        "quiet": ("安静", "清静"),
+        "conversation_friendly": ("聊天", "适合聊天", "能聊天"),
+        "romantic": ("约会", "浪漫"),
+        "family_friendly": ("亲子", "带孩子", "家庭"),
+        "low_spice": ("少辣", "不辣", "微辣"),
+    }
+    values_by_field = (
+        ("preferences", constraints.preferences),
+        ("scene_tags", constraints.scene_tags),
+        ("diet_tags", constraints.diet_tags),
+        ("avoid", constraints.avoid),
+    )
+    evidence: list[EvidenceRef] = []
+    objectives: list[SoftObjective] = []
+    queries: list[SemanticQuery] = []
+    seen_values: set[tuple[str, str]] = set()
+    for source_field, values in values_by_field:
+        for index, value in enumerate(values, start=1):
+            text = value.strip()
+            if not text or (source_field, text.casefold()) in seen_values:
+                continue
+            seen_values.add((source_field, text.casefold()))
+            evidence_id = f"user.{source_field}.{index}"
+            evidence.append(
+                EvidenceRef(
+                    evidence_id=evidence_id,
+                    source_type="user_message",
+                    source_field=source_field,
+                    summary=text,
+                    confidence=1.0,
+                )
+            )
+            normalized = text.casefold()
+            matched_kind = next(
+                (
+                    kind
+                    for kind, aliases in objective_aliases.items()
+                    if normalized in {alias.casefold() for alias in aliases}
+                ),
+                None,
+            )
+            if matched_kind is not None:
+                objectives.append(
+                    SoftObjective(
+                        kind=matched_kind,
+                        strength="preferred",
+                        evidence_refs=(evidence_id,),
+                    )
+                )
+            queries.append(
+                SemanticQuery(
+                    query_id=f"semantic.query.{source_field}.{index}",
+                    text=text,
+                    evidence_refs=(evidence_id,),
+                )
+            )
+    return SemanticRequest(
+        evidence=tuple(evidence),
+        objectives=tuple(objectives),
+        queries=tuple(queries),
+    )
+
+
+def _sanitize_semantic_request(
+    proposal: SemanticRequest,
+    baseline: SemanticRequest,
+) -> SemanticRequest:
+    """Allow model semantics only when they cite deterministic user evidence."""
+
+    if proposal.is_empty:
+        return baseline
+    known = {item.evidence_id: item for item in baseline.evidence}
+    if not all(item.evidence_id in known for item in proposal.evidence):
+        raise ValueError("semantic evidence is not grounded in normalized input")
+    for objective in proposal.objectives:
+        if not objective.evidence_refs or not set(objective.evidence_refs).issubset(known):
+            raise ValueError("semantic objective has ungrounded evidence")
+    for query in proposal.queries:
+        if not query.evidence_refs or not set(query.evidence_refs).issubset(known):
+            raise ValueError("semantic query has ungrounded evidence")
+    # The model may reorder or select a subset of grounded queries, but it may
+    # not invent a new evidence record or turn an absent preference into one.
+    return SemanticRequest(
+        evidence=tuple(known[item.evidence_id] for item in proposal.evidence),
+        objectives=proposal.objectives,
+        queries=proposal.queries,
     )
 
 
@@ -487,4 +592,6 @@ _SYSTEM_PROMPT = """你是 HappyFreeTime 的受约束 PlanningIntent 节点。
 required_roles 必须保持 baseline_intent.required_roles；不要把模糊偏好升级成新的 required role。
 只使用 baseline_intent 中允许的角色，站数必须在 1 到 4 内，且至少有一个现有骨架能够匹配。
 evidence 只能引用输入中出现的软偏好词，不要编造用户没有说过的事实。
+semantic_request 只能引用 baseline_intent.semantic_request 中已有的 evidence_id；
+可以选择或重排已有 objective/query，但不得创建未被用户输入支持的证据。
 """

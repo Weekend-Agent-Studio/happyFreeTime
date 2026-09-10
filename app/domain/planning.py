@@ -18,6 +18,7 @@ from app.domain.catalog import (
     PriceKind,
 )
 from app.domain.constraints import QuestionDecision, StopRole
+from app.domain.semantics import SemanticRequest
 from app.domain.providers import (
     AvailabilityFact,
     GeocodingFact,
@@ -76,6 +77,7 @@ class PlanningIntent(BaseModel):
     maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
     evidence: dict[str, str] = Field(default_factory=dict)
+    semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
 
     @model_validator(mode="after")
     def validate_stop_range(self) -> "PlanningIntent":
@@ -96,6 +98,7 @@ class PlanningIntentProposal(BaseModel):
     maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
     evidence: dict[str, str] = Field(default_factory=dict)
+    semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
     confidence: float = Field(default=0.0, ge=0, le=1)
 
     @model_validator(mode="after")
