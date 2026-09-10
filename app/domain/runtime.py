@@ -21,7 +21,12 @@ class RuntimeDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    stage: Literal["turn_interpreter", "planning_intent", "recommendation_advisor"]
+    stage: Literal[
+        "turn_interpreter",
+        "planning_intent",
+        "candidate_retrieval",
+        "recommendation_advisor",
+    ]
     adapter: str = Field(min_length=1)
     model_invoked: bool
     model_name: str | None = None
@@ -30,3 +35,7 @@ class RuntimeDecision(BaseModel):
     latency_ms: int | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    requested_mode: str | None = None
+    index_version: str | None = None
+    query_count: int | None = Field(default=None, ge=0)
+    candidate_count: int | None = Field(default=None, ge=0)

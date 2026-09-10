@@ -289,6 +289,14 @@ def build_entry_graph(
             "runtime_decisions": (
                 *state.get("runtime_decisions", ()),
                 outcome.runtime_decision,
+                *(
+                    (outcome.candidate_set.retrieval_runtime_decision,)
+                    if (
+                        outcome.candidate_set is not None
+                        and outcome.candidate_set.retrieval_runtime_decision is not None
+                    )
+                    else ()
+                ),
             ),
         }
 
@@ -344,6 +352,11 @@ def build_entry_graph(
                 *(
                     (candidate_set.runtime_decision,)
                     if candidate_set.runtime_decision is not None
+                    else ()
+                ),
+                *(
+                    (candidate_set.retrieval_runtime_decision,)
+                    if candidate_set.retrieval_runtime_decision is not None
                     else ()
                 ),
             ),

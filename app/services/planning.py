@@ -80,6 +80,8 @@ from app.services.planning_intent import (
 from app.services.plan_verifier import PlanVerifier, VerificationFinding
 from app.services.candidate_retriever import (
     CandidateRetriever,
+    RetrievalRequest,
+    RetrievedCandidateSet,
     build_default_candidate_retriever,
 )
 
@@ -106,6 +108,24 @@ _ROLE_RESOURCE_TYPES: dict[StopRole, frozenset[ResourceType]] = {
     StopRole.DINNER: frozenset({ResourceType.RESTAURANT}),
     StopRole.BREAK: frozenset({ResourceType.CAFE, ResourceType.DESSERT}),
 }
+
+
+def _retrieval_runtime(result: RetrievedCandidateSet) -> RuntimeDecision:
+    """Convert retriever metadata into the safe runtime trace contract."""
+
+    return RuntimeDecision(
+        stage="candidate_retrieval",
+        adapter=result.actual_adapter,
+        model_invoked=result.query_count > 0 and result.actual_adapter == "bge_hybrid",
+        model_name=result.model_id,
+        attempts=1 if result.query_count > 0 else 0,
+        fallback_reason=result.fallback_reason,
+        latency_ms=result.latency_ms,
+        requested_mode=result.requested_mode,
+        index_version=result.index_version,
+        query_count=result.query_count,
+        candidate_count=result.candidate_count,
+    )
 
 
 class RepairOutcome(str, Enum):
@@ -207,6 +227,98 @@ class PlanningService:
         )
         self._candidate_retriever = candidate_retriever or build_default_candidate_retriever()
 
+    def _retrieve_for_skeleton_roles(
+        self,
+        candidates: list[StopCandidate],
+        planning_intent: PlanningIntent,
+        skeletons: tuple[PlanSkeleton, ...],
+    ) -> tuple[RetrievedCandidateSet, dict[str, float]]:
+        """Retrieve independently for each role, then restore Catalog identity order.
+
+        A role-scoped request prevents an activity query from competing directly
+        with a restaurant query.  The union is only a bounded candidate set;
+        hard catalog filtering already happened before this method and the
+        Planner still owns final feasibility.  Identical resource IDs returned
+        by more than one compatible meal role are cached in this round.
+        """
+
+        roles = tuple(dict.fromkeys(role for skeleton in skeletons for role in skeleton.roles))
+        by_role: dict[StopRole, list[StopCandidate]] = {
+            role: [
+                candidate
+                for candidate in candidates
+                if candidate.resource_type in _ROLE_RESOURCE_TYPES[role]
+            ]
+            for role in roles
+        }
+        results: list[RetrievedCandidateSet] = []
+        items_by_id: dict[str, object] = {}
+        scores_by_id: dict[str, float] = {}
+        for role in roles:
+            request = RetrievalRequest(
+                candidates=tuple(by_role[role]),
+                semantic_request=planning_intent.semantic_request,
+                target_role=role,
+            )
+            result = self._candidate_retriever.retrieve(request)
+            results.append(result)
+            for item in result.items:
+                existing = items_by_id.get(item.candidate.resource_id)
+                if existing is None or item.score.final_score > existing.score.final_score:
+                    items_by_id[item.candidate.resource_id] = item
+                    scores_by_id[item.candidate.resource_id] = item.score.final_score
+
+        selected_ids = set(items_by_id)
+        ordered_candidates = [
+            candidate for candidate in candidates if candidate.resource_id in selected_ids
+        ]
+        if not results:
+            return (
+                RetrievedCandidateSet(
+                    mode="rule",
+                    index_version="rule-alias.v2",
+                    requested_mode="rule",
+                    actual_adapter="rule_based",
+                    candidate_count=0,
+                ),
+                {},
+            )
+        modes = {result.mode for result in results}
+        actual_mode = "hybrid" if modes == {"hybrid"} else "rule"
+        index_versions = tuple(dict.fromkeys(result.index_version for result in results))
+        index_version = index_versions[0] if len(index_versions) == 1 else "mixed:" + "+".join(index_versions)
+        requested_modes = tuple(dict.fromkeys(result.requested_mode for result in results))
+        adapters = tuple(dict.fromkeys(result.actual_adapter for result in results))
+        fallback_reasons = tuple(
+            dict.fromkeys(
+                result.fallback_reason
+                for result in results
+                if result.fallback_reason
+            )
+        )
+        model_ids = tuple(dict.fromkeys(result.model_id for result in results if result.model_id))
+        return (
+            RetrievedCandidateSet(
+                items=tuple(
+                    items_by_id[candidate.resource_id]
+                    for candidate in ordered_candidates
+                ),
+                mode=actual_mode,
+                index_version=index_version,
+                requested_mode=(requested_modes[0] if len(requested_modes) == 1 else "mixed"),
+                actual_adapter=(adapters[0] if len(adapters) == 1 else "mixed"),
+                model_id=(model_ids[0] if len(model_ids) == 1 else None),
+                query_count=sum(result.query_count for result in results),
+                candidate_count=len(ordered_candidates),
+                latency_ms=sum(result.latency_ms for result in results),
+                fallback_reason=(";".join(fallback_reasons) if fallback_reasons else None),
+                fusion_version=(
+                    "hybrid-bge-rank-fusion.v1" if actual_mode == "hybrid" else None
+                ),
+            ),
+            scores_by_id,
+        )
+
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
         runtime_decision = self._not_run_runtime(
             "planning cannot start before normalized constraints are complete"
@@ -280,20 +392,21 @@ class PlanningService:
             for candidate in catalog_result.candidates
             if candidate.resource_id not in weather_removed_ids
         ]
-        retrieved = self._candidate_retriever.retrieve(
+        skeletons = _select_plan_skeletons(constraints, planning_intent)
+        retrieved, semantic_scores = self._retrieve_for_skeleton_roles(
             candidates,
-            semantic_request=planning_intent.semantic_request,
+            planning_intent,
+            skeletons,
         )
+        retrieval_runtime_decision = _retrieval_runtime(retrieved)
         candidates = [item.candidate for item in retrieved.items]
         local_result = _rank_skeleton_plans(
             candidates,
             constraints,
-            _select_plan_skeletons(constraints, planning_intent),
+            skeletons,
             planning_intent,
             semantic_scores=(
-                {item.candidate.resource_id: item.score for item in retrieved.items}
-                if retrieved.mode != "rule"
-                else None
+                semantic_scores if not planning_intent.semantic_request.is_empty else None
             ),
         )
         if weather_removed and not any(
@@ -448,6 +561,7 @@ class PlanningService:
                 warnings=warnings,
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
+                retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
             )
@@ -494,6 +608,7 @@ class PlanningService:
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
+                retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
             )
@@ -527,6 +642,7 @@ class PlanningService:
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
+                retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
             )
@@ -586,6 +702,7 @@ class PlanningService:
             ),
             planning_intent_decision=planning_intent_decision,
             runtime_decision=runtime_decision,
+            retrieval_runtime_decision=retrieval_runtime_decision,
             retrieval_mode=retrieved.mode,
             retrieval_index_version=retrieved.index_version,
         )
@@ -757,13 +874,16 @@ class PlanningService:
             evidence=command.evidence,
         )
         retrieved_replacements = self._candidate_retriever.retrieve(
-            replacement_candidates,
-            semantic_request=replacement_semantic_request,
-            target_role=target_stop.role,
-            exclusions=fixed_ids | {target_stop.resource_id},
+            RetrievalRequest(
+                candidates=tuple(replacement_candidates),
+                semantic_request=replacement_semantic_request,
+                target_role=target_stop.role,
+                excluded_resource_ids=frozenset(fixed_ids | {target_stop.resource_id}),
+            )
         )
+        retrieval_runtime_decision = _retrieval_runtime(retrieved_replacements)
         retrieval_scores = {
-            item.candidate.resource_id: item.score
+            item.candidate.resource_id: item.score.final_score
             for item in retrieved_replacements.items
         }
         replacement_candidates = [item.candidate for item in retrieved_replacements.items]
@@ -949,6 +1069,7 @@ class PlanningService:
                         fields=["replacement"] + (["route_distance"] if needs_shorter_route else []),
                         relaxation_options=["允许距离相近的地点" if needs_shorter_route else "放宽时间、距离或预算约束"],
                     ),
+                    retrieval_runtime_decision=retrieval_runtime_decision,
                     retrieval_mode=retrieved_replacements.mode,
                     retrieval_index_version=retrieved_replacements.index_version,
                 )
@@ -991,6 +1112,7 @@ class PlanningService:
                 verification_warnings,
                 recalled.warnings,
             ),
+            retrieval_runtime_decision=retrieval_runtime_decision,
             retrieval_mode=retrieved_replacements.mode,
             retrieval_index_version=retrieved_replacements.index_version,
         )

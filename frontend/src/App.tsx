@@ -313,6 +313,7 @@ function providerSourceLabel(fact: ProviderFact): string {
 function runtimeStageLabel(stage: RuntimeDecision["stage"]): string {
   if (stage === "turn_interpreter") return "需求理解";
   if (stage === "planning_intent") return "规划结构";
+  if (stage === "candidate_retrieval") return "候选召回";
   return "推荐解释";
 }
 
@@ -321,6 +322,7 @@ function runtimeAdapterLabel(decision: RuntimeDecision): string {
     demo_rule: "离线规则 Demo",
     rule_based: "规则基线",
     llm: decision.model_name ? `LLM · ${decision.model_name}` : "LLM",
+    bge_hybrid: "BGE 混合召回",
     fallback: "LLM 失败后规则回退",
     bypassed: "结构化操作直达",
     not_run: "未运行",

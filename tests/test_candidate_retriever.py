@@ -51,13 +51,16 @@ class CandidateRetrieverTest(unittest.TestCase):
         self.assertEqual(result.mode, "rule")
         self.assertTrue(result.items[0].evidence_refs)
 
-    def test_hybrid_adapter_ranks_semantically_similar_profile(self) -> None:
+    def test_hybrid_adapter_falls_back_without_local_index(self) -> None:
         result = HybridRagCandidateRetriever().retrieve(
             self.candidates,
             semantic_request=self.request,
         )
 
-        self.assertEqual(result.mode, "hybrid")
+        self.assertEqual(result.mode, "rule")
+        self.assertEqual(result.actual_adapter, "rule_based")
+        self.assertEqual(result.requested_mode, "hybrid")
+        self.assertIsNotNone(result.fallback_reason)
         self.assertEqual(result.items[0].candidate.resource_id, "quiet")
         self.assertGreaterEqual(result.items[0].embedding_score, 0.0)
 
@@ -148,7 +151,9 @@ class CandidateRetrieverTest(unittest.TestCase):
             candidate_retriever=HybridRagCandidateRetriever(),
         ).plan(constraints)
 
-        self.assertEqual(result.retrieval_mode, "hybrid")
+        self.assertEqual(result.retrieval_mode, "rule")
+        self.assertIsNotNone(result.retrieval_runtime_decision)
+        self.assertEqual(result.retrieval_runtime_decision.stage, "candidate_retrieval")
         self.assertTrue(result.plans)
         self.assertTrue(
             any(

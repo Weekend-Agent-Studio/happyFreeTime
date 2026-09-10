@@ -219,7 +219,7 @@ export type PlanDiff = {
 };
 
 export type RuntimeDecision = {
-  stage: "turn_interpreter" | "planning_intent" | "recommendation_advisor";
+  stage: "turn_interpreter" | "planning_intent" | "candidate_retrieval" | "recommendation_advisor";
   adapter: string;
   model_invoked: boolean;
   model_name: string | null;
