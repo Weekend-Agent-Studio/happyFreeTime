@@ -23,3 +23,5 @@ frontend/prototypes/**/screenshots/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/models/
+data/retrieval/cache/

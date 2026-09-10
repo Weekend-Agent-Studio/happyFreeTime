@@ -1,0 +1,5 @@
+# Optional local semantic retrieval dependencies.  The default rule mode does
+# not install or import these packages.
+sentence-transformers>=3.0,<6.0
+numpy>=1.26,<3.0
+

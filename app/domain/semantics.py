@@ -8,12 +8,17 @@ authorization to mutate a plan.
 
 from __future__ import annotations
 
+from datetime import date
 from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.constraints import StopRole
+
+
+POI_SEMANTIC_PROFILE_SCHEMA_VERSION = "poi-semantic-profile.v1"
+PoiSemanticSourceType = Literal["catalog", "official", "open_data", "fixture"]
 
 
 class SoftObjectiveKind(str, Enum):
@@ -91,6 +96,51 @@ class SemanticRequest(BaseModel):
     @property
     def is_empty(self) -> bool:
         return not self.evidence and not self.objectives and not self.queries
+
+
+class PoiSemanticAspect(BaseModel):
+    """One versioned, source-labelled semantic fact about a POI.
+
+    This contract intentionally contains only relatively stable descriptive
+    information.  Route, weather, opening, availability and inventory facts
+    belong to their existing provider contracts and cannot enter a semantic
+    profile by accident because the model forbids unknown fields.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    aspect_id: str = Field(min_length=1)
+    kind: SoftObjectiveKind | None = None
+    text: str = Field(min_length=1)
+    source_type: PoiSemanticSourceType
+    source_ref: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    updated_at: date | None = None
+
+
+class PoiSemanticProfile(BaseModel):
+    """Stable semantic retrieval material for one catalog resource."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["poi-semantic-profile.v1"]
+    resource_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    aliases: tuple[str, ...] = ()
+    summary: str = Field(min_length=1)
+    aspects: tuple[PoiSemanticAspect, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_unique_values(self) -> "PoiSemanticProfile":
+        aliases = [item.strip() for item in self.aliases]
+        if any(not item for item in aliases):
+            raise ValueError("poi semantic aliases must not be empty")
+        if len(aliases) != len(set(aliases)):
+            raise ValueError("poi semantic aliases must be unique")
+        aspect_ids = [item.aspect_id for item in self.aspects]
+        if len(aspect_ids) != len(set(aspect_ids)):
+            raise ValueError("poi semantic aspect ids must be unique per profile")
+        return self
 
 
 def compile_replacement_semantics(

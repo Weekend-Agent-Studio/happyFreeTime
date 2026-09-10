@@ -1,0 +1,335 @@
+{
+  "schema_version": "poi-semantic-profile.v1",
+  "profiles": [
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-1248471844",
+      "name": "北京警察博物馆",
+      "aliases": ["警察博物馆"],
+      "summary": "演示语义资料：室内专题展馆，题材有新鲜感，适合安排为短时探索；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "警务主题带来不同于普通公园的探索感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-1248471844#fixture.novelty", "confidence": 0.78, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.indoor", "kind": "low_fatigue", "text": "室内参观，步行节奏可以控制", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-1248471844#fixture.indoor", "confidence": 0.76, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-relation-963097",
+      "name": "中国人民革命军事博物馆",
+      "aliases": ["军事博物馆"],
+      "summary": "演示语义资料：室内军事主题展馆，适合想看有内容且不依赖天气的安排；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "军事历史主题具有明确的探索和新鲜感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-relation-963097#fixture.novelty", "confidence": 0.78, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.parents", "kind": "family_friendly", "text": "内容型室内参观，适合与父母同行时慢慢看", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-relation-963097#fixture.parents", "confidence": 0.72, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-1016302761",
+      "name": "中国地质博物馆",
+      "aliases": ["地质博物馆"],
+      "summary": "演示语义资料：室内自然科学展馆，适合亲子探索和雨天备选；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.family", "kind": "family_friendly", "text": "化石与地质主题适合亲子一起探索", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-1016302761#fixture.family", "confidence": 0.82, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.rain", "kind": "low_fatigue", "text": "室内为主，天气不好时也能维持轻松节奏", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-1016302761#fixture.rain", "confidence": 0.8, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-136998797",
+      "name": "首都博物馆",
+      "aliases": ["首博"],
+      "summary": "演示语义资料：室内综合展馆，内容密度适中，适合父母同行时按自己的节奏参观；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.parents", "kind": "family_friendly", "text": "室内文化内容适合与父母同行", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-136998797#fixture.parents", "confidence": 0.8, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "可以控制参观范围，适合不赶时间的安排", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-136998797#fixture.low_fatigue", "confidence": 0.75, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-24476204",
+      "name": "日坛公园",
+      "aliases": ["日坛"],
+      "summary": "演示语义资料：城市公园，适合约会散步和留出聊天时间；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.romantic", "kind": "romantic", "text": "适合约会中的轻松散步和并肩聊天", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-24476204#fixture.romantic", "confidence": 0.78, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "开放式公园可按体力随时缩短路线", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-24476204#fixture.low_fatigue", "confidence": 0.7, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-24827108",
+      "name": "圆明园遗址公园",
+      "aliases": ["圆明园"],
+      "summary": "演示语义资料：遗址与园林结合的户外地点，适合亲子探索但需要预留步行体力；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.family", "kind": "family_friendly", "text": "遗址故事和园林空间适合亲子一起探索", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-24827108#fixture.family", "confidence": 0.8, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "历史遗址体验区别于普通商业场所", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-24827108#fixture.novelty", "confidence": 0.76, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-256653719",
+      "name": "中国古动物馆",
+      "aliases": ["古动物馆"],
+      "summary": "演示语义资料：化石与古生物主题室内展馆，适合亲子和有新鲜感的半日安排；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.family", "kind": "family_friendly", "text": "古生物展品适合亲子共同观察和提问", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-256653719#fixture.family", "confidence": 0.82, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "古动物主题有明显的新鲜感和探索感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-256653719#fixture.novelty", "confidence": 0.82, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-29228773",
+      "name": "颐和园",
+      "aliases": ["颐和园公园"],
+      "summary": "演示语义资料：园林与湖景结合，适合父母同行或约会时慢慢走、边看边聊；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.parents", "kind": "family_friendly", "text": "园林景观适合与父母一起慢慢游览", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-29228773#fixture.parents", "confidence": 0.78, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "可选择短段游览并保留休息时间", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-29228773#fixture.low_fatigue", "confidence": 0.7, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-474337112",
+      "name": "国家自然博物馆",
+      "aliases": ["自然博物馆"],
+      "summary": "演示语义资料：自然科学主题室内展馆，适合亲子探索和雨天行程；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.family", "kind": "family_friendly", "text": "自然科学展陈适合亲子一起发现和讨论", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-474337112#fixture.family", "confidence": 0.84, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.rain", "kind": "low_fatigue", "text": "室内参观适合作为雨天替代活动", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-474337112#fixture.rain", "confidence": 0.82, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-3884441391",
+      "name": "故宫博物院",
+      "aliases": ["故宫"],
+      "summary": "演示语义资料：历史文化地标，适合希望体验经典与新鲜感的人，但应控制覆盖范围以免过度疲劳；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "历史建筑和展陈带来强烈的文化探索感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-3884441391#fixture.novelty", "confidence": 0.86, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.parents", "kind": "family_friendly", "text": "适合作为父母同行的经典文化目的地", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-3884441391#fixture.parents", "confidence": 0.72, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-5894004587",
+      "name": "今日美术馆",
+      "aliases": ["今日美术馆"],
+      "summary": "演示语义资料：当代艺术室内空间，适合约会、慢慢看展和聊天；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.romantic", "kind": "romantic", "text": "适合约会时共同看展并留下交流空间", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-5894004587#fixture.romantic", "confidence": 0.8, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "展览内容适合慢慢看、慢慢聊", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-5894004587#fixture.conversation", "confidence": 0.8, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-relation-19108749",
+      "name": "永定门公园",
+      "aliases": ["永定门公园"],
+      "summary": "演示语义资料：城市公园，适合轻松散步、休息和不赶时间的聊天；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "适合按体力安排短距离散步和停留", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-relation-19108749#fixture.low_fatigue", "confidence": 0.78, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "户外空间适合并肩走走、找地方聊天", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-relation-19108749#fixture.conversation", "confidence": 0.72, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-relation-8607825",
+      "name": "中国国家博物馆",
+      "aliases": ["国博"],
+      "summary": "演示语义资料：大型综合历史文化展馆，适合父母同行和想获得文化新鲜感的安排；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.parents", "kind": "family_friendly", "text": "综合历史内容适合与父母同行", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-relation-8607825#fixture.parents", "confidence": 0.8, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "展览主题丰富，适合寻找文化新鲜感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-relation-8607825#fixture.novelty", "confidence": 0.8, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-107011057",
+      "name": "凯迪拉克中心",
+      "aliases": ["凯迪拉克中心"],
+      "summary": "演示语义资料：室内运动与活动场馆，适合想换一种体验、但不想依赖户外天气的安排；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "运动场馆体验区别于常规博物馆和公园", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-107011057#fixture.novelty", "confidence": 0.72, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.indoor", "kind": "low_fatigue", "text": "室内活动可根据具体内容控制节奏", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-107011057#fixture.indoor", "confidence": 0.68, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-129187924",
+      "name": "全国农业展览馆;中国农业博物馆",
+      "aliases": ["农业展览馆", "中国农业博物馆"],
+      "summary": "演示语义资料：农业与生活主题展馆，适合亲子探索和寻找日常之外的新鲜内容；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.family", "kind": "family_friendly", "text": "农业主题适合亲子一起观察和认识日常食物来源", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-129187924#fixture.family", "confidence": 0.76, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "农业和生产主题提供区别于常规景点的新鲜感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-129187924#fixture.novelty", "confidence": 0.74, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-161298694",
+      "name": "中国科学技术馆",
+      "aliases": ["科技馆"],
+      "summary": "演示语义资料：互动科学主题室内展馆，适合亲子探索和希望行程有新鲜感的用户；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.family", "kind": "family_friendly", "text": "互动科学内容适合亲子共同体验", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-161298694#fixture.family", "confidence": 0.84, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "互动展项带来较强的新鲜感和参与感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-161298694#fixture.novelty", "confidence": 0.82, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-26514871",
+      "name": "恭王府",
+      "aliases": ["恭王府博物馆"],
+      "summary": "演示语义资料：历史府邸与园林结合的文化地点，适合父母同行并保留适量探索感；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.parents", "kind": "family_friendly", "text": "历史建筑与园林适合与父母同行", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-26514871#fixture.parents", "confidence": 0.8, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "府邸空间和历史故事提供文化新鲜感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-26514871#fixture.novelty", "confidence": 0.78, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-33607759",
+      "name": "龙潭公园",
+      "aliases": ["龙潭湖公园"],
+      "summary": "演示语义资料：湖景公园，适合轻松走走、休息和聊天；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "可按体力选择短线散步和临水休息", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-33607759#fixture.low_fatigue", "confidence": 0.78, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "湖边环境适合慢慢聊天", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-33607759#fixture.conversation", "confidence": 0.72, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-42416783",
+      "name": "北京国际雕塑公园",
+      "aliases": ["雕塑公园"],
+      "summary": "演示语义资料：户外雕塑与公园空间结合，适合想看新鲜内容又不想逛商业场所的安排；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "雕塑作品带来区别于普通公园的视觉探索感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-42416783#fixture.novelty", "confidence": 0.8, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "可只选择局部区域游览，控制步行量", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-42416783#fixture.low_fatigue", "confidence": 0.7, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-48915008",
+      "name": "中国电影博物馆",
+      "aliases": ["电影博物馆"],
+      "summary": "演示语义资料：电影主题室内展馆，适合约会、亲子或朋友一起看点不同的内容；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.novelty", "kind": "novelty", "text": "电影主题提供有记忆点的新鲜体验", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-48915008#fixture.novelty", "confidence": 0.8, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.indoor", "kind": "low_fatigue", "text": "室内参观适合安排为不太累的内容站点", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-48915008#fixture.indoor", "confidence": 0.76, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-4143120689",
+      "name": "姚记炒肝店",
+      "aliases": ["姚记"],
+      "summary": "演示语义资料：北京地方小吃方向，适合想尝试本地饮食文化的短时用餐；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.local_food", "kind": "novelty", "text": "地方小吃体验具有本地文化新鲜感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-4143120689#fixture.local_food", "confidence": 0.72, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.meal", "kind": null, "text": "适合作为行程中的地方风味用餐站点", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-4143120689#fixture.meal", "confidence": 0.7, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-2753132903",
+      "name": "胡大饭馆",
+      "aliases": ["胡大"],
+      "summary": "演示语义资料：北京夜间餐饮与地方风味方向，适合朋友聚餐或想尝试本地口味的安排；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.local_food", "kind": "novelty", "text": "地方风味餐饮为约会或聚餐增加本地特色", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-2753132903#fixture.local_food", "confidence": 0.7, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "适合作为一段完整的晚餐停留", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-2753132903#fixture.conversation", "confidence": 0.65, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-10289813030",
+      "name": "护国寺小吃",
+      "aliases": ["护国寺小吃店"],
+      "summary": "演示语义资料：传统小吃方向，适合短时体验北京地方饮食和轻量用餐；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.local_food", "kind": "novelty", "text": "传统小吃带来地方文化体验和新鲜感", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10289813030#fixture.local_food", "confidence": 0.76, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "适合作为时间较紧时的轻量餐饮站点", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10289813030#fixture.low_fatigue", "confidence": 0.68, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-10734201823",
+      "name": "Luckin",
+      "aliases": ["瑞幸咖啡"],
+      "summary": "演示语义资料：咖啡与短暂停留方向，适合约会中找地方聊天或作为轻量休息点；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "咖啡停留适合聊天和短暂休息", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10734201823#fixture.conversation", "confidence": 0.7, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "停留时长灵活，适合不想安排太满的行程", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10734201823#fixture.low_fatigue", "confidence": 0.72, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-10734201825",
+      "name": "星巴克",
+      "aliases": ["星巴克咖啡"],
+      "summary": "演示语义资料：熟悉的咖啡停留点，适合聊天、休息或作为行程之间的缓冲；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "适合约会或朋友同行时坐下来聊天", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10734201825#fixture.conversation", "confidence": 0.7, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "可作为低强度的休息与补充体力站点", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10734201825#fixture.low_fatigue", "confidence": 0.7, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-10830053002",
+      "name": "西少爷",
+      "aliases": ["西少爷肉夹馍"],
+      "summary": "演示语义资料：快餐与地方风味方向，适合时间有限或想安排轻量用餐的行程；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.local_food", "kind": "novelty", "text": "地方风味快餐可增加简单的本地体验", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10830053002#fixture.local_food", "confidence": 0.66, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "用餐流程相对轻量，适合不想把时间排满", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-10830053002#fixture.low_fatigue", "confidence": 0.65, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-11947640986",
+      "name": "丝路伊香兰州牛肉面",
+      "aliases": ["兰州牛肉面"],
+      "summary": "演示语义资料：面食与地方风味方向，适合快速用餐或想尝试不同地域口味的安排；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.local_food", "kind": "novelty", "text": "地域风味面食可作为有区别度的用餐选择", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-11947640986#fixture.local_food", "confidence": 0.68, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "适合在多站行程中安排简洁的用餐停留", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-11947640986#fixture.low_fatigue", "confidence": 0.64, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-12759656576",
+      "name": "南城香",
+      "aliases": ["南城香餐厅"],
+      "summary": "演示语义资料：家常餐饮方向，适合家庭同行或需要稳妥用餐的行程；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.family", "kind": "family_friendly", "text": "家常餐饮方向适合家庭同行", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-12759656576#fixture.family", "confidence": 0.68, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.meal", "kind": null, "text": "适合作为行程中的常规正餐选择", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-12759656576#fixture.meal", "confidence": 0.66, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-13094422001",
+      "name": "赛百味",
+      "aliases": ["Subway"],
+      "summary": "演示语义资料：可快速解决用餐的简餐方向，适合需要把更多时间留给活动的规划；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.low_fatigue", "kind": "low_fatigue", "text": "适合时间紧或希望减少用餐占用的行程", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-13094422001#fixture.low_fatigue", "confidence": 0.66, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.meal", "kind": null, "text": "适合作为可快速完成的简餐站点", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-13094422001#fixture.meal", "confidence": 0.66, "updated_at": "2026-09-10"}
+      ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-node-3955072857",
+      "name": "百合素食",
+      "aliases": ["素食餐厅"],
+      "summary": "演示语义资料：素食与清淡方向，适合少辣或希望吃得清爽的同行需求；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.low_spice", "kind": "low_spice", "text": "素食与清淡方向可作为少辣需求的候选线索", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-3955072857#fixture.low_spice", "confidence": 0.74, "updated_at": "2026-09-10"},
+        {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "适合作为可以坐下来慢慢聊的用餐站点", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-3955072857#fixture.conversation", "confidence": 0.68, "updated_at": "2026-09-10"}
+      ]
+    }
+  ]
+}
