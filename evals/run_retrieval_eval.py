@@ -96,7 +96,9 @@ def _run_adapter(adapter: Any, cases: Sequence[dict[str, Any]], candidates: Sequ
                 "mode": result.mode,
                 "fallback_reason": result.fallback_reason,
                 "hits_at_5": any(relevance.get(item, 0) > 0 for item in ranked_ids[:5]),
-                "wrong_evidence": _wrong_evidence(result.items),
+                # This is a provenance-shape check only.  It does not establish
+                # that the cited aspect is semantically relevant to the query.
+                "invalid_provenance": _invalid_provenance(result.items),
             }
         )
     return _aggregate(rows)
@@ -145,9 +147,23 @@ def _aggregate(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "ndcg_at_5": _mean_metric(evaluated, lambda row: _ndcg(row, 5)),
         "mrr": _mean_metric(evaluated, _mrr),
         "zero_hit_rate": _mean_metric(evaluated, lambda row: 0.0 if row["hits_at_5"] else 1.0),
-        "wrong_evidence_rate": _mean_metric(evaluated, lambda row: row["wrong_evidence"]),
-        "latency_p50_ms": _percentile([row["latency_ms"] for row in rows], 0.50),
-        "latency_p95_ms": _percentile([row["latency_ms"] for row in rows], 0.95),
+        "invalid_provenance_rate": _mean_metric(
+            evaluated,
+            lambda row: row["invalid_provenance"],
+        ),
+        # The first request includes lazy model/index loading and the first
+        # inference.  Keep it separate from the remaining request timings so
+        # the report does not present cold-start cost as steady-state latency.
+        "cold_start_ms": round(rows[0]["latency_ms"], 3) if rows else 0.0,
+        "warm_case_count": max(0, len(rows) - 1),
+        "warm_latency_p50_ms": _percentile(
+            [row["latency_ms"] for row in rows[1:]],
+            0.50,
+        ),
+        "warm_latency_p95_ms": _percentile(
+            [row["latency_ms"] for row in rows[1:]],
+            0.95,
+        ),
         "fallback_count": sum(1 for row in rows if row["fallback_reason"]),
         "evaluated_case_count": len(evaluated),
         "no_ground_truth_case_count": len(rows) - len(evaluated),
@@ -185,7 +201,14 @@ def _mrr(row: dict[str, Any]) -> float:
     return 0.0
 
 
-def _wrong_evidence(items: Sequence[Any]) -> float:
+def _invalid_provenance(items: Sequence[Any]) -> float:
+    """Return the share of citations with an invalid provenance shape.
+
+    The evaluator intentionally does not claim that a citation is relevant to
+    a user query; that requires per-case expected evidence annotations and is
+    deferred to a later grounded-explanation evaluation.
+    """
+
     total = 0
     wrong = 0
     for item in items:
@@ -222,7 +245,9 @@ def _pretty(output: dict[str, Any]) -> str:
             f"Recall@5={metrics['recall_at_5']:.3f} "
             f"nDCG@5={metrics['ndcg_at_5']:.3f} "
             f"MRR={metrics['mrr']:.3f} "
-            f"P50/P95={metrics['latency_p50_ms']:.1f}/{metrics['latency_p95_ms']:.1f}ms "
+            f"cold={metrics['cold_start_ms']:.1f}ms "
+            f"warm P50/P95={metrics['warm_latency_p50_ms']:.1f}/"
+            f"{metrics['warm_latency_p95_ms']:.1f}ms "
             f"fallbacks={metrics['fallback_count']}"
         )
     lines.append("counterexample_cases=" + json.dumps(output["counterexample_cases"], ensure_ascii=False))

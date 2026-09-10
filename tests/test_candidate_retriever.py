@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from app.domain.catalog import ResourceType
 from app.domain.constraints import StopRole
@@ -17,6 +19,10 @@ from app.services.planning import _rank_skeleton_plans
 
 class CandidateRetrieverTest(unittest.TestCase):
     def setUp(self) -> None:
+        self._index_root = tempfile.TemporaryDirectory()
+        # These tests exercise the explicit no-index fallback.  Never let a
+        # developer's ignored data/retrieval/cache artifact change the result.
+        self._missing_index_dir = Path(self._index_root.name) / "missing-index"
         self.candidates = [
             candidate("plain", ResourceType.ACTIVITY, "普通展厅", ["展览"]),
             candidate("quiet", ResourceType.ACTIVITY, "安静书店", ["书店", "安静"]),
@@ -40,6 +46,9 @@ class CandidateRetrieverTest(unittest.TestCase):
             ),
         )
 
+    def tearDown(self) -> None:
+        self._index_root.cleanup()
+
     def test_rule_adapter_preserves_catalog_order_and_exclusions(self) -> None:
         result = RuleBasedCandidateRetriever().retrieve(
             self.candidates,
@@ -52,7 +61,7 @@ class CandidateRetrieverTest(unittest.TestCase):
         self.assertTrue(result.items[0].evidence_refs)
 
     def test_hybrid_adapter_falls_back_without_local_index(self) -> None:
-        result = HybridRagCandidateRetriever().retrieve(
+        result = HybridRagCandidateRetriever(index_dir=self._missing_index_dir).retrieve(
             self.candidates,
             semantic_request=self.request,
         )
@@ -148,7 +157,10 @@ class CandidateRetrieverTest(unittest.TestCase):
         result = PlanningService(
             catalog=catalog,
             route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
-            candidate_retriever=HybridRagCandidateRetriever(),
+            candidate_retriever=HybridRagCandidateRetriever(
+                # The child path intentionally does not exist.
+                index_dir=self._missing_index_dir,
+            ),
         ).plan(constraints)
 
         self.assertEqual(result.retrieval_mode, "rule")
