@@ -1683,6 +1683,7 @@ def _rank_skeleton_plans(
                 role,
                 constraints,
                 limit=role_pool_limit,
+                semantic_scores=semantic_scores,
             )
             for role in skeleton.roles
         ]
@@ -1727,6 +1728,7 @@ def _candidates_for_role(
     constraints: NormalizedConstraints,
     *,
     limit: int | None,
+    semantic_scores: dict[str, float] | None = None,
 ) -> list[StopCandidate]:
     accepted_types = _ROLE_RESOURCE_TYPES[role]
     matching = [
@@ -1736,9 +1738,21 @@ def _candidates_for_role(
     ]
     if limit is None or len(matching) <= limit:
         return matching
+    if semantic_scores is None:
+        return sorted(
+            matching,
+            key=lambda candidate: _candidate_role_rank(candidate, role, constraints),
+        )[:limit]
+
+    # Hybrid retrieval must influence the bounded pool before combinations are
+    # enumerated.  Keep the deterministic role rank as a tie-breaker so the
+    # Rule mode remains unchanged and equal semantic scores stay reproducible.
     return sorted(
         matching,
-        key=lambda candidate: _candidate_role_rank(candidate, role, constraints),
+        key=lambda candidate: (
+            -semantic_scores.get(candidate.resource_id, 0.0),
+            *_candidate_role_rank(candidate, role, constraints),
+        ),
     )[:limit]
 
 

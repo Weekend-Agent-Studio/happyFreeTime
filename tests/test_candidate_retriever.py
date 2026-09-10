@@ -1,6 +1,7 @@
 import unittest
 
 from app.domain.catalog import ResourceType
+from app.domain.constraints import StopRole
 from app.domain.semantics import EvidenceRef, SemanticQuery, SemanticRequest
 from app.services.candidate_retriever import (
     HybridRagCandidateRetriever,
@@ -8,8 +9,10 @@ from app.services.candidate_retriever import (
 )
 from tests.test_native_planning import candidate
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
+from app.domain.planning import PlanSkeleton, PlanningIntent
 from app.services.catalog import InMemoryCatalog
 from app.services.planning import PlanningService
+from app.services.planning import _rank_skeleton_plans
 
 
 class CandidateRetrieverTest(unittest.TestCase):
@@ -58,10 +61,76 @@ class CandidateRetrieverTest(unittest.TestCase):
         self.assertEqual(result.items[0].candidate.resource_id, "quiet")
         self.assertGreaterEqual(result.items[0].embedding_score, 0.0)
 
+    def test_retriever_evidence_contains_only_profile_values_hit_by_request(self) -> None:
+        tagged = self.candidates[1].model_copy(
+            update={"category_tags": ["书店", "安静", "户外"]}
+        )
+
+        result = RuleBasedCandidateRetriever().retrieve(
+            [tagged],
+            semantic_request=self.request,
+        )
+
+        profile_summaries = {
+            ref.summary
+            for ref in result.items[0].evidence_refs
+            if ref.source_type == "poi_profile"
+        }
+        self.assertIn("安静", profile_summaries)
+        self.assertNotIn("户外", profile_summaries)
+
     def test_empty_hybrid_request_keeps_legacy_order(self) -> None:
         result = HybridRagCandidateRetriever().retrieve(self.candidates)
 
         self.assertEqual([item.candidate.resource_id for item in result.items], ["plain", "quiet"])
+
+    def test_hybrid_semantic_candidate_survives_three_stop_role_pool_truncation(self) -> None:
+        distractors = [
+            candidate(
+                f"activity-{index}",
+                ResourceType.ACTIVITY,
+                f"普通活动 {index}",
+                ["展览"],
+            )
+            for index in range(8)
+        ]
+        semantic_target = candidate(
+            "z-semantic-target",
+            ResourceType.ACTIVITY,
+            "与需求高度相关的活动",
+            ["展览"],
+        )
+        restaurants = [
+            candidate("lunch", ResourceType.RESTAURANT, "午餐餐厅", ["餐厅"]),
+            candidate("dinner", ResourceType.RESTAURANT, "晚餐餐厅", ["餐厅"]),
+        ]
+        constraints = planning_constraints(max_distance_km=30, time_end="22:00")
+        skeleton = PlanSkeleton(
+            skeleton_id="three-stop-regression",
+            roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
+        )
+        intent = PlanningIntent(
+            optional_roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
+            minimum_stops=3,
+            maximum_stops=3,
+        )
+
+        result = _rank_skeleton_plans(
+            [*distractors, semantic_target, *restaurants],
+            constraints,
+            (skeleton,),
+            intent,
+            semantic_scores={semantic_target.resource_id: 100.0},
+        )
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            any(
+                semantic_target.resource_id
+                in {stop.resource_id for stop in plan.stops}
+                for plan in result.plans
+            )
+        )
 
     def test_planner_records_hybrid_mode_and_semantic_score_without_changing_hard_gate(self) -> None:
         catalog = InMemoryCatalog(

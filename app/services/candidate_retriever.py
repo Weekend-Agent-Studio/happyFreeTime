@@ -114,6 +114,7 @@ class RuleBasedCandidateRetriever:
         profile_terms = _profile_terms(candidate)
         lexical_score = 0.0
         matched_request_refs: list[EvidenceRef] = []
+        matched_profile_terms: set[str] = set()
         for query in request.queries:
             if query.target_role is not None and target_role not in {None, query.target_role}:
                 continue
@@ -125,6 +126,9 @@ class RuleBasedCandidateRetriever:
             exact = 1.0 if query_text in profile else 0.0
             if overlap or exact:
                 lexical_score += exact + overlap
+                matched_profile_terms.update(query_terms & profile_terms)
+                if exact:
+                    matched_profile_terms.add(query_text)
                 matched_request_refs.extend(
                     item for item in request.evidence if item.evidence_id in query.evidence_refs
                 )
@@ -135,12 +139,16 @@ class RuleBasedCandidateRetriever:
             matches = [alias for alias in aliases if alias.casefold() in profile]
             if matches:
                 lexical_score += 0.5 * len(matches)
+                matched_profile_terms.update(matches)
                 matched_request_refs.extend(
                     item for item in request.evidence if item.evidence_id in objective.evidence_refs
                 )
         evidence_by_id = {
             item.evidence_id: item
-            for item in [*matched_request_refs, *_candidate_evidence(candidate, profile_terms)]
+            for item in [
+                *matched_request_refs,
+                *_candidate_evidence(candidate, matched_profile_terms),
+            ]
         }
         evidence_refs = tuple(evidence_by_id.values())
         return RetrievedCandidate(
@@ -245,9 +253,22 @@ def _text_terms(value: str) -> set[str]:
 
 def _candidate_evidence(
     candidate: StopCandidate,
-    profile_terms: set[str],
+    matched_terms: set[str],
 ) -> list[EvidenceRef]:
-    del profile_terms
+    if not matched_terms:
+        return []
+
+    def value_matches(value: str) -> bool:
+        normalized = value.strip().casefold()
+        if not normalized:
+            return False
+        value_terms = _text_terms(normalized)
+        return bool(value_terms & matched_terms) or any(
+            term in normalized or normalized in term
+            for term in matched_terms
+            if term
+        )
+
     refs: list[EvidenceRef] = []
     for source_field, values in (
         ("name", (candidate.name,)),
@@ -258,7 +279,7 @@ def _candidate_evidence(
     ):
         for index, value in enumerate(values, start=1):
             text = value.strip()
-            if not text:
+            if not text or not value_matches(text):
                 continue
             refs.append(
                 EvidenceRef(
