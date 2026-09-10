@@ -27,6 +27,7 @@ from app.domain.providers import (
     RouteSource,
     WeatherFact,
 )
+from app.domain.runtime import RuntimeDecision
 
 
 class StopType(str, Enum):
@@ -282,6 +283,10 @@ class CandidateSet(BaseModel):
     catalog_warnings: list[CatalogWarning] = Field(default_factory=list)
     warnings: list[PlanWarning] = Field(default_factory=list)
     planning_intent_decision: PlanningIntentDecision | None = None
+    # Runtime provenance is returned with the value it describes instead of
+    # being read from mutable service state.  This keeps concurrent requests
+    # from accidentally displaying another request's model/fallback decision.
+    runtime_decision: RuntimeDecision | None = None
 
 
 class PlanModificationResult(BaseModel):
@@ -299,6 +304,16 @@ class PlanModificationResult(BaseModel):
     candidate_set: CandidateSet | None = None
     plan_diffs: tuple[PlanDiff, ...] = ()
     question: QuestionDecision | None = None
+    runtime_decision: RuntimeDecision = Field(
+        default_factory=lambda: RuntimeDecision(
+            stage="planning_intent",
+            adapter="bypassed",
+            model_invoked=False,
+            attempts=0,
+            fallback_reason="single_stop_modification_reuses_existing_structure",
+            latency_ms=0,
+        )
+    )
 
     @property
     def plan_diff(self) -> PlanDiff | None:

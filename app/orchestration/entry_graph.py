@@ -63,6 +63,7 @@ from app.domain.providers import (
     RouteSource,
     WeatherFact,
 )
+from app.domain.runtime import RuntimeDecision
 from app.domain.catalog import (
     CatalogWarningCode,
     CatalogSource,
@@ -115,6 +116,7 @@ class EntryState(TypedDict, total=False):
     plan_diffs: tuple[PlanDiff, ...]
     conversation_command_override: ConversationCommand | None
     modification_question: QuestionDecision | None
+    runtime_decisions: tuple[RuntimeDecision, ...]
 
 
 EnvironmentProvider = Callable[[ActorContext], EnvironmentContext]
@@ -178,9 +180,19 @@ def build_entry_graph(
                     structured_command.operation != CommandOperation.REPLACE
                 ),
             )
+            runtime_decision = RuntimeDecision(
+                stage="turn_interpreter",
+                adapter="bypassed",
+                model_invoked=False,
+                model_name=None,
+                attempts=0,
+                fallback_reason="structured_command",
+                latency_ms=0,
+            )
         else:
             environment = environment_provider(actor)
-            interpretation = router.interpret(
+            interpretation, runtime_decision = _interpret_with_runtime(
+                router,
                 state["user_input"],
                 RouterContext(
                     current_date=environment.now.date(),
@@ -206,6 +218,7 @@ def build_entry_graph(
             "plan_diffs": (),
             "conversation_command_override": None,
             "modification_question": None,
+            "runtime_decisions": (runtime_decision,),
         }
 
     def route_after_router(state: EntryState) -> str:
@@ -262,6 +275,10 @@ def build_entry_graph(
             "plan_diff": outcome.plan_diff,
             "plan_diffs": outcome.plan_diffs,
             "modification_question": outcome.question,
+            "runtime_decisions": (
+                *state.get("runtime_decisions", ()),
+                outcome.runtime_decision,
+            ),
         }
 
     def enrichment_node(state: EntryState) -> dict[str, object]:
@@ -309,7 +326,17 @@ def build_entry_graph(
             candidate_set = candidate_set.model_copy(
                 update={"provider_facts": [geocoding_fact, *candidate_set.provider_facts]}
             )
-        return {"candidate_set": candidate_set}
+        return {
+            "candidate_set": candidate_set,
+            "runtime_decisions": (
+                *state.get("runtime_decisions", ()),
+                *(
+                    (candidate_set.runtime_decision,)
+                    if candidate_set.runtime_decision is not None
+                    else ()
+                ),
+            ),
+        }
 
     def ask_question_node(state: EntryState) -> dict[str, object]:
         decision = state["question_decision"]
@@ -411,9 +438,31 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             StopReplacement,
             StopType,
             WeatherFact,
+            RuntimeDecision,
             VerificationStatus,
             ViolationCode,
         ],
+    )
+
+
+def _interpret_with_runtime(
+    router: TurnInterpreter,
+    user_input: str,
+    context: RouterContext,
+) -> tuple[Interpretation, RuntimeDecision]:
+    """Use an adapter's optional runtime-aware seam without breaking old fakes."""
+
+    interpret_with_runtime = getattr(router, "interpret_with_runtime", None)
+    if callable(interpret_with_runtime):
+        return interpret_with_runtime(user_input, context)
+    return router.interpret(user_input, context), RuntimeDecision(
+        stage="turn_interpreter",
+        adapter="custom",
+        model_invoked=False,
+        model_name=None,
+        attempts=0,
+        fallback_reason=None,
+        latency_ms=None,
     )
 
 

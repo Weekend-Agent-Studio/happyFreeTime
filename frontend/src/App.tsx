@@ -51,6 +51,7 @@ import type {
   ProviderFact,
   ReplacementCriterion,
   RouteLeg,
+  RuntimeDecision,
   SessionSummary,
   SessionView,
   Stop,
@@ -179,6 +180,7 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     warnings: response.warnings ?? [],
     poi_presentations: response.poi_presentations ?? [],
     plan_version_id: response.plan_version_id ?? null,
+    runtime_decisions: response.runtime_decisions ?? [],
     conversation_command: response.conversation_command ?? null,
     plan_diff: response.plan_diff ?? null,
     plan_diffs: response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []),
@@ -193,6 +195,7 @@ function responsesFromSession(view: SessionView): AgentResponse[] {
     status: "completed", reply: "", question: null, assumptions: [], constraint_summary: [],
     plans: view.plans, conflict: null, provider_facts: [], catalog_violations: [],
     catalog_warnings: [], warnings: [], poi_presentations: [],
+    runtime_decisions: [],
   }];
 }
 
@@ -293,6 +296,41 @@ function providerSourceLabel(fact: ProviderFact): string {
     local_estimate: "本地估算",
   };
   return labels[fact.source];
+}
+
+function runtimeStageLabel(stage: RuntimeDecision["stage"]): string {
+  if (stage === "turn_interpreter") return "需求理解";
+  if (stage === "planning_intent") return "规划结构";
+  return "推荐解释";
+}
+
+function runtimeAdapterLabel(decision: RuntimeDecision): string {
+  const adapterLabels: Record<string, string> = {
+    demo_rule: "离线规则 Demo",
+    rule_based: "规则基线",
+    llm: decision.model_name ? `LLM · ${decision.model_name}` : "LLM",
+    fallback: "LLM 失败后规则回退",
+    bypassed: "结构化操作直达",
+    not_run: "未运行",
+    custom: "自定义适配器",
+  };
+  return adapterLabels[decision.adapter] ?? decision.adapter;
+}
+
+function RuntimeDecisionEvidence({ decision }: { decision: RuntimeDecision }) {
+  const suffix = [
+    decision.latency_ms !== null ? `${decision.latency_ms} ms` : null,
+    `尝试 ${decision.attempts} 次`,
+  ].filter(Boolean).join(" · ");
+  const fallback = decision.fallback_reason ? ` · ${decision.fallback_reason}` : "";
+  return <article className={`evidence-row ${decision.fallback_reason ? "warning" : ""}`}>
+    <span className="evidence-icon"><Sparkles size={17} /></span>
+    <div>
+      <strong>{runtimeStageLabel(decision.stage)} · {runtimeAdapterLabel(decision)}</strong>
+      <p>{decision.model_invoked ? "本轮确实调用了模型" : "本轮未调用模型"}{fallback}</p>
+      <small>{suffix || "运行信息未提供"}{decision.input_tokens !== null || decision.output_tokens !== null ? ` · tokens ${decision.input_tokens ?? "?"}/${decision.output_tokens ?? "?"}` : ""}</small>
+    </div>
+  </article>;
 }
 
 function routeSourceLabel(source: string): string {
@@ -1036,6 +1074,7 @@ function EvidencePanel({ response, plan }: { response: AgentResponse | null; pla
     <div className="evidence-panel">
       <div className="detail-title"><span>可信状态</span><h2>证据与数据</h2><p>只展示系统实际获得的事实、来源和降级状态。</p></div>
       <div className="evidence-list">
+        {response.runtime_decisions?.map((decision, index) => <RuntimeDecisionEvidence key={`${decision.stage}-${index}`} decision={decision} />)}
         {response.provider_facts.map((fact, index) => <ProviderEvidence key={`${fact.kind}-${index}`} fact={fact} />)}
         {plan.route_legs.map((leg, index) => <article className={`evidence-row ${leg.degraded ? "warning" : ""}`} key={`${leg.destination_name}-${index}`}><span className="evidence-icon"><Route size={17} /></span><div><strong>路线 · {leg.origin_name} → {leg.destination_name}</strong><p>{routeSourceLabel(leg.source)} · {leg.provider_mode} · {leg.distance_km} km / {leg.duration_minutes} 分钟</p><small>{leg.degraded ? `降级：${leg.degraded_reason ?? "原因未提供"}` : `核验于 ${safeDateTime(leg.verified_at)}`}</small></div></article>)}
         {sources.map((source) => <article className="evidence-row" key={source.source_uri}><span className="evidence-icon"><Database size={17} /></span><div><strong>POI 目录 · {source.source_name}</strong><p>{source.source_license} · {source.verification_status === "verified" ? "已核验" : source.verification_status === "stale" ? "需复核" : "未核验"}</p><small>采集于 {safeDateTime(source.collected_at)}</small></div></article>)}

@@ -385,6 +385,7 @@ def create_app(
             # invoke() 可能再次停在 interrupt。这里读取持久化后的最新状态，而不是
             # 根据 result 猜测，然后转换成前端只需理解的 needs_input 响应。
             current = graph.get_state(config)
+            runtime_decisions = _dump_runtime_decisions(result, current)
             if current.next and current.interrupts:
                 question = current.interrupts[0].value
                 response = AgentResponse(
@@ -397,6 +398,7 @@ def create_app(
                     catalog_warnings=[],
                     warnings=[],
                     poi_presentations=[],
+                    runtime_decisions=runtime_decisions,
                 )
                 repository.complete_planning_run(
                     user_id=x_user_id,
@@ -424,6 +426,7 @@ def create_app(
                         and result["interpretation"].conversation_command is not None
                         else None
                     ),
+                    runtime_decisions=runtime_decisions,
                 )
                 repository.complete_planning_run(
                     user_id=x_user_id,
@@ -539,6 +542,7 @@ def create_app(
                     if candidate_set and candidate_set.planning_intent_decision is not None
                     else None
                 ),
+                runtime_decisions=runtime_decisions,
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")
                     if interpretation
@@ -591,6 +595,19 @@ def _dump_assumptions(result: dict) -> list[dict]:
     if enrichment is None:
         return []
     return [item.model_dump(mode="json") for item in enrichment.assumptions]
+
+
+def _dump_runtime_decisions(result: dict, snapshot: object | None = None) -> list[dict]:
+    """Serialize only the safe runtime trace carried by the current checkpoint."""
+
+    values = getattr(snapshot, "values", None) or {}
+    decisions = values.get("runtime_decisions") or result.get("runtime_decisions") or ()
+    return [
+        item.model_dump(mode="json")
+        if hasattr(item, "model_dump")
+        else item
+        for item in decisions
+    ]
 
 
 def _modification_reply(plan_diffs: list) -> str:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from enum import Enum
 from itertools import product
+from time import perf_counter
 from zoneinfo import ZoneInfo
 
 from app.domain.catalog import (
@@ -61,6 +62,7 @@ from app.domain.providers import (
     WeatherFact,
     WeatherRequest,
 )
+from app.domain.runtime import RuntimeDecision
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.availability import AvailabilityProvider, MockAvailabilityProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
@@ -199,6 +201,9 @@ class PlanningService:
         )
 
     def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
+        runtime_decision = self._not_run_runtime(
+            "planning cannot start before normalized constraints are complete"
+        )
         if (
             constraints.location is None
             or constraints.time_window is None
@@ -208,16 +213,32 @@ class PlanningService:
 
         time_conflict = _planning_time_conflict(constraints)
         if time_conflict is not None:
-            return CandidateSet(conflict=time_conflict)
+            return CandidateSet(
+                conflict=time_conflict,
+                runtime_decision=runtime_decision,
+            )
 
         structure_conflict = _unsupported_plan_structure_conflict(constraints)
         if structure_conflict is not None:
-            return CandidateSet(conflict=structure_conflict)
+            return CandidateSet(
+                conflict=structure_conflict,
+                runtime_decision=runtime_decision,
+            )
 
         # Reject deterministic hard conflicts before spending the bounded model
         # budget. PlanningIntent is a soft structural decision and cannot make
         # either conflict valid.
+        started_at = perf_counter()
         planning_intent_decision = self._planning_intent_provider.decide(constraints)
+        runtime_decision = RuntimeDecision(
+            stage="planning_intent",
+            adapter=planning_intent_decision.source,
+            model_invoked=planning_intent_decision.source != "rule_based",
+            model_name=planning_intent_decision.model_name,
+            attempts=planning_intent_decision.attempts,
+            fallback_reason=planning_intent_decision.fallback_reason,
+            latency_ms=_elapsed_ms(started_at),
+        )
         planning_intent = planning_intent_decision.intent
 
         location = constraints.location.value
@@ -409,6 +430,7 @@ class PlanningService:
                 ],
                 warnings=warnings,
                 planning_intent_decision=planning_intent_decision,
+                runtime_decision=runtime_decision,
             )
 
         if route_candidates:
@@ -452,6 +474,7 @@ class PlanningService:
                     ),
                 ),
                 planning_intent_decision=planning_intent_decision,
+                runtime_decision=runtime_decision,
             )
 
         # 严格预算是硬约束：没有满足条件的结果时返回结构化冲突，不能偷偷放宽
@@ -482,6 +505,7 @@ class PlanningService:
                     relaxation_options=relaxation_options,
                 ),
                 planning_intent_decision=planning_intent_decision,
+                runtime_decision=runtime_decision,
             )
 
         conflict_fields = [
@@ -538,6 +562,7 @@ class PlanningService:
                 relaxation_options=relaxation_options,
             ),
             planning_intent_decision=planning_intent_decision,
+            runtime_decision=runtime_decision,
         )
 
     def modify_selected_plan(
@@ -945,6 +970,18 @@ class PlanningService:
             for plan in plans
         )
         return PlanModificationResult(candidate_set=candidate_set, plan_diffs=diffs)
+
+    @staticmethod
+    def _not_run_runtime(reason: str) -> RuntimeDecision:
+        return RuntimeDecision(
+            stage="planning_intent",
+            adapter="not_run",
+            model_invoked=False,
+            model_name=None,
+            attempts=0,
+            fallback_reason=reason,
+            latency_ms=0,
+        )
 
     def _rebuild_route_timeline(
         self,
@@ -2321,3 +2358,7 @@ def _time_to_minutes(value: str) -> int:
 def _minutes_to_time(value: int) -> str:
     hour, minute = divmod(value, 60)
     return f"{hour:02d}:{minute:02d}"
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, round((perf_counter() - started_at) * 1000))

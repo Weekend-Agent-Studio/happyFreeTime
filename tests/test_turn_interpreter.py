@@ -8,6 +8,17 @@ from app.services.router_extractor import RouterContext
 
 
 class TurnInterpreterTest(unittest.TestCase):
+    def test_demo_interpreter_reports_offline_runtime_adapter(self) -> None:
+        _, runtime = DemoRouter().interpret_with_runtime(
+            "今天下午出去玩",
+            RouterContext(current_date=date(2026, 9, 8)),
+        )
+
+        self.assertEqual(runtime.stage, "turn_interpreter")
+        self.assertEqual(runtime.adapter, "demo_rule")
+        self.assertFalse(runtime.model_invoked)
+        self.assertEqual(runtime.attempts, 0)
+
     def test_demo_interpreter_extracts_bounded_keep_and_replace_command(self) -> None:
         interpretation = DemoRouter().interpret(
             "餐厅保留，只把活动换近一点",

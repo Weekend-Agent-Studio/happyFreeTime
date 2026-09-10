@@ -8,6 +8,7 @@ TurnInterpreter 只把自然语言转换成 Interpretation，不负责查询天�
 from __future__ import annotations
 
 import os
+from time import perf_counter
 from datetime import date
 from typing import Protocol
 
@@ -16,6 +17,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict
 
 from app.domain.constraints import Intent, Interpretation
+from app.domain.runtime import RuntimeDecision
 
 
 class StructuredModel(Protocol):
@@ -75,16 +77,34 @@ class TurnInterpreter:
     未校验的字典继续流入 Graph。这里重试的是“输出格式”，不是业务规划。
     """
 
-    def __init__(self, model: StructuredModel) -> None:
+    def __init__(self, model: StructuredModel, *, model_name: str | None = None) -> None:
         self._model = model
+        self._model_name = model_name
 
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        interpretation, _ = self.interpret_with_runtime(user_input, context)
+        return interpretation
+
+    def interpret_with_runtime(
+        self,
+        user_input: str,
+        context: RouterContext,
+    ) -> tuple[Interpretation, RuntimeDecision]:
+        started_at = perf_counter()
         messages: list[object] = [
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=self._build_context(user_input, context)),
         ]
+        attempts = 0
         try:
-            return self._validate(self._model.invoke(messages))
+            attempts = 1
+            interpretation = self._validate(self._model.invoke(messages))
+            return interpretation, self._runtime_decision(
+                adapter="llm",
+                model_invoked=True,
+                attempts=attempts,
+                latency_ms=_elapsed_ms(started_at),
+            )
         except Exception as first_error:
             # 把第一次校验错误反馈给模型，有助于修复漏字段或类型错误；限制为
             # 一次重试，防止格式错误演变成不可控的模型循环和延迟。
@@ -98,14 +118,46 @@ class TurnInterpreter:
                 ),
             ]
             try:
-                return self._validate(self._model.invoke(retry_messages))
+                attempts = 2
+                interpretation = self._validate(self._model.invoke(retry_messages))
+                return interpretation, self._runtime_decision(
+                    adapter="llm",
+                    model_invoked=True,
+                    attempts=attempts,
+                    latency_ms=_elapsed_ms(started_at),
+                )
             except Exception:
                 return Interpretation(
                     primary_intent=Intent.CLARIFY,
                     intent_scores={Intent.CLARIFY: 1.0},
                     requires_clarification=True,
                     reply="我还不能可靠理解这个需求，请换一种方式重新描述一下。",
+                ), self._runtime_decision(
+                    adapter="fallback",
+                    model_invoked=True,
+                    attempts=2,
+                    fallback_reason="invalid_output",
+                    latency_ms=_elapsed_ms(started_at),
                 )
+
+    def _runtime_decision(
+        self,
+        *,
+        adapter: str,
+        model_invoked: bool,
+        attempts: int,
+        fallback_reason: str | None = None,
+        latency_ms: int | None = None,
+    ) -> RuntimeDecision:
+        return RuntimeDecision(
+            stage="turn_interpreter",
+            adapter=adapter,
+            model_invoked=model_invoked,
+            model_name=self._model_name,
+            attempts=attempts,
+            fallback_reason=fallback_reason,
+            latency_ms=latency_ms,
+        )
 
     @staticmethod
     def _validate(result: object) -> Interpretation:
@@ -134,14 +186,22 @@ RouterExtractor = TurnInterpreter
 
 def build_default_turn_interpreter() -> TurnInterpreter:
     """根据环境变量创建 OpenAI 兼容的生产 TurnInterpreter。"""
+    model_name = os.getenv("MODEL_NAME", "deepseek-v4-flash")
     llm = ChatOpenAI(
-        model=os.getenv("MODEL_NAME", "deepseek-v4-flash"),
+        model=model_name,
         api_key=os.getenv("LLM_API"),
         base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
         extra_body={"thinking": {"type": "disabled"}},
     )
-    return TurnInterpreter(llm.with_structured_output(Interpretation))
+    return TurnInterpreter(
+        llm.with_structured_output(Interpretation),
+        model_name=model_name,
+    )
 
 
 build_default_router_extractor = build_default_turn_interpreter
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, round((perf_counter() - started_at) * 1000))

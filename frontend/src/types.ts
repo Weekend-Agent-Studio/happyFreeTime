@@ -218,6 +218,18 @@ export type PlanDiff = {
   price_delta: number;
 };
 
+export type RuntimeDecision = {
+  stage: "turn_interpreter" | "planning_intent" | "recommendation_advisor";
+  adapter: string;
+  model_invoked: boolean;
+  model_name: string | null;
+  attempts: number;
+  fallback_reason: string | null;
+  latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+};
+
 export type ReplacementCriterion =
   | { kind: "semantic"; text: string; strength: "preferred" }
   | { kind: "route_objective"; metric: "total_route_distance"; direction: "decrease"; strength: "required" };
@@ -254,6 +266,7 @@ export type AgentResponse = {
   warnings?: PlanWarning[];
   poi_presentations: PoiPresentation[];
   plan_version_id?: string | null;
+  runtime_decisions?: RuntimeDecision[];
   conversation_command?: Record<string, unknown> | null;
   plan_diff?: PlanDiff | null;
   plan_diffs?: PlanDiff[];

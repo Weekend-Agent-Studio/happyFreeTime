@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from time import perf_counter
 
 from app.domain.catalog import ResourceType
 from app.domain.constraints import (
@@ -15,6 +16,7 @@ from app.domain.constraints import (
     StopRole,
     TargetReference,
 )
+from app.domain.runtime import RuntimeDecision
 from app.services.router_extractor import RouterContext
 
 
@@ -195,4 +197,21 @@ class DemoRouter:
             },
             evidence_map=evidence,
             inferred_fields={"party"} if party_evidence else set(),
+        )
+
+    def interpret_with_runtime(
+        self,
+        user_input: str,
+        context: RouterContext,
+    ) -> tuple[Interpretation, RuntimeDecision]:
+        started_at = perf_counter()
+        interpretation = self.interpret(user_input, context)
+        return interpretation, RuntimeDecision(
+            stage="turn_interpreter",
+            adapter="demo_rule",
+            model_invoked=False,
+            model_name=None,
+            attempts=0,
+            fallback_reason=None,
+            latency_ms=max(0, round((perf_counter() - started_at) * 1000)),
         )
