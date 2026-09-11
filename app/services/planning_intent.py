@@ -23,6 +23,7 @@ from app.domain.planning import (
     PlanningIntentDecision,
     PlanningIntentProposal,
 )
+from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
 
 ACTIVITY_MEAL_SKELETON = PlanSkeleton(
@@ -115,11 +116,14 @@ class LlmPlanningIntentProvider:
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(content=_build_context(constraints, baseline.intent)),
         ]
+        token_usage = TokenUsageAccumulator()
         try:
             raw_result = self._model.invoke(messages)
+            token_usage.record(raw_result)
         except Exception as error:
+            token_usage.record_unknown()
             return self._fallback_decision(
-                baseline, 1, _model_failure_reason(error)
+                baseline, 1, _model_failure_reason(error), token_usage.total
             )
         try:
             proposal = _validate_proposal(raw_result)
@@ -139,24 +143,33 @@ class LlmPlanningIntentProvider:
             ]
             try:
                 raw_retry = self._model.invoke(retry_messages)
+                token_usage.record(raw_retry)
             except Exception as error:
+                token_usage.record_unknown()
                 return self._fallback_decision(
-                    baseline, 2, _model_failure_reason(error)
+                    baseline, 2, _model_failure_reason(error), token_usage.total
                 )
             try:
                 proposal = _validate_proposal(raw_retry)
             except Exception:
-                return self._fallback_decision(baseline, 2, "invalid_proposal")
+                return self._fallback_decision(
+                    baseline, 2, "invalid_proposal", token_usage.total
+                )
             attempts = 2
         else:
             attempts = 1
 
         if proposal.confidence < MIN_LLM_CONFIDENCE:
-            return self._fallback_decision(baseline, attempts, "low_confidence")
+            return self._fallback_decision(
+                baseline, attempts, "low_confidence", token_usage.total
+            )
         try:
             intent = _accept_proposal(proposal, constraints, baseline.intent)
         except ValueError:
-            return self._fallback_decision(baseline, attempts, "proposal_out_of_bounds")
+            return self._fallback_decision(
+                baseline, attempts, "proposal_out_of_bounds", token_usage.total
+            )
+        usage = token_usage.total
         return PlanningIntentDecision(
             intent=intent,
             source="llm",
@@ -165,6 +178,8 @@ class LlmPlanningIntentProvider:
             fallback_reason=None,
             prompt_version=self._prompt_version,
             model_name=self._model_name,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
         )
 
     def _fallback_decision(
@@ -172,6 +187,7 @@ class LlmPlanningIntentProvider:
         baseline: PlanningIntentDecision,
         attempts: int,
         reason: str,
+        token_usage: ModelTokenUsage,
     ) -> PlanningIntentDecision:
         return PlanningIntentDecision(
             intent=baseline.intent,
@@ -181,6 +197,8 @@ class LlmPlanningIntentProvider:
             fallback_reason=reason,
             prompt_version=self._prompt_version,
             model_name=self._model_name,
+            input_tokens=token_usage.input_tokens,
+            output_tokens=token_usage.output_tokens,
         )
 
 
@@ -284,10 +302,17 @@ def build_default_planning_intent_provider(
         temperature=0.0,
         timeout=_model_timeout_seconds(),
         max_retries=0,
+        # Function Calling 把提议 Schema 传给 DeepSeek；本地 Pydantic
+        # 继续负责严格校验。
+        max_tokens=2048,
         extra_body={"thinking": {"type": "disabled"}},
     )
     return LlmPlanningIntentProvider(
-        llm.with_structured_output(PlanningIntentProposal, include_raw=True),
+        llm.with_structured_output(
+            PlanningIntentProposal,
+            method="function_calling",
+            include_raw=True,
+        ),
         model_name=model_name,
     )
 
@@ -596,7 +621,7 @@ def _clock_minutes(value: str) -> int:
 
 
 _SYSTEM_PROMPT = """你是 HappyFreeTime 的受约束 PlanningIntent 节点。
-只输出 PlanningIntentProposal 的结构化结果。你的输出不是最终方案，也不能包含 POI、路线、天气、价格、库存或硬约束值。
+只输出一个合法的 PlanningIntentProposal JSON 对象，不要返回 Markdown 代码围栏或解释文字。你的输出不是最终方案，也不能包含 POI、路线、天气、价格、库存或硬约束值。
 required_roles 必须保持 baseline_intent.required_roles；不要把模糊偏好升级成新的 required role。
 只使用 baseline_intent 中允许的角色，站数必须在 1 到 4 内，且至少有一个现有骨架能够匹配。
 evidence 只能引用输入中出现的软偏好词，不要编造用户没有说过的事实。

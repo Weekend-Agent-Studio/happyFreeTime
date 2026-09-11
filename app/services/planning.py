@@ -378,6 +378,8 @@ class PlanningService:
             attempts=planning_intent_decision.attempts,
             fallback_reason=planning_intent_decision.fallback_reason,
             latency_ms=_elapsed_ms(started_at),
+            input_tokens=planning_intent_decision.input_tokens,
+            output_tokens=planning_intent_decision.output_tokens,
         )
         planning_intent = planning_intent_decision.intent
 

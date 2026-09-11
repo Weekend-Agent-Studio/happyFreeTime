@@ -1,5 +1,6 @@
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.domain.catalog import ResourceType
@@ -80,6 +81,36 @@ def dinner_only_constraints():
 
 
 class PlanningIntentProviderTest(unittest.TestCase):
+    def test_llm_decision_aggregates_token_usage_across_format_repair(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={"preferences": ["慢慢走"]}
+        )
+        parsed = PlanningIntentProposal.model_validate(relaxed_proposal())
+        model = SequencePlanningModel(
+            {
+                "raw": SimpleNamespace(
+                    usage_metadata={"input_tokens": 30, "output_tokens": 4}
+                ),
+                "parsed": None,
+                "parsing_error": ValueError("invalid json"),
+            },
+            {
+                "raw": SimpleNamespace(
+                    response_metadata={
+                        "token_usage": {"prompt_tokens": 36, "completion_tokens": 9}
+                    }
+                ),
+                "parsed": parsed,
+                "parsing_error": None,
+            },
+        )
+
+        decision = LlmPlanningIntentProvider(model).decide(constraints)
+
+        self.assertEqual(decision.attempts, 2)
+        self.assertEqual(decision.input_tokens, 66)
+        self.assertEqual(decision.output_tokens, 13)
+
     def test_rule_provider_keeps_previous_rule_behavior(self) -> None:
         provider = RuleBasedPlanningIntentProvider()
         normal = planning_constraints(time_end="22:00")
@@ -353,6 +384,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(kwargs["max_retries"], 0)
         chat_openai.return_value.with_structured_output.assert_called_once_with(
             PlanningIntentProposal,
+            method="function_calling",
             include_raw=True,
         )
 
@@ -378,6 +410,8 @@ class PlanningIntentProviderTest(unittest.TestCase):
                     attempts=1,
                     prompt_version="test.v1",
                     model_name="fake",
+                    input_tokens=12,
+                    output_tokens=5,
                 )
 
         result = PlanningService(
@@ -387,6 +421,8 @@ class PlanningIntentProviderTest(unittest.TestCase):
 
         self.assertIsNotNone(result.planning_intent_decision)
         self.assertEqual(result.planning_intent_decision.source, "llm")
+        self.assertEqual(result.runtime_decision.input_tokens, 12)
+        self.assertEqual(result.runtime_decision.output_tokens, 5)
         self.assertTrue(result.plans)
         self.assertTrue(all(len(plan.stops) == 2 for plan in result.plans))
         self.assertTrue(all(plan.skeleton_id == "activity-meal-v1" for plan in result.plans))

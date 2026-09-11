@@ -174,7 +174,16 @@ class CountingRecommendationAdvisor:
 
     def advise(self, request):
         self.calls += 1
-        return self._delegate.advise(request)
+        return self._delegate.advise(request).model_copy(
+            update={
+                "adapter": "llm",
+                "model_name": "fake-model",
+                "model_invoked": True,
+                "attempts": 1,
+                "input_tokens": 55,
+                "output_tokens": 13,
+            }
+        )
 
 
 class ApiTest(unittest.TestCase):
@@ -370,6 +379,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(replay.status_code, 200, replay.text)
         self.assertEqual(first.json(), replay.json())
         self.assertEqual(advisor.calls, 1)
+        runtime = next(
+            item
+            for item in first.json()["data"]["runtime_decisions"]
+            if item["stage"] == "recommendation_advisor"
+        )
+        self.assertEqual(runtime["input_tokens"], 55)
+        self.assertEqual(runtime["output_tokens"], 13)
 
     def test_keep_and_replace_creates_superseding_version_and_restores_diff(self) -> None:
         restaurant = candidate(

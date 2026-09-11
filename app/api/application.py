@@ -676,6 +676,8 @@ def _recommendation_runtime_decision(
         attempts=advice.attempts,
         fallback_reason=advice.fallback_reason,
         latency_ms=advice.latency_ms,
+        input_tokens=advice.input_tokens,
+        output_tokens=advice.output_tokens,
     )
 
 

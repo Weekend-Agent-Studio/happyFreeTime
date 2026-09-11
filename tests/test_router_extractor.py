@@ -1,8 +1,15 @@
 import unittest
 from datetime import date
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.domain.constraints import Intent, Interpretation, RawConstraints
-from app.services.router_extractor import RouterContext, RouterExtractor
+from app.services import router_extractor as router_extractor_module
+from app.services.router_extractor import (
+    RouterContext,
+    RouterExtractor,
+    build_default_turn_interpreter,
+)
 
 
 class FakeStructuredModel:
@@ -19,6 +26,52 @@ class FakeStructuredModel:
 
 
 class RouterExtractorTest(unittest.TestCase):
+    def test_production_builder_uses_schema_aware_function_calling(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "LLM_API": "test-key",
+                "MODEL_NAME": "deepseek-v4-flash",
+                "BASE_URL": "https://api.deepseek.com",
+            },
+            clear=True,
+        ), patch.object(router_extractor_module, "ChatOpenAI") as chat_openai:
+            build_default_turn_interpreter()
+
+        kwargs = chat_openai.call_args.kwargs
+        self.assertEqual(kwargs["max_tokens"], 2048)
+        chat_openai.return_value.with_structured_output.assert_called_once_with(
+            Interpretation,
+            method="function_calling",
+            include_raw=True,
+        )
+
+    def test_runtime_reports_provider_token_usage(self) -> None:
+        expected = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 0.97},
+        )
+        model = FakeStructuredModel(
+            [
+                {
+                    "raw": SimpleNamespace(
+                        usage_metadata={"input_tokens": 21, "output_tokens": 8}
+                    ),
+                    "parsed": expected,
+                    "parsing_error": None,
+                }
+            ]
+        )
+
+        result, runtime = RouterExtractor(model, model_name="fake-model").interpret_with_runtime(
+            "明天出去玩",
+            RouterContext(current_date=date(2026, 9, 11)),
+        )
+
+        self.assertEqual(result, expected)
+        self.assertEqual(runtime.input_tokens, 21)
+        self.assertEqual(runtime.output_tokens, 8)
+
     def test_returns_structured_interpretation_without_environment_facts(self) -> None:
         expected = Interpretation(
             primary_intent=Intent.PLAN_OUTING,

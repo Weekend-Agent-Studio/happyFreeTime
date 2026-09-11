@@ -28,6 +28,7 @@ from app.domain.recommendation import (
     RecommendationAdviceRequest,
 )
 from app.domain.semantics import EvidenceRef, SoftObjectiveKind
+from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
 
 PROMPT_VERSION = "recommendation-advisor.v1"
@@ -131,9 +132,12 @@ class LlmRecommendationAdvisor:
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(content=_build_context(request, baseline)),
         ]
+        token_usage = TokenUsageAccumulator()
         try:
             raw_result = self._model.invoke(messages)
+            token_usage.record(raw_result)
         except Exception as error:
+            token_usage.record_unknown()
             return _fallback_advice(
                 baseline,
                 attempts=1,
@@ -141,6 +145,7 @@ class LlmRecommendationAdvisor:
                 started_at=started_at,
                 model_name=self._model_name,
                 prompt_version=self._prompt_version,
+                token_usage=token_usage.total,
             )
         try:
             proposal = _validate_proposal(raw_result)
@@ -157,8 +162,11 @@ class LlmRecommendationAdvisor:
             ]
             try:
                 raw_retry = self._model.invoke(retry_messages)
+                token_usage.record(raw_retry)
                 proposal = _validate_proposal(raw_retry)
             except Exception:
+                if token_usage.attempt_count < 2:
+                    token_usage.record_unknown()
                 return _fallback_advice(
                     baseline,
                     attempts=2,
@@ -166,6 +174,7 @@ class LlmRecommendationAdvisor:
                     started_at=started_at,
                     model_name=self._model_name,
                     prompt_version=self._prompt_version,
+                    token_usage=token_usage.total,
                 )
             attempts = 2
         else:
@@ -180,6 +189,7 @@ class LlmRecommendationAdvisor:
                 started_at=started_at,
                 model_name=self._model_name,
                 prompt_version=self._prompt_version,
+                token_usage=token_usage.total,
             )
         except ValueError as error:
             return _fallback_advice(
@@ -189,6 +199,7 @@ class LlmRecommendationAdvisor:
                 started_at=started_at,
                 model_name=self._model_name,
                 prompt_version=self._prompt_version,
+                token_usage=token_usage.total,
             )
 
 
@@ -215,11 +226,15 @@ def build_default_recommendation_advisor(
         temperature=0.0,
         timeout=_model_timeout_seconds(),
         max_retries=0,
+        # Function Calling 把推荐 Schema 传给 DeepSeek；本地 Pydantic
+        # 继续负责严格校验。
+        max_tokens=2048,
         extra_body={"thinking": {"type": "disabled"}},
     )
     return LlmRecommendationAdvisor(
         llm.with_structured_output(
             RecommendationAdviceProposal,
+            method="function_calling",
             include_raw=True,
         ),
         model_name=model_name,
@@ -502,6 +517,7 @@ def _accept_proposal(
     started_at: float,
     model_name: str | None,
     prompt_version: str,
+    token_usage: ModelTokenUsage,
 ) -> RecommendationAdvice:
     plan_ids = {plan.plan_id for plan in request.verified_plans}
     if proposal.recommended_plan_id not in plan_ids:
@@ -594,6 +610,8 @@ def _accept_proposal(
         model_invoked=True,
         attempts=attempts,
         latency_ms=_elapsed_ms(started_at),
+        input_tokens=token_usage.input_tokens,
+        output_tokens=token_usage.output_tokens,
     )
 
 
@@ -687,6 +705,7 @@ def _fallback_advice(
     started_at: float,
     model_name: str | None,
     prompt_version: str,
+    token_usage: ModelTokenUsage,
 ) -> RecommendationAdvice:
     return baseline.model_copy(
         update={
@@ -697,6 +716,8 @@ def _fallback_advice(
             "model_invoked": True,
             "attempts": attempts,
             "latency_ms": _elapsed_ms(started_at),
+            "input_tokens": token_usage.input_tokens,
+            "output_tokens": token_usage.output_tokens,
         }
     )
 

@@ -120,6 +120,8 @@ class PlanningIntentDecision(BaseModel):
     fallback_reason: str | None = None
     prompt_version: str = Field(min_length=1)
     model_name: str | None = None
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
 
 
 class PlanPriceStatus(str, Enum):

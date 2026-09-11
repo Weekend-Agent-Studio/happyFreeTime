@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.domain.planning import (
     Plan,
@@ -15,7 +17,9 @@ from app.domain.semantics import EvidenceRef, SemanticQuery, SemanticRequest
 from app.services.recommendation_advisor import (
     LlmRecommendationAdvisor,
     RuleBasedRecommendationAdvisor,
+    build_default_recommendation_advisor,
 )
+from app.services import recommendation_advisor as recommendation_advisor_module
 from tests.test_planning import planning_constraints
 
 
@@ -117,6 +121,45 @@ def valid_proposal(request: RecommendationAdviceRequest) -> RecommendationAdvice
 
 
 class RecommendationAdvisorTest(unittest.TestCase):
+    def test_production_builder_uses_schema_aware_function_calling(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "HFT_RECOMMENDATION_ADVISOR_MODE": "llm",
+                "LLM_API": "test-key",
+                "MODEL_NAME": "deepseek-v4-flash",
+                "BASE_URL": "https://api.deepseek.com",
+            },
+            clear=True,
+        ), patch.object(recommendation_advisor_module, "ChatOpenAI") as chat_openai:
+            build_default_recommendation_advisor()
+
+        kwargs = chat_openai.call_args.kwargs
+        self.assertEqual(kwargs["max_tokens"], 2048)
+        chat_openai.return_value.with_structured_output.assert_called_once_with(
+            RecommendationAdviceProposal,
+            method="function_calling",
+            include_raw=True,
+        )
+
+    def test_llm_advice_reports_provider_token_usage(self) -> None:
+        request = make_request()
+        model = SequenceModel(
+            {
+                "raw": SimpleNamespace(
+                    usage_metadata={"input_tokens": 44, "output_tokens": 17}
+                ),
+                "parsed": valid_proposal(request),
+                "parsing_error": None,
+            }
+        )
+
+        advice = LlmRecommendationAdvisor(model, model_name="fake-model").advise(request)
+
+        self.assertEqual(advice.adapter, "llm")
+        self.assertEqual(advice.input_tokens, 44)
+        self.assertEqual(advice.output_tokens, 17)
+
     def test_rule_adapter_recommends_highest_scoring_verified_plan(self) -> None:
         advice = RuleBasedRecommendationAdvisor().advise(make_request())
 

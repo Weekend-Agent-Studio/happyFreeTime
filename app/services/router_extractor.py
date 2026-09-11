@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.domain.constraints import Intent, Interpretation
 from app.domain.runtime import RuntimeDecision
+from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
 
 class StructuredModel(Protocol):
@@ -44,6 +45,10 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 2. 从用户原话中抽取规划约束，保留原始表达。
 3. 为抽取结果记录简短证据片段和置信度。
 4. 将创建、选择或修改请求写成受 Schema 限制的 conversation_command。
+
+输出要求：只返回一个合法的 JSON 对象，不要返回 Markdown 代码围栏、解释文字或
+JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、null 或空数组；不要
+为了凑字段编造信息。
 
 可用意图：plan_outing、find_activity、check_weather、refine_plan、execute_plan、cancel_execution、chitchat。
 
@@ -97,37 +102,48 @@ class TurnInterpreter:
             HumanMessage(content=self._build_context(user_input, context)),
         ]
         attempts = 0
+        token_usage = TokenUsageAccumulator()
         try:
             attempts = 1
-            interpretation = self._validate(self._model.invoke(messages))
+            raw_result = self._model.invoke(messages)
+            token_usage.record(raw_result)
+            interpretation = self._validate(raw_result)
             return interpretation, self._runtime_decision(
                 adapter="llm",
                 model_invoked=True,
                 attempts=attempts,
                 latency_ms=_elapsed_ms(started_at),
+                token_usage=token_usage.total,
             )
         except Exception as first_error:
+            if attempts == 1 and token_usage.attempt_count == 0:
+                token_usage.record_unknown()
             # 把第一次校验错误反馈给模型，有助于修复漏字段或类型错误；限制为
             # 一次重试，防止格式错误演变成不可控的模型循环和延迟。
             retry_messages = [
                 *messages,
                 HumanMessage(
                     content=(
-                        "上一次输出未通过结构校验。请严格返回 Interpretation 结构，"
+                        "上一次输出未通过结构校验。请严格返回合法 JSON 格式的 Interpretation 结构，"
                         f"不要补充解释。校验错误：{first_error}"
                     )
                 ),
             ]
             try:
                 attempts = 2
-                interpretation = self._validate(self._model.invoke(retry_messages))
+                raw_retry = self._model.invoke(retry_messages)
+                token_usage.record(raw_retry)
+                interpretation = self._validate(raw_retry)
                 return interpretation, self._runtime_decision(
                     adapter="llm",
                     model_invoked=True,
                     attempts=attempts,
                     latency_ms=_elapsed_ms(started_at),
+                    token_usage=token_usage.total,
                 )
             except Exception:
+                if token_usage.attempt_count < 2:
+                    token_usage.record_unknown()
                 return Interpretation(
                     primary_intent=Intent.CLARIFY,
                     intent_scores={Intent.CLARIFY: 1.0},
@@ -139,6 +155,7 @@ class TurnInterpreter:
                     attempts=2,
                     fallback_reason="invalid_output",
                     latency_ms=_elapsed_ms(started_at),
+                    token_usage=token_usage.total,
                 )
 
     def _runtime_decision(
@@ -149,6 +166,7 @@ class TurnInterpreter:
         attempts: int,
         fallback_reason: str | None = None,
         latency_ms: int | None = None,
+        token_usage: ModelTokenUsage = ModelTokenUsage(),
     ) -> RuntimeDecision:
         return RuntimeDecision(
             stage="turn_interpreter",
@@ -158,10 +176,21 @@ class TurnInterpreter:
             attempts=attempts,
             fallback_reason=fallback_reason,
             latency_ms=latency_ms,
+            input_tokens=token_usage.input_tokens,
+            output_tokens=token_usage.output_tokens,
         )
 
     @staticmethod
     def _validate(result: object) -> Interpretation:
+        if isinstance(result, dict) and (
+            "parsed" in result or "parsing_error" in result
+        ):
+            if result.get("parsing_error") is not None:
+                raise ValueError(f"structured interpretation parsing failed: {result['parsing_error']}")
+            parsed = result.get("parsed")
+            if parsed is None:
+                raise ValueError("structured interpretation parser returned no result")
+            return TurnInterpreter._validate(parsed)
         if isinstance(result, Interpretation):
             return result
         return Interpretation.model_validate(result)
@@ -193,10 +222,17 @@ def build_default_turn_interpreter() -> TurnInterpreter:
         api_key=os.getenv("LLM_API"),
         base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
+        # Function Calling 会把 Pydantic Schema 作为工具参数契约传给
+        # DeepSeek；本地 Pydantic 仍然是最终校验入口。
+        max_tokens=2048,
         extra_body={"thinking": {"type": "disabled"}},
     )
     return TurnInterpreter(
-        llm.with_structured_output(Interpretation),
+        llm.with_structured_output(
+            Interpretation,
+            method="function_calling",
+            include_raw=True,
+        ),
         model_name=model_name,
     )
 
