@@ -28,6 +28,8 @@ from app.domain.recommendation import (
     RecommendationAdviceRequest,
 )
 from app.domain.semantics import EvidenceRef, SoftObjectiveKind
+from app.services.llm_compat import thinking_extra_body, structured_output_schema
+from app.services.model_errors import model_failure_reason
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
 
@@ -149,20 +151,33 @@ class LlmRecommendationAdvisor:
             )
         try:
             proposal = _validate_proposal(raw_result)
-        except Exception as first_error:
+        except Exception:
             retry_messages = [
                 *messages,
                 HumanMessage(
                     content=(
                         "上一次推荐解释未通过结构或证据校验。只返回合法的 "
-                        "RecommendationAdviceProposal JSON，不要解释。校验错误："
-                        f"{first_error}"
+                        "RecommendationAdviceProposal JSON，不要解释。错误类型："
+                        "invalid_proposal_parse"
                     )
                 ),
             ]
             try:
                 raw_retry = self._model.invoke(retry_messages)
                 token_usage.record(raw_retry)
+            except Exception as error:
+                if token_usage.attempt_count < 2:
+                    token_usage.record_unknown()
+                return _fallback_advice(
+                    baseline,
+                    attempts=2,
+                    reason=model_failure_reason(error),
+                    started_at=started_at,
+                    model_name=self._model_name,
+                    prompt_version=self._prompt_version,
+                    token_usage=token_usage.total,
+                )
+            try:
                 proposal = _validate_proposal(raw_retry)
             except Exception:
                 if token_usage.attempt_count < 2:
@@ -170,7 +185,7 @@ class LlmRecommendationAdvisor:
                 return _fallback_advice(
                     baseline,
                     attempts=2,
-                    reason="invalid_proposal",
+                    reason="invalid_proposal_parse",
                     started_at=started_at,
                     model_name=self._model_name,
                     prompt_version=self._prompt_version,
@@ -195,7 +210,7 @@ class LlmRecommendationAdvisor:
             return _fallback_advice(
                 baseline,
                 attempts=attempts,
-                reason=str(error),
+                reason=f"invalid_proposal_contract:{_safe_contract_code(error)}",
                 started_at=started_at,
                 model_name=self._model_name,
                 prompt_version=self._prompt_version,
@@ -226,14 +241,14 @@ def build_default_recommendation_advisor(
         temperature=0.0,
         timeout=_model_timeout_seconds(),
         max_retries=0,
-        # Function Calling 把推荐 Schema 传给 DeepSeek；本地 Pydantic
-        # 继续负责严格校验。
+        # Function Calling 把推荐 Schema 传给兼容 OpenAI 的 provider；本地
+        # Pydantic 继续负责严格校验。
         max_tokens=2048,
-        extra_body={"thinking": {"type": "disabled"}},
+        extra_body=thinking_extra_body(model_name),
     )
     return LlmRecommendationAdvisor(
         llm.with_structured_output(
-            RecommendationAdviceProposal,
+            structured_output_schema(model_name, RecommendationAdviceProposal),
             method="function_calling",
             include_raw=True,
         ),
@@ -722,10 +737,14 @@ def _fallback_advice(
     )
 
 
-def _model_failure_reason(error: Exception) -> str:
-    if isinstance(error, TimeoutError) or "timeout" in type(error).__name__.casefold():
-        return "timeout"
-    return "model_error"
+_model_failure_reason = model_failure_reason
+
+
+def _safe_contract_code(error: Exception) -> str:
+    """Keep contract diagnostics to a fixed code, never model/provider text."""
+
+    value = str(error).strip()
+    return value if re.fullmatch(r"[a-z0-9_]+", value) else "validation_failed"
 
 
 def _model_timeout_seconds() -> float:
@@ -750,8 +769,18 @@ def _build_context(
     request: RecommendationAdviceRequest,
     baseline: RecommendationAdvice,
 ) -> str:
+    evidence_by_id = {
+        item.evidence_id: item
+        for item in (
+            *request.semantic_request.evidence,
+            *request.retrieval_evidence,
+        )
+    }
+    baseline_by_plan = {item.plan_id: item for item in baseline.plans}
     plans = []
     for plan in request.verified_plans:
+        baseline_item = baseline_by_plan[plan.plan_id]
+        allowed_evidence_ids = tuple(baseline_item.supporting_evidence_ids)
         plans.append(
             {
                 "plan_id": plan.plan_id,
@@ -783,6 +812,18 @@ def _build_context(
                 ],
                 "highlights": plan.highlights,
                 "tradeoffs": plan.tradeoffs,
+                # The global retrieval_evidence list is useful for auditing,
+                # but a model must not infer that every item supports every
+                # plan.  Keep the deterministic baseline's per-plan allowlist
+                # beside each plan so valid citations are easy to select and
+                # cross-plan citations remain rejectable by the harness.
+                "allowed_matched_need_ids": list(baseline_item.matched_need_ids),
+                "allowed_supporting_evidence_ids": list(allowed_evidence_ids),
+                "allowed_supporting_evidence": [
+                    evidence_by_id[evidence_id].model_dump(mode="json")
+                    for evidence_id in allowed_evidence_ids
+                    if evidence_id in evidence_by_id
+                ],
             }
         )
     context = {
@@ -811,6 +852,9 @@ _SYSTEM_PROMPT = """你是 HappyFreeTime 的 RecommendationAdvisor。
 严格限制：
 - recommended_plan_id、PlanAdvice.plan_id 必须使用输入中已有的 plan_id。
 - matched_need_ids 必须使用输入中已有的 need_id；supporting_evidence_ids 必须使用输入中已有的证据 id。
+- 对每个方案，只能使用该方案对象中的 allowed_matched_need_ids 和
+  allowed_supporting_evidence_ids；全局 retrieval_evidence 不是该方案的自动证据。
+- 如果某个方案没有允许的证据，不要声称它有对应的标签或资料支持。
 - understood_needs 必须原样复制输入 needs，不要增加或改写用户没有说过的需求。
 - 不要新增 POI、路线、价格、距离、时间、营业或可用性事实；不要输出任何数字。
 - reason 和 overall_reason 只写需求回应和取舍，不要编造新地点名称；具体事实由已验证 Plan 和界面渲染。

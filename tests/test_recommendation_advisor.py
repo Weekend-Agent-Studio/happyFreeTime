@@ -1,4 +1,5 @@
 import unittest
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -136,6 +137,7 @@ class RecommendationAdvisorTest(unittest.TestCase):
 
         kwargs = chat_openai.call_args.kwargs
         self.assertEqual(kwargs["max_tokens"], 2048)
+        self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "disabled"}})
         chat_openai.return_value.with_structured_output.assert_called_once_with(
             RecommendationAdviceProposal,
             method="function_calling",
@@ -159,6 +161,29 @@ class RecommendationAdvisorTest(unittest.TestCase):
         self.assertEqual(advice.adapter, "llm")
         self.assertEqual(advice.input_tokens, 44)
         self.assertEqual(advice.output_tokens, 17)
+
+    def test_llm_context_lists_per_plan_evidence_allowlist(self) -> None:
+        request = make_request()
+        baseline = RuleBasedRecommendationAdvisor().advise(request)
+
+        context = recommendation_advisor_module._build_context(request, baseline)
+        payload = json.loads(context.split("\n", 1)[1])
+
+        plans = payload["verified_plans"]
+        self.assertEqual(len(plans), len(request.verified_plans))
+        for plan in plans:
+            self.assertIn("allowed_matched_need_ids", plan)
+            self.assertIn("allowed_supporting_evidence_ids", plan)
+            self.assertIn("allowed_supporting_evidence", plan)
+            self.assertEqual(
+                plan["allowed_supporting_evidence_ids"],
+                ["user.preferences.1"],
+            )
+            self.assertEqual(
+                [item["evidence_id"] for item in plan["allowed_supporting_evidence"]],
+                ["user.preferences.1"],
+            )
+
 
     def test_rule_adapter_recommends_highest_scoring_verified_plan(self) -> None:
         advice = RuleBasedRecommendationAdvisor().advise(make_request())
@@ -200,7 +225,10 @@ class RecommendationAdvisorTest(unittest.TestCase):
         advice = LlmRecommendationAdvisor(model).advise(request)
 
         self.assertEqual(advice.adapter, "fallback")
-        self.assertEqual(advice.fallback_reason, "invalid_plan_id")
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:invalid_plan_id",
+        )
         self.assertEqual(advice.overall_reason, baseline.overall_reason)
         self.assertEqual(advice.attempts, 1)
 
@@ -216,7 +244,10 @@ class RecommendationAdvisorTest(unittest.TestCase):
         advice = LlmRecommendationAdvisor(model).advise(request)
 
         self.assertEqual(advice.adapter, "fallback")
-        self.assertEqual(advice.fallback_reason, "ungrounded_text")
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:ungrounded_text",
+        )
 
     def test_format_repair_is_bounded_to_one_retry(self) -> None:
         request = make_request()
@@ -228,6 +259,16 @@ class RecommendationAdvisorTest(unittest.TestCase):
         self.assertEqual(advice.attempts, 2)
         self.assertEqual(len(model.calls), 2)
 
+    def test_two_parse_failures_are_distinguished_from_contract_failure(self) -> None:
+        request = make_request()
+        model = SequenceModel({"bad": True}, {"still_bad": True})
+
+        advice = LlmRecommendationAdvisor(model).advise(request)
+
+        self.assertEqual(advice.adapter, "fallback")
+        self.assertEqual(advice.fallback_reason, "invalid_proposal_parse")
+        self.assertEqual(advice.attempts, 2)
+
     def test_timeout_falls_back_and_no_semantic_request_skips_model(self) -> None:
         request = make_request()
         timeout_model = SequenceModel(TimeoutError("request timeout"))
@@ -238,7 +279,7 @@ class RecommendationAdvisorTest(unittest.TestCase):
         error_model = SequenceModel(RuntimeError("provider unavailable"))
         error_advice = LlmRecommendationAdvisor(error_model).advise(request)
         self.assertEqual(error_advice.adapter, "fallback")
-        self.assertEqual(error_advice.fallback_reason, "model_error")
+        self.assertEqual(error_advice.fallback_reason, "provider_error")
 
         plain_request = RecommendationAdviceRequest(
             constraints=planning_constraints(),

@@ -56,6 +56,31 @@ class CatalogCollectionTest(unittest.TestCase):
             "11:00-14:00,16:00-20:00",
         )
 
+    def test_preserves_cafe_resource_type_separately_from_cuisine_category(self) -> None:
+        snapshot = CatalogCollector(max_records=20).build(
+            {
+                "elements": [
+                    {
+                        "type": "node",
+                        "id": 505,
+                        "lat": 39.9,
+                        "lon": 116.4,
+                        "tags": {
+                            "name": "示例咖啡馆",
+                            "amenity": "cafe",
+                            "cuisine": "coffee_shop;sandwich",
+                        },
+                    }
+                ]
+            },
+            collected_at=COLLECTED_AT,
+        )
+
+        record = snapshot["records"][0]
+        self.assertEqual(record["resource_type"], "cafe")
+        self.assertEqual(record["category_tags"], ["coffee_shop", "sandwich"])
+        self.assertEqual(record["duration_minutes"], 60)
+
     def test_same_osm_object_from_multiple_queries_is_emitted_once(self) -> None:
         element = {
             "type": "node",

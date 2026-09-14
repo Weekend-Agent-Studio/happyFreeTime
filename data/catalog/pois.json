@@ -3250,7 +3250,7 @@
     },
     {
       "resource_id": "osm-node-10734201823",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "Luckin",
       "category_tags": [
         "coffee_shop",
@@ -3282,7 +3282,7 @@
     },
     {
       "resource_id": "osm-node-10734201825",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "星巴克",
       "category_tags": [
         "coffee_shop"
@@ -3640,7 +3640,7 @@
     },
     {
       "resource_id": "osm-node-3308824804",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "平白咖啡厅",
       "category_tags": [
         "western",
@@ -4031,7 +4031,7 @@
     },
     {
       "resource_id": "osm-node-4362368695",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "诗意栖居咖啡馆",
       "category_tags": [
         "coffee_shop",
@@ -4315,7 +4315,7 @@
     },
     {
       "resource_id": "osm-node-5273039128",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "法派1855",
       "category_tags": [
         "french",
@@ -4542,7 +4542,7 @@
     },
     {
       "resource_id": "osm-node-6413287985",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "He kitchen&Co.",
       "category_tags": [
         "international"
@@ -4574,7 +4574,7 @@
     },
     {
       "resource_id": "osm-node-6584050808",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "星巴克",
       "category_tags": [
         "coffee_shop"
@@ -4638,7 +4638,7 @@
     },
     {
       "resource_id": "osm-node-7883465485",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "SOE COFFEE",
       "category_tags": [
         "coffee_shop"
@@ -4702,7 +4702,7 @@
     },
     {
       "resource_id": "osm-node-8024412385",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "蚂蚁洞咖啡馆",
       "category_tags": [
         "cafe"
@@ -4996,7 +4996,7 @@
     },
     {
       "resource_id": "osm-way-1348424058",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "ONSITEEE",
       "category_tags": [
         "cafe"
@@ -5148,7 +5148,7 @@
     },
     {
       "resource_id": "osm-node-10316539738",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "咖啡书屋",
       "category_tags": [
         "coffee_shop"
@@ -5180,7 +5180,7 @@
     },
     {
       "resource_id": "osm-node-10593225763",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "蜜雪冰城",
       "category_tags": [
         "ice_cream",
@@ -5238,7 +5238,7 @@
     },
     {
       "resource_id": "osm-node-10707011273",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "双清书咖",
       "category_tags": [
         "coffee_shop"
@@ -5382,7 +5382,7 @@
     },
     {
       "resource_id": "osm-node-10734201831",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "星巴克",
       "category_tags": [
         "coffee_shop"
@@ -5639,7 +5639,7 @@
     },
     {
       "resource_id": "osm-node-11266134290",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "瑞幸咖啡",
       "category_tags": [
         "coffee_shop"
@@ -5721,7 +5721,7 @@
     },
     {
       "resource_id": "osm-node-11708743553",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "M Stand",
       "category_tags": [
         "coffee_shop"
@@ -5963,7 +5963,7 @@
     },
     {
       "resource_id": "osm-node-12229291843",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "瑞幸咖啡",
       "category_tags": [
         "coffee_shop"
@@ -5987,7 +5987,7 @@
     },
     {
       "resource_id": "osm-node-12399924892",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "LINLEE",
       "category_tags": [
         "coffee_shop"
@@ -6019,7 +6019,7 @@
     },
     {
       "resource_id": "osm-node-12590503840",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "星巴克",
       "category_tags": [
         "coffee_shop"
@@ -6051,7 +6051,7 @@
     },
     {
       "resource_id": "osm-node-12609197101",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "XIMO精品咖啡·Brunch",
       "category_tags": [
         "cafe"
@@ -6083,7 +6083,7 @@
     },
     {
       "resource_id": "osm-node-12640827235",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "Minges",
       "category_tags": [
         "coffee_shop",
@@ -6150,7 +6150,7 @@
     },
     {
       "resource_id": "osm-node-12661255401",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "大内宫保咖啡店",
       "category_tags": [
         "cafe"
@@ -6214,7 +6214,7 @@
     },
     {
       "resource_id": "osm-node-12713909646",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "name": "是饭咖啡厅",
       "category_tags": [
         "coffee_shop",

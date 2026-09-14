@@ -9,13 +9,21 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from typing import Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.domain.constraints import NormalizedConstraints, StopRole
-from app.domain.semantics import EvidenceRef, SemanticQuery, SemanticRequest, SoftObjective
+from app.domain.semantics import (
+    EvidenceRef,
+    SOFT_OBJECTIVE_ALIASES,
+    SemanticQuery,
+    SemanticRequest,
+    SoftObjective,
+    SoftObjectiveKind,
+)
 from app.domain.planning import (
     PlanPace,
     PlanSkeleton,
@@ -23,16 +31,26 @@ from app.domain.planning import (
     PlanningIntentDecision,
     PlanningIntentProposal,
 )
+from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
+from app.services.model_errors import model_failure_reason
 
 
 ACTIVITY_MEAL_SKELETON = PlanSkeleton(
     skeleton_id="activity-meal-v1",
     roles=(StopRole.ACTIVITY, StopRole.MEAL),
 )
+ACTIVITY_ONLY_SKELETON = PlanSkeleton(
+    skeleton_id="activity-only-v1",
+    roles=(StopRole.ACTIVITY,),
+)
 DINNER_ONLY_SKELETON = PlanSkeleton(
     skeleton_id="dinner-only-v1",
     roles=(StopRole.DINNER,),
+)
+LUNCH_ONLY_SKELETON = PlanSkeleton(
+    skeleton_id="lunch-only-v1",
+    roles=(StopRole.LUNCH,),
 )
 LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
     skeleton_id="lunch-activity-dinner-v1",
@@ -53,10 +71,19 @@ ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
 )
 ALL_PLAN_SKELETONS: tuple[PlanSkeleton, ...] = (
     ACTIVITY_MEAL_SKELETON,
+    ACTIVITY_ONLY_SKELETON,
     DINNER_ONLY_SKELETON,
+    LUNCH_ONLY_SKELETON,
     LUNCH_ACTIVITY_DINNER_SKELETON,
     ACTIVITY_BREAK_DINNER_SKELETON,
     ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON,
+)
+
+# Explicit one-stop structures are intentionally a small closed vocabulary.
+# The role remains the source of candidate/resource semantics; the skeleton id
+# makes the chosen product contract visible in traces and persisted plans.
+SINGLE_STOP_ROLES = frozenset(
+    {StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER}
 )
 
 PROMPT_VERSION = "planning-intent.v1"
@@ -127,7 +154,7 @@ class LlmPlanningIntentProvider:
             )
         try:
             proposal = _validate_proposal(raw_result)
-        except Exception as first_error:
+        except Exception:
             # 结构化 Runnable 使用 include_raw=True 时，解析失败会以
             # {raw, parsed, parsing_error} 返回到这里，而不是在 invoke() 外抛出。
             # 因而生产模型和测试 fake 都真正共享一次格式修复路径。
@@ -136,8 +163,7 @@ class LlmPlanningIntentProvider:
                 HumanMessage(
                     content=(
                         "上一次 PlanningIntent 提议未通过结构校验。只返回合法的 "
-                        "PlanningIntentProposal JSON，不要解释。校验错误："
-                        f"{first_error}"
+                        "PlanningIntentProposal JSON，不要解释。错误类型：invalid_output"
                     )
                 ),
             ]
@@ -153,7 +179,7 @@ class LlmPlanningIntentProvider:
                 proposal = _validate_proposal(raw_retry)
             except Exception:
                 return self._fallback_decision(
-                    baseline, 2, "invalid_proposal", token_usage.total
+                    baseline, 2, "invalid_proposal_parse", token_usage.total
                 )
             attempts = 2
         else:
@@ -165,9 +191,12 @@ class LlmPlanningIntentProvider:
             )
         try:
             intent = _accept_proposal(proposal, constraints, baseline.intent)
-        except ValueError:
+        except ValueError as error:
             return self._fallback_decision(
-                baseline, attempts, "proposal_out_of_bounds", token_usage.total
+                baseline,
+                attempts,
+                f"invalid_proposal_contract:{_safe_contract_code(error, 'proposal_out_of_bounds')}",
+                token_usage.total,
             )
         usage = token_usage.total
         return PlanningIntentDecision(
@@ -211,17 +240,19 @@ def build_rule_based_planning_intent(
         constraints.exact_stop_count is not None
         and constraints.exact_stop_count.value == 1
         and constraints.required_stop_roles is not None
-        and constraints.required_stop_roles.value == (StopRole.DINNER,)
+        and len(constraints.required_stop_roles.value) == 1
+        and constraints.required_stop_roles.value[0] in SINGLE_STOP_ROLES
     ):
+        single_role = constraints.required_stop_roles.value[0]
         return PlanningIntent(
-            required_roles=(StopRole.DINNER,),
+            required_roles=(single_role,),
             optional_roles=(),
             minimum_stops=1,
             maximum_stops=1,
             pace=PlanPace.RELAXED,
             evidence={
                 "exact_stop_count": constraints.exact_stop_count.raw_text or "1",
-                "required_stop_roles": constraints.required_stop_roles.raw_text or StopRole.DINNER.value,
+                "required_stop_roles": constraints.required_stop_roles.raw_text or single_role.value,
                 "time_window": f"{window.start}-{window.end}",
             },
             semantic_request=_build_rule_semantic_request(constraints),
@@ -302,14 +333,14 @@ def build_default_planning_intent_provider(
         temperature=0.0,
         timeout=_model_timeout_seconds(),
         max_retries=0,
-        # Function Calling 把提议 Schema 传给 DeepSeek；本地 Pydantic
-        # 继续负责严格校验。
+        # Function Calling 把提议 Schema 传给兼容 OpenAI 的 provider；本地
+        # Pydantic 继续负责严格校验。
         max_tokens=2048,
-        extra_body={"thinking": {"type": "disabled"}},
+        extra_body=thinking_extra_body(model_name),
     )
     return LlmPlanningIntentProvider(
         llm.with_structured_output(
-            PlanningIntentProposal,
+            structured_output_schema(model_name, PlanningIntentProposal),
             method="function_calling",
             include_raw=True,
         ),
@@ -335,11 +366,15 @@ def _model_timeout_seconds() -> float:
     return timeout
 
 
-def _model_failure_reason(error: Exception) -> str:
-    """Normalize timeout classes from built-in, httpx, and OpenAI clients."""
-    if isinstance(error, TimeoutError) or "timeout" in type(error).__name__.casefold():
-        return "timeout"
-    return "model_error"
+_model_failure_reason = model_failure_reason
+
+
+def _member_evidence(constraints: NormalizedConstraints) -> tuple[str, ...]:
+    """Read relationship phrases from the normalized party profile, if any."""
+
+    if constraints.party is None:
+        return ()
+    return tuple(item.strip() for item in constraints.party.value.members if item.strip())
 
 
 def _should_call_model(constraints: NormalizedConstraints) -> bool:
@@ -353,7 +388,11 @@ def _should_call_model(constraints: NormalizedConstraints) -> bool:
     # S2 LLM 只负责可能改变规划结构的模糊语义。饮食标签和避开项
     # 由既有 Catalog/过滤链路处理，当前 PlanningIntent 不消费它们，
     # 因此仅凭这两类字段调用模型没有业务收益。
-    return bool(constraints.preferences or constraints.scene_tags)
+    return bool(
+        constraints.preferences
+        or constraints.scene_tags
+        or _member_evidence(constraints)
+    )
 
 
 def _validate_proposal(result: object) -> PlanningIntentProposal:
@@ -432,19 +471,10 @@ def _accept_proposal(
 def _build_rule_semantic_request(
     constraints: NormalizedConstraints,
 ) -> SemanticRequest:
-    """Translate known preferences to finite objectives while retaining text."""
+    """Translate known semantic evidence to finite objectives while retaining text."""
 
-    objective_aliases: dict[str, tuple[str, ...]] = {
-        "low_fatigue": ("轻松", "松弛", "不赶", "休闲", "不累", "不希望太累", "慢慢走"),
-        "shorter_travel": ("近一点", "更近", "近点", "少走", "步行可达"),
-        "novelty": ("新鲜感", "新奇", "新意", "有意思"),
-        "quiet": ("安静", "清静"),
-        "conversation_friendly": ("聊天", "适合聊天", "能聊天"),
-        "romantic": ("约会", "浪漫"),
-        "family_friendly": ("亲子", "带孩子", "家庭"),
-        "low_spice": ("少辣", "不辣", "微辣"),
-    }
     values_by_field = (
+        ("members", _member_evidence(constraints)),
         ("preferences", constraints.preferences),
         ("scene_tags", constraints.scene_tags),
         ("diet_tags", constraints.diet_tags),
@@ -471,14 +501,7 @@ def _build_rule_semantic_request(
                 )
             )
             normalized = text.casefold()
-            matched_kind = next(
-                (
-                    kind
-                    for kind, aliases in objective_aliases.items()
-                    if normalized in {alias.casefold() for alias in aliases}
-                ),
-                None,
-            )
+            matched_kind = _match_objective_alias(normalized, source_field)
             if matched_kind is not None:
                 objectives.append(
                     SoftObjective(
@@ -499,6 +522,28 @@ def _build_rule_semantic_request(
         objectives=tuple(objectives),
         queries=tuple(queries),
     )
+
+
+def _match_objective_alias(
+    normalized_text: str,
+    source_field: str,
+) -> SoftObjectiveKind | None:
+    """Map one normalized evidence value to the finite objective vocabulary.
+
+    Exact matches remain the default.  Membership phrases commonly contain a
+    relation word (``跟女朋友``/``和对象``), so only the ``members`` field gets
+    bounded substring matching; this avoids turning a negated preference such
+    as ``不安静`` into a positive ``quiet`` objective.
+    """
+
+    for kind, aliases in SOFT_OBJECTIVE_ALIASES.items():
+        for alias in aliases:
+            candidate = alias.casefold()
+            if normalized_text == candidate:
+                return kind
+            if source_field == "members" and candidate in normalized_text:
+                return kind
+    return None
 
 
 def _sanitize_semantic_request(
@@ -548,6 +593,7 @@ def _sanitize_evidence(
     grounded_values = {
         value.strip().casefold()
         for values in (
+            _member_evidence(constraints),
             constraints.preferences,
             constraints.scene_tags,
             constraints.diet_tags,
@@ -562,6 +608,13 @@ def _sanitize_evidence(
             evidence.setdefault("soft_preference", value.strip())
             break
     return evidence
+
+
+def _safe_contract_code(error: Exception, fallback: str) -> str:
+    """Keep contract diagnostics to a fixed code, never model/provider text."""
+
+    value = str(error).strip()
+    return value if re.fullmatch(r"[a-z0-9_]+", value) else fallback
 
 
 def _skeleton_matches_proposal(
@@ -587,6 +640,7 @@ def _build_context(
     baseline: PlanningIntent,
 ) -> str:
     context = {
+        "members": _member_evidence(constraints),
         "preferences": constraints.preferences,
         "diet_tags": constraints.diet_tags,
         "scene_tags": constraints.scene_tags,
@@ -607,6 +661,7 @@ def _build_context(
             else []
         ),
         "baseline_intent": baseline.model_dump(mode="json"),
+        "allowed_objective_kinds": [kind.value for kind in SOFT_OBJECTIVE_ALIASES],
     }
     return (
         "请根据用户的软偏好提出 PlanningIntentProposal。只能调整节奏、可选角色、"

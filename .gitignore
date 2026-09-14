@@ -25,3 +25,4 @@ data/*.db-shm
 data/*.db-wal
 data/models/
 data/retrieval/cache/
+artifacts/evals/

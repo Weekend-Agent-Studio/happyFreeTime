@@ -58,9 +58,17 @@ class ResumeReleaseDatasetTest(unittest.TestCase):
             by_id["conflict_dinner_unavailable"].fixtures.availability,
             "all_unavailable",
         )
+        self.assertEqual(
+            by_id["clarify_ambiguous_location"].fixtures.geocoding,
+            "not_found",
+        )
+        self.assertEqual(
+            by_id["plan_lunch_only_structure"].expected.required_roles,
+            ("lunch",),
+        )
         self.assertEqual(dataset.evaluation_clock.isoformat(), "2026-08-15T10:00:00+08:00")
 
-    def test_retrieval_holdout_is_separate_and_draft_labeled(self) -> None:
+    def test_retrieval_holdout_is_separate_and_reviewed(self) -> None:
         path = ROOT / "evals" / "retrieval_holdout_cases.json"
         cases = json.loads(path.read_text(encoding="utf-8"))
 
@@ -73,7 +81,11 @@ class ResumeReleaseDatasetTest(unittest.TestCase):
         self.assertGreaterEqual(len(cases), 15)
         self.assertFalse(training_ids & {item["case_id"] for item in cases})
         self.assertTrue(all(item["split"] == "holdout" for item in cases))
-        self.assertTrue(all(item["label_status"] == "draft" for item in cases))
+        self.assertTrue(all(item["label_status"] == "reviewed" for item in cases))
+        self.assertEqual(
+            sum(bool(item.get("metric_eligible")) for item in cases),
+            15,
+        )
         self.assertTrue(all("query" in item and "relevance" in item for item in cases))
         profile_ids = {
             item["resource_id"]

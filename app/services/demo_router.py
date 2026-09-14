@@ -34,7 +34,7 @@ class DemoRouter:
             return Interpretation(
                 primary_intent=Intent.CHITCHAT,
                 intent_scores={Intent.CHITCHAT: 1.0},
-                reply="你好，我可以帮你规划活动、餐厅和两站之间的行程。",
+                reply="你好，我可以帮你规划活动、餐厅和 1–4 站行程。",
             )
 
         if (
@@ -113,7 +113,45 @@ class DemoRouter:
             r"(?:一(?:家|顿)|个)?(?:餐厅)?(?:吃)?(?P<dinner>晚饭|晚餐)",
             text,
         )
-        dinner_only = dinner_only_match is not None
+        lunch_only_match = re.search(
+            r"(?P<exclusive>(?:只|仅|就)(?:安排|去|吃))"
+            r"(?:一(?:家|顿)|个)?(?:餐厅)?(?:吃)?(?P<lunch>午饭|午餐)",
+            text,
+        )
+        activity_only_match = re.search(
+            r"(?P<exclusive>(?:只|仅|就)(?:安排|去|看))\s*"
+            r"(?P<count>一个|一项|一场|一站|一处|个)?\s*"
+            r"(?P<activity>活动|项目|展览|演出|景点|地方|展)"
+            # Do not turn “只安排一个活动和晚饭” into an activity-only
+            # request; a conjunction with a meal means the user asked for a
+            # multi-stop structure. Explicit no-meal wording is allowed.
+            r"(?!(?:\s*(?:和|、|并|后|[,，])\s*(?!不安排|不吃|不去).*"
+            r"(?:吃饭|用餐|晚饭|午饭|午餐|晚餐)))"
+            r"(?P<no_meal>\s*[,，、]\s*(?:不安排|不吃|不去)"
+            r"(?:吃饭|用餐|晚饭|午饭|午餐|晚餐))?",
+            text,
+        )
+        # “只安排活动和晚饭”“只安排看展，自己解决” do not prove that
+        # exactly one activity is intended. Require an explicit quantity or an
+        # explicit no-meal clause before turning the phrase into a hard count.
+        if activity_only_match and not (
+            activity_only_match.group("count")
+            or activity_only_match.group("no_meal")
+        ):
+            activity_only_match = None
+        single_stop_match = next(
+            (
+                (role, match, group_name)
+                for role, match, group_name in (
+                    (StopRole.DINNER, dinner_only_match, "dinner"),
+                    (StopRole.LUNCH, lunch_only_match, "lunch"),
+                    (StopRole.ACTIVITY, activity_only_match, "activity"),
+                )
+                if match is not None
+            ),
+            (None, None, None),
+        )
+        single_stop_role, single_stop_match, single_stop_group = single_stop_match
         party_evidence = "约会" if "约会" in text else None
         party_size = 2 if party_evidence else None
         preferences = [
@@ -136,9 +174,22 @@ class DemoRouter:
         strict_budget = any(
             phrase in text for phrase in ("别超预算", "严格预算", "不能超预算")
         )
+        require_availability_confirmation = any(
+            phrase in text
+            for phrase in (
+                "确认有位",
+                "确认有空位",
+                "必须有位",
+                "必须可预约",
+                "确认可预约",
+            )
+        )
         return_by_text_match = re.search(
             r"(?:最晚|最迟|不晚于|在).{0,12}?(?:到家|回家|回来)"
-            r"|\d{1,2}[:：]\d{2}\s*(?:前|之前)\s*(?:到家|回家|回来)",
+            r"|\d{1,2}[:：]\d{2}\s*(?:前|之前)\s*(?:到家|回家|回来)"
+            r"|(?:(?:上午|下午|晚上)\s*)?[一二三四五六七八九十两]+点"
+            r"(?:(?:半)|(?:[零〇一二三四五六七八九十两]+)分?)?"
+            r"\s*(?:前|之前)?\s*(?:到家|回家|回来)",
             text,
         )
         return_by_match = re.search(
@@ -179,12 +230,13 @@ class DemoRouter:
             time_text=time_text,
             time_scope=time_scope,
             departure_at_text=(departure_match.group(0) if departure_match else None),
-            exact_stop_count=1 if dinner_only else None,
-            required_stop_roles=(StopRole.DINNER,) if dinner_only else (),
+            exact_stop_count=1 if single_stop_role is not None else None,
+            required_stop_roles=(single_stop_role,) if single_stop_role is not None else (),
             adults=party_size,
             budget_text=budget_match.group(0) if budget_match else None,
             budget_per_person=int(budget_match.group(1)) if budget_match else None,
             strict_budget=strict_budget,
+            require_availability_confirmation=require_availability_confirmation,
             max_distance_text=distance_text,
             preferences=preferences,
             scene_tags=["约会"] if "约会" in text else [],
@@ -204,11 +256,24 @@ class DemoRouter:
                 "date_text": date_text,
                 "time_text": time_text,
                 "departure_at_text": departure_match.group(0) if departure_match else None,
-                "exact_stop_count": dinner_only_match.group("exclusive") if dinner_only_match else None,
-                "required_stop_roles": dinner_only_match.group("dinner") if dinner_only_match else None,
+                "exact_stop_count": (
+                    single_stop_match.group("exclusive")
+                    if single_stop_match
+                    else None
+                ),
+                "required_stop_roles": (
+                    single_stop_match.group(single_stop_group)
+                    if single_stop_match and single_stop_group
+                    else None
+                ),
                 "budget_per_person": budget_match.group(0) if budget_match else None,
                 "max_distance_text": distance_text,
                 "party": party_evidence,
+                "require_availability_confirmation": (
+                    "确认有位"
+                    if require_availability_confirmation
+                    else None
+                ),
                 "return_by_text": (
                     return_by_text_match.group(0) if return_by_text_match else None
                 ),

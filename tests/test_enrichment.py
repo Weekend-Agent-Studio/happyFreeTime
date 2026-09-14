@@ -44,13 +44,29 @@ class EnrichmentServiceTest(unittest.TestCase):
             )
 
     def test_normalizes_explicit_departure_clocks_without_guessing(self) -> None:
-        for raw_text in ("下午两点半准时出发", "下午 2:30 出发", "14:30 出发"):
+        for raw_text, expected in (
+            ("下午两点半准时出发", "14:30"),
+            ("下午三点二十准时出发", "15:20"),
+            ("下午七点准时出发", "19:00"),
+            ("下午 2:30 出发", "14:30"),
+            ("14:30 出发", "14:30"),
+        ):
             self.assertEqual(
                 EnrichmentService._normalize_departure_at(raw_text, None),
-                "14:30",
+                expected,
             )
         self.assertIsNone(EnrichmentService._normalize_departure_at("下午出发", None))
         self.assertIsNone(EnrichmentService._normalize_departure_at("两点左右出发", None))
+
+    def test_normalizes_chinese_return_deadline(self) -> None:
+        self.assertEqual(
+            EnrichmentService._normalize_return_by("晚上八点前回来", None),
+            "20:00",
+        )
+        self.assertEqual(
+            EnrichmentService._normalize_return_by("最晚下午三点二十到家", None),
+            "15:20",
+        )
 
     def test_departure_and_return_construct_a_window_without_losing_departure(self) -> None:
         interpretation = Interpretation(
@@ -72,6 +88,94 @@ class EnrichmentServiceTest(unittest.TestCase):
         self.assertEqual(result.constraints.departure_at.value, "14:30")
         self.assertEqual(result.constraints.return_by.value, "18:00")
         self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "14:30", "end": "18:00"})
+
+    def test_exact_departure_overrides_inferred_afternoon_scope(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="下午",
+                time_scope=TimeScope.AFTERNOON,
+                departure_at_text="下午六点半准时出发",
+            ),
+            evidence_map={"time_text": "下午", "departure_at_text": "下午六点半准时出发"},
+        )
+        actor = ActorContext(user_id="demo", session_id="departure-scope", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.departure_at.value, "18:30")
+        self.assertEqual(result.constraints.time_scope.value, TimeScope.EXPLICIT_RANGE)
+        self.assertEqual(
+            result.constraints.time_window.value.model_dump(),
+            {"start": "18:30", "end": "22:30"},
+        )
+        self.assertEqual(
+            result.constraints.time_window.rule_id,
+            "time.window.from_departure_overrides_scope.v1",
+        )
+        self.assertTrue(
+            any("精确出发时刻" in assumption.reason for assumption in result.assumptions)
+        )
+
+    def test_exact_departure_uses_explicit_return_deadline_as_window_end(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="下午",
+                time_scope=TimeScope.AFTERNOON,
+                departure_at_text="下午六点半准时出发",
+                return_by_text="晚上八点前回来",
+            ),
+            evidence_map={
+                "time_text": "下午",
+                "departure_at_text": "下午六点半准时出发",
+                "return_by_text": "20:00前回家",
+            },
+        )
+        actor = ActorContext(user_id="demo", session_id="departure-scope-return", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.departure_at.value, "18:30")
+        self.assertEqual(result.constraints.return_by.value, "20:00")
+        self.assertEqual(
+            result.constraints.time_window.value.model_dump(),
+            {"start": "18:30", "end": "20:00"},
+        )
+
+    def test_exact_departure_does_not_override_explicit_time_range(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="10:00-16:00",
+                time_scope=TimeScope.EXPLICIT_RANGE,
+                departure_at_text="下午六点半准时出发",
+            ),
+        )
+        actor = ActorContext(user_id="demo", session_id="departure-explicit-range", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.time_scope.value, TimeScope.EXPLICIT_RANGE)
+        self.assertEqual(
+            result.constraints.time_window.value.model_dump(),
+            {"start": "10:00", "end": "16:00"},
+        )
 
     def test_departure_without_an_end_uses_a_visible_default_end(self) -> None:
         interpretation = Interpretation(
@@ -138,6 +242,52 @@ class EnrichmentServiceTest(unittest.TestCase):
         self.assertEqual(inferred.time_window.source, ConstraintSource.USER_INFERRED)
         self.assertEqual(inferred.exact_stop_count.raw_text, "只安排一家")
         self.assertEqual(inferred.required_stop_roles.value, (StopRole.DINNER,))
+        self.assertEqual(explicit.time_window.value.model_dump(), {"start": "14:00", "end": "18:00"})
+
+    def test_preserves_availability_confirmation_requirement(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                require_availability_confirmation=True,
+            ),
+            evidence_map={"require_availability_confirmation": "确认有位"},
+        )
+        actor = ActorContext(user_id="demo", session_id="availability", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertTrue(result.constraints.require_availability_confirmation)
+
+    def test_lunch_only_infers_a_lunch_window_without_overriding_explicit_time(self) -> None:
+        actor = ActorContext(user_id="demo", session_id="lunch", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", district="朝阳区", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+        lunch_only = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                exact_stop_count=1,
+                required_stop_roles=(StopRole.LUNCH,),
+            ),
+            evidence_map={"exact_stop_count": "只安排一顿", "required_stop_roles": "午饭"},
+        )
+        explicit_afternoon = lunch_only.model_copy(
+            update={"raw_constraints": lunch_only.raw_constraints.model_copy(update={"time_text": "下午"})}
+        )
+
+        inferred = EnrichmentService().enrich(lunch_only, actor, environment).constraints
+        explicit = EnrichmentService().enrich(explicit_afternoon, actor, environment).constraints
+
+        self.assertEqual(inferred.time_window.value.model_dump(), {"start": "11:30", "end": "14:00"})
+        self.assertEqual(inferred.time_window.source, ConstraintSource.USER_INFERRED)
+        self.assertEqual(inferred.required_stop_roles.value, (StopRole.LUNCH,))
         self.assertEqual(explicit.time_window.value.model_dump(), {"start": "14:00", "end": "18:00"})
 
     def test_date_party_is_inferred_from_the_user_phrase_not_marked_explicit(self) -> None:

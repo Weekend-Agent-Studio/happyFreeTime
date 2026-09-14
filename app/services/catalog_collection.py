@@ -218,7 +218,9 @@ def _record_from_element(
 
 
 def _resource_type(tags: dict[str, str]) -> str | None:
-    if tags.get("amenity") in {"restaurant", "cafe", "fast_food"}:
+    if tags.get("amenity") == "cafe":
+        return "cafe"
+    if tags.get("amenity") in {"restaurant", "fast_food"}:
         return "restaurant"
     if tags.get("tourism") in {"museum", "gallery", "attraction", "zoo", "theme_park"}:
         return "activity"
@@ -249,7 +251,7 @@ def _address(tags: dict[str, str]) -> str:
 
 
 def _categories(tags: dict[str, str], resource_type: str) -> list[str]:
-    if resource_type == "restaurant":
+    if resource_type in {"restaurant", "cafe"}:
         values = [value for value in tags.get("cuisine", "").replace(",", ";").split(";") if value]
         return values or [tags.get("amenity", "restaurant")]
     mapping = {
@@ -268,7 +270,7 @@ def _categories(tags: dict[str, str], resource_type: str) -> list[str]:
 
 
 def _duration_minutes(tags: dict[str, str], resource_type: str) -> int:
-    if resource_type == "restaurant":
+    if resource_type in {"restaurant", "cafe"}:
         return 60
     if tags.get("tourism") in {"zoo", "theme_park"}:
         return 180
@@ -340,18 +342,22 @@ def _balanced_records(records: list[dict[str, Any]], maximum: int) -> list[dict[
         (record for record in records if record["resource_type"] == "activity"),
         key=_quality_sort_key,
     )[:half]
-    restaurants = sorted(
-        (record for record in records if record["resource_type"] == "restaurant"),
+    food_venues = sorted(
+        (
+            record
+            for record in records
+            if record["resource_type"] in {"restaurant", "cafe"}
+        ),
         key=_quality_sort_key,
     )[: maximum - len(activities)]
-    if len(activities) + len(restaurants) < maximum:
-        selected_ids = {record["resource_id"] for record in [*activities, *restaurants]}
+    if len(activities) + len(food_venues) < maximum:
+        selected_ids = {record["resource_id"] for record in [*activities, *food_venues]}
         remainder = sorted(
             (record for record in records if record["resource_id"] not in selected_ids),
             key=_quality_sort_key,
         )
-        restaurants.extend(remainder[: maximum - len(activities) - len(restaurants)])
-    return [*activities, *restaurants]
+        food_venues.extend(remainder[: maximum - len(activities) - len(food_venues)])
+    return [*activities, *food_venues]
 
 
 def _quality_sort_key(record: dict[str, Any]) -> tuple:

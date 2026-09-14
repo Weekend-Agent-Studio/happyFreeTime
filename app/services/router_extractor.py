@@ -17,7 +17,9 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict
 
 from app.domain.constraints import Intent, Interpretation
+from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.domain.runtime import RuntimeDecision
+from app.services.model_errors import model_failure_reason
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
 
@@ -36,6 +38,9 @@ class RouterContext(BaseModel):
     has_plans: bool = False
     has_selected_plan: bool = False
     previous_intent: Intent | None = None
+
+
+DEFAULT_MODEL_TIMEOUT_SECONDS = 15
 
 
 SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
@@ -57,19 +62,29 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
  - 不解析相对日期、模糊时间和模糊距离，只保留 date_text、time_text、max_distance_text。
  - “一整天”“全天”“从早到晚”填写 time_scope="all_day"，同时保留 time_text 作为证据。
  - “下午两点半准时出发”要保留 departure_at_text；如果能可靠规范化，也可填写
-   departure_at="14:30"，但不要把到家时间写成出发时间。Enrichment 会再次校验时钟。
+   departure_at="14:30”，但不要把到家时间写成出发时间。Enrichment 会再次校验时钟。
+   如果同时出现“上午/下午/晚上”和精确出发时刻，保留两者；精确时刻优先，不能仅因为
+   它超出模糊时段的默认边界就判定冲突。只有用户明确给出时间范围，且精确时刻超出该
+   范围时，才由后续 Harness 判定时间冲突。
  - “最晚 18:00 到家”要保留 return_by_text，并在时钟明确时填写 return_by；
    “全程不超过 10 公里”要保留 total_distance_text 并填写 total_distance_km。不要把
    全程距离写入 max_distance_km，后者表示单段/召回距离。
- - 对“只安排一家晚饭”“就吃个晚饭”这类同时表达排他和晚餐的请求，填写
-   exact_stop_count=1、required_stop_roles=["dinner"]；分别在 evidence_map 中保留
-   exact_stop_count 的排他短语和 required_stop_roles 的晚餐短语。没有排他语义时，
-   不要从“想吃晚饭”“晚饭后散步”等表达推断一站行程。
+- 对“只安排一家晚饭”“就吃个晚饭”这类同时表达排他和晚餐的请求，填写
+  exact_stop_count=1、required_stop_roles=["dinner"]；分别在 evidence_map 中保留
+  exact_stop_count 的排他短语和 required_stop_roles 的晚餐短语。没有排他语义时，
+  不要从“想吃晚饭”“晚饭后散步”等表达推断一站行程。
+- 对“只安排一个活动”“只看一个展，不安排吃饭”这类明确单站活动请求，填写
+  exact_stop_count=1、required_stop_roles=["activity"]；对“只安排一顿午饭”“就吃个午餐”
+  填写 exact_stop_count=1、required_stop_roles=["lunch"]。只有排他语义明确时才填写
+  exact_stop_count，保留
+  对应原话证据；不要把普通的“安排活动/吃午饭”误判成单站。
 - 不调用工具，不生成地点、价格、库存、路线等事实。
 - “餐厅保留，只把活动换近一点”输出 operation=replace，target.role=activity，
   locked_targets 中使用 resource_type=restaurant，constraint_patch.prefer_shorter_travel=true。
   只保留用户语言引用，不猜测 resource_id；对象解析和锁定由 Harness 完成。
 - “严格控制预算”“千万别超预算”等表达令 strict_budget=true；只有明确金额才填写 budget_per_person。
+- 只有用户明确要求“确认有位”“必须可预约”等动态库存确认时，才填写
+  require_availability_confirmation=true；普通的“想去某餐厅/景点”保持 false。
 - 有儿童时尽量提取 children 和 child_age；不能确定时保持为空。
 - 由用户原话间接推断、而非直接陈述的字段写入 inferred_fields；例如从“约会”推断同行人数时写入 party。
 - 只有真正闲聊才输出 chitchat。解析不确定不等于闲聊。
@@ -103,60 +118,91 @@ class TurnInterpreter:
         ]
         attempts = 0
         token_usage = TokenUsageAccumulator()
+        attempts = 1
         try:
-            attempts = 1
             raw_result = self._model.invoke(messages)
             token_usage.record(raw_result)
-            interpretation = self._validate(raw_result)
-            return interpretation, self._runtime_decision(
-                adapter="llm",
-                model_invoked=True,
+        except Exception as error:
+            token_usage.record_unknown()
+            return self._clarification_with_runtime(
+                started_at=started_at,
                 attempts=attempts,
-                latency_ms=_elapsed_ms(started_at),
+                fallback_reason=model_failure_reason(error),
                 token_usage=token_usage.total,
             )
-        except Exception as first_error:
-            if attempts == 1 and token_usage.attempt_count == 0:
-                token_usage.record_unknown()
-            # 把第一次校验错误反馈给模型，有助于修复漏字段或类型错误；限制为
-            # 一次重试，防止格式错误演变成不可控的模型循环和延迟。
+
+        try:
+            interpretation = self._validate(raw_result)
+        except Exception:
+            # Only a response that was received but failed local decoding gets
+            # one format-repair attempt.  Network/auth/rate-limit failures are
+            # handled above and are never retried here.
             retry_messages = [
                 *messages,
                 HumanMessage(
                     content=(
                         "上一次输出未通过结构校验。请严格返回合法 JSON 格式的 Interpretation 结构，"
-                        f"不要补充解释。校验错误：{first_error}"
+                        "不要补充解释。错误类型：invalid_output"
                     )
                 ),
             ]
+            attempts = 2
             try:
-                attempts = 2
                 raw_retry = self._model.invoke(retry_messages)
                 token_usage.record(raw_retry)
-                interpretation = self._validate(raw_retry)
-                return interpretation, self._runtime_decision(
-                    adapter="llm",
-                    model_invoked=True,
+            except Exception as error:
+                if token_usage.attempt_count < 2:
+                    token_usage.record_unknown()
+                return self._clarification_with_runtime(
+                    started_at=started_at,
                     attempts=attempts,
-                    latency_ms=_elapsed_ms(started_at),
+                    fallback_reason=model_failure_reason(error),
                     token_usage=token_usage.total,
                 )
+            try:
+                interpretation = self._validate(raw_retry)
             except Exception:
                 if token_usage.attempt_count < 2:
                     token_usage.record_unknown()
-                return Interpretation(
-                    primary_intent=Intent.CLARIFY,
-                    intent_scores={Intent.CLARIFY: 1.0},
-                    requires_clarification=True,
-                    reply="我还不能可靠理解这个需求，请换一种方式重新描述一下。",
-                ), self._runtime_decision(
-                    adapter="fallback",
-                    model_invoked=True,
-                    attempts=2,
+                return self._clarification_with_runtime(
+                    started_at=started_at,
+                    attempts=attempts,
                     fallback_reason="invalid_output",
-                    latency_ms=_elapsed_ms(started_at),
                     token_usage=token_usage.total,
                 )
+
+        return interpretation, self._runtime_decision(
+            adapter="llm",
+            model_invoked=True,
+            attempts=attempts,
+            latency_ms=_elapsed_ms(started_at),
+            token_usage=token_usage.total,
+        )
+
+    def _clarification_with_runtime(
+        self,
+        *,
+        started_at: float,
+        attempts: int,
+        fallback_reason: str,
+        token_usage: ModelTokenUsage,
+    ) -> tuple[Interpretation, RuntimeDecision]:
+        return (
+            Interpretation(
+                primary_intent=Intent.CLARIFY,
+                intent_scores={Intent.CLARIFY: 1.0},
+                requires_clarification=True,
+                reply="我还不能可靠理解这个需求，请换一种方式重新描述一下。",
+            ),
+            self._runtime_decision(
+                adapter="fallback",
+                model_invoked=True,
+                attempts=attempts,
+                fallback_reason=fallback_reason,
+                latency_ms=_elapsed_ms(started_at),
+                token_usage=token_usage,
+            ),
+        )
 
     def _runtime_decision(
         self,
@@ -222,14 +268,16 @@ def build_default_turn_interpreter() -> TurnInterpreter:
         api_key=os.getenv("LLM_API"),
         base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
+        timeout=_model_timeout_seconds(),
+        max_retries=0,
         # Function Calling 会把 Pydantic Schema 作为工具参数契约传给
-        # DeepSeek；本地 Pydantic 仍然是最终校验入口。
+        # OpenAI-compatible provider；本地 Pydantic 仍然是最终校验入口。
         max_tokens=2048,
-        extra_body={"thinking": {"type": "disabled"}},
+        extra_body=thinking_extra_body(model_name),
     )
     return TurnInterpreter(
         llm.with_structured_output(
-            Interpretation,
+            structured_output_schema(model_name, Interpretation),
             method="function_calling",
             include_raw=True,
         ),
@@ -242,3 +290,24 @@ build_default_router_extractor = build_default_turn_interpreter
 
 def _elapsed_ms(started_at: float) -> int:
     return max(0, round((perf_counter() - started_at) * 1000))
+
+
+def _model_timeout_seconds() -> float:
+    raw_value = os.getenv(
+        "HFT_ROUTER_TIMEOUT_SECONDS",
+        str(DEFAULT_MODEL_TIMEOUT_SECONDS),
+    )
+    try:
+        timeout = float(raw_value)
+    except ValueError as error:
+        raise RuntimeError(
+            "HFT_ROUTER_TIMEOUT_SECONDS must be a positive number"
+        ) from error
+    if timeout <= 0 or timeout != timeout or timeout in (float("inf"), float("-inf")):
+        raise RuntimeError(
+            "HFT_ROUTER_TIMEOUT_SECONDS must be a positive number"
+        )
+    return timeout
+
+
+_model_failure_reason = model_failure_reason

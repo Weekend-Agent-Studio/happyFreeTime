@@ -6504,7 +6504,7 @@
     {
       "resource_id": "osm-node-10734201823",
       "name": "Luckin",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "朝阳区",
       "business_area": "朝阳区",
@@ -6568,7 +6568,7 @@
     {
       "resource_id": "osm-node-10734201825",
       "name": "星巴克",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "朝阳区",
       "business_area": "朝阳区",
@@ -7272,7 +7272,7 @@
     {
       "resource_id": "osm-node-3308824804",
       "name": "平白咖啡厅",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "western",
       "district_display": "朝阳",
       "business_area": "朝阳",
@@ -8040,7 +8040,7 @@
     {
       "resource_id": "osm-node-4362368695",
       "name": "诗意栖居咖啡馆",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -8616,7 +8616,7 @@
     {
       "resource_id": "osm-node-5273039128",
       "name": "法派1855",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "french",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -9064,7 +9064,7 @@
     {
       "resource_id": "osm-node-6413287985",
       "name": "He kitchen&Co.",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "international",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -9128,7 +9128,7 @@
     {
       "resource_id": "osm-node-6584050808",
       "name": "星巴克",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -9256,7 +9256,7 @@
     {
       "resource_id": "osm-node-7883465485",
       "name": "SOE COFFEE",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "朝阳区",
       "business_area": "朝阳区",
@@ -9384,7 +9384,7 @@
     {
       "resource_id": "osm-node-8024412385",
       "name": "蚂蚁洞咖啡馆",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "cafe",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -9960,7 +9960,7 @@
     {
       "resource_id": "osm-way-1348424058",
       "name": "ONSITEEE",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "cafe",
       "district_display": "朝阳区",
       "business_area": "朝阳区",
@@ -10280,7 +10280,7 @@
     {
       "resource_id": "osm-node-10316539738",
       "name": "咖啡书屋",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -10344,7 +10344,7 @@
     {
       "resource_id": "osm-node-10593225763",
       "name": "蜜雪冰城",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "ice_cream",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -10472,7 +10472,7 @@
     {
       "resource_id": "osm-node-10707011273",
       "name": "双清书咖",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -10792,7 +10792,7 @@
     {
       "resource_id": "osm-node-10734201831",
       "name": "星巴克",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -11432,7 +11432,7 @@
     {
       "resource_id": "osm-node-11266134290",
       "name": "瑞幸咖啡",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -11624,7 +11624,7 @@
     {
       "resource_id": "osm-node-11708743553",
       "name": "M Stand",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -12136,7 +12136,7 @@
     {
       "resource_id": "osm-node-12229291843",
       "name": "瑞幸咖啡",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "海淀区",
       "business_area": "海淀区",
@@ -12200,7 +12200,7 @@
     {
       "resource_id": "osm-node-12399924892",
       "name": "LINLEE",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "chaoyang",
       "business_area": "chaoyang",
@@ -12264,7 +12264,7 @@
     {
       "resource_id": "osm-node-12590503840",
       "name": "星巴克",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -12328,7 +12328,7 @@
     {
       "resource_id": "osm-node-12609197101",
       "name": "XIMO精品咖啡·Brunch",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "cafe",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -12392,7 +12392,7 @@
     {
       "resource_id": "osm-node-12640827235",
       "name": "Minges",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -12520,7 +12520,7 @@
     {
       "resource_id": "osm-node-12661255401",
       "name": "大内宫保咖啡店",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "cafe",
       "district_display": "北京城区",
       "business_area": "北京城区",
@@ -12648,7 +12648,7 @@
     {
       "resource_id": "osm-node-12713909646",
       "name": "是饭咖啡厅",
-      "resource_type": "restaurant",
+      "resource_type": "cafe",
       "category_label": "coffee_shop",
       "district_display": "北京城区",
       "business_area": "北京城区",

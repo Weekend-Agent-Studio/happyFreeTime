@@ -7,6 +7,7 @@ from app.domain.catalog import ResourceType
 from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
+    PartyProfile,
     StopRole,
     TimeWindow,
 )
@@ -75,6 +76,31 @@ def dinner_only_constraints():
                 value=(StopRole.DINNER,),
                 source=ConstraintSource.USER_EXPLICIT,
                 raw_text="晚饭",
+            ),
+        }
+    )
+
+
+def single_role_constraints(role: StopRole):
+    window = {
+        StopRole.ACTIVITY: TimeWindow(start="14:00", end="18:00"),
+        StopRole.LUNCH: TimeWindow(start="11:30", end="14:00"),
+    }[role]
+    return planning_constraints(time_end=window.end).model_copy(
+        update={
+            "time_window": ConstraintValue[TimeWindow](
+                value=window,
+                source=ConstraintSource.USER_INFERRED,
+            ),
+            "exact_stop_count": ConstraintValue[int](
+                value=1,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text="只安排一个",
+            ),
+            "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                value=(role,),
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=role.value,
             ),
         }
     )
@@ -175,7 +201,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
 
         self.assertEqual(model.calls, 2)
         self.assertEqual(decision.source, "fallback")
-        self.assertEqual(decision.fallback_reason, "invalid_proposal")
+        self.assertEqual(decision.fallback_reason, "invalid_proposal_parse")
         self.assertEqual(decision.attempts, 2)
 
     def test_model_exception_falls_back_without_retrying(self) -> None:
@@ -187,7 +213,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
 
         self.assertEqual(model.calls, 1)
         self.assertEqual(decision.source, "fallback")
-        self.assertEqual(decision.fallback_reason, "model_error")
+        self.assertEqual(decision.fallback_reason, "provider_error")
 
     def test_model_timeout_is_distinguished_and_falls_back(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
@@ -199,6 +225,28 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(model.calls, 1)
         self.assertEqual(decision.source, "fallback")
         self.assertEqual(decision.fallback_reason, "timeout")
+
+    def test_membership_phrase_maps_to_romantic_objective(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={
+                "party": planning_constraints(time_end="22:00").party.model_copy(
+                    update={
+                        "value": PartyProfile(adults=1, members=["跟女朋友"]),
+                    }
+                )
+            }
+        )
+
+        decision = RuleBasedPlanningIntentProvider().decide(constraints)
+
+        self.assertEqual(
+            [item.kind.value for item in decision.intent.semantic_request.objectives],
+            ["romantic"],
+        )
+        self.assertEqual(
+            decision.intent.semantic_request.objectives[0].evidence_refs,
+            ("user.members.1",),
+        )
 
     def test_low_confidence_falls_back(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
@@ -276,7 +324,10 @@ class PlanningIntentProviderTest(unittest.TestCase):
                 model = SequencePlanningModel(proposal)
                 decision = LlmPlanningIntentProvider(model).decide(constraints)
                 self.assertEqual(decision.source, "fallback")
-                self.assertEqual(decision.fallback_reason, "proposal_out_of_bounds")
+                self.assertEqual(
+                    decision.fallback_reason,
+                    "invalid_proposal_contract:proposal_out_of_bounds",
+                )
 
     def test_explicit_single_dinner_and_clear_default_skip_model(self) -> None:
         dinner = dinner_only_constraints()
@@ -291,6 +342,44 @@ class PlanningIntentProviderTest(unittest.TestCase):
         )
         self.assertEqual(normal_model.calls, 0)
         self.assertEqual(normal_decision.source, "rule_based")
+
+    def test_explicit_single_activity_and_lunch_use_role_specific_rule_intents(self) -> None:
+        for role in (StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER):
+            with self.subTest(role=role):
+                constraints = (
+                    dinner_only_constraints()
+                    if role == StopRole.DINNER
+                    else single_role_constraints(role)
+                )
+                decision = RuleBasedPlanningIntentProvider().decide(constraints)
+
+                self.assertEqual(decision.intent.required_roles, (role,))
+                self.assertEqual(decision.intent.optional_roles, ())
+                self.assertEqual(
+                    (decision.intent.minimum_stops, decision.intent.maximum_stops),
+                    (1, 1),
+                )
+
+    def test_single_activity_llm_proposal_stays_inside_activity_only_skeleton(self) -> None:
+        constraints = single_role_constraints(StopRole.ACTIVITY).model_copy(
+            update={"preferences": ["有新鲜感"]}
+        )
+        model = SequencePlanningModel(
+            relaxed_proposal(
+                required_roles=["activity"],
+                optional_roles=[],
+                minimum_stops=1,
+                maximum_stops=1,
+                evidence={"preference": "有新鲜感"},
+            )
+        )
+
+        decision = LlmPlanningIntentProvider(model).decide(constraints)
+
+        self.assertEqual(decision.source, "llm")
+        self.assertEqual(decision.intent.required_roles, (StopRole.ACTIVITY,))
+        self.assertEqual((decision.intent.minimum_stops, decision.intent.maximum_stops), (1, 1))
+        self.assertEqual(model.calls, 1)
 
     def test_diet_tags_and_avoid_do_not_trigger_structure_model(self) -> None:
         for field_name in ("diet_tags", "avoid"):
@@ -327,9 +416,9 @@ class PlanningIntentProviderTest(unittest.TestCase):
                     raw_text="只安排一家",
                 ),
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
-                    value=(StopRole.LUNCH,),
+                    value=(StopRole.BREAK,),
                     source=ConstraintSource.USER_EXPLICIT,
-                    raw_text="午饭",
+                    raw_text="休息",
                 ),
             }
         )
@@ -382,6 +471,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
         kwargs = chat_openai.call_args.kwargs
         self.assertEqual(kwargs["timeout"], 7.5)
         self.assertEqual(kwargs["max_retries"], 0)
+        self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "disabled"}})
         chat_openai.return_value.with_structured_output.assert_called_once_with(
             PlanningIntentProposal,
             method="function_calling",

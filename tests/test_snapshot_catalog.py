@@ -46,7 +46,8 @@ class SnapshotCatalogTest(unittest.TestCase):
         self.assertEqual(len(candidates), 200)
         self.assertEqual(len({item.resource_id for item in candidates}), 200)
         self.assertEqual(sum(item.resource_type.value == "activity" for item in candidates), 100)
-        self.assertEqual(sum(item.resource_type.value == "restaurant" for item in candidates), 100)
+        self.assertEqual(sum(item.resource_type.value == "restaurant" for item in candidates), 77)
+        self.assertEqual(sum(item.resource_type.value == "cafe" for item in candidates), 23)
         self.assertGreaterEqual(sum(bool(item.address) for item in candidates), 90)
         self.assertGreaterEqual(sum(item.image is not None for item in candidates), 65)
         self.assertGreaterEqual(

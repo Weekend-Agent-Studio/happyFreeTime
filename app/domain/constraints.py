@@ -247,6 +247,9 @@ class RawConstraints(BaseModel):
     budget_text: str | None = None
     budget_per_person: int | None = Field(default=None, gt=0)
     strict_budget: bool = False
+    # 仅在用户明确要求“确认有位/必须可预约”时置为 True。普通探索性
+    # 规划允许 UNKNOWN，但必须由 Verifier 生成显式提醒。
+    require_availability_confirmation: bool = False
     max_distance_text: str | None = None
     max_distance_km: float | None = Field(default=None, gt=0)
     preferences: list[str] = Field(default_factory=list)
@@ -357,6 +360,7 @@ class NormalizedConstraints(BaseModel):
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
     strict_budget: bool = False
+    require_availability_confirmation: bool = False
     departure_at: ConstraintValue[str] | None = None
     exact_stop_count: ConstraintValue[int] | None = None
     required_stop_roles: ConstraintValue[tuple[StopRole, ...]] | None = None

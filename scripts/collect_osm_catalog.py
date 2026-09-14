@@ -71,6 +71,7 @@ def _report(snapshot: dict) -> str:
         f"- Records: **{manifest['record_count']}**",
         f"- Activities: **{sum(record['resource_type'] == 'activity' for record in snapshot['records'])}**",
         f"- Restaurants: **{sum(record['resource_type'] == 'restaurant' for record in snapshot['records'])}**",
+        f"- Cafes: **{sum(record['resource_type'] == 'cafe' for record in snapshot['records'])}**",
         "",
         "| Field | Count | Coverage |",
         "| --- | ---: | ---: |",

@@ -87,7 +87,7 @@ Resume Release V1 只证明一条可演示、可回放、可评测的纵向链�
 目标：先让状态和用户语言有可靠落点。
 
 - 分开建模 `departure_at`、可用时间窗、`duration_minutes` 和 `return_by`。
-- 支持单站晚饭，不再强制活动 + 餐饮。
+- 支持有限的单站活动、午饭和晚饭结构，不再强制活动 + 餐饮。
 - 持久化 active/selected Plan Version、Plan Version 关系和最小 `SessionSnapshot`。
 - 定义最小 `ConversationCommand`、`TargetReference`、`ConstraintPatch` 和 `LockedStop`。
 - 首版命令只承诺 `CREATE`、`SELECT`、`KEEP`、`REPLACE`；其余明确返回 unsupported 或反问。
@@ -95,7 +95,7 @@ Resume Release V1 只证明一条可演示、可回放、可评测的纵向链�
 退出案例：
 
 - “14:30 出发，18:00 前到家”保留两个独立时间锚点。
-- “只安排一家晚饭”产生一个停靠点。
+- “只安排一家晚饭”“只安排一顿午饭”“只安排一个活动”均产生一个对应角色的停靠点。
 - 刷新后仍能恢复 selected Plan Version。
 
 ### S2：受约束生成（P1，2-4 天）

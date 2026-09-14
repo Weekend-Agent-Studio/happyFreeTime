@@ -141,9 +141,47 @@ class EnrichmentService:
         # Keep a legacy text fallback for old adapters/checkpoints, but do not
         # silently treat an explicit unknown expression as an afternoon default.
         time_scope = raw.time_scope or self._infer_time_scope(raw.time_text)
+        normalized_time = self._normalize_time_window(raw.time_text)
+        departure_overrides_scope = False
+        if time_scope == TimeScope.ALL_DAY:
+            normalized_time = TimeWindow(
+                start=self.ALL_DAY_START,
+                end=self.ALL_DAY_END,
+            )
+        elif time_scope in {
+            TimeScope.MORNING,
+            TimeScope.AFTERNOON,
+            TimeScope.EVENING,
+        }:
+            scope_window = self._time_window_for_scope(time_scope)
+            # “下午/晚上”是模糊时段；一个明确的出发时刻具有更高优先级。
+            # 只有当现有窗口确实来自该模糊时段（或窗口尚未形成）时才覆盖，
+            # 显式的“10:00-16:00”仍由后续冲突检查保护。
+            scope_is_inferred = normalized_time is None or normalized_time == scope_window
+            if departure_at is not None and scope_is_inferred:
+                override_end = (
+                    return_by
+                    if return_by is not None and return_by > departure_at
+                    else self._add_minutes_to_clock(
+                        departure_at,
+                        self.DEFAULT_OUTING_MINUTES,
+                    )
+                )
+                if override_end is not None and override_end > departure_at:
+                    normalized_time = TimeWindow(
+                        start=departure_at,
+                        end=override_end,
+                    )
+                    departure_overrides_scope = True
+            if not departure_overrides_scope and normalized_time is None:
+                normalized_time = scope_window
+
+        effective_time_scope = (
+            TimeScope.EXPLICIT_RANGE if departure_overrides_scope else time_scope
+        )
         time_scope_value = (
             ConstraintValue[TimeScope](
-                value=time_scope,
+                value=effective_time_scope,
                 source=ConstraintSource.USER_INFERRED,
                 raw_text=raw.time_text,
                 confidence=(
@@ -152,45 +190,46 @@ class EnrichmentService:
                 ),
                 rule_id="time.scope.zh_cn.v1",
             )
-            if time_scope is not None
+            if effective_time_scope is not None
             else None
         )
-        normalized_time = self._normalize_time_window(raw.time_text)
-        if time_scope == TimeScope.ALL_DAY:
-            normalized_time = TimeWindow(
-                start=self.ALL_DAY_START,
-                end=self.ALL_DAY_END,
-            )
-        elif normalized_time is None and time_scope in {
-            TimeScope.MORNING,
-            TimeScope.AFTERNOON,
-            TimeScope.EVENING,
-        }:
-            normalized_time = self._time_window_for_scope(time_scope)
         time_value = None
         if normalized_time is not None:
             time_value = ConstraintValue[TimeWindow](
                 value=normalized_time,
                 source=(
                     ConstraintSource.DEFAULT_RULE
-                    if time_scope == TimeScope.ALL_DAY
+                    if effective_time_scope == TimeScope.ALL_DAY
                     else ConstraintSource.USER_INFERRED
                 ),
                 raw_text=raw.time_text,
                 confidence=self._confidence(interpretation, "time_text"),
                 rule_id=(
                     "time.all_day.default_window.v1"
-                    if time_scope == TimeScope.ALL_DAY
-                    else "time.period.zh_cn.v1"
+                    if effective_time_scope == TimeScope.ALL_DAY
+                    else (
+                        "time.window.from_departure_overrides_scope.v1"
+                        if departure_overrides_scope
+                        else "time.period.zh_cn.v1"
+                    )
                 ),
             )
-            if time_scope == TimeScope.ALL_DAY:
+            if effective_time_scope == TimeScope.ALL_DAY:
                 assumptions.append(
                     Assumption(
                         field="time_window",
                         value=normalized_time.model_dump(),
                         reason="“全天”按 09:00–21:00 的可见产品规则规划",
                         rule_id="time.all_day.default_window.v1",
+                    )
+                )
+            elif departure_overrides_scope:
+                assumptions.append(
+                    Assumption(
+                        field="time_window",
+                        value=normalized_time.model_dump(),
+                        reason="已指定精确出发时刻，优先于“上午/下午/晚上”的模糊时段",
+                        rule_id="time.window.from_departure_overrides_scope.v1",
                     )
                 )
         elif (
@@ -204,6 +243,18 @@ class EnrichmentService:
                 source=ConstraintSource.USER_INFERRED,
                 raw_text=interpretation.evidence_map.get("required_stop_roles"),
                 rule_id="time.dinner_role.zh_cn.v1",
+            )
+        elif (
+            raw.time_text is None
+            and departure_at is None
+            and raw.required_stop_roles == (StopRole.LUNCH,)
+        ):
+            lunch_window = TimeWindow(start="11:30", end="14:00")
+            time_value = ConstraintValue[TimeWindow](
+                value=lunch_window,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=interpretation.evidence_map.get("required_stop_roles"),
+                rule_id="time.lunch_role.zh_cn.v1",
             )
         elif raw.time_text is None and departure_at is not None and return_by is not None:
             time_value = ConstraintValue[TimeWindow](
@@ -393,6 +444,7 @@ class EnrichmentService:
             scene_tags=raw.scene_tags,
             avoid=raw.avoid,
             strict_budget=raw.strict_budget,
+            require_availability_confirmation=raw.require_availability_confirmation,
             departure_at=departure_at_value,
             exact_stop_count=exact_stop_count,
             required_stop_roles=required_stop_roles,
@@ -517,6 +569,30 @@ class EnrichmentService:
             match = re.search(r"(\d{1,2})[:：](\d{2})", return_by_text)
             if match:
                 candidate = f"{match.group(1)}:{match.group(2)}"
+            else:
+                chinese = re.search(
+                    r"(?:(上午|下午|晚上)\s*)?"
+                    r"([一二三四五六七八九十两]+)点"
+                    r"(?:(半)|([零〇一二三四五六七八九十两]+)分?)?"
+                    r"\s*(?:前|之前)?\s*(?:到家|回家|回来)",
+                    return_by_text,
+                )
+                if chinese:
+                    period, hour_text, half_text, minute_text = chinese.groups()
+                    hour = EnrichmentService._parse_chinese_hour(hour_text)
+                    if hour is not None:
+                        if half_text:
+                            minute = 30
+                        elif minute_text:
+                            minute = EnrichmentService._parse_chinese_minute(minute_text)
+                        else:
+                            minute = 0
+                        if minute is not None:
+                            candidate = EnrichmentService._normalize_clock_with_period(
+                                period,
+                                hour,
+                                minute,
+                            )
         if candidate is None:
             return None
         parts = candidate.strip().split(":")
@@ -552,16 +628,25 @@ class EnrichmentService:
             period, hour_text, minute_text = numeric.groups()
             return cls._normalize_clock_with_period(period, int(hour_text), int(minute_text))
         chinese = re.fullmatch(
-            r"(?:(上午|下午|晚上)\s*)?([一二三四五六七八九十两]+)点(半)?\s*(?:准时\s*)?(?:出发|离开)",
+            r"(?:(上午|下午|晚上)\s*)?([一二三四五六七八九十两]+)点"
+            r"(?:(半)|([零〇一二三四五六七八九十两]+)分?)?"
+            r"\s*(?:准时\s*)?(?:出发|离开)",
             text,
         )
         if not chinese:
             return None
-        period, hour_text, minute_text = chinese.groups()
+        period, hour_text, half_text, minute_text = chinese.groups()
         hour = cls._parse_chinese_hour(hour_text)
         if hour is None:
             return None
-        minute = 30 if minute_text == "半" else 0
+        if half_text:
+            minute = 30
+        elif minute_text:
+            minute = cls._parse_chinese_minute(minute_text)
+            if minute is None:
+                return None
+        else:
+            minute = 0
         return cls._normalize_clock_with_period(period, hour, minute)
 
     @staticmethod
@@ -596,6 +681,35 @@ class EnrichmentService:
             return 10
         if len(value) == 2 and value[0] == "十" and value[1] in digits:
             return 10 + digits[value[1]]
+        return None
+
+    @staticmethod
+    def _parse_chinese_minute(value: str) -> int | None:
+        """Parse the small Chinese minute vocabulary used in exact clock phrases."""
+        digits = {
+            "零": 0,
+            "〇": 0,
+            "一": 1,
+            "二": 2,
+            "两": 2,
+            "三": 3,
+            "四": 4,
+            "五": 5,
+            "六": 6,
+            "七": 7,
+            "八": 8,
+            "九": 9,
+        }
+        if value in digits:
+            return digits[value]
+        if value == "十":
+            return 10
+        if len(value) == 2 and value[0] == "十" and value[1] in digits:
+            return 10 + digits[value[1]]
+        if len(value) == 2 and value[1] == "十" and value[0] in digits:
+            return digits[value[0]] * 10
+        if len(value) == 3 and value[1] == "十" and value[0] in digits and value[2] in digits:
+            return digits[value[0]] * 10 + digits[value[2]]
         return None
 
     @staticmethod

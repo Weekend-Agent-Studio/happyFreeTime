@@ -131,6 +131,31 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             }
         )
 
+    @staticmethod
+    def _single_role_constraints(role: StopRole) -> NormalizedConstraints:
+        windows = {
+            StopRole.ACTIVITY: TimeWindow(start="14:00", end="18:00"),
+            StopRole.LUNCH: TimeWindow(start="11:30", end="14:00"),
+        }
+        return planning_constraints(time_end=windows[role].end).model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=windows[role],
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+                "exact_stop_count": ConstraintValue[int](
+                    value=1,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="只安排一个",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(role,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text=role.value,
+                ),
+            }
+        )
+
     def test_dinner_only_intent_and_skeleton_do_not_leak_into_default_requests(self) -> None:
         dinner_constraints = self._dinner_only_constraints()
         dinner_intent = _build_planning_intent(dinner_constraints)
@@ -159,9 +184,9 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                     raw_text="只安排一家",
                 ),
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
-                    value=(StopRole.LUNCH,),
+                    value=(StopRole.BREAK,),
                     source=ConstraintSource.USER_EXPLICIT,
-                    raw_text="午饭",
+                    raw_text="休息",
                 ),
             }
         )
@@ -202,6 +227,34 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertEqual({len(plan.route_legs) for plan in returning.plans}, {2})
         self.assertTrue(all(plan.route_legs[-1].destination_name == "出发地" for plan in returning.plans))
         self.assertTrue(all(plan.route_legs[-1].end <= "22:00" for plan in returning.plans))
+
+    def test_activity_and_lunch_only_use_role_specific_single_stop_skeletons(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity-a", ResourceType.ACTIVITY, "活动 A", ["展览"]),
+                candidate("activity-b", ResourceType.ACTIVITY, "活动 B", ["展览"]),
+                candidate("lunch-a", ResourceType.RESTAURANT, "午餐 A", ["餐厅"]),
+                candidate("lunch-b", ResourceType.RESTAURANT, "午餐 B", ["餐厅"]),
+            ]
+        )
+        expectations = (
+            (StopRole.ACTIVITY, "activity-only-v1", ResourceType.ACTIVITY),
+            (StopRole.LUNCH, "lunch-only-v1", ResourceType.RESTAURANT),
+        )
+        for role, skeleton_id, resource_type in expectations:
+            with self.subTest(role=role):
+                result = PlanningService(
+                    catalog=catalog,
+                    route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=1),
+                ).plan(self._single_role_constraints(role))
+
+                self.assertTrue(result.plans)
+                self.assertEqual({plan.skeleton_id for plan in result.plans}, {skeleton_id})
+                self.assertEqual({len(plan.stops) for plan in result.plans}, {1})
+                self.assertTrue(all(plan.stops[0].role == role for plan in result.plans))
+                self.assertTrue(
+                    all(plan.stops[0].type.value == resource_type.value for plan in result.plans)
+                )
 
     def test_dinner_only_does_not_fallback_and_reports_structure_when_impossible(self) -> None:
         activity_only = InMemoryCatalog([candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"])])
@@ -341,6 +394,68 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertTrue(all("meal-a" not in {stop.resource_id for stop in plan.stops} for plan in result.plans))
         self.assertTrue(any([stop.resource_id for stop in plan.stops] == ["activity-a", "meal-b"] for plan in result.plans))
         self.assertTrue(any(item.code == "availability_unconfirmed" for item in result.warnings))
+
+    def test_unknown_availability_is_returned_with_an_explicit_warning(self) -> None:
+        constraints = self._single_role_constraints(StopRole.ACTIVITY)
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"])]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=MockAvailabilityProvider(
+                default_status=AvailabilityStatus.UNKNOWN
+            ),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            any(
+                item.code == "availability_unconfirmed"
+                and item.resource_id == "activity"
+                for item in result.warnings
+            )
+        )
+
+    def test_missing_availability_fact_is_also_explicitly_warned(self) -> None:
+        class EmptyAvailabilityProvider:
+            def check(self, request):
+                del request
+                return []
+
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"])]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=EmptyAvailabilityProvider(),
+        ).plan(self._single_role_constraints(StopRole.ACTIVITY))
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            any(
+                item.code == "availability_unconfirmed"
+                and item.resource_id == "activity"
+                for item in result.warnings
+            )
+        )
+
+    def test_required_availability_confirmation_blocks_unknown_candidates(self) -> None:
+        constraints = self._single_role_constraints(StopRole.ACTIVITY).model_copy(
+            update={"require_availability_confirmation": True}
+        )
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"])]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=MockAvailabilityProvider(
+                default_status=AvailabilityStatus.UNKNOWN
+            ),
+        ).plan(constraints)
+
+        self.assertEqual(result.plans, [])
+        self.assertIsNotNone(result.conflict)
+        self.assertIn("availability", result.conflict.fields)
 
     def test_two_local_replan_rounds_can_reach_a_third_local_candidate_within_budget(self) -> None:
         catalog = InMemoryCatalog(

@@ -35,6 +35,51 @@ class SoftObjectiveKind(str, Enum):
     LOW_SPICE = "low_spice"
 
 
+# One small, shared vocabulary for deterministic normalization and the
+# PlanningIntent model contract.  These are user-language aliases only; they
+# do not grant permission to change a hard constraint or select a POI.
+SOFT_OBJECTIVE_ALIASES: dict[SoftObjectiveKind, tuple[str, ...]] = {
+    SoftObjectiveKind.LOW_FATIGUE: (
+        "轻松",
+        "松弛",
+        "不赶",
+        "休闲",
+        "不累",
+        "不希望太累",
+        "不要排得太累",
+        "慢慢走",
+    ),
+    SoftObjectiveKind.SHORTER_TRAVEL: (
+        "近一点",
+        "更近",
+        "近点",
+        "少走",
+        "步行可达",
+    ),
+    SoftObjectiveKind.NOVELTY: ("新鲜感", "新奇", "新意", "有意思"),
+    SoftObjectiveKind.QUIET: ("安静", "清静"),
+    SoftObjectiveKind.CONVERSATION_FRIENDLY: ("聊天", "适合聊天", "能聊天"),
+    SoftObjectiveKind.ROMANTIC: (
+        "约会",
+        "浪漫",
+        "女朋友",
+        "男朋友",
+        "情侣",
+        "伴侣",
+        "对象",
+    ),
+    SoftObjectiveKind.FAMILY_FRIENDLY: (
+        "亲子",
+        "带孩子",
+        "家庭",
+        "父母",
+        "爸妈",
+        "老人",
+    ),
+    SoftObjectiveKind.LOW_SPICE: ("少辣", "不辣", "微辣"),
+}
+
+
 class EvidenceRef(BaseModel):
     """A traceable statement that can be cited by semantic decisions."""
 

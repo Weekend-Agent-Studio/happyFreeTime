@@ -3,7 +3,8 @@
 - Collected at: `2026-08-23T16:52:05+00:00`
 - Records: **200**
 - Activities: **100**
-- Restaurants: **100**
+- Restaurants: **77**
+- Cafes: **23**
 
 | Field | Count | Coverage |
 | --- | ---: | ---: |

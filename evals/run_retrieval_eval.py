@@ -83,12 +83,20 @@ def _run_adapter(adapter: Any, cases: Sequence[dict[str, Any]], candidates: Sequ
         result = adapter.retrieve(request)
         measured_latency = max(0.0, (perf_counter() - started_at) * 1000.0)
         relevance = {key: float(value) for key, value in case.get("relevance", {}).items()}
+        # Eligibility is an explicit human-reviewed label.  Keep the old
+        # non-empty-relevance fallback for development fixtures that predate
+        # this field, but never let a labelled safety case enter the quality
+        # denominator merely because it happens to contain relevance data.
+        metric_eligible = case.get("metric_eligible")
+        if metric_eligible is None:
+            metric_eligible = bool(relevance)
         # Keep the report inspectable while retaining enough ranks for MRR and
         # all requested top-k metrics.
         ranked_ids = [item.candidate.resource_id for item in result.items[:10]]
         rows.append(
             {
                 "case_id": case["case_id"],
+                "metric_eligible": bool(metric_eligible),
                 "ranked_ids": ranked_ids,
                 "relevance": relevance,
                 "latency_ms": measured_latency,
@@ -139,7 +147,11 @@ def _request(case: dict[str, Any], candidates: Sequence[StopCandidate], role: St
 
 
 def _aggregate(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    evaluated = [row for row in rows if row["relevance"]]
+    evaluated = [
+        row
+        for row in rows
+        if row.get("metric_eligible", bool(row["relevance"]))
+    ]
     metrics = {
         "recall_at_3": _mean_metric(evaluated, lambda row: _recall(row, 3)),
         "recall_at_5": _mean_metric(evaluated, lambda row: _recall(row, 5)),

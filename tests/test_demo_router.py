@@ -41,6 +41,27 @@ class DemoRouterTest(unittest.TestCase):
         self.assertEqual(result.raw_constraints.return_by, "18:00")
         self.assertIsNotNone(result.raw_constraints.return_by_text)
 
+    def test_preserves_chinese_return_deadline_for_enrichment(self) -> None:
+        result = self.router.interpret(
+            "明天下午三点二十准时出发，晚上八点前回来",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.return_by_text, "晚上八点前回来")
+        self.assertIsNone(result.raw_constraints.return_by)
+
+    def test_extracts_explicit_availability_confirmation_requirement(self) -> None:
+        result = self.router.interpret(
+            "只安排一家晚饭，必须营业且确认有位",
+            self.context,
+        )
+
+        self.assertTrue(result.raw_constraints.require_availability_confirmation)
+        self.assertEqual(
+            result.evidence_map["require_availability_confirmation"],
+            "确认有位",
+        )
+
     def test_keeps_departure_evidence_separate_from_return_deadline(self) -> None:
         result = self.router.interpret(
             "明天下午两点半准时出发，18:00 前回家",
@@ -81,6 +102,32 @@ class DemoRouterTest(unittest.TestCase):
             self.assertEqual(result.raw_constraints.required_stop_roles, (StopRole.DINNER,))
             self.assertTrue(result.evidence_map["exact_stop_count"])
             self.assertIn("晚", result.evidence_map["required_stop_roles"])
+
+    def test_extracts_lunch_only_structure_with_evidence(self) -> None:
+        for text in (
+            "明天只安排一顿午饭",
+            "明天就吃个午餐",
+            "明天只去一家餐厅吃午饭",
+        ):
+            result = self.router.interpret(text, self.context)
+
+            self.assertEqual(result.raw_constraints.exact_stop_count, 1)
+            self.assertEqual(result.raw_constraints.required_stop_roles, (StopRole.LUNCH,))
+            self.assertTrue(result.evidence_map["exact_stop_count"])
+            self.assertIn("午", result.evidence_map["required_stop_roles"])
+
+    def test_extracts_activity_only_with_explicit_quantity_or_no_meal(self) -> None:
+        for text in (
+            "下午只去一个活动，不安排吃饭",
+            "只看一个展",
+            "只安排活动，不安排吃饭",
+        ):
+            result = self.router.interpret(text, self.context)
+
+            self.assertEqual(result.raw_constraints.exact_stop_count, 1)
+            self.assertEqual(result.raw_constraints.required_stop_roles, (StopRole.ACTIVITY,))
+            self.assertTrue(result.evidence_map["exact_stop_count"])
+            self.assertTrue(result.evidence_map["required_stop_roles"])
 
     def test_dinner_words_without_exclusivity_do_not_become_dinner_only(self) -> None:
         for text in (

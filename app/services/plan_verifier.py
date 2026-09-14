@@ -167,6 +167,23 @@ class PlanVerifier:
         for stop in plan.stops:
             fact = facts_by_resource.get(stop.resource_id)
             if fact is None:
+                finding = VerificationFinding(
+                    code=(
+                        "availability_confirmation_required"
+                        if constraints.require_availability_confirmation
+                        else "availability_unconfirmed"
+                    ),
+                    field="availability",
+                    message=(
+                        f"{stop.name} 没有本轮动态可用性事实，无法确认有位。"
+                        if constraints.require_availability_confirmation
+                        else f"{stop.name} 的动态可用性本轮未返回事实，建议出发前再次确认。"
+                    ),
+                    resource_id=stop.resource_id,
+                )
+                (violations if constraints.require_availability_confirmation else warnings).append(
+                    finding
+                )
                 continue
             if fact.status == AvailabilityStatus.UNAVAILABLE and fact.verified and not fact.stale and not fact.degraded:
                 violations.append(
@@ -177,19 +194,30 @@ class PlanVerifier:
                         resource_id=stop.resource_id,
                     )
                 )
-            elif (
-                fact.status == AvailabilityStatus.UNKNOWN
-                or fact.stale
-                or fact.degraded
-                or not fact.verified
-            ):
-                warnings.append(
-                    VerificationFinding(
-                        code="availability_unconfirmed",
-                        field="availability",
-                        message=f"{stop.name} 的动态可用性尚未得到完整确认。",
-                        resource_id=stop.resource_id,
-                    )
+                continue
+            confirmed_available = (
+                fact.status == AvailabilityStatus.AVAILABLE
+                and fact.verified
+                and not fact.stale
+                and not fact.degraded
+            )
+            if not confirmed_available:
+                finding = VerificationFinding(
+                    code=(
+                        "availability_confirmation_required"
+                        if constraints.require_availability_confirmation
+                        else "availability_unconfirmed"
+                    ),
+                    field="availability",
+                    message=(
+                        f"{stop.name} 的动态可用性不是可确认的 AVAILABLE，不能确认有位。"
+                        if constraints.require_availability_confirmation
+                        else f"{stop.name} 的动态可用性尚未得到完整确认。"
+                    ),
+                    resource_id=stop.resource_id,
+                )
+                (violations if constraints.require_availability_confirmation else warnings).append(
+                    finding
                 )
         for index, leg in enumerate(plan.route_legs):
             if leg.degraded:

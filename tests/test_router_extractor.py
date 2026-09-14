@@ -40,6 +40,9 @@ class RouterExtractorTest(unittest.TestCase):
 
         kwargs = chat_openai.call_args.kwargs
         self.assertEqual(kwargs["max_tokens"], 2048)
+        self.assertEqual(kwargs["timeout"], 15)
+        self.assertEqual(kwargs["max_retries"], 0)
+        self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "disabled"}})
         chat_openai.return_value.with_structured_output.assert_called_once_with(
             Interpretation,
             method="function_calling",
@@ -99,7 +102,7 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertNotIn("默认预算", prompt)
 
     def test_retries_once_then_returns_explicit_clarification(self) -> None:
-        model = FakeStructuredModel([ValueError("invalid output"), ValueError("still invalid")])
+        model = FakeStructuredModel([{"invalid": True}, {"still_invalid": True}])
         router = RouterExtractor(model)
 
         result = router.interpret(
@@ -112,7 +115,17 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertTrue(result.requires_clarification)
         self.assertIn("重新描述", result.reply)
         retry_prompt = "\n".join(str(message.content) for message in model.calls[1])
-        self.assertIn("invalid output", retry_prompt)
+        self.assertIn("invalid_output", retry_prompt)
+
+    def test_classifies_provider_failure_separately_from_invalid_output(self) -> None:
+        model = FakeStructuredModel([ConnectionError("connection refused")])
+        _, runtime = RouterExtractor(model).interpret_with_runtime(
+            "明天出去玩",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+
+        self.assertEqual(runtime.fallback_reason, "network_error")
+        self.assertEqual(len(model.calls), 1)
 
 
 if __name__ == "__main__":

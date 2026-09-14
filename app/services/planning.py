@@ -76,6 +76,7 @@ from app.services.planning_intent import (
     LUNCH_ACTIVITY_DINNER_SKELETON as _LUNCH_ACTIVITY_DINNER_SKELETON,
     PlanningIntentProvider,
     RuleBasedPlanningIntentProvider,
+    SINGLE_STOP_ROLES as _SINGLE_STOP_ROLES,
     build_rule_based_planning_intent,
 )
 from app.services.plan_verifier import PlanVerifier, VerificationFinding
@@ -605,11 +606,20 @@ class PlanningService:
                 catalog_violations=catalog_result.violations,
                 conflict=ConstraintConflict(
                     code=(
-                        "NO_PLAN_AFTER_LOCAL_REPLAN"
+                        "NO_FEASIBLE_PLAN"
+                        if (
+                            constraints.require_availability_confirmation
+                            and "availability" in reported_failure_fields
+                        )
+                        else "NO_PLAN_AFTER_LOCAL_REPLAN"
                         if exhausted_repair_chain
                         else "NO_PLAN_AFTER_ROUTE_VERIFICATION"
                     ),
-                    message="路线和整单可行性复核后，候选方案均违反硬约束。",
+                    message=(
+                        "动态可用性复核后，没有确认有位或可执行的候选地点。"
+                        if "availability" in reported_failure_fields
+                        else "路线和整单可行性复核后，候选方案均违反硬约束。"
+                    ),
                     fields=[
                         field
                         for field in (
@@ -1752,7 +1762,12 @@ def _unsupported_plan_structure_conflict(
     )
     if exact_stop_count is None and required_roles is None:
         return None
-    if exact_stop_count == 1 and required_roles == (StopRole.DINNER,):
+    if (
+        exact_stop_count == 1
+        and required_roles is not None
+        and len(required_roles) == 1
+        and required_roles[0] in _SINGLE_STOP_ROLES
+    ):
         return None
 
     fields = []
@@ -1763,9 +1778,12 @@ def _unsupported_plan_structure_conflict(
     fields.append("plan_structure")
     return ConstraintConflict(
         code="UNSUPPORTED_PLAN_STRUCTURE",
-        message="当前版本只支持默认多站规划，或“只安排一家晚饭”的单站结构。",
+        message="当前版本只支持默认多站规划，或只安排一个活动、午饭或晚饭的单站结构。",
         fields=fields,
-        relaxation_options=["改为只安排一家晚饭", "移除明确站数或角色限制"],
+        relaxation_options=[
+            "改为只安排一个活动、午饭或晚饭",
+            "移除明确站数或角色限制",
+        ],
     )
 
 
@@ -1810,7 +1828,11 @@ def _skeleton_matches_intent(
 
 
 def _structure_conflict_fields(intent: PlanningIntent) -> list[str]:
-    if intent.minimum_stops == intent.maximum_stops == 1 and intent.required_roles == (StopRole.DINNER,):
+    if (
+        intent.minimum_stops == intent.maximum_stops == 1
+        and len(intent.required_roles) == 1
+        and intent.required_roles[0] in _SINGLE_STOP_ROLES
+    ):
         return ["required_stop_roles", "plan_structure"]
     return []
 
@@ -2443,6 +2465,8 @@ def _route_relaxation_options(fields: set[str]) -> list[str]:
         options.append("延后最晚到家时间或缩短行程")
     if "total_distance_km" in fields:
         options.append("放宽全程距离限制或选择更近的地点")
+    if "availability" in fields:
+        options.append("重新确认余位或更换地点")
     return options
 
 

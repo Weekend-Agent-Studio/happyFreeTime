@@ -151,7 +151,7 @@ HFT_CATALOG_MODE=demo
 
 ## POI Catalog、Demo World、价格与图片边界
 
-- `data/catalog/pois.json` 当前包含 200 条北京 POI：100 个活动、100 个餐厅。它由版本化 Overpass 查询、原始响应 replay 和生成脚本构建，基础来源为 OpenStreetMap contributors（ODbL 1.0）。
+- `data/catalog/pois.json` 当前包含 200 条北京 POI：100 个活动、77 个餐厅和 23 个咖啡馆。它由版本化 Overpass 查询、原始响应 replay 和生成脚本构建，基础来源为 OpenStreetMap contributors（ODbL 1.0）。
 - 快照保存 WGS84，`SnapshotCatalog` 在 Adapter 内转换为当前路线 Provider 使用的 GCJ-02。旧 M1 Mock 数据只存在于 `data/fixtures/v1/`，不会混入运行快照。
 - `HFT_CATALOG_MODE=snapshot` 保留上述原始基线：地址 104/200、基础营业时间 110/200、许可可追溯远程图片 72/200、可靠价格 0/200；10 条 POI 保留同日多营业区间。完整报告见 `data/catalog/completeness.md`。
 - 默认 `demo` 使用 `data/demo_world/v1/enrichment.json`：所有 200 个 OSM 锚点都有稳定的参考价格、展示营业时段、场景/设施标签、亲子/天气适配、演示评分和评论数、排队/预约文案及画廊。它由 `resource_id + 固定 v1 种子` 构建，同一 POI 跨请求不变化，且参考价格和营业时段会真正进入 Catalog 剪枝、Planner 和 Verifier。
