@@ -23,15 +23,16 @@ DATASET_PATH = ROOT / "evals" / "resume_release_cases.json"
 
 
 class ResumeReleaseEvaluationTest(unittest.TestCase):
-    def test_draft_cases_require_explicit_opt_in(self) -> None:
+    def test_reviewed_cases_are_selectable_without_draft_opt_in(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
 
-        with self.assertRaises(EvaluationConfigurationError):
-            run_resume_release_evaluation(
-                dataset,
-                variant="offline_sanity",
-                case_ids=["plan_dinner_only_light"],
-            )
+        report = run_resume_release_evaluation(
+            dataset,
+            variant="offline_sanity",
+            case_ids=["plan_dinner_only_light"],
+        )
+        self.assertEqual(report.case_count, 1)
+        self.assertEqual(report.label_status_counts["reviewed"], 1)
 
     def test_real_llm_variant_requires_explicit_opt_in(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
@@ -57,7 +58,7 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
             )
 
             self.assertEqual(report.case_count, 1)
-            self.assertEqual(report.label_status_counts["draft"], 1)
+            self.assertEqual(report.label_status_counts["reviewed"], 1)
             result = report.case_results[0]
             self.assertEqual(result.case_id, "plan_dinner_only_light")
             self.assertTrue(result.transcript)
@@ -71,7 +72,7 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
                 (Path(output_dir) / "report.json").read_text(encoding="utf-8")
             )
             self.assertEqual(payload["variant"]["variant_id"], "offline_sanity")
-            self.assertEqual(payload["label_status_counts"]["draft"], 1)
+            self.assertEqual(payload["label_status_counts"]["reviewed"], 1)
 
     def test_transcript_records_router_and_planning_semantic_stages(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)

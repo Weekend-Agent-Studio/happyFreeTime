@@ -15,8 +15,10 @@ This directory keeps development fixtures separate from holdout candidates.
 All newly generated labels start as `draft`. Before publishing any metric, a
 human should review each case without looking at model output, correct the
 expected outcome and relevant POI set, and change its status to `reviewed`.
-The report runner publishes reviewed and draft results separately and must
-never call draft-only results a production success rate.
+The current 35-case E2E set was reviewed on 2026-09-14; per-case rationale is
+recorded in `docs/status/resume_release_case_review_2026-09-14.md`. The report
+runner publishes reviewed and draft results separately and must never call
+draft-only results a production success rate.
 
 The next evaluation slice should compare frozen configurations, not tune on
 the holdout data:
@@ -40,13 +42,13 @@ availability fixtures for every case:
 ```powershell
 python -m evals.run_resume_release_eval `
   --variant offline_sanity `
-  --allow-draft `
   --case-id plan_all_day_date_relaxed `
   --case-id modify_activity_shorter
 ```
 
 `offline_sanity` never calls an LLM. `B0_DOWNSTREAM_RULE` through
 `B3_GROUNDED_ADVICE` require both `--allow-llm` and `LLM_API`; this keeps paid
-model calls explicit. Reports are written under `artifacts/evals/` and mark
-all current draft labels as exploratory. The MVP does not yet run the full
-four-variant matrix or promote labels to `reviewed`.
+model calls explicit. Reports are written under `artifacts/evals/`. Future
+draft additions remain exploratory and require `--allow-draft`; the frozen
+35-case E2E set can now be selected as reviewed. The MVP still does not
+automatically promote labels or hide failures.

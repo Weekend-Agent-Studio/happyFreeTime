@@ -22,7 +22,7 @@ HappyFreeTime 已经不是只会返回一段文本的简单 Workflow。当前主
 
 [合理推断]
 
-它已经足够作为“受约束 Agent 应用”的工程原型进行面试和投递，但还不能把当前所有评测数字直接写成正式效果指标。原因不是链路不存在，而是 E2E 标签仍是 draft、完整消融矩阵尚未跑完，且真实模型输出存在波动和 fallback。
+它已经足够作为“受约束 Agent 应用”的工程原型进行面试和投递，但还不能把当前所有评测数字直接写成正式效果指标。原因不是链路不存在，而是完整消融矩阵尚未跑完，且真实模型输出存在波动和 fallback；历史报告中的 draft 状态已经在后续审核中收口。
 
 ### 0.2 当前最重要的事实
 
@@ -284,7 +284,7 @@ Advice 不是把任意文本交给 LLM 后直接显示：
 - 产物目录：artifacts/evals/offline_sanity_20260913T160632Z/
 - Run ID：20260913T160651Z-664d79ef
 - 35 条 E2E Case。
-- 35 条 label_status 都是 draft。
+- 这份历史报告生成时 35 条 label_status 都是 draft；之后已完成人工审核并将数据文件更新为 reviewed。
 - task success：13/35。
 - hard constraint Case：4/7。
 - required assertions：137/191。
@@ -299,7 +299,7 @@ Advice 不是把任意文本交给 LLM 后直接显示：
 
 [重要解释]
 
-这不是“系统随机坏掉，只成功了 13 条”的最终结论。它表示 35 条全部参与了 Runner，但当前有很多 Case 超出离线 RuleBased 能力、依赖尚未启用的模型语义、或仍需要重新确认标签/Fixture 合同。它很有价值，因为它暴露了边界；但在 label_status 全是 draft 的情况下，不能拿 13/35 当简历端到端成功率。
+这不是“系统随机坏掉，只成功了 13 条”的最终结论。它表示 35 条全部参与了 Runner，但当时有很多 Case 超出离线 RuleBased 能力、依赖尚未启用的模型语义、或仍需要重新确认标签/Fixture 合同。它很有价值，因为它暴露了边界；由于该历史报告生成时 label_status 全是 draft，不能拿 13/35 当简历端到端成功率。
 
 ### 3.2 真实 DeepSeek Pilot
 
@@ -366,7 +366,7 @@ evals/resume_release_cases.json 当前包含 35 条 Case，字段覆盖：
 - 显式单站替换、多轮修改、保持非目标站 identity。
 - 失败和能力边界的反例。
 
-当前 35 条的 label_status 全部还是 draft。这意味着之前在对话中逐条讨论过，不等于 JSON 文件已经被写成 reviewed。
+当前 35 条的 label_status 已全部为 reviewed；逐条审核依据和过程摘要记录在 [`resume_release_case_review_2026-09-14.md`](resume_release_case_review_2026-09-14.md)。
 
 ### 4.2 Retrieval Holdout
 
@@ -394,8 +394,8 @@ evals/resume_release_cases.json 当前包含 35 条 Case，字段覆盖：
 1. **工作树没有收口提交。**  
    当前有业务代码、评测代码、数据、文档同时 dirty。下一次会话必须先区分哪些是本次修复、哪些是之前已有工作，再有选择地提交；不要 reset 或删除用户文件。
 
-2. **35 条 E2E 标签未冻结。**  
-   全部 draft 时，任何成功率、硬约束率都只能是诊断数字。必须人工审核“用户输入 -> 业务预期 -> 哪些能力在当前版本范围内”的关系，不能在跑完结果后为了好看反向改答案。
+2. **35 条 E2E 标签已冻结，但仍需按审核记录解释分母。**
+   当前全部为 reviewed，且纳入 E2E 主评测；这不等于每个 Variant 都必须通过。若未来改变产品范围，应新增审核修订，不能在跑完结果后为了好看反向改答案。
 
 3. **完整 S5 消融矩阵未完成。**  
    当前只做过 offline sanity 和四个单 Case Pilot，没有稳定的多 Case、重复运行和正式 B0–B3 对照。不能写“LLM 让成功率提升 X%”。
@@ -478,7 +478,7 @@ E2E 标签审核应只看用户输入、业务定义和当前产品范围，不�
 - label_review_required：预期或字段仍有歧义。
 - fixture_failure：测试环境本身不满足合同。
 
-审核完成后再把人工决定写回数据文件，并保留 reviewer/date/note。不要自动把 draft 批量改成 reviewed。
+审核决定已写回数据文件，并在 `docs/status/resume_release_case_review_2026-09-14.md` 保留 reviewer/date/依据摘要。未来新增 Case 仍必须人工审核，不能自动批量晋级。
 
 ### Step 5：跑小 Pilot，不跑完整矩阵
 
@@ -575,8 +575,8 @@ B0–B3 各运行一次，显式设置最大模型调用数。首先只检查 Ru
 
 ## 9. 需要下一次会话回答的关键问题
 
-1. 35 条 E2E 中哪些是当前版本真正承诺支持的，哪些应标为 capability_boundary？
-2. 标签人工审核后，支持范围内的 task success 和 hard constraint denominator 分别是多少？
+1. 35 条 E2E 已按当前 Resume Release 范围纳入；若产品范围变化，是否需要新增 capability_boundary 修订？
+2. reviewed 集合上的 task success 和 hard constraint denominator 分别是多少？
 3. RuleBased、LLM PlanningIntent、Hybrid Retrieval、LLM Advisor 的增量收益是否能在相同 Router 和相同 Fixture 下被分离？
 4. B2 的 romantic 漏检和 B3 的 unsupported_plan_evidence 是数据问题、Prompt/Context 问题、ID 合同问题，还是合理 fallback？
 5. token coverage 是否足以对外报告；若不足，是否只报告已观测调用的范围并明确 unknown？
@@ -621,7 +621,7 @@ B0–B3 各运行一次，显式设置最大模型调用数。首先只检查 Ru
 - 最新 qwen3.8-flash B2 Pilot（`artifacts/evals/qwen38_B2_pilot_escalated/`）3 条 Case 均完成，9 次模型调用无 fallback；token 观测为 6/9，端到端 P50/P95 约 13.3s/50.7s，BGE 首次检索约 37.6s，后续约 90ms。它证明 Hybrid 路径真实运行，但样本太小，不能作正式收益结论。
 - 最新 qwen3.8-flash B3 Pilot（`artifacts/evals/qwen38_B3_pilot_escalated30/`，Advisor timeout=30s）为 1/3 正常任务成功、1/3 degraded completion、2/3 失败；失败主要是 TurnInterpreter `invalid_output` 和 Advisor `invalid_proposal_contract:ungrounded_text`，不是本次的 `low_confidence`。Advisor 的安全回退仍阻止了无证据解释。
 - 更早的 qwen3.8 默认 15s 运行（`artifacts/evals/qwen38_B3_pilot5/`）中，`plan_all_day_date_relaxed` 和 `plan_parents_novel_not_tiring` 的 PlanningIntent 曾因 `low_confidence` 回退；必须和最新 30s 运行分开解读，不能把不同失败码混在一起。
-- 当前仍没有可用于简历的正式 B0–B3 增量结论：E2E 35 条标签文件仍是 `draft`，Pilot 规模很小，模型输出和 token 覆盖也不稳定。
+- 当前仍没有可用于简历的正式 B0–B3 增量结论：E2E 35 条虽已 reviewed，但 Pilot 规模很小，模型输出和 token 覆盖也不稳定。
 
 ### 11.3 `low_confidence` 的准确含义与风险
 
@@ -641,5 +641,21 @@ B0–B3 各运行一次，显式设置最大模型调用数。首先只检查 Ru
 1. 先用新提交后的干净工作树重跑低成本定向测试和 `compileall`，确认提交没有混入 Key 或评测产物。
 2. 保留完整 Pilot 失败明细：区分 `product_failure`、`model_failure`、`fixture_failure`、`runner_failure` 和 `label_review_required`；不要把 fallback 自动算成正常成功。
 3. 在同一模型配置下再跑 6–8 条 B1/B2/B3 Pilot，重点观察 PlanningIntent `low_confidence`、TurnInterpreter `invalid_output`、Advisor contract fallback、BGE cold/warm 和 token coverage。
-4. 只有标签真正改为 `reviewed`、失败归因稳定且预算明确后，才运行完整 B0–B3 矩阵，并按增量差异归因：B1-B0 看 PlanningIntent，B2-B1 看 Retrieval，B3-B2 看 Advisor。
+4. 标签已改为 `reviewed`；待 Pilot 失败归因稳定且预算明确后，运行完整 B0–B3 矩阵，并按增量差异归因：B1-B0 看 PlanningIntent，B2-B1 看 Retrieval，B3-B2 看 Advisor。
 5. 暂不引入 Agent Loop、MCP、长期记忆、向量数据库或任意骨架重排；先把“模型确实影响语义、Harness 确实能约束和降级、评测能如实解释失败”这条故事闭环。
+
+## 12. 2026-09-14 E2E 标签审核落盘
+
+[代码事实]
+
+- `evals/resume_release_cases.json` 的 35 条 E2E Case 已从 `draft` 更新为 `reviewed`。
+- 逐条审核过程摘要、依据和指标范围记录在 [`resume_release_case_review_2026-09-14.md`](resume_release_case_review_2026-09-14.md)。该记录明确说明：摘要是对侧边会话讨论的规范化记录，不冒充逐字 transcript。
+- 本轮 35 条均纳入 E2E 主评测分母；`planning/clarification/conflict/modification` 仍按原 category 分组，hard-constraint 分母由 `hard_constraint` 标签确定（当前 7 条）。`reviewed` 只表示预期被人工确认，不表示某个 Variant 必须通过。
+- Retrieval holdout 仍为 16 条 reviewed，其中 15 条进入 Recall/nDCG/MRR 分母，1 条仅做 grounding safety；它和 35 条 E2E 不合并为一个成功率。
+- `evals/README.md`、数据集测试和本交接文档已同步说明新状态；没有修改 Planner、Graph、数据库或线上业务合同。
+
+[下一步]
+
+1. 先运行数据集/评测 Runner 的低成本测试，确认 `reviewed` Case 不再需要 `--allow-draft`，未来新增 draft 仍受保护。
+2. 用同一 qwen3.8 配置完成 6–8 条 B0–B3 Pilot，记录每个失败阶段和调用预算。
+3. Pilot 稳定后再跑完整 35 条 E2E 消融；Retrieval 16 条单独重跑。简历数字必须引用报告中的明确 numerator/denominator，并保留模型、数据、索引和 commit 版本。

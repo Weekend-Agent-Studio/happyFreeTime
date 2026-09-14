@@ -26,9 +26,9 @@ class ResumeReleaseDatasetTest(unittest.TestCase):
             )
         )
         self.assertTrue(all(case.split == "holdout" for case in dataset.cases))
-        # AI-generated labels are candidates for manual review, not resume-ready
-        # ground truth.  The later evaluator must not silently call them gold.
-        self.assertTrue(all(case.label_status == "draft" for case in dataset.cases))
+        # The 2026-09-14 review was recorded in the dataset.  Future additions
+        # may start as draft, but this frozen release set must not regress.
+        self.assertTrue(all(case.label_status == "reviewed" for case in dataset.cases))
 
     def test_modification_cases_define_selection_target_and_invariants(self) -> None:
         dataset = load_resume_release_dataset(
