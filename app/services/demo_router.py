@@ -139,6 +139,88 @@ class DemoRouter:
             or activity_only_match.group("no_meal")
         ):
             activity_only_match = None
+
+        # Explicit multi-role requests are still a closed, deterministic
+        # extraction. They describe required slots; an explicitly exclusive
+        # “只/仅/就安排 A 和 B” also fixes the total count. A specific
+        # DINNER/LUNCH role is retained so the compiler can bind it to the
+        # generic MEAL template without inventing a new skeleton.
+        role_mentions: list[tuple[int, StopRole, str]] = []
+        for role, patterns in (
+            (
+                StopRole.ACTIVITY,
+                ("活动", "项目", "展览", "演出", "景点", "逛展", "看展", "游玩"),
+            ),
+            (StopRole.LUNCH, ("午饭", "午餐")),
+            (StopRole.DINNER, ("晚饭", "晚餐")),
+            (StopRole.MEAL, ("吃饭", "用餐")),
+        ):
+            for phrase in patterns:
+                match = re.search(re.escape(phrase), text)
+                if match is not None:
+                    # A negated clause applies to every role it names, not
+                    # just the first role: “不安排活动和晚饭” must not become
+                    # an explicit two-stop structure.  Keep the check bounded
+                    # by punctuation so a later positive clause can opt back
+                    # in (for example, “不安排活动，晚饭照常”).
+                    clause_before = re.split(r"[，,。；;]", text[: match.start()])[-1]
+                    if re.search(
+                        r"(?:^|\s)(?:不安排|不去|不看|不吃|别安排|别去|别看|别吃|"
+                        r"不要安排|不要去|不要看|不要吃|不想安排|不想去|不想看|不想吃|"
+                        r"无需安排|无需去|无需看|无需吃|不用安排|不用去|不用看|不用吃)"
+                        r"\s*[^，,。；;]*$",
+                        clause_before,
+                    ):
+                        break
+                    # “晚饭自己解决/不安排晚饭” explicitly removes the meal
+                    # from the requested itinerary; it is not a required slot.
+                    if role in {StopRole.LUNCH, StopRole.DINNER, StopRole.MEAL}:
+                        head = text[max(0, match.start() - 8) : match.start()]
+                        tail = text[match.end() : match.end() + 8]
+                        # “晚饭前后回家”“晚饭后散步” use the meal word as a
+                        # temporal anchor, not as a requested itinerary stop.
+                        if re.match(r"\s*(?:前|后|前后)", tail):
+                            break
+                        if re.search(
+                            r"(?:不安排|不吃|不去|不想安排|不想吃|不想去)\s*$",
+                            head,
+                        ) or re.match(
+                            r"\s*[,，、]?\s*(?:自己解决|不安排|不吃|不去|不想安排|不想吃|不想去)",
+                            tail,
+                        ):
+                            break
+                    role_mentions.append((match.start(), role, phrase))
+                    break
+        role_mentions.sort(key=lambda item: item[0])
+        multi_role_mentions: list[tuple[StopRole, str]] = []
+        for _, role, phrase in role_mentions:
+            if not multi_role_mentions or multi_role_mentions[-1][0] != role:
+                multi_role_mentions.append((role, phrase))
+        multi_required_roles = (
+            tuple(role for role, _ in multi_role_mentions)
+            if len(multi_role_mentions) >= 2
+            else ()
+        )
+        exclusive_multi_match = (
+            re.search(
+                r"(?<!不)(?:只|仅|就)(?:想|要)?\s*(?:安排|计划|去|看|吃)",
+                text,
+            )
+            if multi_required_roles
+            else None
+        )
+        if multi_required_roles:
+            # A single-role regex may match the prefix of “只安排一顿午饭和
+            # 活动”。Once two roles are explicitly present, prefer the
+            # multi-role interpretation instead of silently dropping one.
+            dinner_only_match = None
+            lunch_only_match = None
+            activity_only_match = None
+        multi_role_evidence = (
+            "、".join(phrase for _, phrase in multi_role_mentions)
+            if multi_required_roles
+            else None
+        )
         single_stop_match = next(
             (
                 (role, match, group_name)
@@ -192,6 +274,12 @@ class DemoRouter:
             r"\s*(?:前|之前)?\s*(?:到家|回家|回来)",
             text,
         )
+        vague_return_by_match = re.search(
+            r"(?:晚饭|午饭|天黑|晚上)\s*前后"
+            r"(?:一定要|要|得)?\s*(?:到家|回家|回来)",
+            text,
+        )
+        effective_return_by_text_match = return_by_text_match or vague_return_by_match
         return_by_match = re.search(
             r"(?:最晚|最迟|不晚于|在)\s*(\d{1,2})[:：](\d{2})"
             r"\s*(?:点|点钟)?\s*(?:前|之前)?\s*(?:到家|回家|回来)",
@@ -205,7 +293,7 @@ class DemoRouter:
         # 时间表达误当成返程约束。
         resumed_return_by_match = (
             re.search(r"(?:^|\n)用户补充：\s*(\d{1,2})[:：](\d{2})\s*$", text)
-            if return_by_text_match and not return_by_match
+            if effective_return_by_text_match and not return_by_match
             else None
         )
         return_clock_match = return_by_match or resumed_return_by_match
@@ -230,8 +318,18 @@ class DemoRouter:
             time_text=time_text,
             time_scope=time_scope,
             departure_at_text=(departure_match.group(0) if departure_match else None),
-            exact_stop_count=1 if single_stop_role is not None else None,
-            required_stop_roles=(single_stop_role,) if single_stop_role is not None else (),
+            exact_stop_count=(
+                1
+                if single_stop_role is not None
+                else len(multi_required_roles)
+                if exclusive_multi_match is not None
+                else None
+            ),
+            required_stop_roles=(
+                (single_stop_role,)
+                if single_stop_role is not None
+                else multi_required_roles
+            ),
             adults=party_size,
             budget_text=budget_match.group(0) if budget_match else None,
             budget_per_person=int(budget_match.group(1)) if budget_match else None,
@@ -241,7 +339,9 @@ class DemoRouter:
             preferences=preferences,
             scene_tags=["约会"] if "约会" in text else [],
             return_by_text=(
-                return_by_text_match.group(0) if return_by_text_match else None
+                effective_return_by_text_match.group(0)
+                if effective_return_by_text_match
+                else None
             ),
             return_by=return_by,
             total_distance_text=(
@@ -259,12 +359,14 @@ class DemoRouter:
                 "exact_stop_count": (
                     single_stop_match.group("exclusive")
                     if single_stop_match
+                    else exclusive_multi_match.group(0)
+                    if exclusive_multi_match
                     else None
                 ),
                 "required_stop_roles": (
                     single_stop_match.group(single_stop_group)
                     if single_stop_match and single_stop_group
-                    else None
+                    else multi_role_evidence
                 ),
                 "budget_per_person": budget_match.group(0) if budget_match else None,
                 "max_distance_text": distance_text,
@@ -275,7 +377,9 @@ class DemoRouter:
                     else None
                 ),
                 "return_by_text": (
-                    return_by_text_match.group(0) if return_by_text_match else None
+                    effective_return_by_text_match.group(0)
+                    if effective_return_by_text_match
+                    else None
                 ),
                 "total_distance_km": (
                     total_distance_match.group(1) if total_distance_match else None

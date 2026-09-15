@@ -132,16 +132,55 @@ class DemoRouterTest(unittest.TestCase):
     def test_dinner_words_without_exclusivity_do_not_become_dinner_only(self) -> None:
         for text in (
             "想吃晚饭",
-            "安排活动和晚饭",
             "晚饭后散散步",
-            "先逛展再吃晚饭",
-            "只安排活动和晚饭",
             "只安排看展，晚饭自己解决",
         ):
             result = self.router.interpret(text, self.context)
 
             self.assertIsNone(result.raw_constraints.exact_stop_count)
             self.assertEqual(result.raw_constraints.required_stop_roles, ())
+
+    def test_extracts_explicit_multi_role_structure_and_exclusive_count(self) -> None:
+        for text, expected_count in (
+            ("安排活动和晚饭", None),
+            ("先逛展再吃晚饭", None),
+            ("只安排活动和晚饭", 2),
+            ("只安排一顿午饭和活动", 2),
+        ):
+            result = self.router.interpret(text, self.context)
+
+            self.assertEqual(result.raw_constraints.exact_stop_count, expected_count)
+            expected_roles = (
+                (StopRole.LUNCH, StopRole.ACTIVITY)
+                if "午饭" in text
+                else (StopRole.ACTIVITY, StopRole.DINNER)
+            )
+            self.assertEqual(
+                result.raw_constraints.required_stop_roles,
+                expected_roles,
+            )
+            self.assertTrue(
+                any(
+                    term in result.evidence_map["required_stop_roles"]
+                    for term in ("活动", "逛展", "看展")
+                )
+            )
+            if "午饭" in text:
+                self.assertIn("午饭", result.evidence_map["required_stop_roles"])
+            else:
+                self.assertIn("晚饭", result.evidence_map["required_stop_roles"])
+
+    def test_negated_or_temporal_meal_mentions_are_not_required_roles(self) -> None:
+        for text in (
+            "不安排活动和晚饭",
+            "不想安排活动和晚饭",
+            "安排活动，晚饭前后一定要回家",
+            "安排活动，晚饭后散散步",
+        ):
+            result = self.router.interpret(text, self.context)
+
+            self.assertEqual(result.raw_constraints.required_stop_roles, ())
+            self.assertIsNone(result.raw_constraints.exact_stop_count)
 
     def test_all_day_language_is_preserved_as_a_finite_time_scope(self) -> None:
         result = self.router.interpret(

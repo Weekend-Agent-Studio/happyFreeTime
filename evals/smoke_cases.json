@@ -106,11 +106,24 @@
     "case_id": "unresolved_return_deadline_question",
     "intent": "plan_outing",
     "raw_constraints": {
-      "return_by_text": "最晚十八点回家"
+      "return_by_text": "晚饭前后一定要回家"
     },
     "expected_outcome": "question",
     "expected_question_field": "return_by",
     "tags": ["gate", "return_by", "hard_constraint"]
+  },
+  {
+    "case_id": "parsed_chinese_return_deadline_plan",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "return_by_text": "最晚十八点回家"
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "return_to_origin": true,
+      "latest_return_time": "18:00"
+    },
+    "tags": ["planning", "return_by", "hard_constraint"]
   },
   {
     "case_id": "total_distance_hard_conflict",

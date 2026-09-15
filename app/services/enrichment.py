@@ -142,6 +142,11 @@ class EnrichmentService:
         # silently treat an explicit unknown expression as an afternoon default.
         time_scope = raw.time_scope or self._infer_time_scope(raw.time_text)
         normalized_time = self._normalize_time_window(raw.time_text)
+        multi_role_time_default = self._multi_role_default_time_window(
+            raw.required_stop_roles,
+            return_by=return_by,
+        )
+        multi_role_window_applied = False
         departure_overrides_scope = False
         if time_scope == TimeScope.ALL_DAY:
             normalized_time = TimeWindow(
@@ -176,6 +181,27 @@ class EnrichmentService:
             if not departure_overrides_scope and normalized_time is None:
                 normalized_time = scope_window
 
+        # A multi-role request that names a meal period needs a window that can
+        # actually reach that meal. This only widens a missing or inferred
+        # period/default; explicit numeric ranges remain untouched.
+        inferred_period = (
+            time_scope in {
+                TimeScope.MORNING,
+                TimeScope.AFTERNOON,
+                TimeScope.EVENING,
+            }
+            and normalized_time == self._time_window_for_scope(time_scope)
+        )
+        if (
+            departure_at is None
+            and multi_role_time_default is not None
+            and time_scope != TimeScope.ALL_DAY
+            and time_scope != TimeScope.EXPLICIT_RANGE
+            and (raw.time_text is None or inferred_period)
+        ):
+            normalized_time = multi_role_time_default
+            multi_role_window_applied = True
+
         effective_time_scope = (
             TimeScope.EXPLICIT_RANGE if departure_overrides_scope else time_scope
         )
@@ -199,7 +225,10 @@ class EnrichmentService:
                 value=normalized_time,
                 source=(
                     ConstraintSource.DEFAULT_RULE
-                    if effective_time_scope == TimeScope.ALL_DAY
+                    if (
+                        effective_time_scope == TimeScope.ALL_DAY
+                        or multi_role_window_applied
+                    )
                     else ConstraintSource.USER_INFERRED
                 ),
                 raw_text=raw.time_text,
@@ -210,7 +239,11 @@ class EnrichmentService:
                     else (
                         "time.window.from_departure_overrides_scope.v1"
                         if departure_overrides_scope
-                        else "time.period.zh_cn.v1"
+                        else (
+                            "time.multi_role.meal_anchor.v1"
+                            if multi_role_window_applied
+                            else "time.period.zh_cn.v1"
+                        )
                     )
                 ),
             )
@@ -232,10 +265,25 @@ class EnrichmentService:
                         rule_id="time.window.from_departure_overrides_scope.v1",
                     )
                 )
+            elif multi_role_window_applied:
+                assumptions.append(
+                    Assumption(
+                        field="time_window",
+                        value=normalized_time.model_dump(),
+                        reason=(
+                            "行程包含明确的午饭/晚饭角色，默认时间窗扩展到相应餐时锚点"
+                        ),
+                        rule_id="time.multi_role.meal_anchor.v1",
+                    )
+                )
+        # A meal-period default is safe only for a genuinely single-role
+        # request.  For “活动和晚饭” the StructureCompiler owns the shape and
+        # Gate should not collapse the whole outing into an evening dinner
+        # window merely because one required role is DINNER.
         elif (
             raw.time_text is None
             and departure_at is None
-            and StopRole.DINNER in raw.required_stop_roles
+            and raw.required_stop_roles == (StopRole.DINNER,)
         ):
             dinner_window = TimeWindow(start="18:00", end="22:00")
             time_value = ConstraintValue[TimeWindow](
@@ -557,6 +605,47 @@ class EnrichmentService:
             TimeScope.AFTERNOON: TimeWindow(start="14:00", end="18:00"),
             TimeScope.EVENING: TimeWindow(start="18:00", end="22:00"),
         }[scope]
+
+    @classmethod
+    def _multi_role_default_time_window(
+        cls,
+        required_roles: tuple[StopRole, ...],
+        *,
+        return_by: str | None,
+    ) -> TimeWindow | None:
+        """Choose a finite default window for multi-role meal requests.
+
+        This helper is intentionally limited to role combinations already
+        supported by the closed skeleton registry. It never overrides an
+        explicit numeric time range; ``return_by`` only acts as an upper bound
+        when the window is otherwise inferred.
+        """
+
+        if len(required_roles) < 2:
+            return None
+        roles = tuple(required_roles)
+        has_lunch = StopRole.LUNCH in roles
+        has_dinner = StopRole.DINNER in roles
+        if not has_lunch and not has_dinner:
+            return None
+
+        if has_lunch and has_dinner:
+            start = "09:00" if roles[0] == StopRole.ACTIVITY else "11:30"
+            default_end = "20:30"
+        elif has_dinner:
+            start = "14:00"
+            default_end = "21:00"
+        elif roles[0] == StopRole.ACTIVITY:
+            start = "09:00"
+            default_end = "14:00"
+        else:
+            start = "11:30"
+            default_end = "18:00"
+
+        end = default_end
+        if return_by is not None and return_by < end:
+            end = return_by
+        return TimeWindow(start=start, end=end)
 
     @staticmethod
     def _normalize_return_by(

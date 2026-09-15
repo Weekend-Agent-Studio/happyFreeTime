@@ -15,7 +15,14 @@ from app.domain.constraints import (
     PartyProfile,
     TimeWindow,
 )
-from app.domain.planning import PlanPriceStatus, ScoreContribution, StopRole
+from app.domain.planning import (
+    PlanPace,
+    PlanPriceStatus,
+    PlanningIntent,
+    PlanningIntentDecision,
+    ScoreContribution,
+    StopRole,
+)
 from app.domain.providers import (
     AvailabilityStatus,
     GeoPoint,
@@ -28,6 +35,7 @@ from app.providers.availability import MockAvailabilityProvider
 from app.services.catalog import InMemoryCatalog
 from app.services.planning import (
     PlanningService,
+    StructureCompiler,
     _apply_dynamic_strategies,
     _build_planning_intent,
     _diversify_plans,
@@ -199,6 +207,220 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             result.conflict.fields,
             ["exact_stop_count", "required_stop_roles", "plan_structure"],
         )
+        self.assertEqual(
+            result.runtime_decision.fallback_reason,
+            "unsupported_plan_structure",
+        )
+
+    def test_structure_compiler_accepts_explicit_activity_and_dinner_as_meal_slot(self) -> None:
+        constraints = planning_constraints(time_end="21:00").model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.DINNER),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="活动和晚饭",
+                )
+            }
+        )
+
+        compilation = StructureCompiler().compile(constraints)
+
+        self.assertIsNone(compilation.conflict)
+        self.assertEqual(
+            [item.skeleton_id for item in compilation.skeletons or ()],
+            ["activity-meal-v1"],
+        )
+
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [
+                    candidate(
+                        "activity",
+                        ResourceType.ACTIVITY,
+                        "展览",
+                        ["展览"],
+                        duration_minutes=180,
+                    ),
+                    candidate("dinner", ResourceType.RESTAURANT, "晚餐", ["餐厅"]),
+                ]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=1),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertEqual({plan.skeleton_id for plan in result.plans}, {"activity-meal-v1"})
+        self.assertEqual(
+            [stop.role for stop in result.plans[0].stops],
+            [StopRole.ACTIVITY, StopRole.DINNER],
+        )
+        self.assertGreaterEqual(result.plans[0].stops[1].start, "17:00")
+        self.assertLessEqual(result.plans[0].stops[1].start, "20:30")
+
+    def test_explicit_structure_wins_over_conflicting_planning_intent(self) -> None:
+        constraints = planning_constraints(time_end="21:00").model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.DINNER),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="活动和晚饭",
+                ),
+                "exact_stop_count": ConstraintValue[int](
+                    value=2,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="只安排两站",
+                ),
+            }
+        )
+
+        class ConflictingIntentProvider:
+            def decide(self, _: object) -> PlanningIntentDecision:
+                return PlanningIntentDecision(
+                    intent=PlanningIntent(
+                        required_roles=(StopRole.LUNCH,),
+                        optional_roles=(),
+                        minimum_stops=1,
+                        maximum_stops=1,
+                        pace=PlanPace.FULL,
+                    ),
+                    source="llm",
+                    confidence=0.9,
+                    attempts=1,
+                    prompt_version="test.conflicting.v1",
+                    model_name="fake",
+                )
+
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [
+                    candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"], duration_minutes=180),
+                    candidate("dinner", ResourceType.RESTAURANT, "晚餐", ["餐厅"]),
+                    candidate("lunch", ResourceType.RESTAURANT, "午餐", ["餐厅"]),
+                ]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=1),
+            planning_intent_provider=ConflictingIntentProvider(),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            all(
+                len(plan.stops) == 2
+                and [stop.role for stop in plan.stops]
+                == [StopRole.ACTIVITY, StopRole.DINNER]
+                for plan in result.plans
+            )
+        )
+
+    def test_exclusive_multi_role_structure_fixes_exact_count(self) -> None:
+        constraints = planning_constraints(time_end="21:00").model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=2,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="只安排",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.DINNER),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="活动和晚饭",
+                ),
+            }
+        )
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [
+                    candidate(
+                        "activity",
+                        ResourceType.ACTIVITY,
+                        "展览",
+                        ["展览"],
+                        duration_minutes=180,
+                    ),
+                    candidate("dinner", ResourceType.RESTAURANT, "晚餐", ["餐厅"]),
+                ]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=1),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(all(len(plan.stops) == 2 for plan in result.plans))
+        self.assertTrue(
+            all(
+                [stop.role for stop in plan.stops]
+                == [StopRole.ACTIVITY, StopRole.DINNER]
+                for plan in result.plans
+            )
+        )
+
+    def test_explicit_activity_then_lunch_preserves_order_and_lunch_anchor(self) -> None:
+        constraints = planning_constraints(time_end="14:00").model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="09:00", end="14:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.LUNCH),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="先逛展再吃午饭",
+                ),
+            }
+        )
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [
+                    candidate(
+                        "activity",
+                        ResourceType.ACTIVITY,
+                        "展览",
+                        ["展览"],
+                        duration_minutes=120,
+                    ),
+                    candidate("lunch", ResourceType.RESTAURANT, "午餐", ["餐厅"]),
+                ]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            all(
+                [stop.role for stop in plan.stops]
+                == [StopRole.ACTIVITY, StopRole.LUNCH]
+                for plan in result.plans
+            )
+        )
+        self.assertTrue(
+            all("11:00" <= plan.stops[1].start <= "14:00" for plan in result.plans)
+        )
+
+    def test_explicit_window_is_not_widened_when_it_cannot_reach_dinner(self) -> None:
+        constraints = planning_constraints(time_end="16:00").model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="14:00", end="16:00"),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.DINNER),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="活动和晚饭",
+                ),
+            }
+        )
+        result = PlanningService(
+            catalog=InMemoryCatalog(
+                [
+                    candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"]),
+                    candidate("dinner", ResourceType.RESTAURANT, "晚餐", ["餐厅"]),
+                ]
+            ),
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(constraints)
+
+        self.assertEqual(result.plans, [])
+        self.assertIsNotNone(result.conflict)
+        self.assertIn("meal_window", result.conflict.fields)
 
     def test_dinner_only_returns_only_restaurant_stops_and_optional_return(self) -> None:
         catalog = InMemoryCatalog(

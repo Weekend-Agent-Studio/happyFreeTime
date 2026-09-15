@@ -79,7 +79,11 @@ from app.services.planning_intent import (
     SINGLE_STOP_ROLES as _SINGLE_STOP_ROLES,
     build_rule_based_planning_intent,
 )
-from app.services.plan_verifier import PlanVerifier, VerificationFinding
+from app.services.plan_verifier import (
+    PlanVerifier,
+    VerificationFinding,
+    _MEAL_ANCHOR_WINDOWS,
+)
 from app.services.candidate_retriever import (
     CandidateRetriever,
     RetrievalRequest,
@@ -248,6 +252,11 @@ class PlanningService:
             planning_intent_provider or RuleBasedPlanningIntentProvider()
         )
         self._candidate_retriever = candidate_retriever or build_default_candidate_retriever()
+        # Explicit role/count constraints are compiled before the soft
+        # PlanningIntent decision.  Keeping this as a small internal seam makes
+        # the closed skeleton vocabulary auditable without adding another Graph
+        # node or exposing a second planning API.
+        self._structure_compiler = StructureCompiler()
 
     def _retrieve_for_skeleton_roles(
         self,
@@ -359,11 +368,13 @@ class PlanningService:
                 runtime_decision=runtime_decision,
             )
 
-        structure_conflict = _unsupported_plan_structure_conflict(constraints)
-        if structure_conflict is not None:
+        structure_compilation = self._structure_compiler.compile(constraints)
+        if structure_compilation.conflict is not None:
             return CandidateSet(
-                conflict=structure_conflict,
-                runtime_decision=runtime_decision,
+                conflict=structure_compilation.conflict,
+                runtime_decision=self._not_run_runtime(
+                    "unsupported_plan_structure"
+                ),
             )
 
         # Reject deterministic hard conflicts before spending the bounded model
@@ -416,7 +427,13 @@ class PlanningService:
             for candidate in catalog_result.candidates
             if candidate.resource_id not in weather_removed_ids
         ]
-        skeletons = _select_plan_skeletons(constraints, planning_intent)
+        # An explicit role/count request owns structure selection. Only the
+        # absence of such a request delegates skeleton eligibility to the soft
+        # PlanningIntent path.
+        if structure_compilation.skeletons is None:
+            skeletons = _select_plan_skeletons(constraints, planning_intent)
+        else:
+            skeletons = structure_compilation.skeletons
         retrieved, semantic_scores = self._retrieve_for_skeleton_roles(
             candidates,
             planning_intent,
@@ -634,9 +651,11 @@ class PlanningService:
                             "return_by",
                             "total_distance_km",
                             "availability",
-                    )
-                    if field in reported_failure_fields
-                    ] + _structure_conflict_fields(planning_intent),
+                        )
+                        if field in reported_failure_fields
+                    ]
+                    + _structure_conflict_fields(planning_intent, constraints)
+                    + _meal_anchor_conflict_fields(constraints),
                     relaxation_options=_route_relaxation_options(
                         reported_failure_fields
                     ),
@@ -660,7 +679,7 @@ class PlanningService:
         )
         if constraints.strict_budget and strict_budget_is_blocking:
             budget = constraints.budget_per_person.value if constraints.budget_per_person else None
-            structure_fields = _structure_conflict_fields(planning_intent)
+            structure_fields = _structure_conflict_fields(planning_intent, constraints)
             relaxation_options = (
                 ["提高人均预算", "取消严格预算限制"]
                 if structure_fields
@@ -698,19 +717,27 @@ class PlanningService:
             if field in local_result.rejected_fields
         ]
         if (
-            _structure_conflict_fields(planning_intent)
+            _structure_conflict_fields(planning_intent, constraints)
             and any(
                 violation.code == "outside_basic_opening_hours"
                 for violation in catalog_result.violations
             )
         ):
             conflict_fields.append("opening_hours")
-        structure_fields = _structure_conflict_fields(planning_intent)
+        structure_fields = _structure_conflict_fields(planning_intent, constraints)
         if not conflict_fields and structure_fields:
             conflict_fields = structure_fields
         elif not conflict_fields:
             conflict_fields = ["time_window", "max_distance_km", "party"]
-        conflict_fields = [*dict.fromkeys([*conflict_fields, *structure_fields])]
+        conflict_fields = [
+            *dict.fromkeys(
+                [
+                    *conflict_fields,
+                    *structure_fields,
+                    *_meal_anchor_conflict_fields(constraints),
+                ]
+            )
+        ]
         relaxation_options = []
         if "duration_minutes" in conflict_fields:
             relaxation_options.extend(["增加可用时长", "缩短停留时长"])
@@ -1747,56 +1774,225 @@ def _plan_diversity(left: Plan, right: Plan) -> float:
 _build_planning_intent = build_rule_based_planning_intent
 
 
-def _unsupported_plan_structure_conflict(
-    constraints: NormalizedConstraints,
-) -> ConstraintConflict | None:
-    exact_stop_count = (
-        constraints.exact_stop_count.value
-        if constraints.exact_stop_count is not None
-        else None
-    )
-    required_roles = (
-        constraints.required_stop_roles.value
-        if constraints.required_stop_roles is not None
-        else None
-    )
-    if exact_stop_count is None and required_roles is None:
-        return None
-    if (
-        exact_stop_count == 1
-        and required_roles is not None
-        and len(required_roles) == 1
-        and required_roles[0] in _SINGLE_STOP_ROLES
-    ):
-        return None
-
-    fields = []
-    if exact_stop_count is not None:
-        fields.append("exact_stop_count")
-    if required_roles is not None:
-        fields.append("required_stop_roles")
-    fields.append("plan_structure")
-    return ConstraintConflict(
-        code="UNSUPPORTED_PLAN_STRUCTURE",
-        message="当前版本只支持默认多站规划，或只安排一个活动、午饭或晚饭的单站结构。",
-        fields=fields,
-        relaxation_options=[
-            "改为只安排一个活动、午饭或晚饭",
-            "移除明确站数或角色限制",
-        ],
-    )
-
-
 def _select_plan_skeletons(
     constraints: NormalizedConstraints,
     intent: PlanningIntent,
 ) -> tuple[PlanSkeleton, ...]:
+    if (
+        constraints.exact_stop_count is not None
+        or (
+            constraints.required_stop_roles is not None
+            and constraints.required_stop_roles.value
+        )
+    ):
+        compiled = StructureCompiler().compile(constraints)
+        return compiled.skeletons or ()
     maximum_minutes, _ = _planning_minutes(constraints)
     return tuple(
         skeleton
         for skeleton in _ALL_PLAN_SKELETONS
         if _skeleton_matches_intent(skeleton, intent, maximum_minutes)
     )
+
+
+@dataclass(frozen=True)
+class _StructureCompilation:
+    """The result of compiling one bounded structure request.
+
+    ``skeletons=None`` means that the user did not provide an explicit
+    structure and the caller still needs to use PlanningIntent.  An empty
+    tuple is reserved for an explicit request that has no compatible skeleton;
+    that distinction prevents an unsupported request from silently falling
+    back to the default outing shape.
+    """
+
+    skeletons: tuple[PlanSkeleton, ...] | None = None
+    conflict: ConstraintConflict | None = None
+
+
+class StructureCompiler:
+    """Compile explicit role/count constraints against the closed skeleton set.
+
+    The compiler is deliberately deterministic and internal.  It does not
+    choose POIs, call providers, or infer a new structure.  A ``DINNER`` or
+    ``LUNCH`` requirement may fill the generic ``MEAL`` slot, while preserving
+    the specific role in the normalized constraints as user evidence.  This
+    keeps the short-term skeleton vocabulary small without treating every
+    meal period as a separate product skeleton.
+    """
+
+    def compile(
+        self,
+        constraints: NormalizedConstraints,
+    ) -> _StructureCompilation:
+        exact_stop_count = (
+            constraints.exact_stop_count.value
+            if constraints.exact_stop_count is not None
+            else None
+        )
+        required_roles = (
+            constraints.required_stop_roles.value
+            if constraints.required_stop_roles is not None
+            else ()
+        )
+
+        if exact_stop_count is None and not required_roles:
+            return _StructureCompilation()
+
+        matches = self._explicit_matches(
+            exact_stop_count=exact_stop_count,
+            required_roles=required_roles,
+        )
+        if matches:
+            return _StructureCompilation(skeletons=matches)
+
+        fields: list[str] = []
+        if exact_stop_count is not None:
+            fields.append("exact_stop_count")
+        if required_roles:
+            fields.append("required_stop_roles")
+        fields.append("plan_structure")
+        return _StructureCompilation(
+            skeletons=(),
+            conflict=ConstraintConflict(
+                code="UNSUPPORTED_PLAN_STRUCTURE",
+                message="当前请求指定的站点数量或角色组合与现有行程骨架不匹配。",
+                fields=fields,
+                relaxation_options=[
+                    "调整站点数量或角色组合",
+                    "移除明确的结构限制，交给系统选择默认骨架",
+                ],
+            ),
+        )
+
+    @classmethod
+    def _explicit_matches(
+        cls,
+        *,
+        exact_stop_count: int | None,
+        required_roles: tuple[StopRole, ...],
+    ) -> tuple[PlanSkeleton, ...]:
+        # “只安排一个”但没有角色仍然是有歧义的；保留原先的安全行为，
+        # 避免在活动、午餐和晚餐之间替用户猜测。
+        if exact_stop_count == 1 and not required_roles:
+            return ()
+
+        ranked: list[tuple[int, int, int, PlanSkeleton, tuple[int, ...]]] = []
+        for registry_index, skeleton in enumerate(_ALL_PLAN_SKELETONS):
+            if exact_stop_count is not None and len(skeleton.roles) != exact_stop_count:
+                continue
+            if not required_roles:
+                ranked.append((0, 0, registry_index, skeleton, ()))
+                continue
+            assignment = cls._required_role_assignment(required_roles, skeleton.roles)
+            if assignment is None:
+                continue
+            penalty, matched_indices = assignment
+            # Prefer the smallest skeleton that satisfies all required roles;
+            # this makes “活动和晚饭” resolve to activity-meal-v1 instead of
+            # unexpectedly adding lunch or a break.  Within the same shape,
+            # exact role matches win over a generic MEAL substitution.
+            ranked.append(
+                (
+                    len(skeleton.roles) - len(required_roles),
+                    penalty,
+                    registry_index,
+                    skeleton,
+                    matched_indices,
+                )
+            )
+        ranked.sort(key=lambda item: item[:3])
+        if required_roles and ranked:
+            best_key = ranked[0][:2]
+            return tuple(
+                cls._bind_explicit_roles(item[3], required_roles, item[4])
+                for item in ranked
+                if item[:2] == best_key
+            )
+        return tuple(item[3] for item in ranked)
+
+    @classmethod
+    def _required_role_assignment(
+        cls,
+        required_roles: tuple[StopRole, ...],
+        skeleton_roles: tuple[StopRole, ...],
+    ) -> tuple[int, tuple[int, ...]] | None:
+        """Find the cheapest ordered subsequence assignment for a skeleton."""
+
+        if len(required_roles) > len(skeleton_roles):
+            return None
+
+        def search(
+            required_index: int,
+            slot_index: int,
+        ) -> tuple[int, tuple[int, ...]] | None:
+            if required_index == len(required_roles):
+                return 0, ()
+            if slot_index == len(skeleton_roles):
+                return None
+            required = required_roles[required_index]
+            # Skipping a slot represents a permitted optional role.  Matching
+            # advances both sequences and preserves the user's stated order.
+            options: list[tuple[int, tuple[int, ...]]] = []
+            skipped = search(required_index, slot_index + 1)
+            if skipped is not None:
+                options.append(skipped)
+            actual = skeleton_roles[slot_index]
+            if cls._roles_compatible(required, actual):
+                remainder = search(required_index + 1, slot_index + 1)
+                if remainder is not None:
+                    options.append(
+                        (
+                            remainder[0] + (0 if required == actual else 1),
+                            (slot_index, *remainder[1]),
+                        )
+                    )
+            return min(options, key=lambda item: (item[0], item[1])) if options else None
+
+        return search(0, 0)
+
+    @staticmethod
+    def _bind_explicit_roles(
+        skeleton: PlanSkeleton,
+        required_roles: tuple[StopRole, ...],
+        matched_indices: tuple[int, ...],
+    ) -> PlanSkeleton:
+        """Return a concrete view while preserving the template's identity."""
+
+        roles = list(skeleton.roles)
+        for required, index in zip(required_roles, matched_indices, strict=True):
+            # A specific meal period fills the generic MEAL slot. Generic MEAL
+            # must not erase an existing specific template role.
+            if roles[index] == StopRole.MEAL and required in {
+                StopRole.LUNCH,
+                StopRole.DINNER,
+            }:
+                roles[index] = required
+        return skeleton.model_copy(update={"roles": tuple(roles)})
+
+    @staticmethod
+    def _roles_compatible(required: StopRole, actual: StopRole) -> bool:
+        if required == actual:
+            return True
+        # A specific meal period is allowed to occupy the existing generic
+        # MEAL slot.  The reverse mapping lets a generic “吃饭” requirement use
+        # the existing lunch/dinner skeletons, but never maps lunch to dinner.
+        if actual == StopRole.MEAL and required in {StopRole.LUNCH, StopRole.DINNER}:
+            return True
+        if required == StopRole.MEAL and actual in {
+            StopRole.LUNCH,
+            StopRole.DINNER,
+        }:
+            return True
+        return False
+
+
+def _unsupported_plan_structure_conflict(
+    constraints: NormalizedConstraints,
+) -> ConstraintConflict | None:
+    """Backward-compatible helper for callers that used the old gate."""
+
+    return StructureCompiler().compile(constraints).conflict
 
 
 def _skeleton_matches_intent(
@@ -1827,7 +2023,29 @@ def _skeleton_matches_intent(
     return minimum_capacity <= available_minutes
 
 
-def _structure_conflict_fields(intent: PlanningIntent) -> list[str]:
+def _structure_conflict_fields(
+    intent: PlanningIntent,
+    constraints: NormalizedConstraints | None = None,
+) -> list[str]:
+    if constraints is not None:
+        # Keep the established single-stop diagnostics stable; the exact
+        # quantity is already implied by that contract and older clients only
+        # surfaced the role/structure fields.
+        if (
+            constraints.exact_stop_count is not None
+            and constraints.exact_stop_count.value == 1
+            and constraints.required_stop_roles is not None
+            and len(constraints.required_stop_roles.value) == 1
+            and constraints.required_stop_roles.value[0] in _SINGLE_STOP_ROLES
+        ):
+            return ["required_stop_roles", "plan_structure"]
+        explicit_fields: list[str] = []
+        if constraints.exact_stop_count is not None:
+            explicit_fields.append("exact_stop_count")
+        if constraints.required_stop_roles is not None:
+            explicit_fields.append("required_stop_roles")
+        if explicit_fields:
+            return [*explicit_fields, "plan_structure"]
     if (
         intent.minimum_stops == intent.maximum_stops == 1
         and len(intent.required_roles) == 1
@@ -2449,6 +2667,48 @@ def _planning_time_conflict(
             relaxation_options=["提前出发或延后最晚到家时间"],
         )
     return None
+
+
+def _meal_anchor_conflict_fields(
+    constraints: NormalizedConstraints,
+) -> list[str]:
+    """Report an explicit meal role whose usable clock cannot reach its anchor.
+
+    This is diagnostic only: the normal route/Verifier path remains the source
+    of feasibility.  The helper prevents a short explicit window from being
+    reported merely as a generic ``time_window`` failure after local planning
+    prunes every sequence before meal-anchor verification.
+    """
+
+    required_roles = (
+        constraints.required_stop_roles.value
+        if constraints.required_stop_roles is not None
+        else ()
+    )
+    if not required_roles or constraints.time_window is None:
+        return []
+
+    window_start = _time_to_minutes(constraints.time_window.value.start)
+    window_end = _time_to_minutes(constraints.time_window.value.end)
+    if constraints.departure_at is not None:
+        window_start = max(
+            window_start,
+            _time_to_minutes(constraints.departure_at.value),
+        )
+    if constraints.return_by is not None:
+        window_end = min(
+            window_end,
+            _time_to_minutes(constraints.return_by.value),
+        )
+
+    for role in required_roles:
+        anchor = _MEAL_ANCHOR_WINDOWS.get(role)
+        if anchor is None:
+            continue
+        anchor_start, anchor_end = anchor
+        if window_end < anchor_start or window_start > anchor_end:
+            return ["meal_window"]
+    return []
 
 
 def _route_relaxation_options(fields: set[str]) -> list[str]:

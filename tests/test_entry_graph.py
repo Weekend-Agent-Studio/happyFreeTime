@@ -327,7 +327,7 @@ class EntryGraphTest(unittest.TestCase):
         config = {"configurable": {"thread_id": actor.session_id}}
 
         first_result = graph.invoke(
-            {"user_input": "今天下午出去玩，最晚十八点回家", "actor": actor},
+            {"user_input": "今天下午出去玩，晚饭前后一定要回家", "actor": actor},
             config=config,
         )
         self.assertEqual(first_result["__interrupt__"][0].value["field"], "return_by")
