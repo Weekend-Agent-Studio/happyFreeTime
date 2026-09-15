@@ -68,6 +68,28 @@ class TimeScope(str, Enum):
     EXPLICIT_RANGE = "explicit_range"
 
 
+class DateReference(str, Enum):
+    """有限的相对/绝对日期语义；实际日期由 Enrichment 计算。"""
+
+    TODAY = "today"
+    TOMORROW = "tomorrow"
+    DAY_AFTER_TOMORROW = "day_after_tomorrow"
+    WEEKDAY = "weekday"
+    ABSOLUTE = "absolute"
+
+
+class Weekday(str, Enum):
+    """星期语义；不携带具体日期或时区信息。"""
+
+    MONDAY = "monday"
+    TUESDAY = "tuesday"
+    WEDNESDAY = "wednesday"
+    THURSDAY = "thursday"
+    FRIDAY = "friday"
+    SATURDAY = "saturday"
+    SUNDAY = "sunday"
+
+
 class CommandOperation(str, Enum):
     """The bounded action requested by one interpreted conversation turn."""
 
@@ -222,6 +244,20 @@ class PartyProfile(BaseModel):
     members: list[str] = Field(default_factory=list)
 
 
+class TimeWindow(BaseModel):
+    """24 小时制时间窗；统一格式减少 Planner 中的重复解析。"""
+    model_config = ConfigDict(extra="forbid")
+
+    start: str
+    end: str
+
+    @field_validator("start", "end")
+    @classmethod
+    def validate_clock_time(cls, value: str) -> str:
+        return _canonical_clock(value, field_name="time") or value
+
+
+
 class RawConstraints(BaseModel):
     """Router 从用户原话中抽出的“原始约束”。
 
@@ -232,8 +268,15 @@ class RawConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     date_text: str | None = None
+    # Structured temporal contract.  The legacy *_text fields remain for
+    # checkpoint compatibility and as user-language evidence.
+    date_reference: DateReference | None = None
+    weekday: Weekday | None = None
+    week_offset: Literal[0, 1] | None = None
+    absolute_date: Date | None = None
     time_text: str | None = None
     time_scope: TimeScope | None = None
+    explicit_time_window: TimeWindow | None = None
     departure_at_text: str | None = None
     departure_at: str | None = None
     exact_stop_count: int | None = Field(default=None, ge=1, le=4)
@@ -265,6 +308,30 @@ class RawConstraints(BaseModel):
     @classmethod
     def validate_departure_at(cls, value: str | None) -> str | None:
         return _canonical_clock(value, field_name="departure_at")
+
+    @model_validator(mode="after")
+    def validate_temporal_contract(self) -> "RawConstraints":
+        reference = self.date_reference
+        has_weekday_fields = self.weekday is not None or self.week_offset is not None
+        if has_weekday_fields and reference != DateReference.WEEKDAY:
+            raise ValueError("weekday and week_offset require date_reference=weekday")
+        if reference == DateReference.WEEKDAY and self.weekday is None:
+            raise ValueError("date_reference=weekday requires weekday")
+        if self.absolute_date is not None and reference != DateReference.ABSOLUTE:
+            raise ValueError("absolute_date requires date_reference=absolute")
+        if reference == DateReference.ABSOLUTE and self.absolute_date is None:
+            raise ValueError("date_reference=absolute requires absolute_date")
+        if reference in {
+            DateReference.TODAY,
+            DateReference.TOMORROW,
+            DateReference.DAY_AFTER_TOMORROW,
+        } and has_weekday_fields:
+            raise ValueError("relative date reference cannot carry weekday fields")
+        if self.explicit_time_window is not None and (
+            self.explicit_time_window.start >= self.explicit_time_window.end
+        ):
+            raise ValueError("explicit time window start must be before end")
+        return self
 
 
 class Interpretation(BaseModel):
@@ -309,6 +376,34 @@ class Interpretation(BaseModel):
                 raise ValueError(f"inferred field {field!r} has no confidence")
         return self
 
+    @model_validator(mode="after")
+    def validate_temporal_evidence(self) -> "Interpretation":
+        """Structured temporal values must remain traceable to user text.
+
+        Legacy checkpoints only contain ``*_text`` fields and therefore keep
+        their historical compatibility.  Once a new structured temporal
+        field is present, the adapter must provide evidence and confidence;
+        otherwise a model could silently invent a date or time window.
+        """
+
+        raw = self.raw_constraints
+
+        def require_trace(field: str, evidence_keys: tuple[str, ...]) -> None:
+            if getattr(raw, field) is None:
+                return
+            if not any(self.evidence_map.get(key) for key in evidence_keys):
+                raise ValueError(f"temporal field {field!r} has no evidence")
+            if not any(key in self.extraction_confidence for key in evidence_keys):
+                raise ValueError(f"temporal field {field!r} has no confidence")
+
+        require_trace("date_reference", ("date_reference", "date_text"))
+        require_trace("weekday", ("weekday", "date_reference", "date_text"))
+        require_trace("week_offset", ("week_offset", "date_reference", "date_text"))
+        require_trace("absolute_date", ("absolute_date", "date_reference", "date_text"))
+        require_trace("time_scope", ("time_scope", "time_text"))
+        require_trace("explicit_time_window", ("explicit_time_window", "time_text"))
+        return self
+
 
 T = TypeVar("T")
 
@@ -322,25 +417,6 @@ class ConstraintValue(BaseModel, Generic[T]):
     raw_text: str | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
     rule_id: str | None = None
-
-
-class TimeWindow(BaseModel):
-    """24 小时制时间窗；统一格式减少 Planner 中的重复解析。"""
-    model_config = ConfigDict(extra="forbid")
-
-    start: str
-    end: str
-
-    @field_validator("start", "end")
-    @classmethod
-    def validate_clock_time(cls, value: str) -> str:
-        parts = value.split(":")
-        if len(parts) != 2:
-            raise ValueError("time must use HH:MM")
-        hour, minute = (int(part) for part in parts)
-        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-            raise ValueError("time must be a valid 24-hour clock value")
-        return f"{hour:02d}:{minute:02d}"
 
 
 class NormalizedConstraints(BaseModel):

@@ -273,6 +273,40 @@ class EntryGraphTest(unittest.TestCase):
         self.assertEqual(len(result["candidate_set"].plans[0].stops), 2)
         self.assertEqual(restored, result["candidate_set"])
 
+    def test_tonight_is_compiled_to_today_evening_without_a_date_question(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-tonight-contract",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DemoRouter(),
+            environment_provider=lambda _: environment,
+        )
+
+        result = graph.invoke(
+            {"user_input": "今晚只安排一家晚饭", "actor": actor},
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        self.assertTrue(result["ready_for_planning"])
+        self.assertEqual(result["enrichment"].constraints.date.value, date(2026, 8, 12))
+        self.assertEqual(
+            result["enrichment"].constraints.time_window.value.model_dump(),
+            {"start": "18:00", "end": "22:00"},
+        )
+        self.assertTrue(result["candidate_set"].plans)
+
     def test_runtime_decisions_distinguish_demo_router_and_rule_planning(self) -> None:
         environment = EnvironmentContext(
             now=datetime(2026, 8, 15, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),

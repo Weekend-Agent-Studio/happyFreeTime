@@ -15,9 +15,9 @@ from app.domain.constraints import (
     RawConstraints,
     StopRole,
     TargetReference,
-    TimeScope,
 )
 from app.domain.runtime import RuntimeDecision
+from app.services.enrichment import TemporalCompiler
 from app.services.router_extractor import RouterContext
 
 
@@ -73,36 +73,14 @@ class DemoRouter:
             (phrase for phrase in ("步行可达", "附近", "别太远") if phrase in text),
             None,
         )
-        date_text = next(
-            (phrase for phrase in ("今天", "明天", "后天", "周六") if phrase in text),
-            None,
-        )
-        time_scope = None
-        time_text = next(
-            (
-                phrase
-                for phrase in (
-                    "一整天",
-                    "全天",
-                    "从早到晚",
-                    "玩一天",
-                    "上午",
-                    "中午",
-                    "下午",
-                    "晚上",
-                )
-                if phrase in text
-            ),
-            None,
-        )
-        if time_text in {"一整天", "全天", "从早到晚", "玩一天"}:
-            time_scope = TimeScope.ALL_DAY
-        elif time_text == "上午":
-            time_scope = TimeScope.MORNING
-        elif time_text == "下午":
-            time_scope = TimeScope.AFTERNOON
-        elif time_text == "晚上":
-            time_scope = TimeScope.EVENING
+        (
+            date_text,
+            date_reference,
+            weekday,
+            week_offset,
+            absolute_date,
+        ) = TemporalCompiler.extract_date(text)
+        time_text, time_scope, explicit_time_window = TemporalCompiler.extract_time(text)
         departure_match = re.search(
             r"(?:(?:上午|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
             r"\s*(?:准时\s*)?(?:出发|离开)",
@@ -315,8 +293,13 @@ class DemoRouter:
         )
         raw = RawConstraints(
             date_text=date_text,
+            date_reference=date_reference,
+            weekday=weekday,
+            week_offset=week_offset,
+            absolute_date=absolute_date,
             time_text=time_text,
             time_scope=time_scope,
+            explicit_time_window=explicit_time_window,
             departure_at_text=(departure_match.group(0) if departure_match else None),
             exact_stop_count=(
                 1
@@ -354,7 +337,13 @@ class DemoRouter:
             field: value
             for field, value in {
                 "date_text": date_text,
+                "date_reference": date_text if date_reference is not None else None,
+                "weekday": date_text if weekday is not None else None,
+                "week_offset": date_text if week_offset is not None else None,
+                "absolute_date": date_text if absolute_date is not None else None,
                 "time_text": time_text,
+                "time_scope": time_text if time_scope is not None else None,
+                "explicit_time_window": time_text if explicit_time_window is not None else None,
                 "departure_at_text": departure_match.group(0) if departure_match else None,
                 "exact_stop_count": (
                     single_stop_match.group("exclusive")

@@ -35,6 +35,48 @@ def load_cases(path: Path) -> list[EvalCase]:
     return [EvalCase.model_validate(case) for case in raw_cases]
 
 
+def _fixture_interpretation(case: EvalCase) -> Interpretation:
+    """Build a traceable interpretation for raw, offline fixture inputs.
+
+    Smoke cases provide normalized raw fields directly rather than exercising
+    a Router.  Populate the same minimal evidence contract a deterministic
+    adapter would emit, so new structured temporal fields are tested without
+    weakening production validation.
+    """
+
+    raw = case.raw_constraints
+    evidence: dict[str, str] = {}
+    confidence: dict[str, float] = {}
+
+    def add(field: str, value: object, *, evidence_value: str | None = None) -> None:
+        if value is None:
+            return
+        evidence[field] = evidence_value or str(value)
+        confidence[field] = 1.0
+
+    add("date_reference", raw.date_reference, evidence_value=raw.date_text)
+    add("weekday", raw.weekday, evidence_value=raw.date_text)
+    add("week_offset", raw.week_offset, evidence_value=raw.date_text)
+    add(
+        "absolute_date",
+        raw.absolute_date,
+        evidence_value=raw.date_text,
+    )
+    add("time_scope", raw.time_scope, evidence_value=raw.time_text)
+    add(
+        "explicit_time_window",
+        raw.explicit_time_window,
+        evidence_value=raw.time_text,
+    )
+    return Interpretation(
+        primary_intent=case.intent,
+        intent_scores={case.intent: 1.0},
+        raw_constraints=raw,
+        evidence_map=evidence,
+        extraction_confidence=confidence,
+    )
+
+
 def run_smoke_cases(
     cases: list[EvalCase],
     environment: EnvironmentContext,
@@ -60,11 +102,7 @@ def run_smoke_cases(
             else None
         )
         enrichment_service = EnrichmentService(geocoding_provider=geocoding_provider)
-        interpretation = Interpretation(
-            primary_intent=case.intent,
-            intent_scores={case.intent: 1.0},
-            raw_constraints=case.raw_constraints,
-        )
+        interpretation = _fixture_interpretation(case)
         enrichment = enrichment_service.enrich(interpretation, actor, environment)
         decision = gate.decide(interpretation, enrichment, GateContext())
 

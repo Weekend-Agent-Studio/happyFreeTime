@@ -3,7 +3,7 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.domain.constraints import Intent, Interpretation, RawConstraints
+from app.domain.constraints import DateReference, Intent, Interpretation, RawConstraints, TimeScope
 from app.services import router_extractor as router_extractor_module
 from app.services.router_extractor import (
     RouterContext,
@@ -126,6 +126,31 @@ class RouterExtractorTest(unittest.TestCase):
 
         self.assertEqual(runtime.fallback_reason, "network_error")
         self.assertEqual(len(model.calls), 1)
+
+    def test_structured_temporal_values_require_evidence_and_confidence(self) -> None:
+        with self.assertRaises(ValueError):
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(
+                    date_reference=DateReference.TODAY,
+                    time_scope=TimeScope.EVENING,
+                ),
+            )
+
+        valid = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                date_text="今晚",
+                date_reference=DateReference.TODAY,
+                time_text="今晚",
+                time_scope=TimeScope.EVENING,
+            ),
+            evidence_map={"date_text": "今晚", "time_text": "今晚"},
+            extraction_confidence={"date_text": 1.0, "time_text": 1.0},
+        )
+        self.assertEqual(valid.raw_constraints.date_reference, DateReference.TODAY)
 
 
 if __name__ == "__main__":

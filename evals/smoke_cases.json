@@ -19,6 +19,25 @@
     "tags": ["planning", "dinner_only", "hard_constraint"]
   },
   {
+    "case_id": "tonight_dinner_only_uses_today_evening",
+    "intent": "plan_outing",
+    "raw_constraints": {
+      "date_text": "今晚",
+      "date_reference": "today",
+      "time_text": "今晚",
+      "time_scope": "evening",
+      "exact_stop_count": 1,
+      "required_stop_roles": ["dinner"]
+    },
+    "expected_outcome": "plan",
+    "expected_plan_facts": {
+      "expected_stop_count": 1,
+      "required_roles": ["dinner"],
+      "forbidden_roles": ["activity"]
+    },
+    "tags": ["planning", "dinner_only", "temporal", "hard_constraint"]
+  },
+  {
     "case_id": "default_weekend_plan",
     "intent": "plan_outing",
     "raw_constraints": {},

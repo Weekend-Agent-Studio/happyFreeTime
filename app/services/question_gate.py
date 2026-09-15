@@ -53,7 +53,7 @@ class NeedQuestionGate:
             )
 
         raw = interpretation.raw_constraints
-        if raw.date_text and constraints.date is None:
+        if (raw.date_reference or raw.date_text) and constraints.date is None:
             return QuestionDecision(
                 need_question=True,
                 field="date",
@@ -61,7 +61,11 @@ class NeedQuestionGate:
                 severity="blocking",
             )
 
-        if raw.time_text and constraints.time_window is None:
+        if (
+            raw.time_scope is not None
+            or raw.explicit_time_window is not None
+            or raw.time_text
+        ) and constraints.time_window is None:
             return QuestionDecision(
                 need_question=True,
                 field="time_window",

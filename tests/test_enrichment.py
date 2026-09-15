@@ -8,6 +8,7 @@ from app.domain.constraints import (
     ActorContext,
     ConstraintValue,
     ConstraintSource,
+    DateReference,
     GeoLocation,
     IdentityType,
     Intent,
@@ -16,6 +17,8 @@ from app.domain.constraints import (
     RawConstraints,
     StopRole,
     TimeScope,
+    TimeWindow,
+    Weekday,
 )
 from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext, EnrichmentService
@@ -99,6 +102,7 @@ class EnrichmentServiceTest(unittest.TestCase):
                 departure_at_text="下午六点半准时出发",
             ),
             evidence_map={"time_text": "下午", "departure_at_text": "下午六点半准时出发"},
+            extraction_confidence={"time_text": 1.0, "departure_at_text": 1.0},
         )
         actor = ActorContext(user_id="demo", session_id="departure-scope", identity_type=IdentityType.DEMO)
         environment = EnvironmentContext(
@@ -137,6 +141,11 @@ class EnrichmentServiceTest(unittest.TestCase):
                 "departure_at_text": "下午六点半准时出发",
                 "return_by_text": "20:00前回家",
             },
+            extraction_confidence={
+                "time_text": 1.0,
+                "departure_at_text": 1.0,
+                "return_by_text": 1.0,
+            },
         )
         actor = ActorContext(user_id="demo", session_id="departure-scope-return", identity_type=IdentityType.DEMO)
         environment = EnvironmentContext(
@@ -162,6 +171,11 @@ class EnrichmentServiceTest(unittest.TestCase):
                 time_scope=TimeScope.EXPLICIT_RANGE,
                 departure_at_text="下午六点半准时出发",
             ),
+            evidence_map={
+                "time_text": "10:00-16:00",
+                "departure_at_text": "下午六点半准时出发",
+            },
+            extraction_confidence={"time_text": 1.0, "departure_at_text": 1.0},
         )
         actor = ActorContext(user_id="demo", session_id="departure-explicit-range", identity_type=IdentityType.DEMO)
         environment = EnvironmentContext(
@@ -308,6 +322,11 @@ class EnrichmentServiceTest(unittest.TestCase):
                 "time_text": "下午",
                 "required_stop_roles": "活动和晚饭",
                 "return_by_text": "20:00前回家",
+            },
+            extraction_confidence={
+                "time_text": 1.0,
+                "required_stop_roles": 1.0,
+                "return_by_text": 1.0,
             },
         )
 
@@ -456,6 +475,117 @@ class EnrichmentServiceTest(unittest.TestCase):
             EnrichmentService._normalize_date("星期天", current_date),
             date(2026, 8, 16),
         )
+
+    def test_compiles_structured_tonight_reference_before_legacy_text(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                date_text="今晚",
+                date_reference=DateReference.TODAY,
+                time_text="今晚",
+                time_scope=TimeScope.EVENING,
+            ),
+            evidence_map={"date_text": "今晚", "time_text": "今晚"},
+            extraction_confidence={"date_text": 1.0, "time_text": 1.0},
+        )
+        actor = ActorContext(user_id="demo", session_id="tonight", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.date.value, date(2026, 8, 12))
+        self.assertEqual(result.constraints.date.rule_id, "date.reference.today.v1")
+        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "18:00", "end": "22:00"})
+
+    def test_compiles_structured_weekday_and_absolute_dates(self) -> None:
+        current = date(2026, 8, 12)
+        self.assertEqual(
+            EnrichmentService._normalize_date("本周六", current),
+            date(2026, 8, 15),
+        )
+        self.assertEqual(
+            EnrichmentService._normalize_date("下周六", current),
+            date(2026, 8, 22),
+        )
+        actor = ActorContext(user_id="demo", session_id="absolute-date", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                date_text="2026-09-01",
+                date_reference=DateReference.ABSOLUTE,
+                absolute_date=date(2026, 9, 1),
+            ),
+            evidence_map={"date_text": "2026-09-01"},
+            extraction_confidence={"date_text": 1.0},
+        )
+        self.assertEqual(
+            EnrichmentService().enrich(interpretation, actor, environment).constraints.date.value,
+            date(2026, 9, 1),
+        )
+
+    def test_structured_explicit_window_is_not_overridden_by_departure(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="10:00–16:00",
+                time_scope=TimeScope.EXPLICIT_RANGE,
+                explicit_time_window=TimeWindow(start="10:00", end="16:00"),
+                departure_at_text="下午六点半准时出发",
+            ),
+            evidence_map={
+                "time_text": "10:00–16:00",
+                "departure_at_text": "下午六点半准时出发",
+            },
+            extraction_confidence={"time_text": 1.0, "departure_at_text": 1.0},
+        )
+        actor = ActorContext(user_id="demo", session_id="explicit-window", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.time_scope.value, TimeScope.EXPLICIT_RANGE)
+        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "10:00", "end": "16:00"})
+
+    def test_invalid_structured_temporal_contract_is_rejected(self) -> None:
+        with self.assertRaises(ValidationError):
+            RawConstraints(date_reference=DateReference.WEEKDAY)
+        with self.assertRaises(ValidationError):
+            RawConstraints(date_reference=DateReference.TODAY, weekday=Weekday.SATURDAY)
+        with self.assertRaises(ValidationError):
+            RawConstraints(
+                time_scope=TimeScope.EXPLICIT_RANGE,
+                explicit_time_window=TimeWindow(start="16:00", end="10:00"),
+            )
+
+    def test_unresolved_legacy_tonight_text_is_still_supported(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(date_text="今晚", time_text="今晚"),
+        )
+        actor = ActorContext(user_id="demo", session_id="legacy-tonight", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.date.value, date(2026, 8, 12))
+        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "18:00", "end": "22:00"})
 
     def test_normalizes_fuzzy_language_and_exposes_defaults(self) -> None:
         interpretation = Interpretation(

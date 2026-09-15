@@ -1,8 +1,7 @@
 import unittest
 from datetime import date
 
-from app.domain.constraints import Intent
-from app.domain.constraints import StopRole
+from app.domain.constraints import DateReference, Intent, StopRole, TimeScope, Weekday
 from app.services.demo_router import DemoRouter
 from app.services.router_extractor import RouterContext
 
@@ -190,6 +189,37 @@ class DemoRouterTest(unittest.TestCase):
 
         self.assertEqual(result.raw_constraints.time_text, "一整天")
         self.assertEqual(result.raw_constraints.time_scope.value, "all_day")
+
+    def test_extracts_bounded_temporal_contract_for_compound_phrases(self) -> None:
+        result = self.router.interpret("今晚只安排一家晚饭", self.context)
+
+        raw = result.raw_constraints
+        self.assertEqual(raw.date_text, "今晚")
+        self.assertEqual(raw.date_reference, DateReference.TODAY)
+        self.assertEqual(raw.time_text, "今晚")
+        self.assertEqual(raw.time_scope, TimeScope.EVENING)
+        self.assertEqual(result.evidence_map["date_reference"], "今晚")
+        self.assertIn("date_reference", result.extraction_confidence)
+
+    def test_extracts_weekday_offset_and_keeps_plain_weekday_distinct(self) -> None:
+        for text, expected_offset in (("本周六", 0), ("下周六", 1), ("周六", None)):
+            with self.subTest(text=text):
+                raw = self.router.interpret(text, self.context).raw_constraints
+                self.assertEqual(raw.date_reference, DateReference.WEEKDAY)
+                self.assertEqual(raw.weekday, Weekday.SATURDAY)
+                self.assertEqual(raw.week_offset, expected_offset)
+
+    def test_extracts_explicit_numeric_time_window(self) -> None:
+        result = self.router.interpret("明天 10:00–16:00 出去玩", self.context)
+
+        raw = result.raw_constraints
+        self.assertEqual(raw.date_reference, DateReference.TOMORROW)
+        self.assertEqual(raw.time_scope, TimeScope.EXPLICIT_RANGE)
+        self.assertEqual(
+            raw.explicit_time_window.model_dump(),
+            {"start": "10:00", "end": "16:00"},
+        )
+        self.assertIn("explicit_time_window", result.evidence_map)
 
 
 if __name__ == "__main__":

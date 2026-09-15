@@ -59,8 +59,19 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
 
 约束：
 - 未明确表达的信息保持为空，不填系统默认值。
- - 不解析相对日期、模糊时间和模糊距离，只保留 date_text、time_text、max_distance_text。
+ - 不计算最终日历日期，也不猜模糊时间；为可识别的日期表达填写有限的
+   date_reference（today/tomorrow/day_after_tomorrow/weekday/absolute），并继续保留
+   date_text 作为原文证据。weekday 需要同时填写 weekday；“下周”填写 week_offset=1，
+   “本周/这周”填写 week_offset=0，普通“周六”不填写 week_offset。absolute 必须填写
+   ISO 格式 absolute_date。无法可靠归类时只保留 date_text，等待 Enrichment/Gate。
+ - “今晚”填写 date_reference="today"、time_scope="evening”；“明晚”填写
+   date_reference="tomorrow"、time_scope="evening”。不要把“晚上”单独推断成今天。
  - “一整天”“全天”“从早到晚”填写 time_scope="all_day"，同时保留 time_text 作为证据。
+ - 明确的数字范围（例如“10:00–16:00”）填写 time_scope="explicit_range" 和
+   explicit_time_window={"start":"10:00","end":"16:00"}，并保留 time_text。
+ - 任何 date_reference、weekday、week_offset、absolute_date 或
+   explicit_time_window 只在能从用户原话确认时填写；对应 evidence_map 和
+   extraction_confidence 必须同时提供。模糊的“晚饭前后”“有空时”不能编译成精确时钟。
  - “下午两点半准时出发”要保留 departure_at_text；如果能可靠规范化，也可填写
    departure_at="14:30”，但不要把到家时间写成出发时间。Enrichment 会再次校验时钟。
    如果同时出现“上午/下午/晚上”和精确出发时刻，保留两者；精确时刻优先，不能仅因为

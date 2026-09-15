@@ -1,13 +1,17 @@
 import unittest
+from datetime import date
 
 from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
+    DateReference,
     EnrichmentResult,
     Intent,
     Interpretation,
     NormalizedConstraints,
     RawConstraints,
+    TimeScope,
+    TimeWindow,
 )
 from app.services.question_gate import GateContext, NeedQuestionGate
 
@@ -193,6 +197,33 @@ class NeedQuestionGateTest(unittest.TestCase):
 
         self.assertTrue(decision.need_question)
         self.assertEqual(decision.field, "total_distance_km")
+
+    def test_structured_tonight_does_not_ask_for_date_or_time(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                date_text="今晚",
+                date_reference=DateReference.TODAY,
+                time_text="今晚",
+                time_scope=TimeScope.EVENING,
+            ),
+            evidence_map={"date_text": "今晚", "time_text": "今晚"},
+            extraction_confidence={"date_text": 1.0, "time_text": 1.0},
+        )
+        enrichment = EnrichmentResult(
+            constraints=NormalizedConstraints(
+                date=ConstraintValue(value=date(2026, 8, 12), source=ConstraintSource.USER_INFERRED),
+                time_window=ConstraintValue(
+                    value=TimeWindow(start="18:00", end="22:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+            )
+        )
+
+        decision = self.gate.decide(interpretation, enrichment, GateContext())
+
+        self.assertFalse(decision.need_question)
 
 
 if __name__ == "__main__":

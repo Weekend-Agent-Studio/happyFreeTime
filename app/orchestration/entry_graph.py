@@ -23,6 +23,7 @@ from app.domain.constraints import (
     CriterionStrength,
     ConversationCommand,
     ConstraintSource,
+    DateReference,
     EnrichmentResult,
     IdentityType,
     Intent,
@@ -34,6 +35,7 @@ from app.domain.constraints import (
     StopRole,
     TargetReference,
     TimeScope,
+    Weekday,
 )
 from app.domain.planning import (
     CandidateSet,
@@ -423,6 +425,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             CatalogSource,
             ConstraintViolation,
             ConstraintSource,
+            DateReference,
             EnrichmentResult,
             IdentityType,
             Intent,
@@ -459,6 +462,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             SemanticCriterion,
             StopRole,
             TimeScope,
+            Weekday,
             TargetReference,
             StopReplacement,
             StopType,

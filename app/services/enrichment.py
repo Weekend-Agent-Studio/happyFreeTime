@@ -13,6 +13,7 @@ from app.domain.constraints import (
     Assumption,
     ConstraintSource,
     ConstraintValue,
+    DateReference,
     EnrichmentResult,
     GeoLocation,
     Interpretation,
@@ -21,6 +22,7 @@ from app.domain.constraints import (
     StopRole,
     TimeScope,
     TimeWindow,
+    Weekday,
 )
 from app.domain.providers import GeocodeRequest, GeocodeResolution, GeocodingFact
 from app.providers.geocoding import GeocodingProvider
@@ -32,6 +34,193 @@ class EnvironmentContext(BaseModel):
 
     now: datetime
     default_location: GeoLocation
+
+
+class TemporalCompiler:
+    """Small, shared temporal vocabulary used by DemoRouter and Enrichment.
+
+    It deliberately compiles only a finite contract.  It never guesses a
+    date for an unknown phrase and never replaces the model's raw evidence.
+    """
+
+    _RELATIVE_DATE_ALIASES: tuple[tuple[str, DateReference], ...] = (
+        ("今天晚上", DateReference.TODAY),
+        ("今天夜里", DateReference.TODAY),
+        ("今晚", DateReference.TODAY),
+        ("今夜", DateReference.TODAY),
+        ("明天晚上", DateReference.TOMORROW),
+        ("明晚", DateReference.TOMORROW),
+        ("后天晚上", DateReference.DAY_AFTER_TOMORROW),
+        ("后晚", DateReference.DAY_AFTER_TOMORROW),
+        ("今天", DateReference.TODAY),
+        ("明天", DateReference.TOMORROW),
+        ("后天", DateReference.DAY_AFTER_TOMORROW),
+    )
+    _WEEKDAY_ALIASES: dict[str, Weekday] = {
+        "一": Weekday.MONDAY,
+        "二": Weekday.TUESDAY,
+        "三": Weekday.WEDNESDAY,
+        "四": Weekday.THURSDAY,
+        "五": Weekday.FRIDAY,
+        "六": Weekday.SATURDAY,
+        "日": Weekday.SUNDAY,
+        "天": Weekday.SUNDAY,
+    }
+    _TIME_SCOPE_ALIASES: tuple[tuple[str, TimeScope], ...] = (
+        ("一整天", TimeScope.ALL_DAY),
+        ("全天", TimeScope.ALL_DAY),
+        ("从早到晚", TimeScope.ALL_DAY),
+        ("玩一天", TimeScope.ALL_DAY),
+        ("今天晚上", TimeScope.EVENING),
+        ("明天晚上", TimeScope.EVENING),
+        ("后天晚上", TimeScope.EVENING),
+        ("今晚", TimeScope.EVENING),
+        ("明晚", TimeScope.EVENING),
+        ("后晚", TimeScope.EVENING),
+        ("今夜", TimeScope.EVENING),
+        ("上午", TimeScope.MORNING),
+        ("下午", TimeScope.AFTERNOON),
+        ("晚上", TimeScope.EVENING),
+    )
+
+    @classmethod
+    def extract_date(
+        cls,
+        text: str | None,
+    ) -> tuple[str | None, DateReference | None, Weekday | None, int | None, Date | None]:
+        if not text:
+            return None, None, None, None, None
+        value = text.strip()
+        absolute_match = re.search(
+            r"(?P<year>20\d{2})[年/-](?P<month>\d{1,2})[月/-](?P<day>\d{1,2})日?",
+            value,
+        )
+        if absolute_match:
+            try:
+                absolute_date = Date(
+                    int(absolute_match.group("year")),
+                    int(absolute_match.group("month")),
+                    int(absolute_match.group("day")),
+                )
+            except ValueError:
+                # Keep the raw phrase for Gate; do not construct an invalid
+                # structured reference that cannot be resolved.
+                return absolute_match.group(0), None, None, None, None
+            return (
+                absolute_match.group(0),
+                DateReference.ABSOLUTE,
+                None,
+                None,
+                absolute_date,
+            )
+
+        for phrase, reference in sorted(cls._RELATIVE_DATE_ALIASES, key=lambda item: -len(item[0])):
+            if phrase in value:
+                return phrase, reference, None, None, None
+
+        weekday_match = re.search(
+            r"(?P<prefix>本周|这周|下周|周|星期)(?P<day>[一二三四五六日天])",
+            value,
+        )
+        if weekday_match:
+            prefix = weekday_match.group("prefix")
+            week_offset = 0 if prefix in {"本周", "这周"} else 1 if prefix == "下周" else None
+            return (
+                weekday_match.group(0),
+                DateReference.WEEKDAY,
+                cls._WEEKDAY_ALIASES[weekday_match.group("day")],
+                week_offset,
+                None,
+            )
+        return None, None, None, None, None
+
+    @classmethod
+    def extract_time(
+        cls,
+        text: str | None,
+    ) -> tuple[str | None, TimeScope | None, TimeWindow | None]:
+        if not text:
+            return None, None, None
+        value = text.strip()
+        for phrase, scope in sorted(cls._TIME_SCOPE_ALIASES, key=lambda item: -len(item[0])):
+            if phrase in value:
+                return phrase, scope, None
+        if "中午" in value:
+            return "中午", None, TimeWindow(start="11:30", end="14:00")
+
+        range_match = re.search(
+            r"(?P<start>\d{1,2})(?::|：)?(?P<start_minute>\d{2})?\s*"
+            r"[-‐‑‒–—到至]\s*"
+            r"(?P<end>\d{1,2})(?::|：)?(?P<end_minute>\d{2})?",
+            value,
+        )
+        if range_match:
+            raw_range = range_match.group(0)
+            try:
+                window = TimeWindow(
+                    start=f"{int(range_match.group('start')):02d}:{int(range_match.group('start_minute') or 0):02d}",
+                    end=f"{int(range_match.group('end')):02d}:{int(range_match.group('end_minute') or 0):02d}",
+                )
+            except ValueError:
+                return raw_range, TimeScope.EXPLICIT_RANGE, None
+            return raw_range, TimeScope.EXPLICIT_RANGE, window
+        return None, None, None
+
+    @classmethod
+    def resolve_date(
+        cls,
+        reference: DateReference | None,
+        *,
+        current_date: Date,
+        weekday: Weekday | None = None,
+        week_offset: int | None = None,
+        absolute_date: Date | None = None,
+    ) -> Date | None:
+        if reference == DateReference.TODAY:
+            return current_date
+        if reference == DateReference.TOMORROW:
+            return current_date + timedelta(days=1)
+        if reference == DateReference.DAY_AFTER_TOMORROW:
+            return current_date + timedelta(days=2)
+        if reference == DateReference.ABSOLUTE:
+            return absolute_date
+        if reference != DateReference.WEEKDAY or weekday is None:
+            return None
+        target_weekday = list(Weekday).index(weekday)
+        if week_offset is None:
+            return current_date + timedelta(days=(target_weekday - current_date.weekday()) % 7)
+        week_start = current_date - timedelta(days=current_date.weekday())
+        return week_start + timedelta(days=7 * week_offset + target_weekday)
+
+    @classmethod
+    def normalize_date(cls, raw_text: str | None, current_date: Date) -> Date | None:
+        _, reference, weekday, week_offset, absolute_date = cls.extract_date(raw_text)
+        return cls.resolve_date(
+            reference,
+            current_date=current_date,
+            weekday=weekday,
+            week_offset=week_offset,
+            absolute_date=absolute_date,
+        )
+
+    @classmethod
+    def normalize_time_window(cls, raw_text: str | None) -> TimeWindow | None:
+        _, scope, explicit_window = cls.extract_time(raw_text)
+        if explicit_window is not None:
+            return explicit_window
+        if scope is None:
+            return None
+        return cls.time_window_for_scope(scope)
+
+    @staticmethod
+    def time_window_for_scope(scope: TimeScope) -> TimeWindow | None:
+        return {
+            TimeScope.MORNING: TimeWindow(start="09:00", end="12:00"),
+            TimeScope.AFTERNOON: TimeWindow(start="14:00", end="18:00"),
+            TimeScope.EVENING: TimeWindow(start="18:00", end="22:00"),
+            TimeScope.ALL_DAY: TimeWindow(start="09:00", end="21:00"),
+            TimeScope.EXPLICIT_RANGE: None,
+        }[scope]
 
 
 class EnrichmentService:
@@ -61,17 +250,48 @@ class EnrichmentService:
 
         # 用户明确说了但无法解析的文本必须保持未解决。只有真正缺失的字段才可
         # 使用默认值，这样 Gate 会对歧义表达提问，而不是覆盖用户原话。
-        normalized_date = self._normalize_date(raw.date_text, environment.now.date())
         date_value = None
-        if normalized_date is not None:
+        structured_date = TemporalCompiler.resolve_date(
+            raw.date_reference,
+            current_date=environment.now.date(),
+            weekday=raw.weekday,
+            week_offset=raw.week_offset,
+            absolute_date=raw.absolute_date,
+        )
+        if raw.date_reference is not None and structured_date is not None:
+            date_rule_id = {
+                DateReference.TODAY: "date.reference.today.v1",
+                DateReference.TOMORROW: "date.reference.tomorrow.v1",
+                DateReference.DAY_AFTER_TOMORROW: "date.reference.day_after_tomorrow.v1",
+                DateReference.WEEKDAY: "date.reference.weekday.v1",
+                DateReference.ABSOLUTE: "date.reference.absolute.v1",
+            }[raw.date_reference]
             date_value = ConstraintValue[Date](
-                value=normalized_date,
+                value=structured_date,
                 source=ConstraintSource.USER_INFERRED,
-                raw_text=raw.date_text,
-                confidence=self._confidence(interpretation, "date_text"),
-                rule_id="date.relative.zh_cn.v1",
+                raw_text=(
+                    raw.date_text
+                    or interpretation.evidence_map.get("date_reference")
+                    or interpretation.evidence_map.get("absolute_date")
+                ),
+                confidence=(
+                    self._confidence(interpretation, "date_reference")
+                    or self._confidence(interpretation, "date_text")
+                    or self._confidence(interpretation, "absolute_date")
+                ),
+                rule_id=date_rule_id,
             )
-        elif raw.date_text is None:
+        else:
+            normalized_date = self._normalize_date(raw.date_text, environment.now.date())
+            if normalized_date is not None:
+                date_value = ConstraintValue[Date](
+                    value=normalized_date,
+                    source=ConstraintSource.USER_INFERRED,
+                    raw_text=raw.date_text,
+                    confidence=self._confidence(interpretation, "date_text"),
+                    rule_id="date.relative.zh_cn.v1",
+                )
+        if date_value is None and raw.date_text is None and raw.date_reference is None:
             default_date = self._next_saturday(environment.now.date())
             date_value = ConstraintValue[Date](
                 value=default_date,
@@ -137,22 +357,34 @@ class EnrichmentService:
             else None
         )
 
-        # TimeScope is a small semantic vocabulary owned by the interpreter.
-        # Keep a legacy text fallback for old adapters/checkpoints, but do not
-        # silently treat an explicit unknown expression as an afternoon default.
-        time_scope = raw.time_scope or self._infer_time_scope(raw.time_text)
-        normalized_time = self._normalize_time_window(raw.time_text)
+        # Prefer the bounded structured temporal contract.  Old checkpoints
+        # still fall back to their *_text fields below.
+        structured_time_window = raw.explicit_time_window
+        if structured_time_window is not None:
+            time_scope = TimeScope.EXPLICIT_RANGE
+            normalized_time = structured_time_window
+        elif raw.time_scope is not None:
+            time_scope = raw.time_scope
+            normalized_time = (
+                self._normalize_time_window(raw.time_text)
+                if raw.time_scope == TimeScope.EXPLICIT_RANGE
+                else self._time_window_for_scope(raw.time_scope)
+            )
+        else:
+            time_scope = self._infer_time_scope(raw.time_text)
+            normalized_time = self._normalize_time_window(raw.time_text)
         multi_role_time_default = self._multi_role_default_time_window(
             raw.required_stop_roles,
             return_by=return_by,
         )
         multi_role_window_applied = False
         departure_overrides_scope = False
-        if time_scope == TimeScope.ALL_DAY:
-            normalized_time = TimeWindow(
-                start=self.ALL_DAY_START,
-                end=self.ALL_DAY_END,
-            )
+        if structured_time_window is not None:
+            # An explicit numeric range is authoritative.  A departure clock
+            # cannot widen or replace it.
+            normalized_time = structured_time_window
+        elif time_scope == TimeScope.ALL_DAY:
+            normalized_time = self._time_window_for_scope(TimeScope.ALL_DAY)
         elif time_scope in {
             TimeScope.MORNING,
             TimeScope.AFTERNOON,
@@ -190,6 +422,7 @@ class EnrichmentService:
                 TimeScope.AFTERNOON,
                 TimeScope.EVENING,
             }
+            and structured_time_window is None
             and normalized_time == self._time_window_for_scope(time_scope)
         )
         if (
@@ -203,13 +436,18 @@ class EnrichmentService:
             multi_role_window_applied = True
 
         effective_time_scope = (
-            TimeScope.EXPLICIT_RANGE if departure_overrides_scope else time_scope
+            TimeScope.EXPLICIT_RANGE
+            if structured_time_window is not None or departure_overrides_scope
+            else time_scope
         )
         time_scope_value = (
             ConstraintValue[TimeScope](
                 value=effective_time_scope,
                 source=ConstraintSource.USER_INFERRED,
-                raw_text=raw.time_text,
+                raw_text=(
+                    raw.time_text
+                    or interpretation.evidence_map.get("explicit_time_window")
+                ),
                 confidence=(
                     self._confidence(interpretation, "time_scope")
                     or self._confidence(interpretation, "time_text")
@@ -231,18 +469,29 @@ class EnrichmentService:
                     )
                     else ConstraintSource.USER_INFERRED
                 ),
-                raw_text=raw.time_text,
-                confidence=self._confidence(interpretation, "time_text"),
+                raw_text=(
+                    raw.time_text
+                    or interpretation.evidence_map.get("explicit_time_window")
+                ),
+                confidence=(
+                    self._confidence(interpretation, "explicit_time_window")
+                    or self._confidence(interpretation, "time_text")
+                ),
                 rule_id=(
-                    "time.all_day.default_window.v1"
-                    if effective_time_scope == TimeScope.ALL_DAY
+                    "time.explicit_range.v1"
+                    if structured_time_window is not None
+                    or raw.time_scope == TimeScope.EXPLICIT_RANGE
                     else (
-                        "time.window.from_departure_overrides_scope.v1"
-                        if departure_overrides_scope
+                        "time.all_day.default_window.v1"
+                        if effective_time_scope == TimeScope.ALL_DAY
                         else (
-                            "time.multi_role.meal_anchor.v1"
-                            if multi_role_window_applied
-                            else "time.period.zh_cn.v1"
+                            "time.window.from_departure_overrides_scope.v1"
+                            if departure_overrides_scope
+                            else (
+                                "time.multi_role.meal_anchor.v1"
+                                if multi_role_window_applied
+                                else "time.period.zh_cn.v1"
+                            )
                         )
                     )
                 ),
@@ -511,45 +760,9 @@ class EnrichmentService:
 
     @staticmethod
     def _normalize_date(raw_text: str | None, current_date: Date) -> Date | None:
-        """解析受控的中文相对日期；未知表达返回 None，不做近似猜测。"""
-        if not raw_text:
-            return None
-        text = raw_text.strip()
-        offsets = {"今天": 0, "明天": 1, "后天": 2}
-        if text in offsets:
-            return current_date + timedelta(days=offsets[text])
-        weekday_match = re.fullmatch(
-            r"(本周|这周|下周|周|星期)([一二三四五六日天])",
-            text,
-        )
-        if weekday_match:
-            week_marker, weekday_text = weekday_match.groups()
-            target_weekday = {
-                "一": 0,
-                "二": 1,
-                "三": 2,
-                "四": 3,
-                "五": 4,
-                "六": 5,
-                "日": 6,
-                "天": 6,
-            }[weekday_text]
-            if week_marker in {"本周", "这周"}:
-                return current_date + timedelta(
-                    days=target_weekday - current_date.weekday()
-                )
-            if week_marker == "下周":
-                next_monday = current_date + timedelta(
-                    days=7 - current_date.weekday()
-                )
-                return next_monday + timedelta(days=target_weekday)
-            return current_date + timedelta(
-                days=(target_weekday - current_date.weekday()) % 7
-            )
-        try:
-            return Date.fromisoformat(text)
-        except ValueError:
-            return None
+        """Legacy wrapper around the shared bounded temporal compiler."""
+
+        return TemporalCompiler.normalize_date(raw_text, current_date)
 
     @staticmethod
     def _next_saturday(current_date: Date) -> Date:
@@ -558,53 +771,19 @@ class EnrichmentService:
 
     @staticmethod
     def _normalize_time_window(raw_text: str | None) -> TimeWindow | None:
-        """将常见时段词或显式起止时间转换成统一时间窗。"""
-        if not raw_text:
-            return None
-        text = raw_text.strip()
-        periods = {
-            "上午": TimeWindow(start="09:00", end="12:00"),
-            "中午": TimeWindow(start="11:30", end="14:00"),
-            "下午": TimeWindow(start="14:00", end="18:00"),
-            "晚上": TimeWindow(start="18:00", end="22:00"),
-        }
-        if text in periods:
-            return periods[text]
-        match = re.fullmatch(r"(\d{1,2}):?(\d{2})?\s*[-到至]\s*(\d{1,2}):?(\d{2})?", text)
-        if match:
-            start_hour, start_minute, end_hour, end_minute = match.groups()
-            return TimeWindow(
-                start=f"{int(start_hour):02d}:{int(start_minute or 0):02d}",
-                end=f"{int(end_hour):02d}:{int(end_minute or 0):02d}",
-            )
-        return None
+        """Legacy wrapper around the shared bounded temporal compiler."""
+
+        return TemporalCompiler.normalize_time_window(raw_text)
 
     @staticmethod
     def _infer_time_scope(raw_text: str | None) -> TimeScope | None:
         """Compatibility mapping for legacy adapters that only emit time_text."""
 
-        if not raw_text:
-            return None
-        text = raw_text.strip()
-        if text in {"一整天", "全天", "从早到晚", "玩一天"}:
-            return TimeScope.ALL_DAY
-        if text == "上午":
-            return TimeScope.MORNING
-        if text == "下午":
-            return TimeScope.AFTERNOON
-        if text == "晚上":
-            return TimeScope.EVENING
-        if re.search(r"\d{1,2}:?\d{2}.*[-到至].*\d{1,2}:?\d{2}", text):
-            return TimeScope.EXPLICIT_RANGE
-        return None
+        return TemporalCompiler.extract_time(raw_text)[1]
 
     @staticmethod
-    def _time_window_for_scope(scope: TimeScope) -> TimeWindow:
-        return {
-            TimeScope.MORNING: TimeWindow(start="09:00", end="12:00"),
-            TimeScope.AFTERNOON: TimeWindow(start="14:00", end="18:00"),
-            TimeScope.EVENING: TimeWindow(start="18:00", end="22:00"),
-        }[scope]
+    def _time_window_for_scope(scope: TimeScope) -> TimeWindow | None:
+        return TemporalCompiler.time_window_for_scope(scope)
 
     @classmethod
     def _multi_role_default_time_window(
