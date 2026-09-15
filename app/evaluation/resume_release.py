@@ -2187,13 +2187,19 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         for item in executed_results
         if "hard_constraint" in item.tags
     ]
-    hard_passed = sum(
-        any(
-            assertion.metric == "hard_constraint_postconditions"
-            and assertion.status == "passed"
-            for assertion in item.assertions
-        )
+    hard_assertions = [
+        assertion
         for item in hard_results
+        for assertion in item.assertions
+        if assertion.metric == "hard_constraint_postconditions"
+    ]
+    evaluable_hard_assertions = [
+        assertion
+        for assertion in hard_assertions
+        if assertion.status in {"passed", "failed"}
+    ]
+    hard_passed = sum(
+        assertion.status == "passed" for assertion in evaluable_hard_assertions
     )
     all_assertions = [
         assertion
@@ -2266,7 +2272,10 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
     stage_latency = _aggregate_stage_latency(executed_results)
     return {
         "task_success_rate": _metric(successful, len(executed_results)),
-        "hard_constraint_pass_rate": _metric(hard_passed, len(hard_results)),
+        "hard_constraint_pass_rate": _metric(
+            hard_passed,
+            len(evaluable_hard_assertions),
+        ),
         "required_assertion_pass_rate": _metric(passed_assertions, len(all_assertions)),
         "not_evaluable_assertion_count": not_evaluable_assertions,
         "normal_success_count": sum(item.task_status == "normal_success" for item in results),
@@ -2315,7 +2324,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         "failure_codes": _aggregate_failure_codes(results),
         "denominators": {
             "task_success_rate": "passed cases / all executed cases",
-            "hard_constraint_pass_rate": "passed hard-constraint cases / cases tagged hard_constraint",
+            "hard_constraint_pass_rate": "passed / evaluable hard-constraint postconditions (not_evaluable excluded)",
             "required_assertion_pass_rate": "passed / evaluable required assertions (not_evaluable excluded)",
             "fallback_rate": "fallback model decisions / model decisions",
             "model_decision_count": "logical runtime decisions that invoked a model",
@@ -2572,6 +2581,7 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
     lines.extend(
         [
             f"- End-to-end latency P50/P95: {aggregate.get('elapsed_ms', {}).get('p50')} / {aggregate.get('elapsed_ms', {}).get('p95')} ms",
+            f"- Not evaluable assertions (upstream prerequisite missing): {aggregate.get('not_evaluable_assertion_count', 0)}",
             f"- Model decisions: {aggregate.get('model_decision_count', 0)}",
             f"- Provider attempts: {aggregate.get('provider_attempt_count', report.metadata.get('actual_provider_attempts', 0))}",
             f"- Known tokens: input={aggregate.get('known_input_tokens', 0)}, output={aggregate.get('known_output_tokens', 0)}",
