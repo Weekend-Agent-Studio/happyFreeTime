@@ -1,9 +1,16 @@
+import json
 import unittest
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.domain.constraints import DateReference, Intent, Interpretation, RawConstraints, TimeScope
+from app.domain.constraints import (
+    DateReference,
+    Intent,
+    Interpretation,
+    RawConstraints,
+    TimeScope,
+)
 from app.services import router_extractor as router_extractor_module
 from app.services.router_extractor import (
     RouterContext,
@@ -126,6 +133,126 @@ class RouterExtractorTest(unittest.TestCase):
 
         self.assertEqual(runtime.fallback_reason, "network_error")
         self.assertEqual(len(model.calls), 1)
+
+    def test_classifies_missing_tool_call_without_exposing_provider_payload(self) -> None:
+        model = FakeStructuredModel(
+            [
+                {"raw": SimpleNamespace(content="not a tool call"), "parsed": None, "parsing_error": ValueError("parser")},
+                {"raw": SimpleNamespace(content="still not a tool call"), "parsed": None, "parsing_error": ValueError("parser")},
+            ]
+        )
+
+        _, runtime = RouterExtractor(model).interpret_with_runtime(
+            "明天出去玩",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+
+        self.assertEqual(runtime.fallback_reason, "invalid_output")
+        self.assertEqual(runtime.diagnostic_code, "missing_tool_call")
+        self.assertEqual(runtime.diagnostic_paths, ())
+        self.assertEqual(runtime.diagnostic_error_types, ())
+
+    def test_classifies_invalid_json_tool_arguments(self) -> None:
+        raw = SimpleNamespace(
+            content="",
+            tool_calls=[],
+            invalid_tool_calls=[{"name": "Interpretation", "args": "{"}],
+        )
+        model = FakeStructuredModel(
+            [
+                {"raw": raw, "parsed": None, "parsing_error": ValueError("invalid json")},
+                {"raw": raw, "parsed": None, "parsing_error": ValueError("invalid json")},
+            ]
+        )
+
+        _, runtime = RouterExtractor(model).interpret_with_runtime(
+            "明天出去玩",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+
+        self.assertEqual(runtime.diagnostic_code, "invalid_json_arguments")
+        self.assertNotIn("invalid json", runtime.model_dump_json())
+
+    def test_classifies_provider_parser_error_when_tool_call_exists(self) -> None:
+        raw = SimpleNamespace(content="", tool_calls=[{"name": "Interpretation"}], invalid_tool_calls=[])
+        model = FakeStructuredModel(
+            [
+                {"raw": raw, "parsed": None, "parsing_error": RuntimeError("parser")},
+                {"raw": raw, "parsed": None, "parsing_error": RuntimeError("parser")},
+            ]
+        )
+
+        _, runtime = RouterExtractor(model).interpret_with_runtime(
+            "明天出去玩",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+
+        self.assertEqual(runtime.diagnostic_code, "provider_parsing_error")
+
+    def test_classifies_field_and_cross_field_pydantic_errors_safely(self) -> None:
+        field_model = FakeStructuredModel(
+            [
+                {"primary_intent": "not-an-intent", "intent_scores": {}},
+                {"primary_intent": "still-not-an-intent", "intent_scores": {}},
+            ]
+        )
+        _, field_runtime = RouterExtractor(field_model).interpret_with_runtime(
+            "明天出去玩",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+        self.assertEqual(field_runtime.diagnostic_code, "pydantic_validation_failed")
+        self.assertIn("primary_intent", field_runtime.diagnostic_paths)
+        self.assertTrue(field_runtime.diagnostic_error_types)
+
+        cross_model = FakeStructuredModel(
+            [
+                {
+                    "primary_intent": "plan_outing",
+                    "intent_scores": {"plan_outing": 1.0},
+                    "raw_constraints": {"date_reference": "weekday"},
+                },
+                {
+                    "primary_intent": "plan_outing",
+                    "intent_scores": {"plan_outing": 1.0},
+                    "raw_constraints": {"date_reference": "weekday"},
+                },
+            ]
+        )
+        _, cross_runtime = RouterExtractor(cross_model).interpret_with_runtime(
+            "明天出去玩",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+        self.assertEqual(cross_runtime.diagnostic_code, "cross_field_contract_failed")
+        self.assertIn("raw_constraints", cross_runtime.diagnostic_paths)
+
+    def test_decodes_provider_json_string_for_nested_command_then_validates_domain(self) -> None:
+        command = {
+            "operation": "replace",
+            "target": {"role": "activity", "raw_text": "活动"},
+            "constraint_patch": {"prefer_shorter_travel": True},
+        }
+        model = FakeStructuredModel(
+            [
+                {
+                    "primary_intent": "refine_plan",
+                    "intent_scores": {"refine_plan": 1.0},
+                    "conversation_command": json.dumps(command, ensure_ascii=False),
+                }
+            ]
+        )
+
+        result, runtime = RouterExtractor(model).interpret_with_runtime(
+            "餐厅保留，只把活动换近一点",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                has_plans=True,
+                has_selected_plan=True,
+            ),
+        )
+
+        self.assertIsNone(runtime.fallback_reason)
+        self.assertEqual(result.conversation_command.operation.value, "replace")
+        self.assertTrue(result.conversation_command.constraint_patch.prefer_shorter_travel)
 
     def test_structured_temporal_values_require_evidence_and_confidence(self) -> None:
         with self.assertRaises(ValueError):

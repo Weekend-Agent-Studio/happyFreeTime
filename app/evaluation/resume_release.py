@@ -1166,7 +1166,11 @@ def _score_case(
         details: str | None = None,
         required: bool = True,
     ) -> None:
-        if not downstream_evaluable and status in {"failed", "not_observable"}:
+        # A plan-dependent assertion has no truth value when its prerequisite
+        # plan is absent.  Convert even an accidentally passing scorer (for
+        # example ``all([])``) so an upstream failure cannot become a phantom
+        # downstream success.
+        if not downstream_evaluable and status != "not_applicable":
             status = "not_evaluable"
             details = (
                 "前置结果未满足，无法评价该下游断言；仅保留主结果失败"
@@ -1397,6 +1401,11 @@ def _failure_details(
                 continue
             stage = str(decision.get("stage") or "unknown")
             reason = _safe_detail_code(decision.get("fallback_reason"))
+            diagnostic_code = (
+                _safe_detail_code(decision.get("diagnostic_code"))
+                if decision.get("diagnostic_code")
+                else ""
+            )
             kind: Literal["product_failure", "model_failure", "fixture_failure", "runner_failure", "label_review_required"] = (
                 "fixture_failure"
                 if stage == "candidate_retrieval"
@@ -1406,12 +1415,26 @@ def _failure_details(
             details.append(
                 EvalFailureDetail(
                     kind=kind,
-                    code=f"runtime_fallback.{reason}",
+                    code=(
+                        f"runtime_diagnostic.{diagnostic_code}"
+                        if diagnostic_code
+                        else f"runtime_fallback.{reason}"
+                    ),
                     stage=stage,
                     details=(
                         f"adapter={_safe_detail_code(decision.get('adapter'))}; "
                         f"attempts={decision.get('attempts', 0)}; "
                         f"latency_ms={decision.get('latency_ms')}"
+                        + (
+                            f"; paths={_safe_diagnostic_list(decision.get('diagnostic_paths'))}"
+                            if diagnostic_code
+                            else ""
+                        )
+                        + (
+                            f"; error_types={_safe_diagnostic_list(decision.get('diagnostic_error_types'))}"
+                            if diagnostic_code
+                            else ""
+                        )
                     ),
                 )
             )
@@ -1442,6 +1465,13 @@ def _safe_detail_code(value: Any) -> str:
     text = str(value or "unknown").strip()
     text = re.sub(r"[^A-Za-z0-9_.:=/-]+", "_", text)
     return text[:120] or "unknown"
+
+
+def _safe_diagnostic_list(value: Any) -> str:
+    if not isinstance(value, (list, tuple)):
+        return "-"
+    values = [_safe_detail_code(item) for item in value[:8] if item]
+    return ",".join(values) or "-"
 
 
 def _safe_eval_value(value: Any) -> str:
@@ -2129,6 +2159,7 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
                 and bool(item.get("model_invoked"))
                 for item in stage_items
             ),
+            "diagnostic_counts": _count_diagnostics(stage_items),
             "p50_ms": _percentile(latencies, 0.50),
             "p95_ms": _percentile(latencies, 0.95),
             "cold_start_count": len(cold_latencies),
@@ -2141,6 +2172,13 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
     model_count = len(model_decisions)
     provider_attempt_count = sum(_decision_attempts(item) for item in model_decisions)
     fallback_count = sum(bool(item.get("fallback_reason")) for item in model_decisions)
+    diagnostic_counts: dict[str, int] = {}
+    for item in model_decisions:
+        code = item.get("diagnostic_code")
+        if not code:
+            continue
+        safe_code = _safe_detail_code(code)
+        diagnostic_counts[safe_code] = diagnostic_counts.get(safe_code, 0) + 1
     return {
         "stage": stage_summary,
         "invocation_count": len(decisions),
@@ -2150,6 +2188,7 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "model_decision_count": model_count,
         "provider_attempt_count": provider_attempt_count,
         "fallback_count": fallback_count,
+        "diagnostic_counts": dict(sorted(diagnostic_counts.items())),
         "fallback_rate": (fallback_count / model_count if model_count else 0.0),
         "known_input_tokens": sum(int(item["input_tokens"]) for item in observed),
         "known_output_tokens": sum(int(item["output_tokens"]) for item in observed),
@@ -2164,6 +2203,17 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
             item.get("evaluation_cold_start") is False for item in decisions
         ),
     }
+
+
+def _count_diagnostics(decisions: Sequence[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for decision in decisions:
+        code = decision.get("diagnostic_code")
+        if not code:
+            continue
+        safe_code = _safe_detail_code(code)
+        counts[safe_code] = counts.get(safe_code, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _decision_attempts(decision: dict[str, Any]) -> int:
@@ -2271,6 +2321,15 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         }
     stage_latency = _aggregate_stage_latency(executed_results)
     return {
+        "unique_case_count": len({item.case_id for item in results}),
+        "execution_count": len(results),
+        "reviewed_unique_case_count": len(
+            {
+                item.case_id
+                for item in results
+                if item.label_status == "reviewed"
+            }
+        ),
         "task_success_rate": _metric(successful, len(executed_results)),
         "hard_constraint_pass_rate": _metric(
             hard_passed,
@@ -2322,6 +2381,9 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             )
         },
         "failure_codes": _aggregate_failure_codes(results),
+        "structured_output_diagnostic_codes": _aggregate_runtime_diagnostic_codes(
+            results
+        ),
         "denominators": {
             "task_success_rate": "passed cases / all executed cases",
             "hard_constraint_pass_rate": "passed / evaluable hard-constraint postconditions (not_evaluable excluded)",
@@ -2342,6 +2404,25 @@ def _aggregate_failure_codes(
     for result in results:
         for detail in result.failure_details:
             counts[detail.code] = counts.get(detail.code, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _aggregate_runtime_diagnostic_codes(
+    results: Sequence[EvaluationCaseResult],
+) -> dict[str, int]:
+    """Count safe structured-output diagnostics across runtime traces."""
+
+    counts: dict[str, int] = {}
+    for result in results:
+        for row in result.transcript:
+            for decision in row.get("runtime_decisions") or []:
+                if not isinstance(decision, dict):
+                    continue
+                code = decision.get("diagnostic_code")
+                if not code:
+                    continue
+                safe_code = _safe_detail_code(code)
+                counts[safe_code] = counts.get(safe_code, 0) + 1
     return dict(sorted(counts.items()))
 
 
@@ -2424,6 +2505,7 @@ def _runner_failure_result(
             "model_decision_count": 0,
             "provider_attempt_count": 0,
             "fallback_count": 0,
+            "diagnostic_counts": {},
         },
         transcript=[],
         elapsed_ms=0,
@@ -2537,6 +2619,7 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
         f"- Variant: `{report.variant.variant_id}`",
         f"- Commit: `{report.git_commit}` (dirty={report.git_dirty})",
         f"- Cases: {report.case_count}; draft={report.label_status_counts.get('draft', 0)}, reviewed={report.label_status_counts.get('reviewed', 0)}",
+        f"- Unique cases: {aggregate.get('unique_case_count', 0)}; executions: {aggregate.get('execution_count', 0)}; reviewed unique cases: {aggregate.get('reviewed_unique_case_count', 0)}",
         "- Draft labels are exploratory and are not resume-grade ground truth.",
         "",
         "## Aggregate",
@@ -2577,6 +2660,11 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
     if failure_codes:
         lines.extend(["", "### Failure code counts", ""])
         for code, count in failure_codes.items():
+            lines.append(f"- `{code}`: {count}")
+    diagnostic_codes = aggregate.get("structured_output_diagnostic_codes") or {}
+    if diagnostic_codes:
+        lines.extend(["", "### Structured-output diagnostics", ""])
+        for code, count in diagnostic_codes.items():
             lines.append(f"- `{code}`: {count}")
     lines.extend(
         [

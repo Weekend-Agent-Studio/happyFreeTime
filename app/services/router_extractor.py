@@ -7,14 +7,18 @@ TurnInterpreter 只把自然语言转换成 Interpretation，不负责查询天�
 
 from __future__ import annotations
 
+import json
 import os
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
 from time import perf_counter
 from datetime import date
 from typing import Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.domain.constraints import Intent, Interpretation
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
@@ -27,6 +31,37 @@ class StructuredModel(Protocol):
     """Router 所需的最小模型接口；测试可注入 Fake，而不依赖网络。"""
     def invoke(self, messages: list[object]) -> object:
         ...
+
+
+STRUCTURED_OUTPUT_DIAGNOSTIC_CODES = (
+    "missing_tool_call",
+    "provider_parsing_error",
+    "invalid_json_arguments",
+    "pydantic_validation_failed",
+    "cross_field_contract_failed",
+)
+
+
+@dataclass(frozen=True)
+class StructuredOutputDiagnostic:
+    """Safe diagnosis of a received structured-output response.
+
+    Only bounded codes, field paths and Pydantic error types are retained.
+    Provider payloads, user text and exception messages deliberately stay out
+    of this object.
+    """
+
+    code: str
+    paths: tuple[str, ...] = ()
+    error_types: tuple[str, ...] = ()
+
+
+class _StructuredOutputValidationError(ValueError):
+    """Internal validation exception carrying only safe diagnostics."""
+
+    def __init__(self, diagnostic: StructuredOutputDiagnostic) -> None:
+        super().__init__(diagnostic.code)
+        self.diagnostic = diagnostic
 
 
 class RouterContext(BaseModel):
@@ -54,6 +89,10 @@ SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 输出要求：只返回一个合法的 JSON 对象，不要返回 Markdown 代码围栏、解释文字或
 JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、null 或空数组；不要
 为了凑字段编造信息。
+
+- conversation_command 如需填写，必须是嵌套 JSON 对象而不是 JSON 字符串；其
+  operation、target、locked_targets 和 constraint_patch 按 Schema 的对象/数组
+  结构填写。没有创建、选择或修改命令时填写 null。
 
 可用意图：plan_outing、find_activity、check_weather、refine_plan、execute_plan、cancel_execution、chitchat。
 
@@ -150,7 +189,8 @@ class TurnInterpreter:
 
         try:
             interpretation = self._validate(raw_result)
-        except Exception:
+        except Exception as error:
+            diagnostic = _diagnostic_from_exception(error, raw_result)
             # Only a response that was received but failed local decoding gets
             # one format-repair attempt.  Network/auth/rate-limit failures are
             # handled above and are never retried here.
@@ -159,7 +199,8 @@ class TurnInterpreter:
                 HumanMessage(
                     content=(
                         "上一次输出未通过结构校验。请严格返回合法 JSON 格式的 Interpretation 结构，"
-                        "不要补充解释。错误类型：invalid_output"
+                        "不要补充解释。错误类型：invalid_output；"
+                        + _repair_hint(diagnostic)
                     )
                 ),
             ]
@@ -178,14 +219,16 @@ class TurnInterpreter:
                 )
             try:
                 interpretation = self._validate(raw_retry)
-            except Exception:
+            except Exception as error:
                 if token_usage.attempt_count < 2:
                     token_usage.record_unknown()
+                diagnostic = _diagnostic_from_exception(error, raw_retry)
                 return self._clarification_with_runtime(
                     started_at=started_at,
                     attempts=attempts,
                     fallback_reason="invalid_output",
                     token_usage=token_usage.total,
+                    diagnostic=diagnostic,
                 )
 
         return interpretation, self._runtime_decision(
@@ -203,6 +246,7 @@ class TurnInterpreter:
         attempts: int,
         fallback_reason: str,
         token_usage: ModelTokenUsage,
+        diagnostic: StructuredOutputDiagnostic | None = None,
     ) -> tuple[Interpretation, RuntimeDecision]:
         return (
             Interpretation(
@@ -218,6 +262,7 @@ class TurnInterpreter:
                 fallback_reason=fallback_reason,
                 latency_ms=_elapsed_ms(started_at),
                 token_usage=token_usage,
+                diagnostic=diagnostic,
             ),
         )
 
@@ -230,6 +275,7 @@ class TurnInterpreter:
         fallback_reason: str | None = None,
         latency_ms: int | None = None,
         token_usage: ModelTokenUsage = ModelTokenUsage(),
+        diagnostic: StructuredOutputDiagnostic | None = None,
     ) -> RuntimeDecision:
         return RuntimeDecision(
             stage="turn_interpreter",
@@ -238,6 +284,11 @@ class TurnInterpreter:
             model_name=self._model_name,
             attempts=attempts,
             fallback_reason=fallback_reason,
+            diagnostic_code=diagnostic.code if diagnostic is not None else None,
+            diagnostic_paths=diagnostic.paths if diagnostic is not None else (),
+            diagnostic_error_types=(
+                diagnostic.error_types if diagnostic is not None else ()
+            ),
             latency_ms=latency_ms,
             input_tokens=token_usage.input_tokens,
             output_tokens=token_usage.output_tokens,
@@ -249,14 +300,36 @@ class TurnInterpreter:
             "parsed" in result or "parsing_error" in result
         ):
             if result.get("parsing_error") is not None:
-                raise ValueError(f"structured interpretation parsing failed: {result['parsing_error']}")
+                raise _StructuredOutputValidationError(
+                    _diagnose_structured_response(
+                        result.get("raw"), result.get("parsing_error")
+                    )
+                )
             parsed = result.get("parsed")
             if parsed is None:
-                raise ValueError("structured interpretation parser returned no result")
+                raise _StructuredOutputValidationError(
+                    _diagnose_structured_response(result.get("raw"), None)
+                )
             return TurnInterpreter._validate(parsed)
         if isinstance(result, Interpretation):
             return result
-        return Interpretation.model_validate(result)
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except json.JSONDecodeError as error:
+                raise _StructuredOutputValidationError(
+                    StructuredOutputDiagnostic(
+                        code="invalid_json_arguments",
+                        error_types=("json_invalid",),
+                    )
+                ) from error
+        result = _normalize_interpretation_wire_value(result)
+        try:
+            return Interpretation.model_validate(result)
+        except ValidationError as error:
+            raise _StructuredOutputValidationError(
+                _diagnose_pydantic_validation(error)
+            ) from error
 
     @staticmethod
     def _build_context(user_input: str, context: RouterContext) -> str:
@@ -272,6 +345,209 @@ class TurnInterpreter:
         if context.previous_intent is not None:
             lines.append(f"上一轮主要意图：{context.previous_intent.value}")
         return "\n".join(lines)
+
+
+def classify_structured_output_failure(
+    result: object,
+    error: BaseException | None = None,
+) -> StructuredOutputDiagnostic:
+    """Classify one received structured-output failure without exposing it.
+
+    The helper is shared by the bounded diagnostic runner and the production
+    TurnInterpreter.  It intentionally returns only fixed categories, safe
+    field paths and Pydantic error types.
+    """
+
+    return _diagnostic_from_exception(error, result)
+
+
+def _diagnostic_from_exception(
+    error: BaseException | None,
+    result: object,
+) -> StructuredOutputDiagnostic:
+    if isinstance(error, _StructuredOutputValidationError):
+        return error.diagnostic
+    validation_error = _find_validation_error(error)
+    if validation_error is not None:
+        return _diagnose_pydantic_validation(validation_error)
+    return _diagnose_structured_response(
+        _raw_response(result),
+        error,
+    )
+
+
+def _diagnose_structured_response(
+    raw: object,
+    error: BaseException | None,
+) -> StructuredOutputDiagnostic:
+    validation_error = _find_validation_error(error)
+    if validation_error is not None:
+        return _diagnose_pydantic_validation(validation_error)
+    if _has_invalid_tool_calls(raw) or _looks_like_json_argument_error(error):
+        return StructuredOutputDiagnostic(
+            code="invalid_json_arguments",
+            error_types=("json_arguments_invalid",),
+        )
+    if raw is None:
+        return StructuredOutputDiagnostic(code="provider_parsing_error")
+    if not _has_tool_calls(raw):
+        return StructuredOutputDiagnostic(code="missing_tool_call")
+    return StructuredOutputDiagnostic(code="provider_parsing_error")
+
+
+def _diagnose_pydantic_validation(
+    error: ValidationError,
+) -> StructuredOutputDiagnostic:
+    try:
+        entries = error.errors(include_url=False, include_context=False)
+    except TypeError:  # pragma: no cover - compatibility with older Pydantic
+        entries = error.errors()
+    paths: list[str] = []
+    error_types: list[str] = []
+    cross_field = False
+    for entry in entries[:8]:
+        loc = entry.get("loc", ())
+        path = _safe_error_path(loc)
+        if path not in paths:
+            paths.append(path)
+        error_type = _safe_diagnostic_token(entry.get("type"), "validation_error")
+        if error_type not in error_types:
+            error_types.append(error_type)
+        if not loc or (error_type == "value_error" and len(loc) <= 1):
+            cross_field = True
+    return StructuredOutputDiagnostic(
+        code=(
+            "cross_field_contract_failed"
+            if cross_field
+            else "pydantic_validation_failed"
+        ),
+        paths=tuple(paths),
+        error_types=tuple(error_types),
+    )
+
+
+def _normalize_interpretation_wire_value(result: object) -> object:
+    """Normalize one provider quirk without widening the domain contract.
+
+    Some OpenAI-compatible providers serialize the nested command object as a
+    JSON string even though the outer tool arguments are an object.  Decode
+    exactly that field once; the resulting value still goes through the
+    unchanged Interpretation and ConversationCommand validators.
+    Plain text, malformed JSON and non-object JSON remain invalid.
+    """
+
+    if not isinstance(result, Mapping):
+        return result
+    command = result.get("conversation_command")
+    if not isinstance(command, str):
+        return result
+    try:
+        decoded = json.loads(command)
+    except json.JSONDecodeError as error:
+        raise _StructuredOutputValidationError(
+            StructuredOutputDiagnostic(
+                code="invalid_json_arguments",
+                paths=("conversation_command",),
+                error_types=("json_invalid",),
+            )
+        ) from error
+    if decoded is not None and not isinstance(decoded, Mapping):
+        return result
+    normalized = dict(result)
+    normalized["conversation_command"] = decoded
+    return normalized
+
+
+def _find_validation_error(error: BaseException | None) -> ValidationError | None:
+    """Find only chained Pydantic errors; never inspect provider payloads."""
+
+    seen: set[int] = set()
+    current = error
+    while isinstance(current, BaseException) and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ValidationError):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def _raw_response(result: object) -> object:
+    if isinstance(result, Mapping) and "raw" in result:
+        return result.get("raw")
+    return result
+
+
+def _has_tool_calls(raw: object) -> bool:
+    value = _safe_mapping_or_attr(raw, "tool_calls")
+    if isinstance(value, (list, tuple)) and value:
+        return True
+    additional = _safe_mapping_or_attr(raw, "additional_kwargs")
+    if isinstance(additional, Mapping):
+        value = additional.get("tool_calls")
+        return isinstance(value, (list, tuple)) and bool(value)
+    return False
+
+
+def _has_invalid_tool_calls(raw: object) -> bool:
+    value = _safe_mapping_or_attr(raw, "invalid_tool_calls")
+    if isinstance(value, (list, tuple)) and value:
+        return True
+    additional = _safe_mapping_or_attr(raw, "additional_kwargs")
+    if isinstance(additional, Mapping):
+        value = additional.get("invalid_tool_calls")
+        return isinstance(value, (list, tuple)) and bool(value)
+    return False
+
+
+def _safe_mapping_or_attr(value: object, key: str) -> object:
+    if isinstance(value, Mapping):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _looks_like_json_argument_error(error: BaseException | None) -> bool:
+    if error is None:
+        return False
+    name = type(error).__name__.casefold()
+    try:
+        text = str(error).casefold()[:256]
+    except Exception:
+        text = ""
+    return any(
+        marker in name or marker in text
+        for marker in ("jsondecode", "json decode", "invalid json", "tool argument")
+    )
+
+
+def _safe_error_path(loc: object) -> str:
+    if not isinstance(loc, (list, tuple)) or not loc:
+        return "$"
+    parts: list[str] = []
+    for item in loc[:8]:
+        if isinstance(item, (str, int)) and not isinstance(item, bool):
+            token = str(item)
+        else:
+            token = "field"
+        token = re.sub(r"[^A-Za-z0-9_.-]", "_", token)[:48] or "field"
+        parts.append(token)
+    return ".".join(parts)[:160]
+
+
+def _safe_diagnostic_token(value: object, fallback: str) -> str:
+    token = value if isinstance(value, str) else fallback
+    token = re.sub(r"[^A-Za-z0-9_.-]", "_", token).strip("._")
+    return (token or fallback)[:80]
+
+
+def _repair_hint(diagnostic: StructuredOutputDiagnostic) -> str:
+    """Build a repair hint from bounded diagnostics only."""
+
+    parts = [f"诊断码={_safe_diagnostic_token(diagnostic.code, 'invalid_output')}"]
+    if diagnostic.paths:
+        parts.append("字段路径=" + ",".join(diagnostic.paths[:8]))
+    if diagnostic.error_types:
+        parts.append("Pydantic错误类型=" + ",".join(diagnostic.error_types[:8]))
+    return "；".join(parts)
 
 
 RouterExtractor = TurnInterpreter

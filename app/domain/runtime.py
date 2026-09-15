@@ -32,6 +32,12 @@ class RuntimeDecision(BaseModel):
     model_name: str | None = None
     attempts: int = Field(ge=0, le=2)
     fallback_reason: str | None = None
+    # Safe diagnostics for a received structured response.  These fields are
+    # deliberately codes/paths/types only; provider payloads and exception
+    # messages never cross the runtime boundary.
+    diagnostic_code: str | None = Field(default=None, max_length=80)
+    diagnostic_paths: tuple[str, ...] = ()
+    diagnostic_error_types: tuple[str, ...] = ()
     latency_ms: int | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)

@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from app.evaluation.resume_release import (
     EvalAssertion,
@@ -385,6 +386,62 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         aggregate = _aggregate_results([result])
         self.assertGreater(aggregate["not_evaluable_assertion_count"], 0)
         self.assertEqual(aggregate["required_assertion_pass_rate"]["denominator"], 1)
+
+    def test_empty_plan_cannot_turn_a_downstream_pass_into_success(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item for item in dataset.cases if item.case_id == "plan_quiet_date_chat"
+        )
+        # Simulate a future scorer using all([]), which would otherwise report a
+        # false pass despite the missing prerequisite plan.
+        with patch(
+            "app.evaluation.resume_release._score_planning_shape",
+            side_effect=lambda _case, _row, add: add(
+                "synthetic_empty_collection_check",
+                "passed",
+                expected="at least one plan",
+                actual=[],
+            ),
+        ):
+            result = _score_case(
+                case,
+                load_evaluation_variant("offline_sanity"),
+                repeat=1,
+                transcript=[
+                    {
+                        "action": "message",
+                        "plans": [],
+                        "status": "needs_input",
+                        "question": {"field": "date"},
+                    }
+                ],
+                final_view=None,
+                last_payload=None,
+                elapsed_ms=1,
+                error=None,
+            )
+
+        assertion = next(
+            item
+            for item in result.assertions
+            if item.metric == "synthetic_empty_collection_check"
+        )
+        self.assertEqual(assertion.status, "not_evaluable")
+
+    def test_aggregate_reports_unique_cases_and_execution_count(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        report = run_resume_release_evaluation(
+            dataset,
+            variant="offline_sanity",
+            case_ids=["plan_dinner_only_light", "plan_quiet_date_chat"],
+            repeats=2,
+            allow_draft=True,
+        )
+
+        aggregate = report.aggregate
+        self.assertEqual(aggregate["unique_case_count"], 2)
+        self.assertEqual(aggregate["execution_count"], 4)
+        self.assertEqual(aggregate["reviewed_unique_case_count"], 2)
 
 
 if __name__ == "__main__":
