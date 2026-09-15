@@ -207,7 +207,13 @@ class EvalAssertion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     metric: str = Field(min_length=1)
-    status: Literal["passed", "failed", "not_applicable", "not_observable"]
+    status: Literal[
+        "passed",
+        "failed",
+        "not_applicable",
+        "not_observable",
+        "not_evaluable",
+    ]
     expected: Any = None
     actual: Any = None
     details: str | None = None
@@ -458,7 +464,11 @@ def run_resume_release_evaluation(
                 used_model_calls=used_model_calls,
                 dependencies=dependencies,
             )
-            used_model_calls += int(result.runtime_summary.get("model_invocation_count", 0))
+            # The hard budget is a provider-request budget. A single logical
+            # decision can use two requests when its bounded format retry runs.
+            used_model_calls += int(
+                result.runtime_summary.get("provider_attempt_count", 0)
+            )
             results.append(result)
 
     report = ResumeReleaseEvalReport(
@@ -491,7 +501,14 @@ def run_resume_release_evaluation(
                 item.label_status == "draft" for item in cases
             ),
             "model_call_budget": max_model_calls,
+            # Keep the old key for report readers, but expose both meanings
+            # explicitly for new consumers.
             "actual_model_calls": used_model_calls,
+            "actual_model_decisions": sum(
+                result.runtime_summary.get("model_decision_count", 0)
+                for result in results
+            ),
+            "actual_provider_attempts": used_model_calls,
             "model_names": sorted(
                 {
                     decision.get("model_name")
@@ -624,7 +641,7 @@ def _run_case(
                     if (
                         max_model_calls is not None
                         and used_model_calls
-                        + _count_model_calls(transcript)
+                        + _count_provider_attempts(transcript)
                         >= max_model_calls
                     ):
                         error = "model call budget exhausted during case"
@@ -1095,7 +1112,13 @@ def _score_case(
 
     def add(
         metric: str,
-        status: Literal["passed", "failed", "not_applicable", "not_observable"],
+        status: Literal[
+            "passed",
+            "failed",
+            "not_applicable",
+            "not_observable",
+            "not_evaluable",
+        ],
         *,
         expected: Any = None,
         actual: Any = None,
@@ -1120,6 +1143,44 @@ def _score_case(
         expected=expected_outcome,
         actual=actual_outcome,
     )
+
+    downstream_evaluable = _downstream_assertions_evaluable(
+        case,
+        actual_outcome=actual_outcome,
+        final_row=final_row,
+        transcript=transcript,
+    )
+
+    def add_downstream(
+        metric: str,
+        status: Literal[
+            "passed",
+            "failed",
+            "not_applicable",
+            "not_observable",
+            "not_evaluable",
+        ],
+        *,
+        expected: Any = None,
+        actual: Any = None,
+        details: str | None = None,
+        required: bool = True,
+    ) -> None:
+        if not downstream_evaluable and status in {"failed", "not_observable"}:
+            status = "not_evaluable"
+            details = (
+                "前置结果未满足，无法评价该下游断言；仅保留主结果失败"
+                if not details
+                else f"前置结果未满足，无法评价该下游断言；{details}"
+            )
+        add(
+            metric,
+            status,
+            expected=expected,
+            actual=actual,
+            details=details,
+            required=required,
+        )
 
     if expected_outcome == "question":
         actual_field = ((final_row or {}).get("question") or {}).get("field")
@@ -1155,7 +1216,7 @@ def _score_case(
     for field, expected_value in case.expected.expected_constraint_values.items():
         actual_value = _constraint_value(constraints, field)
         if actual_value is None:
-            add(
+            add_downstream(
                 f"constraint.{field}",
                 "not_observable",
                 expected=expected_value,
@@ -1163,7 +1224,7 @@ def _score_case(
                 details="field was not exposed by the HTTP/session read model",
             )
         else:
-            add(
+            add_downstream(
                 f"constraint.{field}",
                 "passed" if _values_equal(actual_value, expected_value) else "failed",
                 expected=expected_value,
@@ -1171,13 +1232,13 @@ def _score_case(
             )
 
     if case.category == "modification":
-        _score_modification(case, final_row, transcript, add)
+        _score_modification(case, final_row, transcript, add_downstream)
     else:
-        _score_planning_shape(case, final_row, add)
-        _score_semantic_objectives(case, final_row, add)
+        _score_planning_shape(case, final_row, add_downstream)
+        _score_semantic_objectives(case, final_row, add_downstream)
 
     if case.expected.require_grounded_advice:
-        _score_grounded_advice(case, final_row, add)
+        _score_grounded_advice(case, final_row, add_downstream)
     elif case.expected.advice_must_address:
         add(
             "grounded_advice",
@@ -1186,7 +1247,7 @@ def _score_case(
             details="case does not require advice",
         )
     if case.expected.advice_must_address:
-        add(
+        add_downstream(
             "advice_address_manual_review",
             "not_observable",
             expected=list(case.expected.advice_must_address),
@@ -1197,7 +1258,7 @@ def _score_case(
 
     if "hard_constraint" in case.tags:
         hard_status = _hard_constraint_status(case, final_row, constraints)
-        add(
+        add_downstream(
             "hard_constraint_postconditions",
             hard_status[0],
             expected=hard_status[1],
@@ -1210,7 +1271,7 @@ def _score_case(
     # prove that the public result reflects those decisions.  Fixture-specific
     # checks are explicit so a missing provider observation is not silently
     # counted as success.
-    _score_plan_fact_postconditions(case, final_row, constraints, add)
+    _score_plan_fact_postconditions(case, final_row, constraints, add_downstream)
 
     runtime_summary = _runtime_summary(transcript)
     required_assertions = [item for item in assertions if item.required]
@@ -1267,6 +1328,35 @@ def _score_case(
     )
 
 
+def _downstream_assertions_evaluable(
+    case: ResumeReleaseCase,
+    *,
+    actual_outcome: str,
+    final_row: dict[str, Any] | None,
+    transcript: Sequence[dict[str, Any]],
+) -> bool:
+    """Whether outcome-dependent assertions have an observable prerequisite.
+
+    A missing plan is itself a meaningful outcome failure.  Shape, semantic,
+    advice, fact and modification assertions after that point are not failures
+    of their own: there is no object on which they can be evaluated.  Keeping
+    this distinction prevents one upstream failure from being counted several
+    times in aggregate metrics.
+    """
+
+    if case.expected.outcome != "plan":
+        return True
+    if actual_outcome != "plan" or not (final_row or {}).get("plans"):
+        return False
+    if case.category != "modification":
+        return True
+    first_message = next(
+        (item for item in transcript if item.get("action") == "message"),
+        None,
+    )
+    return bool((first_message or {}).get("plans"))
+
+
 def _failure_details(
     *,
     assertions: Sequence[EvalAssertion],
@@ -1300,6 +1390,10 @@ def _failure_details(
     for row in transcript:
         for decision in row.get("runtime_decisions") or []:
             if not isinstance(decision, dict) or not decision.get("fallback_reason"):
+                continue
+            # ``not_run`` is an intentional short-circuit (for example an
+            # expected conflict before PlanningIntent), not a model fallback.
+            if decision.get("adapter") == "not_run":
                 continue
             stage = str(decision.get("stage") or "unknown")
             reason = _safe_detail_code(decision.get("fallback_reason"))
@@ -2022,7 +2116,19 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
         stage_summary[stage] = {
             "invocation_count": len(stage_items),
             "model_invocation_count": sum(item.get("model_invoked", False) for item in stage_items),
-            "fallback_count": sum(bool(item.get("fallback_reason")) for item in stage_items),
+            "model_decision_count": sum(
+                bool(item.get("model_invoked")) for item in stage_items
+            ),
+            "provider_attempt_count": sum(
+                _decision_attempts(item)
+                for item in stage_items
+                if item.get("model_invoked")
+            ),
+            "fallback_count": sum(
+                bool(item.get("fallback_reason"))
+                and bool(item.get("model_invoked"))
+                for item in stage_items
+            ),
             "p50_ms": _percentile(latencies, 0.50),
             "p95_ms": _percentile(latencies, 0.95),
             "cold_start_count": len(cold_latencies),
@@ -2033,11 +2139,16 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
             "warm_p95_ms": _percentile(warm_latencies, 0.95),
         }
     model_count = len(model_decisions)
+    provider_attempt_count = sum(_decision_attempts(item) for item in model_decisions)
     fallback_count = sum(bool(item.get("fallback_reason")) for item in model_decisions)
     return {
         "stage": stage_summary,
         "invocation_count": len(decisions),
+        # Compatibility alias retained for existing consumers.  This value is
+        # a logical decision count; use the explicit names for new reports.
         "model_invocation_count": model_count,
+        "model_decision_count": model_count,
+        "provider_attempt_count": provider_attempt_count,
         "fallback_count": fallback_count,
         "fallback_rate": (fallback_count / model_count if model_count else 0.0),
         "known_input_tokens": sum(int(item["input_tokens"]) for item in observed),
@@ -2053,6 +2164,18 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
             item.get("evaluation_cold_start") is False for item in decisions
         ),
     }
+
+
+def _decision_attempts(decision: dict[str, Any]) -> int:
+    """Return the provider request attempts represented by one decision."""
+
+    if "attempts" not in decision:
+        return 1 if decision.get("model_invoked") else 0
+    try:
+        attempts = int(decision.get("attempts") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, attempts)
 
 
 def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
@@ -2076,11 +2199,27 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         assertion
         for item in executed_results
         for assertion in item.assertions
-        if assertion.required
+        if assertion.required and assertion.status != "not_evaluable"
     ]
+    not_evaluable_assertions = sum(
+        assertion.required and assertion.status == "not_evaluable"
+        for item in executed_results
+        for assertion in item.assertions
+    )
     passed_assertions = sum(assertion.status == "passed" for assertion in all_assertions)
-    model_calls = sum(
-        item.runtime_summary.get("model_invocation_count", 0) for item in executed_results
+    model_decisions = sum(
+        item.runtime_summary.get(
+            "model_decision_count",
+            item.runtime_summary.get("model_invocation_count", 0),
+        )
+        for item in executed_results
+    )
+    provider_attempts = sum(
+        item.runtime_summary.get(
+            "provider_attempt_count",
+            item.runtime_summary.get("model_invocation_count", 0),
+        )
+        for item in executed_results
     )
     observed_token_calls = sum(
         item.runtime_summary.get("token_observed_call_count", 0)
@@ -2129,6 +2268,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         "task_success_rate": _metric(successful, len(executed_results)),
         "hard_constraint_pass_rate": _metric(hard_passed, len(hard_results)),
         "required_assertion_pass_rate": _metric(passed_assertions, len(all_assertions)),
+        "not_evaluable_assertion_count": not_evaluable_assertions,
         "normal_success_count": sum(item.task_status == "normal_success" for item in results),
         "degraded_but_completed_count": sum(
             item.task_status == "degraded_but_completed" for item in results
@@ -2136,7 +2276,9 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         "failed_count": sum(item.task_status == "failed" for item in results),
         "executed_case_count": len(executed_results),
         "skipped_case_count": total - len(executed_results),
-        "fallback_rate": _metric(fallback_calls, model_calls),
+        "fallback_rate": _metric(fallback_calls, model_decisions),
+        "model_decision_count": model_decisions,
+        "provider_attempt_count": provider_attempts,
         "postcondition_metrics": postcondition_metrics,
         "known_input_tokens": sum(
             item.runtime_summary.get("known_input_tokens", 0)
@@ -2154,7 +2296,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             item.runtime_summary.get("token_unobserved_call_count", 0)
             for item in executed_results
         ),
-        "token_coverage_rate": _metric(observed_token_calls, model_calls),
+        "token_coverage_rate": _metric(observed_token_calls, model_decisions),
         "elapsed_ms": {
             "p50": _percentile([item.elapsed_ms for item in executed_results], 0.50),
             "p95": _percentile([item.elapsed_ms for item in executed_results], 0.95),
@@ -2174,8 +2316,10 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         "denominators": {
             "task_success_rate": "passed cases / all executed cases",
             "hard_constraint_pass_rate": "passed hard-constraint cases / cases tagged hard_constraint",
-            "required_assertion_pass_rate": "passed required assertions / required assertions",
-            "fallback_rate": "fallback model calls / model calls",
+            "required_assertion_pass_rate": "passed / evaluable required assertions (not_evaluable excluded)",
+            "fallback_rate": "fallback model decisions / model decisions",
+            "model_decision_count": "logical runtime decisions that invoked a model",
+            "provider_attempt_count": "sum of provider attempts across model decisions",
         },
     }
 
@@ -2268,6 +2412,8 @@ def _runner_failure_result(
         runtime_summary={
             "invocation_count": 0,
             "model_invocation_count": 0,
+            "model_decision_count": 0,
+            "provider_attempt_count": 0,
             "fallback_count": 0,
         },
         transcript=[],
@@ -2294,12 +2440,18 @@ def _request_id(case: ResumeReleaseCase, repeat: int, step_index: int) -> str:
     return f"eval-{case.case_id[:42]}-{repeat}-{step_index}"[:64]
 
 
-def _count_model_calls(transcript: Sequence[dict[str, Any]]) -> int:
+def _count_provider_attempts(transcript: Sequence[dict[str, Any]]) -> int:
     return sum(
-        bool(item.get("model_invoked"))
+        _decision_attempts(item)
         for row in transcript
         for item in (row.get("runtime_decisions") or [])
+        if isinstance(item, dict) and item.get("model_invoked")
     )
+
+
+# Backward-compatible helper name for callers that imported the evaluator
+# internals before the explicit decision/attempt distinction was added.
+_count_model_calls = _count_provider_attempts
 
 
 def _estimate_case_model_calls(
@@ -2420,7 +2572,8 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
     lines.extend(
         [
             f"- End-to-end latency P50/P95: {aggregate.get('elapsed_ms', {}).get('p50')} / {aggregate.get('elapsed_ms', {}).get('p95')} ms",
-            f"- Model calls: {report.metadata.get('actual_model_calls', 0)}",
+            f"- Model decisions: {aggregate.get('model_decision_count', 0)}",
+            f"- Provider attempts: {aggregate.get('provider_attempt_count', report.metadata.get('actual_provider_attempts', 0))}",
             f"- Known tokens: input={aggregate.get('known_input_tokens', 0)}, output={aggregate.get('known_output_tokens', 0)}",
             f"- Token coverage: {aggregate.get('token_coverage_rate', {}).get('numerator', 0)}/"
             f"{aggregate.get('token_coverage_rate', {}).get('denominator', 0)} = "

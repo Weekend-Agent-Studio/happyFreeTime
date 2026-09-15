@@ -10,7 +10,10 @@ from app.evaluation.resume_release import (
     EvaluationConfigurationError,
     _EvaluationGeocodingProvider,
     _annotate_runtime_timing,
+    _aggregate_results,
     _failure_details,
+    _runtime_summary,
+    _score_case,
     load_evaluation_variant,
     run_resume_release_evaluation,
 )
@@ -268,6 +271,120 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
             codes,
         )
         self.assertIn("draft_label", codes)
+
+    def test_runtime_summary_separates_decisions_from_provider_attempts(self) -> None:
+        summary = _runtime_summary(
+            [
+                {
+                    "runtime_decisions": [
+                        {
+                            "stage": "turn_interpreter",
+                            "adapter": "llm",
+                            "model_invoked": True,
+                            "attempts": 2,
+                            "input_tokens": 10,
+                            "output_tokens": 4,
+                            "fallback_reason": None,
+                        },
+                        {
+                            "stage": "planning_intent",
+                            "adapter": "not_run",
+                            "model_invoked": False,
+                            "attempts": 0,
+                            "fallback_reason": "planning cannot start before normalized constraints are complete",
+                        },
+                        {
+                            "stage": "candidate_retrieval",
+                            "adapter": "rule_fallback",
+                            "model_invoked": False,
+                            "attempts": 0,
+                            "fallback_reason": "index_missing",
+                        },
+                    ]
+                }
+            ]
+        )
+
+        self.assertEqual(summary["model_decision_count"], 1)
+        self.assertEqual(summary["provider_attempt_count"], 2)
+        self.assertEqual(summary["model_invocation_count"], 1)
+        self.assertEqual(summary["fallback_count"], 0)
+        self.assertEqual(summary["stage"]["planning_intent"]["fallback_count"], 0)
+        self.assertEqual(summary["stage"]["candidate_retrieval"]["fallback_count"], 0)
+
+        details = _failure_details(
+            assertions=[],
+            transcript=[
+                {
+                    "runtime_decisions": [
+                        {
+                            "stage": "planning_intent",
+                            "adapter": "not_run",
+                            "model_invoked": False,
+                            "attempts": 0,
+                            "fallback_reason": "planning cannot start before normalized constraints are complete",
+                        },
+                        {
+                            "stage": "candidate_retrieval",
+                            "adapter": "rule_fallback",
+                            "model_invoked": False,
+                            "attempts": 0,
+                            "fallback_reason": "index_missing",
+                        },
+                    ]
+                }
+            ],
+            error=None,
+            label_status="reviewed",
+        )
+        self.assertNotIn(
+            "runtime_fallback.planning_cannot_start_before_normalized_constraints_are_complete",
+            {item.code for item in details},
+        )
+        self.assertIn("runtime_fallback.index_missing", {item.code for item in details})
+
+    def test_downstream_assertions_are_not_evaluable_after_missing_plan(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(item for item in dataset.cases if item.case_id == "modify_activity_shorter")
+        result = _score_case(
+            case,
+            load_evaluation_variant("offline_sanity"),
+            repeat=1,
+            transcript=[
+                {
+                    "action": "message",
+                    "plans": [],
+                    "status": "needs_input",
+                    "question": {"field": "date"},
+                },
+                {"action": "select_plan", "plans": []},
+                {
+                    "action": "replace_stop",
+                    "plans": [],
+                    "plan_diffs": [],
+                    "status": "error",
+                },
+            ],
+            final_view=None,
+            last_payload=None,
+            elapsed_ms=1,
+            error=None,
+        )
+
+        statuses = {
+            item.metric: item.status
+            for item in result.assertions
+            if item.metric != "outcome"
+        }
+        self.assertTrue(statuses)
+        self.assertTrue(all(status == "not_evaluable" for status in statuses.values()))
+        self.assertEqual(
+            {item.code for item in result.failure_details},
+            {"assertion.outcome"},
+        )
+        aggregate = _aggregate_results([result])
+        self.assertGreater(aggregate["not_evaluable_assertion_count"], 0)
+        self.assertEqual(aggregate["required_assertion_pass_rate"]["denominator"], 1)
 
 
 if __name__ == "__main__":
