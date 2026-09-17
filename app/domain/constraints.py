@@ -13,9 +13,29 @@ from enum import Enum
 from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.domain.catalog import ResourceType
 from app.domain.providers import GeocodingFact
+
+
+# Stable, non-sensitive contract codes used by the structured Router
+# diagnostic path.  Keep this vocabulary finite: these values are safe to put
+# in RuntimeDecision and in the one bounded repair prompt.
+STRUCTURED_OUTPUT_RULE_CODES = (
+    "inferred_value_missing",
+    "inferred_evidence_missing",
+    "inferred_confidence_missing",
+    "temporal_evidence_missing",
+    "temporal_confidence_missing",
+    "weekday_reference_mismatch",
+    "weekday_missing",
+    "absolute_date_reference_mismatch",
+    "absolute_date_missing",
+    "explicit_time_window_order_invalid",
+    "replace_target_missing",
+    "target_reference_missing",
+)
 
 
 class Intent(str, Enum):
@@ -119,7 +139,10 @@ class TargetReference(BaseModel):
             and self.stop_index is None
             and self.resource_id is None
         ):
-            raise ValueError("target reference requires a role, stop index, or resource id")
+            raise PydanticCustomError(
+                "target_reference_missing",
+                "target reference requires a role, stop index, or resource id",
+            )
         return self
 
 
@@ -188,7 +211,10 @@ class ConversationCommand(BaseModel):
     @model_validator(mode="after")
     def validate_replace_contract(self) -> "ConversationCommand":
         if self.operation == CommandOperation.REPLACE and self.target is None:
-            raise ValueError("replace command requires a target")
+            raise PydanticCustomError(
+                "replace_target_missing",
+                "replace command requires a target",
+            )
         return self
 
 
@@ -314,23 +340,41 @@ class RawConstraints(BaseModel):
         reference = self.date_reference
         has_weekday_fields = self.weekday is not None or self.week_offset is not None
         if has_weekday_fields and reference != DateReference.WEEKDAY:
-            raise ValueError("weekday and week_offset require date_reference=weekday")
+            raise PydanticCustomError(
+                "weekday_reference_mismatch",
+                "weekday fields require date_reference=weekday",
+            )
         if reference == DateReference.WEEKDAY and self.weekday is None:
-            raise ValueError("date_reference=weekday requires weekday")
+            raise PydanticCustomError(
+                "weekday_missing",
+                "date_reference=weekday requires weekday",
+            )
         if self.absolute_date is not None and reference != DateReference.ABSOLUTE:
-            raise ValueError("absolute_date requires date_reference=absolute")
+            raise PydanticCustomError(
+                "absolute_date_reference_mismatch",
+                "absolute_date requires date_reference=absolute",
+            )
         if reference == DateReference.ABSOLUTE and self.absolute_date is None:
-            raise ValueError("date_reference=absolute requires absolute_date")
+            raise PydanticCustomError(
+                "absolute_date_missing",
+                "date_reference=absolute requires absolute_date",
+            )
         if reference in {
             DateReference.TODAY,
             DateReference.TOMORROW,
             DateReference.DAY_AFTER_TOMORROW,
         } and has_weekday_fields:
-            raise ValueError("relative date reference cannot carry weekday fields")
+            raise PydanticCustomError(
+                "weekday_reference_mismatch",
+                "relative date reference cannot carry weekday fields",
+            )
         if self.explicit_time_window is not None and (
             self.explicit_time_window.start >= self.explicit_time_window.end
         ):
-            raise ValueError("explicit time window start must be before end")
+            raise PydanticCustomError(
+                "explicit_time_window_order_invalid",
+                "explicit time window start must be before end",
+            )
         return self
 
 
@@ -353,7 +397,9 @@ class Interpretation(BaseModel):
     @model_validator(mode="after")
     def validate_inferred_fields(self) -> "Interpretation":
         """推断标记必须同时拥有实际值、证据和置信度。"""
-        for field in self.inferred_fields:
+        # A stable iteration order makes the first surfaced rule code
+        # deterministic when a provider omits several related fields.
+        for field in sorted(self.inferred_fields):
             if field == "party":
                 raw_value_exists = any(
                     value is not None
@@ -369,11 +415,20 @@ class Interpretation(BaseModel):
             else:
                 raw_value_exists = False
             if not raw_value_exists:
-                raise ValueError(f"inferred field {field!r} has no extracted value")
+                raise PydanticCustomError(
+                    "inferred_value_missing",
+                    "inferred field has no extracted value",
+                )
             if not self.evidence_map.get(field):
-                raise ValueError(f"inferred field {field!r} has no evidence")
+                raise PydanticCustomError(
+                    "inferred_evidence_missing",
+                    "inferred field has no evidence",
+                )
             if field not in self.extraction_confidence:
-                raise ValueError(f"inferred field {field!r} has no confidence")
+                raise PydanticCustomError(
+                    "inferred_confidence_missing",
+                    "inferred field has no confidence",
+                )
         return self
 
     @model_validator(mode="after")
@@ -392,9 +447,15 @@ class Interpretation(BaseModel):
             if getattr(raw, field) is None:
                 return
             if not any(self.evidence_map.get(key) for key in evidence_keys):
-                raise ValueError(f"temporal field {field!r} has no evidence")
+                raise PydanticCustomError(
+                    "temporal_evidence_missing",
+                    "structured temporal field requires evidence",
+                )
             if not any(key in self.extraction_confidence for key in evidence_keys):
-                raise ValueError(f"temporal field {field!r} has no confidence")
+                raise PydanticCustomError(
+                    "temporal_confidence_missing",
+                    "structured temporal field requires confidence",
+                )
 
         require_trace("date_reference", ("date_reference", "date_text"))
         require_trace("weekday", ("weekday", "date_reference", "date_text"))

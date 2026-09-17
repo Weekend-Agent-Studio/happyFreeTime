@@ -20,7 +20,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from app.domain.constraints import Intent, Interpretation
+from app.domain.constraints import (
+    Intent,
+    Interpretation,
+    STRUCTURED_OUTPUT_RULE_CODES,
+)
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.domain.runtime import RuntimeDecision
 from app.services.model_errors import model_failure_reason
@@ -39,7 +43,7 @@ STRUCTURED_OUTPUT_DIAGNOSTIC_CODES = (
     "invalid_json_arguments",
     "pydantic_validation_failed",
     "cross_field_contract_failed",
-)
+) + STRUCTURED_OUTPUT_RULE_CODES
 
 
 @dataclass(frozen=True)
@@ -404,6 +408,7 @@ def _diagnose_pydantic_validation(
         entries = error.errors()
     paths: list[str] = []
     error_types: list[str] = []
+    rule_codes: list[str] = []
     cross_field = False
     for entry in entries[:8]:
         loc = entry.get("loc", ())
@@ -413,11 +418,15 @@ def _diagnose_pydantic_validation(
         error_type = _safe_diagnostic_token(entry.get("type"), "validation_error")
         if error_type not in error_types:
             error_types.append(error_type)
+        if error_type in STRUCTURED_OUTPUT_RULE_CODES and error_type not in rule_codes:
+            rule_codes.append(error_type)
         if not loc or (error_type == "value_error" and len(loc) <= 1):
             cross_field = True
     return StructuredOutputDiagnostic(
         code=(
-            "cross_field_contract_failed"
+            rule_codes[0]
+            if rule_codes
+            else "cross_field_contract_failed"
             if cross_field
             else "pydantic_validation_failed"
         ),
@@ -540,13 +549,11 @@ def _safe_diagnostic_token(value: object, fallback: str) -> str:
 
 
 def _repair_hint(diagnostic: StructuredOutputDiagnostic) -> str:
-    """Build a repair hint from bounded diagnostics only."""
+    """Build a repair hint from a fixed code and safe field paths only."""
 
     parts = [f"诊断码={_safe_diagnostic_token(diagnostic.code, 'invalid_output')}"]
     if diagnostic.paths:
         parts.append("字段路径=" + ",".join(diagnostic.paths[:8]))
-    if diagnostic.error_types:
-        parts.append("Pydantic错误类型=" + ",".join(diagnostic.error_types[:8]))
     return "；".join(parts)
 
 

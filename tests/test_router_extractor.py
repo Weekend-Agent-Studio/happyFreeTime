@@ -5,11 +5,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.domain.constraints import (
+    CommandOperation,
+    ConversationCommand,
     DateReference,
     Intent,
     Interpretation,
     RawConstraints,
+    TargetReference,
+    TimeWindow,
     TimeScope,
+    Weekday,
 )
 from app.services import router_extractor as router_extractor_module
 from app.services.router_extractor import (
@@ -222,8 +227,163 @@ class RouterExtractorTest(unittest.TestCase):
             "明天出去玩",
             RouterContext(current_date=date(2026, 8, 12)),
         )
-        self.assertEqual(cross_runtime.diagnostic_code, "cross_field_contract_failed")
+        self.assertEqual(cross_runtime.diagnostic_code, "weekday_missing")
         self.assertIn("raw_constraints", cross_runtime.diagnostic_paths)
+
+    def test_cross_field_rules_expose_stable_codes(self) -> None:
+        cases = [
+            (
+                "weekday_reference_mismatch",
+                lambda: RawConstraints(
+                    date_reference=DateReference.TOMORROW,
+                    weekday=Weekday.SATURDAY,
+                ),
+            ),
+            (
+                "weekday_missing",
+                lambda: RawConstraints(date_reference=DateReference.WEEKDAY),
+            ),
+            (
+                "absolute_date_reference_mismatch",
+                lambda: RawConstraints(
+                    date_reference=DateReference.TOMORROW,
+                    absolute_date=date(2026, 9, 20),
+                ),
+            ),
+            (
+                "absolute_date_missing",
+                lambda: RawConstraints(date_reference=DateReference.ABSOLUTE),
+            ),
+            (
+                "explicit_time_window_order_invalid",
+                lambda: RawConstraints(
+                    explicit_time_window=TimeWindow(start="18:00", end="17:00")
+                ),
+            ),
+            (
+                "replace_target_missing",
+                lambda: ConversationCommand(operation=CommandOperation.REPLACE),
+            ),
+            (
+                "target_reference_missing",
+                lambda: TargetReference(raw_text="那个地方"),
+            ),
+        ]
+
+        for expected_code, builder in cases:
+            with self.subTest(expected_code=expected_code):
+                with self.assertRaises(ValueError) as context:
+                    builder()
+                errors = context.exception.errors(
+                    include_url=False,
+                    include_context=False,
+                )
+                self.assertEqual(errors[0]["type"], expected_code)
+
+    def test_inferred_and_temporal_contracts_have_stable_codes(self) -> None:
+        inferred_cases = [
+            (
+                "inferred_value_missing",
+                {"party"},
+                {},
+                {},
+            ),
+            (
+                "inferred_evidence_missing",
+                {"date_reference"},
+                {},
+                {"date_reference": 0.9},
+            ),
+            (
+                "inferred_confidence_missing",
+                {"date_reference"},
+                {"date_reference": "明天"},
+                {},
+            ),
+        ]
+        for expected_code, inferred, evidence, confidence in inferred_cases:
+            with self.subTest(expected_code=expected_code):
+                kwargs = {
+                    "primary_intent": Intent.PLAN_OUTING,
+                    "intent_scores": {Intent.PLAN_OUTING: 1.0},
+                    "inferred_fields": inferred,
+                    "evidence_map": evidence,
+                    "extraction_confidence": confidence,
+                }
+                if expected_code != "inferred_value_missing":
+                    kwargs["raw_constraints"] = RawConstraints(
+                        date_reference=DateReference.TOMORROW,
+                        date_text="明天",
+                    )
+                with self.assertRaises(ValueError) as context:
+                    Interpretation(**kwargs)
+                self.assertEqual(
+                    context.exception.errors(
+                        include_url=False,
+                        include_context=False,
+                    )[0]["type"],
+                    expected_code,
+                )
+
+        temporal_cases = [
+            (
+                "temporal_evidence_missing",
+                {},
+                {"date_reference": 0.9},
+            ),
+            (
+                "temporal_confidence_missing",
+                {"date_reference": "明天"},
+                {},
+            ),
+        ]
+        for expected_code, evidence, confidence in temporal_cases:
+            with self.subTest(expected_code=expected_code):
+                with self.assertRaises(ValueError) as context:
+                    Interpretation(
+                        primary_intent=Intent.PLAN_OUTING,
+                        intent_scores={Intent.PLAN_OUTING: 1.0},
+                        raw_constraints=RawConstraints(
+                            date_reference=DateReference.TOMORROW,
+                        ),
+                        evidence_map=evidence,
+                        extraction_confidence=confidence,
+                    )
+                self.assertEqual(
+                    context.exception.errors(
+                        include_url=False,
+                        include_context=False,
+                    )[0]["type"],
+                    expected_code,
+                )
+
+    def test_runtime_trace_keeps_only_stable_diagnostic_details(self) -> None:
+        model = FakeStructuredModel(
+            [
+                {
+                    "primary_intent": "plan_outing",
+                    "intent_scores": {"plan_outing": 1.0},
+                    "raw_constraints": {"date_reference": "weekday"},
+                },
+                {
+                    "primary_intent": "plan_outing",
+                    "intent_scores": {"plan_outing": 1.0},
+                    "raw_constraints": {"date_reference": "weekday"},
+                },
+            ]
+        )
+        _, runtime = RouterExtractor(model).interpret_with_runtime(
+            "用户私密原话不应进入诊断",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+
+        self.assertEqual(runtime.diagnostic_code, "weekday_missing")
+        self.assertIn("raw_constraints", runtime.diagnostic_paths)
+        self.assertIn("weekday_missing", runtime.diagnostic_error_types)
+        serialized = runtime.model_dump_json()
+        self.assertNotIn("用户私密原话", serialized)
+        self.assertNotIn("date_reference=weekday requires weekday", serialized)
+        self.assertNotIn("primary_intent", serialized)
 
     def test_decodes_provider_json_string_for_nested_command_then_validates_domain(self) -> None:
         command = {
