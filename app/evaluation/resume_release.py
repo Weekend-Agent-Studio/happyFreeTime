@@ -62,6 +62,14 @@ from evals.resume_release_dataset import (
     ResumeReleaseDataset,
     load_resume_release_dataset,
 )
+from evals.frozen_interpretations import (
+    FrozenInterpretationSet,
+    FrozenTurnInterpreter,
+    fixture_coverage,
+    frozen_fixture_file_sha256,
+    load_frozen_interpretations,
+    safe_fixture_set_id,
+)
 
 
 DEFAULT_DATASET_PATH = (
@@ -81,6 +89,8 @@ VariantId = Literal[
     "B1_LLM_INTENT",
     "B2_HYBRID_RETRIEVAL",
     "B3_GROUNDED_ADVICE",
+    "C0_FROZEN_RULE_INTENT",
+    "C1_FROZEN_LLM_INTENT",
 ]
 
 
@@ -137,6 +147,7 @@ class _EvaluationDependencies:
     planning_intent_provider: Any
     candidate_retriever: Any
     recommendation_advisor: Any
+    frozen_interpretation_set: FrozenInterpretationSet | None = None
     retrieval_warmed: bool = False
 
 
@@ -195,7 +206,7 @@ class EvaluationVariant(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     variant_id: VariantId
-    router_mode: Literal["demo", "llm"]
+    router_mode: Literal["demo", "llm", "frozen"]
     planning_intent_mode: Literal["rule", "llm"]
     retrieval_mode: Literal["rule", "hybrid"]
     advisor_mode: Literal["rule", "llm"]
@@ -335,6 +346,20 @@ _VARIANT_DEFINITIONS: dict[str, EvaluationVariant] = {
         retrieval_mode="hybrid",
         advisor_mode="llm",
     ),
+    "C0_FROZEN_RULE_INTENT": EvaluationVariant(
+        variant_id="C0_FROZEN_RULE_INTENT",
+        router_mode="frozen",
+        planning_intent_mode="rule",
+        retrieval_mode="rule",
+        advisor_mode="rule",
+    ),
+    "C1_FROZEN_LLM_INTENT": EvaluationVariant(
+        variant_id="C1_FROZEN_LLM_INTENT",
+        router_mode="frozen",
+        planning_intent_mode="llm",
+        retrieval_mode="rule",
+        advisor_mode="rule",
+    ),
 }
 
 
@@ -367,6 +392,7 @@ def run_resume_release_evaluation(
     repeats: int = 1,
     max_model_calls: int | None = None,
     output_dir: Path | None = None,
+    frozen_interpretations: Path | None = None,
 ) -> ResumeReleaseEvalReport:
     """Run selected cases through the public HTTP/SQLite application seam.
 
@@ -401,6 +427,68 @@ def run_resume_release_evaluation(
     if not cases:
         raise EvaluationConfigurationError("no evaluation cases selected")
 
+    frozen_fixture_set: FrozenInterpretationSet | None = None
+    frozen_fixture_metadata = {
+        "fixture_set_path": str(frozen_interpretations)
+        if frozen_interpretations is not None
+        else None,
+        "fixture_set_sha256": None,
+        "fixture_set_id": None,
+        "reviewed_fixture_count": 0,
+        "fixture_miss_count": 0,
+        "fixture_hash_mismatch_count": 0,
+    }
+    if selected_variant.router_mode == "frozen":
+        if frozen_interpretations is None:
+            raise EvaluationConfigurationError(
+                "frozen variants require --frozen-interpretations"
+            )
+        try:
+            frozen_fixture_set = load_frozen_interpretations(
+                frozen_interpretations,
+                require_reviewed=True,
+            )
+        except ValueError as error:
+            raise EvaluationConfigurationError(str(error)) from error
+        message_steps = {
+            case.case_id: tuple(
+                (index, step.user_input or "")
+                for index, step in enumerate(case.steps)
+                if step.action == "message"
+            )
+            for case in cases
+        }
+        missing, mismatch, covered = fixture_coverage(
+            frozen_fixture_set,
+            message_steps,
+        )
+        frozen_fixture_metadata.update(
+            {
+                "fixture_set_sha256": frozen_fixture_file_sha256(
+                    frozen_interpretations
+                ),
+                "fixture_set_id": safe_fixture_set_id(
+                    frozen_fixture_set.fixture_set_id
+                ),
+                "reviewed_fixture_count": sum(
+                    item.review_status == "reviewed"
+                    for item in frozen_fixture_set.fixtures
+                ),
+                "fixture_miss_count": missing,
+                "fixture_hash_mismatch_count": mismatch,
+            }
+        )
+        if missing or mismatch or covered != sum(
+            len(items) for items in message_steps.values()
+        ):
+            raise EvaluationConfigurationError(
+                "frozen fixture coverage is incomplete or input hash mismatched"
+            )
+    elif frozen_interpretations is not None:
+        raise EvaluationConfigurationError(
+            "--frozen-interpretations is only valid for frozen variants"
+        )
+
     requires_llm = selected_variant.router_mode == "llm" or any(
         mode == "llm"
         for mode in (
@@ -432,7 +520,10 @@ def run_resume_release_evaluation(
     # Keep the HTTP application isolated per case, but reuse expensive
     # stateless clients and the lazy BGE/index objects for this serial run.
     # This makes the first successful dense retrieval the only cold start.
-    dependencies = _build_evaluation_dependencies(selected_variant)
+    dependencies = _build_evaluation_dependencies(
+        selected_variant,
+        frozen_interpretation_set=frozen_fixture_set,
+    )
     results: list[EvaluationCaseResult] = []
     used_model_calls = 0
     for repeat in range(1, repeats + 1):
@@ -509,6 +600,13 @@ def run_resume_release_evaluation(
                 for result in results
             ),
             "actual_provider_attempts": used_model_calls,
+            "router_model_calls": sum(
+                int(bool(decision.get("model_invoked")))
+                for result in results
+                for row in result.transcript
+                for decision in (row.get("runtime_decisions") or [])
+                if decision.get("stage") == "turn_interpreter"
+            ),
             "model_names": sorted(
                 {
                     decision.get("model_name")
@@ -534,6 +632,7 @@ def run_resume_release_evaluation(
             "retrieval_cold_start_policy": (
                 "first successful bge_hybrid retrieval in this serial run"
             ),
+            **frozen_fixture_metadata,
         },
     )
     if output_dir is not None:
@@ -766,9 +865,17 @@ def _build_evaluation_app(
         now=evaluation_clock,
         default_location=DEFAULT_LOCATION,
     )
-    router_probe = _RecordingRouter(
-        dependencies.router_delegate
-    )
+    router_delegate = dependencies.router_delegate
+    if variant.router_mode == "frozen":
+        if dependencies.frozen_interpretation_set is None:
+            raise EvaluationConfigurationError(
+                "frozen router requires a loaded Interpretation fixture set"
+            )
+        router_delegate = FrozenTurnInterpreter(
+            dependencies.frozen_interpretation_set,
+            case_id=case.case_id,
+        )
+    router_probe = _RecordingRouter(router_delegate)
     app = create_app(
         database_path=database_path,
         router=router_probe,
@@ -796,6 +903,8 @@ def _build_evaluation_app(
 
 def _build_evaluation_dependencies(
     variant: EvaluationVariant,
+    *,
+    frozen_interpretation_set: FrozenInterpretationSet | None = None,
 ) -> _EvaluationDependencies:
     """Construct run-scoped providers once; databases remain case-scoped."""
 
@@ -805,6 +914,8 @@ def _build_evaluation_dependencies(
             DemoRouter()
             if variant.router_mode == "demo"
             else build_default_turn_interpreter()
+            if variant.router_mode == "llm"
+            else None
         ),
         planning_intent_provider=build_default_planning_intent_provider(
             variant.planning_intent_mode
@@ -815,6 +926,7 @@ def _build_evaluation_dependencies(
         recommendation_advisor=build_default_recommendation_advisor(
             variant.advisor_mode
         ),
+        frozen_interpretation_set=frozen_interpretation_set,
     )
 
 

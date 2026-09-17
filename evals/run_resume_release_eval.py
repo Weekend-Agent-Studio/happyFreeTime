@@ -40,6 +40,11 @@ def main() -> int:
     parser.add_argument("--allow-llm", action="store_true")
     parser.add_argument("--max-model-calls", type=int)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument(
+        "--frozen-interpretations",
+        type=Path,
+        help="reviewed Interpretation fixture set for C0/C1 controlled variants",
+    )
     parser.add_argument("--json", action="store_true", dest="json_only")
     args = parser.parse_args()
 
@@ -59,6 +64,7 @@ def main() -> int:
             repeats=args.repeats,
             max_model_calls=args.max_model_calls,
             output_dir=output_dir,
+            frozen_interpretations=args.frozen_interpretations,
         )
     except EvaluationConfigurationError as error:
         parser.error(str(error))
