@@ -229,6 +229,13 @@ class RouterExtractorTest(unittest.TestCase):
         )
         self.assertEqual(cross_runtime.diagnostic_code, "weekday_missing")
         self.assertIn("raw_constraints", cross_runtime.diagnostic_paths)
+        repair_prompt = "\n".join(
+            str(message.content) for message in cross_model.calls[1]
+        )
+        self.assertIn("诊断码=weekday_missing", repair_prompt)
+        self.assertIn("字段路径=raw_constraints", repair_prompt)
+        self.assertNotIn("Pydantic错误类型", repair_prompt)
+        self.assertNotIn("date_reference=weekday requires weekday", repair_prompt)
 
     def test_cross_field_rules_expose_stable_codes(self) -> None:
         cases = [

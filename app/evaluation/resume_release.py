@@ -1240,6 +1240,8 @@ def _score_case(
     else:
         _score_planning_shape(case, final_row, add_downstream)
         _score_semantic_objectives(case, final_row, add_downstream)
+        _score_semantic_queries(case, final_row, add_downstream)
+        _score_grounded_semantics(case, final_row, add_downstream)
 
     if case.expected.require_grounded_advice:
         _score_grounded_advice(case, final_row, add_downstream)
@@ -1530,6 +1532,127 @@ def _score_semantic_objectives(case: ResumeReleaseCase, row: dict[str, Any] | No
             actual=sorted(item for item in actual if item is not None),
             details="creation path PlanningIntent objective coverage",
         )
+
+
+def _score_semantic_queries(case: ResumeReleaseCase, row: dict[str, Any] | None, add) -> None:
+    """Score preservation of open wording in the PlanningIntent query seam.
+
+    This deliberately reads the structured PlanningIntent decision rather
+    than recommendation text. Advice can mention a need without the
+    retriever ever receiving that query, so it is not evidence of fidelity.
+    """
+
+    if not case.expected.expected_semantic_queries:
+        return
+    decision = (row or {}).get("planning_intent_decision") or {}
+    semantic = (decision.get("intent") or {}).get("semantic_request") or {}
+    actual_queries = [
+        str(item.get("text") or "").strip()
+        for item in semantic.get("queries") or []
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    for index, expected in enumerate(case.expected.expected_semantic_queries, start=1):
+        matched = any(
+            _contains_semantic_phrase(query, expected) for query in actual_queries
+        )
+        add(
+            f"semantic_query.{index}",
+            "passed" if matched else "failed",
+            expected=expected,
+            actual=actual_queries,
+            details="PlanningIntent SemanticRequest query text; Advisor wording excluded",
+        )
+
+
+def _score_grounded_semantics(
+    case: ResumeReleaseCase,
+    row: dict[str, Any] | None,
+    add,
+) -> None:
+    """Require plan-attached POI/Profile evidence for open semantic needs."""
+
+    if not case.expected.expected_grounded_semantics:
+        return
+    plans = (row or {}).get("plans") or []
+    plan_resource_ids = {
+        stop.get("resource_id")
+        for plan in plans
+        for stop in (plan.get("stops") or [])
+        if stop.get("resource_id")
+    }
+    evidence = [
+        item
+        for item in ((row or {}).get("retrieval_evidence") or [])
+        if isinstance(item, dict)
+        and item.get("source_type") in {"poi_profile", "fixture_aspect"}
+        and _evidence_resource_id(item, plan_resource_ids) is not None
+    ]
+    evidence_summaries = [
+        {
+            "resource_id": _evidence_resource_id(item, plan_resource_ids),
+            "source_type": item.get("source_type"),
+            "summary": item.get("summary"),
+        }
+        for item in evidence
+    ]
+    for index, expected in enumerate(case.expected.expected_grounded_semantics, start=1):
+        matched = any(
+            _contains_semantic_phrase(str(item.get("summary") or ""), expected)
+            for item in evidence
+        )
+        add(
+            f"grounded_semantic.{index}",
+            "passed" if matched else "failed",
+            expected=expected,
+            actual=evidence_summaries,
+            details=(
+                "requires plan resource id plus POI semantic profile or fixture aspect evidence; "
+                "user evidence and Advisor text excluded"
+            ),
+        )
+
+
+_GROUNDED_SEMANTIC_ALIASES: dict[str, frozenset[str]] = {
+    "清淡": frozenset({"清淡", "清爽", "口味轻"}),
+}
+
+
+def _contains_semantic_phrase(actual: str, expected: str) -> bool:
+    actual_text = actual.strip().casefold()
+    expected_text = expected.strip().casefold()
+    if not actual_text or not expected_text:
+        return False
+    aliases = _GROUNDED_SEMANTIC_ALIASES.get(expected.strip(), frozenset())
+    return any(
+        alias.casefold() in actual_text
+        for alias in (aliases or {expected_text})
+    )
+
+
+def _evidence_resource_id(
+    evidence: dict[str, Any],
+    plan_resource_ids: set[str],
+) -> str | None:
+    """Resolve the plan resource cited by a profile/fixture evidence ref.
+
+    Rule retrieval uses the resource id directly, while dense index chunks use
+    either ``profile:<id>`` or a versioned fixture aspect URI.  The evidence
+    id is also a stable fallback.  User-message evidence is filtered before
+    this helper is called, so wording alone cannot satisfy grounding.
+    """
+
+    source_ref = str(evidence.get("source_ref") or "")
+    evidence_id = str(evidence.get("evidence_id") or "")
+    for resource_id in plan_resource_ids:
+        if source_ref == resource_id:
+            return resource_id
+        if source_ref == f"profile:{resource_id}":
+            return resource_id
+        if f"#{resource_id}#" in source_ref:
+            return resource_id
+        if evidence_id.startswith(f"poi.{resource_id}."):
+            return resource_id
+    return None
 
 
 def _score_modification(case: ResumeReleaseCase, row: dict[str, Any] | None, transcript, add) -> None:

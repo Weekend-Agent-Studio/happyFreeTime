@@ -15,6 +15,8 @@ from app.evaluation.resume_release import (
     _failure_details,
     _runtime_summary,
     _score_case,
+    _score_grounded_semantics,
+    _score_semantic_queries,
     load_evaluation_variant,
     run_resume_release_evaluation,
 )
@@ -27,6 +29,126 @@ DATASET_PATH = ROOT / "evals" / "resume_release_cases.json"
 
 
 class ResumeReleaseEvaluationTest(unittest.TestCase):
+    def test_light_flavor_label_uses_query_and_grounded_semantics(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item for item in dataset.cases if item.case_id == "plan_dinner_only_light"
+        )
+
+        self.assertEqual(case.expected.expected_semantic_queries, ("清淡",))
+        self.assertEqual(case.expected.expected_grounded_semantics, ("清淡",))
+        self.assertNotIn("low_spice", case.expected.expected_objectives)
+
+        modification = next(
+            item for item in dataset.cases if item.case_id == "modify_dinner_less_spicy"
+        )
+        self.assertIn("low_spice", modification.expected.expected_objectives)
+
+    def test_semantic_query_score_does_not_read_advisor_text(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item for item in dataset.cases if item.case_id == "plan_dinner_only_light"
+        )
+        assertions: list[EvalAssertion] = []
+
+        def add(metric, status, **kwargs):
+            assertions.append(EvalAssertion(metric=metric, status=status, **kwargs))
+
+        _score_semantic_queries(
+            case,
+            {
+                "planning_intent_decision": {},
+                "recommendation_advice": {"understood_needs": [{"label": "清淡"}]},
+            },
+            add,
+        )
+
+        self.assertEqual(assertions[0].status, "failed")
+
+    def test_grounded_semantic_requires_plan_profile_evidence(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item for item in dataset.cases if item.case_id == "plan_dinner_only_light"
+        )
+
+        def score(row):
+            assertions: list[EvalAssertion] = []
+
+            def add(metric, status, **kwargs):
+                assertions.append(EvalAssertion(metric=metric, status=status, **kwargs))
+
+            _score_grounded_semantics(case, row, add)
+            return assertions[0]
+
+        base_row = {
+            "plans": [{"plan_id": "plan-1", "stops": [{"resource_id": "poi-1"}]}],
+            "recommendation_advice": {
+                "plans": [{"plan_id": "plan-1", "summary": "清淡"}],
+            },
+        }
+        self.assertEqual(score(base_row).status, "failed")
+        self.assertEqual(
+            score(
+                {
+                    **base_row,
+                    "retrieval_evidence": [
+                        {
+                            "evidence_id": "poi-1-light",
+                            "source_type": "fixture_aspect",
+                            "source_ref": "poi-1",
+                            "summary": "清爽、口味轻的用餐方向",
+                        }
+                    ],
+                }
+            ).status,
+            "passed",
+        )
+
+        self.assertEqual(
+            score(
+                {
+                    **base_row,
+                    "retrieval_evidence": [
+                        {
+                            "evidence_id": "poi-1-spice",
+                            "source_type": "fixture_aspect",
+                            "source_ref": "poi-1",
+                            "summary": "少辣、微辣的菜品方向",
+                        }
+                    ],
+                }
+            ).status,
+            "failed",
+        )
+
+    def test_grounded_semantic_ignores_user_only_evidence(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item for item in dataset.cases if item.case_id == "plan_dinner_only_light"
+        )
+        assertions: list[EvalAssertion] = []
+
+        def add(metric, status, **kwargs):
+            assertions.append(EvalAssertion(metric=metric, status=status, **kwargs))
+
+        _score_grounded_semantics(
+            case,
+            {
+                "plans": [{"plan_id": "plan-1", "stops": [{"resource_id": "poi-1"}]}],
+                "retrieval_evidence": [
+                    {
+                        "evidence_id": "user-need",
+                        "source_type": "user_message",
+                        "source_ref": "user",
+                        "summary": "清淡",
+                    }
+                ],
+            },
+            add,
+        )
+
+        self.assertEqual(assertions[0].status, "failed")
+
     def test_reviewed_cases_are_selectable_without_draft_opt_in(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
 

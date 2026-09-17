@@ -58,6 +58,11 @@ class EvaluationExpectation(BaseModel):
         ],
         ...,
     ] = ()
+    # Open semantic wording is evaluated separately from finite objectives.
+    # A query can preserve a user's expression without asserting a bounded
+    # objective such as low_spice.
+    expected_semantic_queries: tuple[str, ...] = ()
+    expected_grounded_semantics: tuple[str, ...] = ()
     expected_question_field: str | None = None
     expected_conflict_code: str | None = None
     expected_conflict_fields: tuple[str, ...] = ()
@@ -74,7 +79,10 @@ class EvaluationExpectation(BaseModel):
         if self.outcome == "conflict" and self.expected_conflict_code is None:
             raise ValueError("conflict outcome requires expected_conflict_code")
         if self.outcome != "plan" and (
-            self.require_grounded_advice or self.require_plan_diff
+            self.require_grounded_advice
+            or self.require_plan_diff
+            or self.expected_semantic_queries
+            or self.expected_grounded_semantics
         ):
             raise ValueError("only a plan outcome can require advice or plan diff")
         return self
