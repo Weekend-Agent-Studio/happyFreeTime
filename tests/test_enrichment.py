@@ -22,6 +22,7 @@ from app.domain.constraints import (
 )
 from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext, EnrichmentService
+from app.services.planning import PlanningService
 from app.providers.geocoding import MockGeocodingProvider
 from app.services.router_extractor import RouterContext
 
@@ -113,18 +114,109 @@ class EnrichmentServiceTest(unittest.TestCase):
         result = EnrichmentService().enrich(interpretation, actor, environment)
 
         self.assertEqual(result.constraints.departure_at.value, "18:30")
-        self.assertEqual(result.constraints.time_scope.value, TimeScope.EXPLICIT_RANGE)
+        # The exact departure shifts the operational start, but the fuzzy
+        # "afternoon" wording remains a fuzzy scope rather than becoming a
+        # user-authored numeric availability window.
+        self.assertEqual(result.constraints.time_scope.value, TimeScope.AFTERNOON)
         self.assertEqual(
             result.constraints.time_window.value.model_dump(),
-            {"start": "18:30", "end": "22:30"},
+            {"start": "18:30", "end": "23:59"},
         )
         self.assertEqual(
             result.constraints.time_window.rule_id,
-            "time.window.from_departure_overrides_scope.v1",
+            "time.departure_only.planning_horizon.v1",
+        )
+        self.assertEqual(
+            result.constraints.time_window.source,
+            ConstraintSource.DEFAULT_RULE,
         )
         self.assertTrue(
             any("精确出发时刻" in assumption.reason for assumption in result.assumptions)
         )
+        self.assertTrue(
+            any("不代表用户要求此时返程" in assumption.reason for assumption in result.assumptions)
+        )
+
+    def test_fuzzy_afternoon_and_exact_departure_do_not_create_window_conflict(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="下午",
+                time_scope=TimeScope.AFTERNOON,
+                departure_at_text="13:00准时出发",
+            ),
+            evidence_map={
+                "time_text": "下午",
+                "departure_at_text": "13:00准时出发",
+            },
+            extraction_confidence={"time_text": 1.0, "departure_at_text": 1.0},
+        )
+        actor = ActorContext(user_id="demo", session_id="fuzzy-departure", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        enriched = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(enriched.constraints.departure_at.value, "13:00")
+        self.assertIsNone(enriched.constraints.return_by)
+        self.assertEqual(enriched.constraints.time_scope.value, TimeScope.AFTERNOON)
+        self.assertEqual(
+            enriched.constraints.time_window.value.model_dump(),
+            {"start": "13:00", "end": "23:59"},
+        )
+        self.assertEqual(
+            enriched.constraints.time_window.rule_id,
+            "time.departure_only.planning_horizon.v1",
+        )
+        self.assertTrue(
+            any("不代表用户要求此时返程" in assumption.reason for assumption in enriched.assumptions)
+        )
+
+    def test_explicit_clock_contradiction_is_reported_before_route_provider(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="下午",
+                time_scope=TimeScope.AFTERNOON,
+                departure_at_text="下午五点半准时出发",
+                return_by_text="最晚17:00回家",
+            ),
+            evidence_map={
+                "time_text": "下午",
+                "departure_at_text": "下午五点半准时出发",
+                "return_by_text": "最晚17:00回家",
+            },
+            extraction_confidence={
+                "time_text": 1.0,
+                "departure_at_text": 1.0,
+                "return_by_text": 1.0,
+            },
+        )
+        actor = ActorContext(user_id="demo", session_id="clock-conflict", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+        enriched = EnrichmentService().enrich(interpretation, actor, environment)
+
+        class NoCallRouteProvider:
+            def __init__(self) -> None:
+                self.requests = []
+
+            def route(self, request):
+                self.requests.append(request)
+                raise AssertionError("chronology conflict must stop before route lookup")
+
+        route_provider = NoCallRouteProvider()
+        result = PlanningService(route_provider=route_provider).plan(enriched.constraints)
+
+        self.assertEqual(result.conflict.code, "DEPARTURE_NOT_BEFORE_RETURN_BY")
+        self.assertEqual(result.conflict.fields, ["departure_at", "return_by"])
+        self.assertEqual(route_provider.requests, [])
 
     def test_exact_departure_uses_explicit_return_deadline_as_window_end(self) -> None:
         interpretation = Interpretation(
@@ -205,7 +297,15 @@ class EnrichmentServiceTest(unittest.TestCase):
 
         result = EnrichmentService().enrich(interpretation, actor, environment)
 
-        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "14:30", "end": "18:30"})
+        self.assertEqual(result.constraints.time_window.value.model_dump(), {"start": "14:30", "end": "23:59"})
+        self.assertEqual(
+            result.constraints.time_window.rule_id,
+            "time.departure_only.planning_horizon.v1",
+        )
+        self.assertEqual(
+            result.constraints.time_window.source,
+            ConstraintSource.DEFAULT_RULE,
+        )
         self.assertIn("time_window", {item.field for item in result.assumptions})
 
     def test_all_day_compiles_to_visible_policy_window_instead_of_afternoon(self) -> None:

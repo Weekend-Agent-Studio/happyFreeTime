@@ -232,9 +232,12 @@ class EnrichmentService:
 
     DEFAULT_BUDGET = 120
     DEFAULT_DISTANCE_KM = 8.0
-    DEFAULT_OUTING_MINUTES = 4 * 60
     ALL_DAY_START = "09:00"
     ALL_DAY_END = "21:00"
+    # A departure-only request needs a finite bound for the existing Planner,
+    # but this is an internal search horizon rather than a user return
+    # deadline.  Keep the distinction in the rule id and visible assumption.
+    DEFAULT_PLANNING_HORIZON_END = "23:59"
 
     def __init__(self, geocoding_provider: GeocodingProvider | None = None) -> None:
         self._geocoding_provider = geocoding_provider
@@ -379,6 +382,8 @@ class EnrichmentService:
         )
         multi_role_window_applied = False
         departure_overrides_scope = False
+        departure_horizon_applied = False
+        departure_return_window_applied = False
         if structured_time_window is not None:
             # An explicit numeric range is authoritative.  A departure clock
             # cannot widen or replace it.
@@ -399,10 +404,7 @@ class EnrichmentService:
                 override_end = (
                     return_by
                     if return_by is not None and return_by > departure_at
-                    else self._add_minutes_to_clock(
-                        departure_at,
-                        self.DEFAULT_OUTING_MINUTES,
-                    )
+                    else self.DEFAULT_PLANNING_HORIZON_END
                 )
                 if override_end is not None and override_end > departure_at:
                     normalized_time = TimeWindow(
@@ -410,6 +412,10 @@ class EnrichmentService:
                         end=override_end,
                     )
                     departure_overrides_scope = True
+                    departure_return_window_applied = (
+                        return_by is not None and return_by > departure_at
+                    )
+                    departure_horizon_applied = not departure_return_window_applied
             if not departure_overrides_scope and normalized_time is None:
                 normalized_time = scope_window
 
@@ -435,11 +441,11 @@ class EnrichmentService:
             normalized_time = multi_role_time_default
             multi_role_window_applied = True
 
-        effective_time_scope = (
-            TimeScope.EXPLICIT_RANGE
-            if structured_time_window is not None or departure_overrides_scope
-            else time_scope
-        )
+        # A precise departure overrides a fuzzy period's start, but it does
+        # not turn that fuzzy period into a user-authored explicit range.  The
+        # distinction controls whether Planner may report an outside-window
+        # hard conflict.
+        effective_time_scope = time_scope
         time_scope_value = (
             ConstraintValue[TimeScope](
                 value=effective_time_scope,
@@ -466,6 +472,7 @@ class EnrichmentService:
                     if (
                         effective_time_scope == TimeScope.ALL_DAY
                         or multi_role_window_applied
+                        or departure_horizon_applied
                     )
                     else ConstraintSource.USER_INFERRED
                 ),
@@ -485,12 +492,20 @@ class EnrichmentService:
                         "time.all_day.default_window.v1"
                         if effective_time_scope == TimeScope.ALL_DAY
                         else (
-                            "time.window.from_departure_overrides_scope.v1"
-                            if departure_overrides_scope
+                            "time.departure_only.planning_horizon.v1"
+                            if departure_horizon_applied
                             else (
-                                "time.multi_role.meal_anchor.v1"
-                                if multi_role_window_applied
-                                else "time.period.zh_cn.v1"
+                                "time.window.from_departure_return.v1"
+                                if departure_return_window_applied
+                                else (
+                                    "time.window.from_departure_overrides_scope.v1"
+                                    if departure_overrides_scope
+                                    else (
+                                        "time.multi_role.meal_anchor.v1"
+                                        if multi_role_window_applied
+                                        else "time.period.zh_cn.v1"
+                                    )
+                                )
                             )
                         )
                     )
@@ -503,6 +518,18 @@ class EnrichmentService:
                         value=normalized_time.model_dump(),
                         reason="“全天”按 09:00–21:00 的可见产品规则规划",
                         rule_id="time.all_day.default_window.v1",
+                    )
+                )
+            elif departure_horizon_applied:
+                assumptions.append(
+                    Assumption(
+                        field="time_window",
+                        value=normalized_time.model_dump(),
+                        reason=(
+                            "已指定精确出发时刻；结束时间仅作为当日排程搜索范围，"
+                            "不代表用户要求此时返程"
+                        ),
+                        rule_id="time.departure_only.planning_horizon.v1",
                     )
                 )
             elif departure_overrides_scope:
@@ -554,33 +581,60 @@ class EnrichmentService:
                 rule_id="time.lunch_role.zh_cn.v1",
             )
         elif raw.time_text is None and departure_at is not None and return_by is not None:
-            time_value = ConstraintValue[TimeWindow](
-                value=TimeWindow(start=departure_at, end=return_by),
-                source=ConstraintSource.USER_INFERRED,
-                raw_text=raw.departure_at_text,
-                rule_id="time.window.from_departure_return.v1",
-            )
-        elif raw.time_text is None and departure_at is not None:
-            default_end = self._add_minutes_to_clock(
-                departure_at,
-                self.DEFAULT_OUTING_MINUTES,
-            )
-            if default_end is not None:
-                default_time = TimeWindow(start=departure_at, end=default_end)
+            if return_by > departure_at:
                 time_value = ConstraintValue[TimeWindow](
-                    value=default_time,
+                    value=TimeWindow(start=departure_at, end=return_by),
+                    source=ConstraintSource.USER_INFERRED,
+                    raw_text=raw.departure_at_text,
+                    rule_id="time.window.from_departure_return.v1",
+                )
+            else:
+                # Keep both user clocks intact for the Planner's direct
+                # chronology conflict, while avoiding an invalid reversed
+                # TimeWindow object that would mask that conflict.
+                horizon = TimeWindow(
+                    start=departure_at,
+                    end=self.DEFAULT_PLANNING_HORIZON_END,
+                )
+                time_value = ConstraintValue[TimeWindow](
+                    value=horizon,
                     source=ConstraintSource.DEFAULT_RULE,
                     raw_text=raw.departure_at_text,
-                    rule_id="time.default.from_departure.v1",
+                    rule_id="time.departure_only.planning_horizon.v1",
                 )
                 assumptions.append(
                     Assumption(
                         field="time_window",
-                        value=default_time.model_dump(),
-                        reason="已按你指定的出发时刻，采用默认 4 小时行程窗口",
-                        rule_id="time.default.from_departure.v1",
+                        value=horizon.model_dump(),
+                        reason=(
+                            "出发时间晚于返程截止，结束时间仅暂用当日排程搜索范围；"
+                            "实际结果由出发与返程硬约束冲突决定"
+                        ),
+                        rule_id="time.departure_only.planning_horizon.v1",
                     )
                 )
+        elif raw.time_text is None and departure_at is not None:
+            default_time = TimeWindow(
+                start=departure_at,
+                end=self.DEFAULT_PLANNING_HORIZON_END,
+            )
+            time_value = ConstraintValue[TimeWindow](
+                value=default_time,
+                source=ConstraintSource.DEFAULT_RULE,
+                raw_text=raw.departure_at_text,
+                rule_id="time.departure_only.planning_horizon.v1",
+            )
+            assumptions.append(
+                Assumption(
+                    field="time_window",
+                    value=default_time.model_dump(),
+                    reason=(
+                        "已指定精确出发时刻；结束时间仅作为当日排程搜索范围，"
+                        "不代表用户要求此时返程"
+                    ),
+                    rule_id="time.departure_only.planning_horizon.v1",
+                )
+            )
         elif raw.time_text is None:
             default_time = TimeWindow(start="14:00", end="18:00")
             time_value = ConstraintValue[TimeWindow](

@@ -256,6 +256,61 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertGreaterEqual(result.plans[0].stops[1].start, "17:00")
         self.assertLessEqual(result.plans[0].stops[1].start, "20:30")
 
+    def test_departure_only_horizon_allows_activity_then_dinner_to_continue_into_evening(self) -> None:
+        constraints = planning_constraints(time_end="23:59").model_copy(
+            update={
+                "departure_at": ConstraintValue[str](
+                    value="13:00", source=ConstraintSource.USER_EXPLICIT
+                ),
+                "return_by": None,
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="13:00", end="23:59"),
+                    source=ConstraintSource.DEFAULT_RULE,
+                    rule_id="time.departure_only.planning_horizon.v1",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.DINNER),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="活动和晚饭",
+                ),
+            }
+        )
+        catalog = InMemoryCatalog(
+            [
+                candidate(
+                    "activity",
+                    ResourceType.ACTIVITY,
+                    "下午展览",
+                    ["展览"],
+                    duration_minutes=240,
+                    open_hours={"sat": "13:00-20:00"},
+                ),
+                candidate(
+                    "dinner",
+                    ResourceType.RESTAURANT,
+                    "晚餐馆",
+                    ["晚餐"],
+                    duration_minutes=90,
+                    open_hours={"sat": "17:00-22:00"},
+                ),
+            ]
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            any(
+                [stop.role for stop in plan.stops]
+                == [StopRole.ACTIVITY, StopRole.DINNER]
+                and plan.stops[1].start >= "17:00"
+                for plan in result.plans
+            )
+        )
+
     def test_explicit_structure_wins_over_conflicting_planning_intent(self) -> None:
         constraints = planning_constraints(time_end="21:00").model_copy(
             update={
@@ -584,6 +639,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             update={
                 "departure_at": ConstraintValue[str](
                     value="13:30", source=ConstraintSource.USER_EXPLICIT
+                ),
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="14:00", end="18:00"),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    rule_id="time.explicit_range.v1",
                 ),
             }
         )

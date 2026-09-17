@@ -401,6 +401,11 @@ class PlanningIntentProviderTest(unittest.TestCase):
         invalid_time = planning_constraints(time_end="18:00").model_copy(
             update={
                 "preferences": ["有新鲜感"],
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="14:00", end="18:00"),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    rule_id="time.explicit_range.v1",
+                ),
                 "departure_at": ConstraintValue[str](
                     value="13:30",
                     source=ConstraintSource.USER_EXPLICIT,

@@ -30,6 +30,7 @@ from app.domain.constraints import (
     SemanticCriterion,
     StopRole,
     TargetReference,
+    TimeScope,
 )
 from app.domain.planning import (
     CandidateSet,
@@ -2647,16 +2648,11 @@ def _planning_time_conflict(
     if constraints.departure_at is None:
         return None
     departure = _planning_start_minutes(constraints)
-    window = constraints.time_window.value
-    window_start = _time_to_minutes(window.start)
-    window_end = _time_to_minutes(window.end)
-    if not window_start <= departure < window_end:
-        return ConstraintConflict(
-            code="DEPARTURE_OUTSIDE_TIME_WINDOW",
-            message="指定的准时出发时刻不在可用时间窗内。",
-            fields=["departure_at", "time_window"],
-            relaxation_options=["调整出发时刻或可用时间窗"],
-        )
+
+    # A direct contradiction between the two user-provided clocks is more
+    # specific than any derived planning window.  Enrichment may need an
+    # operational horizon for the existing Planner, but it must not mask this
+    # chronology error as an outside-window failure.
     if constraints.return_by is not None and departure >= _time_to_minutes(
         constraints.return_by.value
     ):
@@ -2666,7 +2662,40 @@ def _planning_time_conflict(
             fields=["departure_at", "return_by"],
             relaxation_options=["提前出发或延后最晚到家时间"],
         )
+
+    window = constraints.time_window.value
+    # Only a user-authored numeric range is an availability constraint.  A
+    # fuzzy period (morning/afternoon/evening) and a DEFAULT_RULE horizon are
+    # scheduling hints that Enrichment may shift around an exact departure.
+    explicit_window = _is_explicit_time_window(constraints)
+    window_start = _time_to_minutes(window.start)
+    window_end = _time_to_minutes(window.end)
+    if explicit_window and not window_start <= departure < window_end:
+        return ConstraintConflict(
+            code="DEPARTURE_OUTSIDE_TIME_WINDOW",
+            message="指定的准时出发时刻不在可用时间窗内。",
+            fields=["departure_at", "time_window"],
+            relaxation_options=["调整出发时刻或可用时间窗"],
+        )
     return None
+
+
+def _is_explicit_time_window(constraints: NormalizedConstraints) -> bool:
+    """Return whether ``time_window`` came from a user numeric range.
+
+    ``ConstraintSource.USER_INFERRED`` is also used for fuzzy language such
+    as “下午”, so source alone cannot distinguish a hard availability window
+    from a derived scheduling horizon.  The explicit range rule is the stable
+    internal marker during Resume V1.
+    """
+
+    time_window = constraints.time_window
+    if time_window is None:
+        return False
+    if time_window.rule_id == "time.explicit_range.v1":
+        return True
+    time_scope = constraints.time_scope
+    return time_scope is not None and time_scope.value == TimeScope.EXPLICIT_RANGE
 
 
 def _meal_anchor_conflict_fields(
