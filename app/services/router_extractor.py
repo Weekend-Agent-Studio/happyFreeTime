@@ -45,6 +45,14 @@ STRUCTURED_OUTPUT_DIAGNOSTIC_CODES = (
     "cross_field_contract_failed",
 ) + STRUCTURED_OUTPUT_RULE_CODES
 
+_INFERRED_FIELD_DIAGNOSTIC_CODES = frozenset(
+    {
+        "inferred_value_missing",
+        "inferred_evidence_missing",
+        "inferred_confidence_missing",
+    }
+)
+
 
 @dataclass(frozen=True)
 class StructuredOutputDiagnostic:
@@ -403,7 +411,7 @@ def _diagnose_pydantic_validation(
     error: ValidationError,
 ) -> StructuredOutputDiagnostic:
     try:
-        entries = error.errors(include_url=False, include_context=False)
+        entries = error.errors(include_url=False, include_context=True)
     except TypeError:  # pragma: no cover - compatibility with older Pydantic
         entries = error.errors()
     paths: list[str] = []
@@ -412,10 +420,10 @@ def _diagnose_pydantic_validation(
     cross_field = False
     for entry in entries[:8]:
         loc = entry.get("loc", ())
-        path = _safe_error_path(loc)
+        error_type = _safe_diagnostic_token(entry.get("type"), "validation_error")
+        path = _safe_inferred_field_path(entry, error_type) or _safe_error_path(loc)
         if path not in paths:
             paths.append(path)
-        error_type = _safe_diagnostic_token(entry.get("type"), "validation_error")
         if error_type not in error_types:
             error_types.append(error_type)
         if error_type in STRUCTURED_OUTPUT_RULE_CODES and error_type not in rule_codes:
@@ -433,6 +441,20 @@ def _diagnose_pydantic_validation(
         paths=tuple(paths),
         error_types=tuple(error_types),
     )
+
+
+def _safe_inferred_field_path(entry: Mapping[str, object], error_type: str) -> str | None:
+    """Expose only a bounded inferred-field name from a model-level error."""
+
+    if error_type not in _INFERRED_FIELD_DIAGNOSTIC_CODES:
+        return None
+    context = entry.get("ctx")
+    if not isinstance(context, Mapping):
+        return None
+    field = context.get("field")
+    if not isinstance(field, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", field):
+        return None
+    return f"inferred_fields.{field}"
 
 
 def _normalize_interpretation_wire_value(result: object) -> object:

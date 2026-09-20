@@ -408,7 +408,7 @@ class Interpretation(BaseModel):
                         self.raw_constraints.children,
                         self.raw_constraints.child_age,
                     )
-                )
+                ) or bool(self.raw_constraints.members)
             elif hasattr(self.raw_constraints, field):
                 value = getattr(self.raw_constraints, field)
                 raw_value_exists = value not in (None, "", [], {})
@@ -418,16 +418,19 @@ class Interpretation(BaseModel):
                 raise PydanticCustomError(
                     "inferred_value_missing",
                     "inferred field has no extracted value",
+                    {"field": field},
                 )
             if not self.evidence_map.get(field):
                 raise PydanticCustomError(
                     "inferred_evidence_missing",
                     "inferred field has no evidence",
+                    {"field": field},
                 )
             if field not in self.extraction_confidence:
                 raise PydanticCustomError(
                     "inferred_confidence_missing",
                     "inferred field has no confidence",
+                    {"field": field},
                 )
         return self
 

@@ -332,6 +332,97 @@ class RouterExtractorTest(unittest.TestCase):
                     expected_code,
                 )
 
+        with self.assertRaises(ValueError) as context:
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                inferred_fields={"party"},
+            )
+        error = context.exception.errors(
+            include_url=False,
+            include_context=True,
+        )[0]
+        self.assertEqual(error["type"], "inferred_value_missing")
+        self.assertEqual(error["ctx"]["field"], "party")
+
+    def test_inferred_contract_diagnostic_exposes_only_safe_field_path(self) -> None:
+        model = FakeStructuredModel(
+            [
+                {
+                    "primary_intent": "plan_outing",
+                    "intent_scores": {"plan_outing": 1.0},
+                    "inferred_fields": ["party"],
+                },
+                {
+                    "primary_intent": "plan_outing",
+                    "intent_scores": {"plan_outing": 1.0},
+                    "inferred_fields": ["party"],
+                },
+            ]
+        )
+
+        _, runtime = RouterExtractor(model).interpret_with_runtime(
+            "明天和对象约会",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+
+        self.assertEqual(runtime.diagnostic_code, "inferred_value_missing")
+        self.assertEqual(runtime.diagnostic_paths, ("inferred_fields.party",))
+        self.assertNotIn("inferred field has no extracted value", runtime.model_dump_json())
+
+    def test_inferred_party_accepts_member_relationship_without_count(self) -> None:
+        for member, evidence in (("女朋友", "跟女朋友约会"), ("父母", "带父母出去")):
+            with self.subTest(member=member):
+                interpretation = Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    raw_constraints=RawConstraints(members=[member]),
+                    inferred_fields={"party"},
+                    evidence_map={"party": evidence},
+                    extraction_confidence={"party": 0.8},
+                )
+                self.assertEqual(interpretation.raw_constraints.adults, None)
+                self.assertEqual(interpretation.raw_constraints.members, [member])
+
+    def test_inferred_party_still_requires_a_value(self) -> None:
+        with self.assertRaises(ValueError) as context:
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                inferred_fields={"party"},
+                evidence_map={"party": "约会"},
+                extraction_confidence={"party": 0.8},
+            )
+        error = context.exception.errors(include_url=False, include_context=True)[0]
+        self.assertEqual(error["type"], "inferred_value_missing")
+        self.assertEqual(error["ctx"]["field"], "party")
+
+    def test_inferred_party_with_members_requires_evidence(self) -> None:
+        with self.assertRaises(ValueError) as context:
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(members=["女朋友"]),
+                inferred_fields={"party"},
+                extraction_confidence={"party": 0.8},
+            )
+        error = context.exception.errors(include_url=False, include_context=True)[0]
+        self.assertEqual(error["type"], "inferred_evidence_missing")
+        self.assertEqual(error["ctx"]["field"], "party")
+
+    def test_inferred_party_with_members_requires_confidence(self) -> None:
+        with self.assertRaises(ValueError) as context:
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                raw_constraints=RawConstraints(members=["女朋友"]),
+                inferred_fields={"party"},
+                evidence_map={"party": "女朋友"},
+            )
+        error = context.exception.errors(include_url=False, include_context=True)[0]
+        self.assertEqual(error["type"], "inferred_confidence_missing")
+        self.assertEqual(error["ctx"]["field"], "party")
+
         temporal_cases = [
             (
                 "temporal_evidence_missing",

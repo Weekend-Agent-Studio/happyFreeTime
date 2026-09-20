@@ -99,6 +99,23 @@ def main() -> int:
                 ),
             )
             used_model_calls += runtime.attempts
+            diagnostic_code = runtime.diagnostic_code or "none"
+            diagnostic_paths = ",".join(runtime.diagnostic_paths) or "none"
+            print(
+                "capture_diagnostic "
+                f"case_id={case_id} "
+                f"step_index={step_index} "
+                f"attempts={runtime.attempts} "
+                f"adapter={runtime.adapter} "
+                f"model={runtime.model_name or 'none'} "
+                f"fallback={runtime.fallback_reason or 'none'} "
+                f"diagnostic_code={diagnostic_code} "
+                f"diagnostic_paths={diagnostic_paths} "
+                f"input_tokens={runtime.input_tokens if runtime.input_tokens is not None else 'none'} "
+                f"output_tokens={runtime.output_tokens if runtime.output_tokens is not None else 'none'} "
+                f"latency_ms={runtime.latency_ms if runtime.latency_ms is not None else 'none'}",
+                file=sys.stderr,
+            )
             if runtime.fallback_reason or runtime.adapter != "llm":
                 code = runtime.diagnostic_code or runtime.fallback_reason or "capture_failed"
                 parser.error("model did not produce a usable Interpretation: " + str(code))
