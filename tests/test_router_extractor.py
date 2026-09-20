@@ -87,6 +87,13 @@ class RouterExtractorTest(unittest.TestCase):
             ConversationCommandProposal.model_validate(
                 {"operation": "replace", "base_plan_id": "server-owned"}
             )
+        with self.assertRaises(ValueError):
+            ConversationCommandProposal.model_validate(
+                {
+                    "operation": "replace",
+                    "target": {"raw_text": "活动", "resource_id": "server-owned"},
+                }
+            )
 
     def test_llm_wire_proposal_compiles_party_and_command_without_anchors(self) -> None:
         proposal = LlmInterpretationProposal.model_validate(
@@ -113,6 +120,62 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertEqual(compiled.conversation_command.base_plan_id, None)
         self.assertEqual(compiled.conversation_command.base_plan_version_id, None)
         self.assertEqual(compiled.conversation_command.target.resource_id, None)
+
+    def test_raw_only_target_is_resolved_or_becomes_needs_input(self) -> None:
+        resolvable = LlmInterpretationProposal.model_validate(
+            {
+                "primary_intent": "refine_plan",
+                "conversation_command": {
+                    "operation": "replace",
+                    "target": {"raw_text": "活动"},
+                },
+            }
+        )
+        compiled = compile_llm_interpretation_proposal(resolvable)
+        self.assertEqual(compiled.conversation_command.target.role, "activity")
+
+        model = FakeStructuredModel(
+            [
+                {
+                    "primary_intent": "refine_plan",
+                    "conversation_command": {
+                        "operation": "replace",
+                        "target": {"raw_text": "那个地方"},
+                    },
+                }
+            ]
+        )
+        result, runtime = RouterExtractor(model).interpret_with_runtime(
+            "把那个地方换一下",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                has_plans=True,
+                has_selected_plan=True,
+            ),
+        )
+        self.assertIsNone(runtime.fallback_reason)
+        self.assertEqual(runtime.diagnostic_code, "target_resolution_required")
+        self.assertIsNone(result.conversation_command)
+
+    def test_plan_ignores_accidental_create_command(self) -> None:
+        model = FakeStructuredModel(
+            [
+                {
+                    "primary_intent": "plan_outing",
+                    "conversation_command": {
+                        "operation": "create",
+                        "target": {"raw_text": "活动"},
+                    },
+                }
+            ]
+        )
+        result, runtime = RouterExtractor(model).interpret_with_runtime(
+            "明天安排活动",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+        self.assertIsNone(result.conversation_command)
+        self.assertIsNone(runtime.fallback_reason)
+        self.assertEqual(runtime.diagnostic_code, "command_ignored_for_plan")
 
     def test_plain_date_evidence_compiles_without_model_confidence(self) -> None:
         proposal = LlmInterpretationProposal.model_validate(
@@ -414,17 +477,15 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertEqual(error["type"], "inferred_value_missing")
         self.assertEqual(error["ctx"]["field"], "party")
 
-    def test_inferred_contract_diagnostic_exposes_only_safe_field_path(self) -> None:
+    def test_legacy_inferred_fields_are_rejected_by_live_wire_contract(self) -> None:
         model = FakeStructuredModel(
             [
                 {
                     "primary_intent": "plan_outing",
-                    "intent_scores": {"plan_outing": 1.0},
                     "inferred_fields": ["party"],
                 },
                 {
                     "primary_intent": "plan_outing",
-                    "intent_scores": {"plan_outing": 1.0},
                     "inferred_fields": ["party"],
                 },
             ]
@@ -435,8 +496,8 @@ class RouterExtractorTest(unittest.TestCase):
             RouterContext(current_date=date(2026, 8, 12)),
         )
 
-        self.assertEqual(runtime.diagnostic_code, "inferred_value_missing")
-        self.assertEqual(runtime.diagnostic_paths, ("inferred_fields.party",))
+        self.assertEqual(runtime.diagnostic_code, "pydantic_validation_failed")
+        self.assertIn("inferred_fields", runtime.diagnostic_paths)
         self.assertNotIn("inferred field has no extracted value", runtime.model_dump_json())
 
     def test_inferred_party_accepts_member_relationship_without_count(self) -> None:
@@ -561,7 +622,6 @@ class RouterExtractorTest(unittest.TestCase):
             [
                 {
                     "primary_intent": "refine_plan",
-                    "intent_scores": {"refine_plan": 1.0},
                     "conversation_command": json.dumps(command, ensure_ascii=False),
                 }
             ]
