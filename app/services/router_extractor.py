@@ -18,13 +18,21 @@ from typing import Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.domain.constraints import (
+    CommandOperation,
+    ConstraintPatch,
+    ConversationCommand,
     Intent,
     Interpretation,
+    RawConstraints,
+    ReplacementCriterion,
+    StopRole,
     STRUCTURED_OUTPUT_RULE_CODES,
+    TargetReference,
 )
+from app.domain.catalog import ResourceType
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.domain.runtime import RuntimeDecision
 from app.services.model_errors import model_failure_reason
@@ -52,6 +60,56 @@ _INFERRED_FIELD_DIAGNOSTIC_CODES = frozenset(
         "inferred_confidence_missing",
     }
 )
+
+WIRE_SCHEMA_VERSION = "llm-interpretation-proposal.v1"
+PROMPT_VERSION = "turn-interpreter.v2"
+
+
+class ConversationTargetProposal(BaseModel):
+    """Model-facing target reference without application-owned resource ids."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: StopRole | None = None
+    resource_type: ResourceType | None = None
+    stop_index: int | None = Field(default=None, ge=0)
+    raw_text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_reference_dimension(self) -> "ConversationTargetProposal":
+        if self.role is None and self.resource_type is None and self.stop_index is None:
+            raise ValueError("target proposal requires a role, stop index, or resource type")
+        return self
+
+
+class ConversationCommandProposal(BaseModel):
+    """Small model wire contract for a user action.
+
+    Session/version anchors and model confidence are deliberately absent.  The
+    deterministic compiler adds only the legacy defaults needed by the
+    internal ``ConversationCommand`` object; authorization remains downstream.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: CommandOperation
+    target: ConversationTargetProposal | None = None
+    locked_targets: tuple[ConversationTargetProposal, ...] = ()
+    constraint_patch: ConstraintPatch = Field(default_factory=ConstraintPatch)
+    replacement_criteria: tuple[ReplacementCriterion, ...] = ()
+    evidence: dict[str, str] = Field(default_factory=dict)
+
+
+class LlmInterpretationProposal(BaseModel):
+    """Provider-only structured output contract for the live TurnInterpreter."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    primary_intent: Intent
+    raw_constraints: RawConstraints = Field(default_factory=RawConstraints)
+    selected_plan_index: int | None = Field(default=None, ge=0)
+    conversation_command: ConversationCommandProposal | None = None
+    evidence_map: dict[str, str] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -93,18 +151,19 @@ DEFAULT_MODEL_TIMEOUT_SECONDS = 15
 SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 
 你只负责：
-1. 识别用户的主要意图和相关意图置信度。
+1. 识别用户的主要意图。
 2. 从用户原话中抽取规划约束，保留原始表达。
-3. 为抽取结果记录简短证据片段和置信度。
-4. 将创建、选择或修改请求写成受 Schema 限制的 conversation_command。
+3. 为需要追溯的结构化事实记录简短证据片段。
+4. 将创建、选择或修改请求写成受 Schema 限制的 conversation_command proposal。
 
 输出要求：只返回一个合法的 JSON 对象，不要返回 Markdown 代码围栏、解释文字或
 JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、null 或空数组；不要
 为了凑字段编造信息。
 
-- conversation_command 如需填写，必须是嵌套 JSON 对象而不是 JSON 字符串；其
+ - conversation_command 如需填写，必须是嵌套 JSON 对象而不是 JSON 字符串；其
   operation、target、locked_targets 和 constraint_patch 按 Schema 的对象/数组
-  结构填写。没有创建、选择或修改命令时填写 null。
+ 结构填写。没有创建、选择或修改命令时填写 null。不要输出会话、方案版本、方案
+ 资源 ID 或 confidence 字段。
 
 可用意图：plan_outing、find_activity、check_weather、refine_plan、execute_plan、cancel_execution、chitchat。
 
@@ -121,8 +180,8 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
  - 明确的数字范围（例如“10:00–16:00”）填写 time_scope="explicit_range" 和
    explicit_time_window={"start":"10:00","end":"16:00"}，并保留 time_text。
  - 任何 date_reference、weekday、week_offset、absolute_date 或
-   explicit_time_window 只在能从用户原话确认时填写；对应 evidence_map 和
-   extraction_confidence 必须同时提供。模糊的“晚饭前后”“有空时”不能编译成精确时钟。
+   explicit_time_window 只在能从用户原话确认时填写；对应 evidence_map 必须提供。
+   模糊的“晚饭前后”“有空时”不能编译成精确时钟。
  - “下午两点半准时出发”要保留 departure_at_text；如果能可靠规范化，也可填写
    departure_at="14:30”，但不要把到家时间写成出发时间。Enrichment 会再次校验时钟。
    如果同时出现“上午/下午/晚上”和精确出发时刻，保留两者；精确时刻优先，不能仅因为
@@ -154,7 +213,9 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
 - 只有用户明确要求“确认有位”“必须可预约”等动态库存确认时，才填写
   require_availability_confirmation=true；普通的“想去某餐厅/景点”保持 false。
 - 有儿童时尽量提取 children 和 child_age；不能确定时保持为空。
-- 由用户原话间接推断、而非直接陈述的字段写入 inferred_fields；例如从“约会”推断同行人数时写入 party。
+- 不输出 inferred_fields、extraction_confidence、intent_scores、reply 或
+  requires_clarification。不要从普通“约会”推断准确成人数量；“和女朋友”“带父母”
+  可以保留 members，但人数由后续 Harness 决定。
 - 只有真正闲聊才输出 chitchat。解析不确定不等于闲聊。
 """
 
@@ -210,7 +271,7 @@ class TurnInterpreter:
                 *messages,
                 HumanMessage(
                     content=(
-                        "上一次输出未通过结构校验。请严格返回合法 JSON 格式的 Interpretation 结构，"
+                        "上一次输出未通过结构校验。请严格返回合法 JSON 格式的 LlmInterpretationProposal 结构，"
                         "不要补充解释。错误类型：invalid_output；"
                         + _repair_hint(diagnostic)
                     )
@@ -301,6 +362,8 @@ class TurnInterpreter:
             diagnostic_error_types=(
                 diagnostic.error_types if diagnostic is not None else ()
             ),
+            wire_schema_version=(WIRE_SCHEMA_VERSION if model_invoked else None),
+            prompt_version=(PROMPT_VERSION if model_invoked else None),
             latency_ms=latency_ms,
             input_tokens=token_usage.input_tokens,
             output_tokens=token_usage.output_tokens,
@@ -325,6 +388,8 @@ class TurnInterpreter:
             return TurnInterpreter._validate(parsed)
         if isinstance(result, Interpretation):
             return result
+        if isinstance(result, LlmInterpretationProposal):
+            return compile_llm_interpretation_proposal(result)
         if isinstance(result, str):
             try:
                 result = json.loads(result)
@@ -336,12 +401,20 @@ class TurnInterpreter:
                     )
                 ) from error
         result = _normalize_interpretation_wire_value(result)
+        if _looks_like_legacy_interpretation(result):
+            try:
+                return Interpretation.model_validate(result)
+            except ValidationError as error:
+                raise _StructuredOutputValidationError(
+                    _diagnose_pydantic_validation(error)
+                ) from error
         try:
-            return Interpretation.model_validate(result)
+            proposal = LlmInterpretationProposal.model_validate(result)
         except ValidationError as error:
             raise _StructuredOutputValidationError(
                 _diagnose_pydantic_validation(error)
             ) from error
+        return compile_llm_interpretation_proposal(proposal)
 
     @staticmethod
     def _build_context(user_input: str, context: RouterContext) -> str:
@@ -357,6 +430,80 @@ class TurnInterpreter:
         if context.previous_intent is not None:
             lines.append(f"上一轮主要意图：{context.previous_intent.value}")
         return "\n".join(lines)
+
+
+_LEGACY_INTERPRETATION_KEYS = frozenset(
+    {
+        "intent_scores",
+        "target_reference",
+        "extraction_confidence",
+        "inferred_fields",
+        "reply",
+        "requires_clarification",
+    }
+)
+
+
+def compile_conversation_command_proposal(
+    proposal: ConversationCommandProposal | None,
+) -> ConversationCommand | None:
+    """Compile a model action proposal into the existing domain command.
+
+    The constructed object is always the existing ConversationCommand domain
+    object; no session or version anchor is accepted from the model.
+    """
+
+    if proposal is None:
+        return None
+
+    def compile_target(target: ConversationTargetProposal) -> TargetReference:
+        return TargetReference(
+            role=target.role,
+            resource_type=target.resource_type,
+            stop_index=target.stop_index,
+            raw_text=target.raw_text,
+        )
+
+    return ConversationCommand(
+        operation=proposal.operation,
+        target=(compile_target(proposal.target) if proposal.target is not None else None),
+        locked_targets=tuple(compile_target(item) for item in proposal.locked_targets),
+        constraint_patch=proposal.constraint_patch,
+        replacement_criteria=proposal.replacement_criteria,
+        evidence=dict(proposal.evidence),
+    )
+
+
+def compile_llm_interpretation_proposal(
+    proposal: LlmInterpretationProposal,
+) -> Interpretation:
+    """Build the legacy domain Interpretation deterministically.
+
+    ``intent_scores`` and the remaining legacy response fields are adapter
+    defaults, not claims made by the model.  In particular, no inferred fields
+    or confidence values are manufactured here.
+    """
+
+    return Interpretation(
+        primary_intent=proposal.primary_intent,
+        intent_scores={proposal.primary_intent: 1.0},
+        raw_constraints=proposal.raw_constraints,
+        selected_plan_index=proposal.selected_plan_index,
+        conversation_command=compile_conversation_command_proposal(
+            proposal.conversation_command
+        ),
+        extraction_confidence={},
+        evidence_map=dict(proposal.evidence_map),
+        inferred_fields=set(),
+        reply="",
+        requires_clarification=False,
+    )
+
+
+def _looks_like_legacy_interpretation(value: object) -> bool:
+    return isinstance(value, Mapping) and bool(
+        _LEGACY_INTERPRETATION_KEYS.intersection(value.keys())
+    )
 
 
 def classify_structured_output_failure(
@@ -599,7 +746,7 @@ def build_default_turn_interpreter() -> TurnInterpreter:
     )
     return TurnInterpreter(
         llm.with_structured_output(
-            structured_output_schema(model_name, Interpretation),
+            structured_output_schema(model_name, LlmInterpretationProposal),
             method="function_calling",
             include_raw=True,
         ),

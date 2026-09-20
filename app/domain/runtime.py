@@ -38,6 +38,10 @@ class RuntimeDecision(BaseModel):
     diagnostic_code: str | None = Field(default=None, max_length=80)
     diagnostic_paths: tuple[str, ...] = ()
     diagnostic_error_types: tuple[str, ...] = ()
+    # Version the model-facing contract independently from the persisted
+    # Interpretation domain object.  These are safe trace metadata only.
+    wire_schema_version: str | None = None
+    prompt_version: str | None = None
     latency_ms: int | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)

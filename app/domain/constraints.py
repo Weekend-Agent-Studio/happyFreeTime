@@ -379,7 +379,7 @@ class RawConstraints(BaseModel):
 
 
 class Interpretation(BaseModel):
-    """Router 的完整结构化输出：意图、原始约束、证据和置信度。"""
+    """Router 的内部领域对象；不再直接作为实时 LLM Wire Schema。"""
     model_config = ConfigDict(extra="forbid")
 
     primary_intent: Intent
@@ -440,8 +440,10 @@ class Interpretation(BaseModel):
 
         Legacy checkpoints only contain ``*_text`` fields and therefore keep
         their historical compatibility.  Once a new structured temporal
-        field is present, the adapter must provide evidence and confidence;
-        otherwise a model could silently invent a date or time window.
+        field is present, the adapter must provide evidence.  Confidence is
+        retained as optional observability data; it is not a legality gate
+        because the live model wire contract no longer asks the model to
+        manufacture a calibrated probability.
         """
 
         raw = self.raw_constraints
@@ -453,11 +455,6 @@ class Interpretation(BaseModel):
                 raise PydanticCustomError(
                     "temporal_evidence_missing",
                     "structured temporal field requires evidence",
-                )
-            if not any(key in self.extraction_confidence for key in evidence_keys):
-                raise PydanticCustomError(
-                    "temporal_confidence_missing",
-                    "structured temporal field requires confidence",
                 )
 
         require_trace("date_reference", ("date_reference", "date_text"))
