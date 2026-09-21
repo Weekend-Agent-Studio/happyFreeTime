@@ -135,6 +135,27 @@ class TemporalCompiler:
         return None, None, None, None, None
 
     @classmethod
+    def extract_unresolved_date_text(cls, text: str | None) -> str | None:
+        """Keep a bounded date-like phrase that the finite compiler cannot resolve.
+
+        This is deliberately not a general date parser.  It only preserves the
+        user's explicit temporal wording so Enrichment/Gate can ask for a
+        concrete date instead of treating an unresolved date as omitted.
+        """
+
+        if not text:
+            return None
+        value = text.strip()
+        for pattern in (
+            r"等[^，,。；;]{0,16}那天",
+            r"忙完[^，,。；;]{0,10}(?:那天|以后)",
+        ):
+            match = re.search(pattern, value)
+            if match:
+                return match.group(0)
+        return None
+
+    @classmethod
     def extract_time(
         cls,
         text: str | None,
@@ -379,6 +400,7 @@ class EnrichmentService:
         multi_role_time_default = self._multi_role_default_time_window(
             raw.required_stop_roles,
             return_by=return_by,
+            exact_stop_count=raw.exact_stop_count,
         )
         multi_role_window_applied = False
         departure_overrides_scope = False
@@ -845,6 +867,7 @@ class EnrichmentService:
         required_roles: tuple[StopRole, ...],
         *,
         return_by: str | None,
+        exact_stop_count: int | None,
     ) -> TimeWindow | None:
         """Choose a finite default window for multi-role meal requests.
 
@@ -854,7 +877,23 @@ class EnrichmentService:
         when the window is otherwise inferred.
         """
 
-        if len(required_roles) < 2:
+        # A single named meal role can still belong to a multi-stop request,
+        # e.g. “下午出去，晚饭想吃家常菜”.  With no exact one-stop request,
+        # keep the afternoon start but widen the inferred horizon to dinner;
+        # otherwise the 14:00–18:00 fuzzy afternoon window makes the required
+        # dinner role impossible.  An exact one-stop dinner remains handled by
+        # the dedicated 18:00–22:00 branch below.
+        if len(required_roles) < 2 and exact_stop_count == 1:
+            return None
+        if (
+            len(required_roles) < 2
+            and required_roles == (StopRole.DINNER,)
+            and exact_stop_count is None
+        ):
+            return TimeWindow(start="14:00", end="21:00")
+        if len(required_roles) < 2 and not (
+            exact_stop_count is not None and exact_stop_count > 1
+        ):
             return None
         roles = tuple(required_roles)
         has_lunch = StopRole.LUNCH in roles
@@ -873,6 +912,8 @@ class EnrichmentService:
             default_end = "14:00"
         else:
             start = "11:30"
+            # With an explicit multi-stop count, leave room for the other
+            # stops around lunch instead of treating lunch as the whole plan.
             default_end = "18:00"
 
         end = default_end

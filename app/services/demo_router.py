@@ -21,6 +21,52 @@ from app.services.enrichment import TemporalCompiler
 from app.services.router_extractor import RouterContext
 
 
+def _parse_budget_amount(value: str) -> int | None:
+    """Parse the small Chinese amount vocabulary used by the Demo Router.
+
+    This is intentionally bounded and only turns an amount already anchored by
+    ``人均/每人`` into a number.  It is not a general natural-language number
+    parser; an unrecognized amount remains raw evidence and Gate can ask for a
+    concrete budget.
+    """
+
+    if value.isdigit():
+        return int(value)
+    digits = {
+        "零": 0,
+        "〇": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    units = {"十": 10, "百": 100, "千": 1000, "万": 10000}
+    if not value or any(char not in digits and char not in units for char in value):
+        return None
+    total = 0
+    section = 0
+    number = 0
+    for char in value:
+        if char in digits:
+            number = digits[char]
+            continue
+        unit = units[char]
+        if unit == 10000:
+            section = (section + number) * unit
+            total += section
+            section = 0
+        else:
+            section += (number or 1) * unit
+        number = 0
+    return total + section + number
+
+
 class DemoRouter:
     """用小型规则集实现与真实 Router 相同的 ``interpret`` 接口。
 
@@ -68,7 +114,13 @@ class DemoRouter:
 
         # 反问答案会与原问题拼成一段文本重新进入 Router，因此正则可以同时
         # 处理初始请求和“用户补充：人均300”这种恢复后的输入。
-        budget_match = re.search(r"(?:人均|每人)\s*(\d{2,4})", text)
+        budget_match = re.search(
+            r"(?:人均|每人)\s*"
+            r"(?:(?:最多|不超过|至多|不超|严格控制在|控制在|约|大约)\s*)?"
+            r"(?P<amount>\d{1,4}|[零〇一二三四五六七八九十百千万两]+)"
+            r"\s*(?:元|块)?",
+            text,
+        )
         distance_text = next(
             (phrase for phrase in ("步行可达", "附近", "别太远") if phrase in text),
             None,
@@ -80,6 +132,8 @@ class DemoRouter:
             week_offset,
             absolute_date,
         ) = TemporalCompiler.extract_date(text)
+        if date_text is None:
+            date_text = TemporalCompiler.extract_unresolved_date_text(text)
         time_text, time_scope, explicit_time_window = TemporalCompiler.extract_time(text)
         departure_match = re.search(
             r"(?:(?:上午|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
@@ -231,8 +285,37 @@ class DemoRouter:
             )
             if keyword in text
         ]
-        strict_budget = any(
-            phrase in text for phrase in ("别超预算", "严格预算", "不能超预算")
+        strict_budget = bool(
+            budget_match
+            and any(
+                phrase in text
+                for phrase in (
+                    "最多",
+                    "不超过",
+                    "至多",
+                    "不超",
+                    "严格控制",
+                    "控制在",
+                    "别超预算",
+                    "严格预算",
+                    "不能超预算",
+                    "绝对不能超",
+                    "千万不能超",
+                )
+            )
+            or (
+                "预算" in text
+                and any(
+                    phrase in text
+                    for phrase in (
+                        "别超预算",
+                        "严格预算",
+                        "不能超预算",
+                        "绝对不能超",
+                        "千万不能超",
+                    )
+                )
+            )
         )
         require_availability_confirmation = any(
             phrase in text
@@ -315,7 +398,11 @@ class DemoRouter:
             ),
             adults=party_size,
             budget_text=budget_match.group(0) if budget_match else None,
-            budget_per_person=int(budget_match.group(1)) if budget_match else None,
+            budget_per_person=(
+                _parse_budget_amount(budget_match.group("amount"))
+                if budget_match
+                else None
+            ),
             strict_budget=strict_budget,
             require_availability_confirmation=require_availability_confirmation,
             max_distance_text=distance_text,

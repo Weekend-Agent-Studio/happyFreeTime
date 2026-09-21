@@ -659,17 +659,25 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         statuses = {
             item.metric: item.status
             for item in result.assertions
-            if item.metric != "outcome"
+            if item.metric not in {"outcome", "modification_setup_success"}
         }
         self.assertTrue(statuses)
         self.assertTrue(all(status == "not_evaluable" for status in statuses.values()))
         self.assertEqual(
+            next(
+                item.status
+                for item in result.assertions
+                if item.metric == "modification_setup_success"
+            ),
+            "failed",
+        )
+        self.assertEqual(
             {item.code for item in result.failure_details},
-            {"assertion.outcome"},
+            {"assertion.outcome", "assertion.modification_setup_success"},
         )
         aggregate = _aggregate_results([result])
         self.assertGreater(aggregate["not_evaluable_assertion_count"], 0)
-        self.assertEqual(aggregate["required_assertion_pass_rate"]["denominator"], 1)
+        self.assertEqual(aggregate["required_assertion_pass_rate"]["denominator"], 2)
         self.assertGreater(
             aggregate["required_assertion_fixed_rate"]["denominator"],
             aggregate["conditional_assertion_pass_rate"]["denominator"],

@@ -159,6 +159,30 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(decision.intent.maximum_stops, 2)
         self.assertEqual(decision.attempts, 1)
 
+    def test_grounded_evidence_without_model_queries_keeps_baseline_dense_queries(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={"preferences": ["能互动探索"], "scene_tags": ["室内"]}
+        )
+        baseline = RuleBasedPlanningIntentProvider().decide(constraints).intent
+        baseline_evidence = [item.model_dump() for item in baseline.semantic_request.evidence]
+        proposal = relaxed_proposal(
+            semantic_request={
+                "evidence": baseline_evidence,
+                "objectives": [],
+                "queries": [],
+            }
+        )
+
+        decision = LlmPlanningIntentProvider(
+            SequencePlanningModel(proposal)
+        ).decide(constraints)
+
+        self.assertEqual(decision.source, "llm")
+        self.assertEqual(
+            [query.text for query in decision.intent.semantic_request.queries],
+            ["能互动探索", "室内"],
+        )
+
     def test_invalid_first_output_can_be_repaired_once(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"preferences": ["慢慢走"]}

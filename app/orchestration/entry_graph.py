@@ -236,9 +236,15 @@ def build_entry_graph(
 
     def route_after_router(state: EntryState) -> str:
         """闲聊和无法可靠理解的输入直接结束，不浪费后续规划计算。"""
-        intent = state["interpretation"].primary_intent
+        interpretation = state["interpretation"]
+        intent = interpretation.primary_intent
         if intent in {Intent.CHITCHAT, Intent.CLARIFY}:
             return END
+        if (
+            intent == Intent.CHECK_WEATHER
+            and _weather_condition_requests_planning(interpretation)
+        ):
+            return "enrichment"
         command = state["interpretation"].conversation_command
         if intent == Intent.REFINE_PLAN or (
             command is not None and command.operation == CommandOperation.REPLACE
@@ -324,11 +330,18 @@ def build_entry_graph(
             Intent.FIND_ACTIVITY,
             Intent.REFINE_PLAN,
         }
+        weather_condition_planning = (
+            state["interpretation"].primary_intent == Intent.CHECK_WEATHER
+            and _weather_condition_requests_planning(state["interpretation"])
+        )
         return {
             "question_decision": decision,
             "ready_for_planning": (
                 not decision.need_question
-                and state["interpretation"].primary_intent in planning_intents
+                and (
+                    state["interpretation"].primary_intent in planning_intents
+                    or weather_condition_planning
+                )
             ),
         }
 
@@ -375,6 +388,7 @@ def build_entry_graph(
                 "field": decision.field,
                 "question": decision.question,
                 "severity": decision.severity,
+                "rule_id": decision.rule_id,
             }
         )
         original = state["user_input"]
@@ -412,6 +426,33 @@ def build_entry_graph(
             serde=checkpoint_serializer()
         )
     return graph.compile(checkpointer=checkpointer)
+
+
+def _weather_condition_requests_planning(interpretation: Interpretation) -> bool:
+    """Return whether a weather turn also contains an explicit plan condition.
+
+    ``CHECK_WEATHER`` remains a read-only weather query by default.  A bounded
+    condition such as “下雨就安排室内活动” is different: the Router has
+    already supplied a planning preference/scene constraint, so the existing
+    deterministic planning chain can consume it after WeatherProvider returns
+    the actual fact.  This helper intentionally does not parse arbitrary
+    conditional language or make a weather decision itself.
+    """
+
+    raw = interpretation.raw_constraints
+    return bool(
+        raw.preferences
+        or raw.scene_tags
+        or raw.diet_tags
+        or raw.avoid
+        or raw.required_stop_roles
+        or raw.exact_stop_count is not None
+        or raw.time_text
+        or raw.explicit_time_window
+        or raw.departure_at_text
+        or raw.return_by_text
+        or raw.duration_minutes is not None
+    )
 
 
 def checkpoint_serializer() -> JsonPlusSerializer:

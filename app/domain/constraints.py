@@ -558,3 +558,7 @@ class QuestionDecision(BaseModel):
     field: str | None = None
     question: str = ""
     severity: str = "none"
+    # Stable policy identity for evaluation and clients.  The natural-language
+    # question is presentation; callers should classify the decision by this
+    # code instead of matching Chinese wording.
+    rule_id: str = "question.none.v1"

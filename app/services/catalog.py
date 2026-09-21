@@ -341,6 +341,7 @@ def _violation(
     return ConstraintViolation(
         resource_id=candidate.resource_id,
         resource_name=candidate.name,
+        resource_type=candidate.resource_type,
         code=code,
         field=field,
         message=message,

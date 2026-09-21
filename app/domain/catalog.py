@@ -144,6 +144,10 @@ class ConstraintViolation(BaseModel):
 
     resource_id: str
     resource_name: str
+    # Kept with the rejection reason so Planner can distinguish a missing
+    # restaurant role from an unrelated activity/distance rejection when it
+    # diagnoses strict-budget conflicts.
+    resource_type: ResourceType | None = None
     code: ViolationCode
     field: str
     message: str

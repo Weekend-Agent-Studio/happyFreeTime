@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.constraints import NormalizedConstraints
 from app.domain.planning import Plan, PlanDiff
+from app.domain.providers import WeatherFact
 from app.domain.semantics import EvidenceRef, SemanticRequest
 
 
@@ -26,6 +27,7 @@ class RecommendationAdviceRequest(BaseModel):
     verified_plans: tuple[Plan, ...] = Field(min_length=1, max_length=3)
     retrieval_evidence: tuple[EvidenceRef, ...] = ()
     plan_diffs: tuple[PlanDiff, ...] = ()
+    weather_fact: WeatherFact | None = None
 
     @model_validator(mode="after")
     def validate_plan_and_evidence_identity(self) -> "RecommendationAdviceRequest":

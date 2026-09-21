@@ -278,6 +278,52 @@ class EntryGraphTest(unittest.TestCase):
 
         self.assertFalse(result["ready_for_planning"])
 
+    def test_weather_condition_with_plan_constraint_enters_existing_planning_chain(self) -> None:
+        class ConditionalWeatherRouter:
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.CHECK_WEATHER,
+                    intent_scores={Intent.CHECK_WEATHER: 1.0},
+                    raw_constraints=RawConstraints(
+                        date_text="今天",
+                        time_text="下午",
+                        preferences=["下雨就安排室内活动"],
+                        scene_tags=["室内"],
+                    ),
+                    evidence_map={
+                        "preferences": "下雨就安排室内活动",
+                        "scene_tags": "室内活动",
+                    },
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        graph = build_entry_graph(
+            router=ConditionalWeatherRouter(),
+            environment_provider=lambda _: environment,
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-entry-weather-condition",
+            identity_type=IdentityType.DEMO,
+        )
+
+        result = graph.invoke(
+            {"user_input": "先看天气，要是下雨就安排室内活动", "actor": actor},
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        self.assertTrue(result["ready_for_planning"])
+        self.assertIsNotNone(result["candidate_set"])
+        self.assertTrue(result["candidate_set"].plans)
+
     def test_non_blocking_request_finishes_with_structured_candidate_plans(self) -> None:
         class PlanningRouter:
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
@@ -427,6 +473,38 @@ class EntryGraphTest(unittest.TestCase):
                 plan.route_legs[-1].destination_name == "出发地"
                 for plan in final_result["candidate_set"].plans
             )
+        )
+
+    def test_demo_unresolved_date_is_not_replaced_by_session_default(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-unresolved-date",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DemoRouter(),
+            environment_provider=lambda _: environment,
+        )
+
+        result = graph.invoke(
+            {"user_input": "等忙完那天带家里人出去", "actor": actor},
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        self.assertEqual(result["__interrupt__"][0].value["field"], "date")
+        self.assertEqual(
+            result["__interrupt__"][0].value["rule_id"],
+            "question.date.unresolved.v1",
         )
 
 

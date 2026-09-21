@@ -565,10 +565,33 @@ def _sanitize_semantic_request(
             raise ValueError("semantic query has ungrounded evidence")
     # The model may reorder or select a subset of grounded queries, but it may
     # not invent a new evidence record or turn an absent preference into one.
+    # If it preserves grounded evidence but omits all queries, retain the
+    # deterministic baseline query for those same evidence ids.  Otherwise a
+    # valid semantic proposal can silently disable Hybrid Retrieval (the
+    # ``no_dense_query`` fallback) even though the semantic middle layer still
+    # contains user preferences or scene tags.
+    selected_evidence_ids = {item.evidence_id for item in proposal.evidence}
+    proposal_query_keys = {
+        (query.text.casefold(), query.target_role, query.evidence_refs)
+        for query in proposal.queries
+    }
+    queries = list(proposal.queries)
+    for baseline_query in baseline.queries:
+        if not baseline_query.evidence_refs:
+            continue
+        if not set(baseline_query.evidence_refs).issubset(selected_evidence_ids):
+            continue
+        key = (
+            baseline_query.text.casefold(),
+            baseline_query.target_role,
+            baseline_query.evidence_refs,
+        )
+        if key not in proposal_query_keys:
+            queries.append(baseline_query)
     return SemanticRequest(
         evidence=tuple(known[item.evidence_id] for item in proposal.evidence),
         objectives=proposal.objectives,
-        queries=proposal.queries,
+        queries=tuple(queries),
     )
 
 

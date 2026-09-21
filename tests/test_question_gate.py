@@ -164,7 +164,34 @@ class NeedQuestionGateTest(unittest.TestCase):
 
         self.assertTrue(decision.need_question)
         self.assertEqual(decision.field, "return_by")
+        self.assertEqual(decision.rule_id, "question.return_by.unresolved.v1")
         self.assertEqual(decision.severity, "blocking")
+
+    def test_unresolved_return_deadline_precedes_missing_defaultable_date(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 0.95},
+            raw_constraints=RawConstraints(
+                date_text=None,
+                time_text="下午",
+                time_scope=TimeScope.AFTERNOON,
+                return_by_text="晚饭前后一定要回家",
+            ),
+            evidence_map={
+                "time_scope": "下午",
+                "return_by": "晚饭前后一定要回家",
+            },
+        )
+
+        decision = self.gate.decide(
+            interpretation,
+            EnrichmentResult(constraints=NormalizedConstraints()),
+            GateContext(),
+        )
+
+        self.assertTrue(decision.need_question)
+        self.assertEqual(decision.field, "return_by")
+        self.assertEqual(decision.rule_id, "question.return_by.unresolved.v1")
 
     def test_invalid_structured_return_deadline_also_blocks_planning(self) -> None:
         interpretation = Interpretation(
@@ -224,6 +251,24 @@ class NeedQuestionGateTest(unittest.TestCase):
         decision = self.gate.decide(interpretation, enrichment, GateContext())
 
         self.assertFalse(decision.need_question)
+
+    def test_unresolved_date_has_stable_rule_id(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(date_text="等忙完那天"),
+            evidence_map={"date_text": "等忙完那天"},
+        )
+
+        decision = self.gate.decide(
+            interpretation,
+            EnrichmentResult(constraints=NormalizedConstraints()),
+            GateContext(),
+        )
+
+        self.assertTrue(decision.need_question)
+        self.assertEqual(decision.field, "date")
+        self.assertEqual(decision.rule_id, "question.date.unresolved.v1")
 
 
 if __name__ == "__main__":

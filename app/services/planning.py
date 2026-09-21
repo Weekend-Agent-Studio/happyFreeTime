@@ -15,7 +15,7 @@ from typing import Sequence
 from zoneinfo import ZoneInfo
 
 from app.domain.catalog import (
-    ConstraintViolation,
+    CatalogResult,
     PriceKind,
     ResourceType,
     StopCandidate,
@@ -123,7 +123,11 @@ def _retrieval_runtime(result: RetrievedCandidateSet) -> RuntimeDecision:
     return RuntimeDecision(
         stage="candidate_retrieval",
         adapter=result.actual_adapter,
-        model_invoked=result.query_count > 0 and result.actual_adapter == "bge_hybrid",
+        # A multi-role request may combine dense retrieval for one role with an
+        # intentional rule-only bypass for another role that has no applicable
+        # semantic query. ``query_count`` is the evidence that an embedding
+        # call actually happened; the aggregate adapter may be ``mixed``.
+        model_invoked=result.query_count > 0,
         model_name=result.model_id,
         attempts=1 if result.query_count > 0 else 0,
         fallback_reason=result.fallback_reason,
@@ -316,16 +320,24 @@ class PlanningService:
                 {},
             )
         modes = {result.mode for result in results}
-        actual_mode = "hybrid" if modes == {"hybrid"} else "rule"
+        # Hybrid is effective when at least one role used the dense index. A
+        # different role may intentionally bypass embeddings because its
+        # role-scoped semantic query is empty; that is not a global fallback.
+        actual_mode = "hybrid" if "hybrid" in modes else "rule"
         index_versions = tuple(dict.fromkeys(result.index_version for result in results))
         index_version = index_versions[0] if len(index_versions) == 1 else "mixed:" + "+".join(index_versions)
         requested_modes = tuple(dict.fromkeys(result.requested_mode for result in results))
         adapters = tuple(dict.fromkeys(result.actual_adapter for result in results))
+        has_dense_result = any(result.query_count > 0 for result in results)
         fallback_reasons = tuple(
             dict.fromkeys(
                 result.fallback_reason
                 for result in results
                 if result.fallback_reason
+                and not (
+                    result.fallback_reason == "no_dense_query"
+                    and has_dense_result
+                )
             )
         )
         model_ids = tuple(dict.fromkeys(result.model_id for result in results if result.model_id))
@@ -610,6 +622,43 @@ class PlanningService:
                 retrieval_evidence=_retrieval_evidence_for_plans(retrieved, plans),
             )
 
+        # Diagnose a strict-budget exhaustion before returning a generic route
+        # failure.  A role-complete local candidate can still reach this point
+        # when every route verification attempt fails; if the catalog proves
+        # that an eligible role had only over-budget resources, the user-facing
+        # cause is still the budget rather than an opaque structure conflict.
+        strict_budget_is_blocking = (
+            local_result.rejected_fields == {"budget_per_person"}
+            or (
+                not local_result.rejected_fields
+                and _catalog_budget_exhausted_for_skeletons(
+                    catalog_result,
+                    skeletons,
+                )
+            )
+        )
+        if constraints.strict_budget and strict_budget_is_blocking:
+            budget = (
+                constraints.budget_per_person.value
+                if constraints.budget_per_person
+                else None
+            )
+            return CandidateSet(
+                provider_facts=[weather],
+                catalog_violations=catalog_result.violations,
+                conflict=ConstraintConflict(
+                    code="NO_PLAN_WITHIN_STRICT_BUDGET",
+                    message=f"当前目录中没有满足人均 {budget} 元严格预算的可行行程方案。",
+                    fields=["budget_per_person"],
+                    relaxation_options=["提高人均预算", "取消严格预算限制"],
+                ),
+                planning_intent_decision=planning_intent_decision,
+                runtime_decision=runtime_decision,
+                retrieval_runtime_decision=retrieval_runtime_decision,
+                retrieval_mode=retrieved.mode,
+                retrieval_index_version=retrieved.index_version,
+            )
+
         if route_candidates:
             universal_failure_fields = (
                 set.intersection(*route_failure_field_sets)
@@ -660,40 +709,6 @@ class PlanningService:
                     relaxation_options=_route_relaxation_options(
                         reported_failure_fields
                     ),
-                ),
-                planning_intent_decision=planning_intent_decision,
-                runtime_decision=runtime_decision,
-                retrieval_runtime_decision=retrieval_runtime_decision,
-                retrieval_mode=retrieved.mode,
-                retrieval_index_version=retrieved.index_version,
-            )
-
-        # 严格预算是硬约束：没有满足条件的结果时返回结构化冲突，不能偷偷放宽
-        # 后仍告诉用户“已满足预算”。普通不可行则返回更通用的冲突类型。
-        strict_budget_is_blocking = (
-            local_result.rejected_fields == {"budget_per_person"}
-            or (
-                not local_result.rejected_fields
-                and not catalog_result.candidates
-                and _catalog_budget_is_universal(catalog_result.violations)
-            )
-        )
-        if constraints.strict_budget and strict_budget_is_blocking:
-            budget = constraints.budget_per_person.value if constraints.budget_per_person else None
-            structure_fields = _structure_conflict_fields(planning_intent, constraints)
-            relaxation_options = (
-                ["提高人均预算", "取消严格预算限制"]
-                if structure_fields
-                else ["提高人均预算", "只保留一个核心停靠点", "允许免费活动搭配简餐"]
-            )
-            return CandidateSet(
-                provider_facts=[weather],
-                catalog_violations=catalog_result.violations,
-                conflict=ConstraintConflict(
-                    code="NO_PLAN_WITHIN_STRICT_BUDGET",
-                    message=f"当前目录中没有满足人均 {budget} 元严格预算的可行行程方案。",
-                    fields=["budget_per_person", *structure_fields],
-                    relaxation_options=relaxation_options,
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
@@ -1291,6 +1306,20 @@ class PlanningService:
                     geometry=route.geometry,
                 )
             )
+            # Meal roles are temporal anchors, not merely labels.  If the
+            # route reaches a lunch/dinner POI too early, preserve the route
+            # fact and wait before starting the stop instead of manufacturing
+            # an off-anchor meal.  The waiting time is part of the verified
+            # itinerary duration and is still subject to the user's window,
+            # opening hours, return deadline and Verifier.
+            anchor = (
+                _MEAL_ANCHOR_WINDOWS.get(stop.role)
+                if constraints.exact_stop_count is not None
+                else None
+            )
+            if anchor is not None:
+                anchor_start, _ = anchor
+                current_minutes = max(current_minutes, anchor_start)
             stop_start = _minutes_to_time(current_minutes)
             current_minutes += stop.duration_minutes
             rebuilt_stops.append(
@@ -1881,6 +1910,17 @@ class StructureCompiler:
         ranked: list[tuple[int, int, int, PlanSkeleton, tuple[int, ...]]] = []
         for registry_index, skeleton in enumerate(_ALL_PLAN_SKELETONS):
             if exact_stop_count is not None and len(skeleton.roles) != exact_stop_count:
+                continue
+            # A lone dinner/lunch role without an exact one-stop request is a
+            # meal requirement, not a request to collapse the outing into a
+            # meal-only plan.  The explicit single-stop skeletons remain
+            # available when the user also says “只安排一家/一顿”.
+            if (
+                exact_stop_count is None
+                and len(required_roles) == 1
+                and required_roles[0] in {StopRole.LUNCH, StopRole.DINNER}
+                and len(skeleton.roles) == 1
+            ):
                 continue
             if not required_roles:
                 ranked.append((0, 0, registry_index, skeleton, ()))
@@ -2887,16 +2927,60 @@ def _estimated_route_minutes(distance_km: float) -> int:
     return max(5, round(distance_km / 25.0 * 60))
 
 
-def _catalog_budget_is_universal(
-    violations: list[ConstraintViolation],
+def _catalog_budget_exhausted_for_skeletons(
+    catalog_result: CatalogResult,
+    skeletons: Sequence[PlanSkeleton],
 ) -> bool:
-    fields_by_resource: dict[str, set[str]] = {}
-    for violation in violations:
-        fields_by_resource.setdefault(violation.resource_id, set()).add(violation.field)
-    return bool(fields_by_resource) and all(
-        "budget_per_person" in fields
-        for fields in fields_by_resource.values()
-    )
+    """Prove that every eligible skeleton lost a role to strict budget.
+
+    A catalog can still contain free/cheap activities while every restaurant
+    has been pruned by a ten-yuan budget.  Looking only at
+    ``catalog_result.candidates`` therefore misclassifies the outcome as a
+    generic structure conflict.  This helper uses the candidate type carried
+    by each catalog rejection and requires budget to be present for every
+    rejected resource in the exhausted role pool; unrelated distance/opening
+    rejections cannot manufacture a budget diagnosis.
+    """
+
+    if not catalog_result.violations or not skeletons:
+        return False
+    surviving_types = {
+        candidate.resource_type for candidate in catalog_result.candidates
+    }
+    violations_by_type: dict[ResourceType, dict[str, set[str]]] = {}
+    for violation in catalog_result.violations:
+        if violation.resource_type is None:
+            continue
+        fields_by_resource = violations_by_type.setdefault(
+            violation.resource_type,
+            {},
+        )
+        fields_by_resource.setdefault(violation.resource_id, set()).add(
+            violation.field
+        )
+
+    for skeleton in skeletons:
+        budget_exhausted_role = False
+        for role in skeleton.roles:
+            role_types = _ROLE_RESOURCE_TYPES[role]
+            if surviving_types.intersection(role_types):
+                continue
+            fields_by_resource: dict[str, set[str]] = {}
+            for resource_type in role_types:
+                for resource_id, fields in violations_by_type.get(
+                    resource_type,
+                    {},
+                ).items():
+                    fields_by_resource.setdefault(resource_id, set()).update(fields)
+            if fields_by_resource and all(
+                "budget_per_person" in fields
+                for fields in fields_by_resource.values()
+            ):
+                budget_exhausted_role = True
+                break
+        if not budget_exhausted_role:
+            return False
+    return True
 
 
 def _route_source(fact: RouteFact) -> RouteSource:

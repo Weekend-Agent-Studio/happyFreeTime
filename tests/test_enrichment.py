@@ -397,6 +397,81 @@ class EnrichmentServiceTest(unittest.TestCase):
             (StopRole.ACTIVITY, StopRole.DINNER),
         )
 
+    def test_multi_stop_dinner_role_does_not_collapse_the_whole_outing_to_evening(self) -> None:
+        actor = ActorContext(user_id="demo", session_id="multi-stop-dinner", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                exact_stop_count=3,
+                required_stop_roles=(StopRole.DINNER,),
+            ),
+            evidence_map={
+                "exact_stop_count": "安排三站",
+                "required_stop_roles": "晚上吃饭",
+            },
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(
+            result.constraints.time_window.value.model_dump(),
+            {"start": "14:00", "end": "21:00"},
+        )
+        self.assertTrue(
+            any(item.rule_id == "time.multi_role.meal_anchor.v1" for item in result.assumptions)
+        )
+
+    def test_single_required_dinner_without_exact_count_reaches_evening(self) -> None:
+        actor = ActorContext(
+            user_id="demo",
+            session_id="required-dinner-horizon",
+            identity_type=IdentityType.DEMO,
+        )
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="下午",
+                time_scope=TimeScope.AFTERNOON,
+                required_stop_roles=(StopRole.DINNER,),
+            ),
+            evidence_map={
+                "time_scope": "下午出去",
+                "required_stop_roles": "晚饭",
+            },
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(
+            result.constraints.time_window.value.model_dump(),
+            {"start": "14:00", "end": "21:00"},
+        )
+        self.assertTrue(
+            any(item.rule_id == "time.multi_role.meal_anchor.v1" for item in result.assumptions)
+        )
+
     def test_multi_role_meal_defaults_preserve_order_and_return_deadline(self) -> None:
         actor = ActorContext(user_id="demo", session_id="multi-role-order", identity_type=IdentityType.DEMO)
         environment = EnvironmentContext(

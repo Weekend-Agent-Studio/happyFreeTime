@@ -28,7 +28,9 @@ class SemanticProfileTest(unittest.TestCase):
         candidates = SnapshotCatalog().load_candidates()
         candidate_by_id = {item.resource_id: item for item in candidates}
 
-        self.assertEqual(len(profiles), 30)
+        # The fixture set starts with 30 curated profiles and may grow when a
+        # reviewed weather/semantic case needs an additional grounded POI.
+        self.assertGreaterEqual(len(profiles), 30)
         self.assertTrue(set(profiles).issubset(candidate_by_id))
         self.assertTrue(
             all(

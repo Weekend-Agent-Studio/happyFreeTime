@@ -330,6 +330,16 @@
         {"aspect_id": "fixture.low_spice", "kind": "low_spice", "text": "素食与清淡方向可作为少辣需求的候选线索", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-3955072857#fixture.low_spice", "confidence": 0.74, "updated_at": "2026-09-10"},
         {"aspect_id": "fixture.conversation", "kind": "conversation_friendly", "text": "适合作为可以坐下来慢慢聊的用餐站点", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-node-3955072857#fixture.conversation", "confidence": 0.68, "updated_at": "2026-09-10"}
       ]
+    },
+    {
+      "schema_version": "poi-semantic-profile.v1",
+      "resource_id": "osm-way-191693427",
+      "name": "工人体育馆",
+      "aliases": ["工体"],
+      "summary": "演示语义资料：室内运动场馆，阴雨天也能维持轻量活动节奏；仅用于离线语义召回，不代表实时营业、路线或真实用户评价。",
+      "aspects": [
+        {"aspect_id": "fixture.indoor", "kind": "low_fatigue", "text": "室内活动，阴雨天也适合作为不依赖天气的安排", "source_type": "fixture", "source_ref": "data/retrieval/v1/poi_semantic_profiles.json#osm-way-191693427#fixture.indoor", "confidence": 0.78, "updated_at": "2026-09-21"}
+      ]
     }
   ]
 }

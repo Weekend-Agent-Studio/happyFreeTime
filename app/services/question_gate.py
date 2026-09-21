@@ -42,6 +42,7 @@ class NeedQuestionGate:
                     field="selected_plan_index",
                     question="你想执行哪个方案？可以选择第一个、第二个或第三个方案。",
                     severity="blocking",
+                    rule_id="question.selected_plan.v1",
                 )
 
         if constraints.strict_budget and constraints.budget_per_person is None:
@@ -50,15 +51,31 @@ class NeedQuestionGate:
                 field="budget_per_person",
                 question="你的预算大概是多少？可以告诉我总预算或人均预算。",
                 severity="blocking",
+                rule_id="question.budget_per_person.v1",
             )
 
         raw = interpretation.raw_constraints
+
+        # An explicitly stated but unresolved return deadline is a blocking
+        # hard constraint.  Ask for it before optional/defaultable fields such
+        # as an omitted date or a broad time scope; otherwise a request like
+        # “下午出去，晚饭前后一定要回家” incorrectly asks for the date first.
+        if (raw.return_by_text or raw.return_by) and constraints.return_by is None:
+            return QuestionDecision(
+                need_question=True,
+                field="return_by",
+                question="你最晚几点需要到家？请用例如 18:00 的时间告诉我。",
+                severity="blocking",
+                rule_id="question.return_by.unresolved.v1",
+            )
+
         if (raw.date_reference or raw.date_text) and constraints.date is None:
             return QuestionDecision(
                 need_question=True,
                 field="date",
                 question="你具体想安排在哪一天？可以直接告诉我日期或说今天、明天。",
                 severity="blocking",
+                rule_id="question.date.unresolved.v1",
             )
 
         if (
@@ -71,6 +88,7 @@ class NeedQuestionGate:
                 field="time_window",
                 question="你大概想从几点到几点？",
                 severity="blocking",
+                rule_id="question.time_window.unresolved.v1",
             )
 
         if (raw.departure_at_text or raw.departure_at) and constraints.departure_at is None:
@@ -79,6 +97,7 @@ class NeedQuestionGate:
                 field="departure_at",
                 question="你希望几点准时出发？请用例如 14:30 出发的时间告诉我。",
                 severity="blocking",
+                rule_id="question.departure_at.unresolved.v1",
             )
 
         if raw.location_text and constraints.location is None:
@@ -87,6 +106,7 @@ class NeedQuestionGate:
                 field="location",
                 question="我还不能确定这个位置，能提供更具体的地点或地标吗？",
                 severity="blocking",
+                rule_id="question.location.unresolved.v1",
             )
 
         if raw.max_distance_text and constraints.max_distance_km is None:
@@ -95,17 +115,7 @@ class NeedQuestionGate:
                 field="max_distance_km",
                 question="你能接受的最远距离大概是多少公里？",
                 severity="blocking",
-            )
-
-        # 原文或结构化字段只要明确表达了返程截止时间，就必须在进入
-        # Planner 前变成可校验的 HH:MM；不能因为 Router 给出了非法字符串
-        # 而静默忽略这条硬约束。
-        if (raw.return_by_text or raw.return_by) and constraints.return_by is None:
-            return QuestionDecision(
-                need_question=True,
-                field="return_by",
-                question="你最晚几点需要到家？请用例如 18:00 的时间告诉我。",
-                severity="blocking",
+                rule_id="question.max_distance_km.unresolved.v1",
             )
 
         if raw.total_distance_text and constraints.total_distance_km is None:
@@ -114,6 +124,7 @@ class NeedQuestionGate:
                 field="total_distance_km",
                 question="你希望全程总路程最多是多少公里？请给一个数字，例如 12 公里。",
                 severity="blocking",
+                rule_id="question.total_distance_km.unresolved.v1",
             )
 
         if context.booking_required:
@@ -124,6 +135,7 @@ class NeedQuestionGate:
                     field="party",
                     question="实际需要预订几位成人和几位儿童？",
                     severity="blocking",
+                    rule_id="question.party.booking.v1",
                 )
 
         if context.child_age_required:
@@ -134,6 +146,7 @@ class NeedQuestionGate:
                     field="child_age",
                     question="同行儿童几岁？部分活动有明确的年龄限制。",
                     severity="blocking",
+                    rule_id="question.child_age.required.v1",
                 )
 
         return QuestionDecision(need_question=False)

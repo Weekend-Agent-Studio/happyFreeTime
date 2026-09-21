@@ -28,6 +28,7 @@ from app.domain.constraints import (
 )
 from app.domain.planning import Plan
 from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
+from app.domain.providers import WeatherFact
 from app.domain.semantics import SemanticRequest
 from app.domain.runtime import RuntimeDecision
 from app.providers.weather import WeatherProvider
@@ -507,6 +508,14 @@ def create_app(
 
             recommendation_advice: RecommendationAdvice | None = None
             if plans and effective_constraints is not None:
+                weather_fact = next(
+                    (
+                        fact
+                        for fact in (candidate_set.provider_facts if candidate_set else [])
+                        if isinstance(fact, WeatherFact)
+                    ),
+                    None,
+                )
                 recommendation_advice = advisor.advise(
                     RecommendationAdviceRequest(
                         constraints=effective_constraints,
@@ -522,6 +531,7 @@ def create_app(
                             else ()
                         ),
                         plan_diffs=tuple(plan_diffs),
+                        weather_fact=weather_fact,
                     )
                 )
                 runtime_decisions = [

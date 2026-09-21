@@ -1285,6 +1285,11 @@ def _score_case(
         final_row=final_row,
         transcript=transcript,
     )
+    modification_setup_success = (
+        _modification_setup_succeeded(transcript)
+        if case.category == "modification"
+        else None
+    )
 
     def add_downstream(
         metric: str,
@@ -1373,6 +1378,70 @@ def _score_case(
             )
 
     if case.category == "modification":
+        if case.expected.outcome != "plan":
+            add(
+                "modification_setup_success",
+                "not_applicable",
+                required=False,
+                details="negative modification contract does not measure setup success",
+            )
+            add(
+                "modification_execution_success",
+                "not_applicable",
+                required=False,
+                details="negative modification contract does not measure replacement success",
+            )
+        else:
+            add(
+                "modification_setup_success",
+                "passed" if modification_setup_success else "failed",
+                expected="initial plan exists and a plan is selected",
+                actual={
+                    "initial_plan": bool(
+                        next(
+                            (
+                                item
+                                for item in transcript
+                                if item.get("action") == "message"
+                            ),
+                            {},
+                        ).get("plans")
+                    ),
+                    "selected_plan": bool(
+                        next(
+                            (
+                                item
+                                for item in transcript
+                                if item.get("action") == "select_plan"
+                            ),
+                            {},
+                        ).get("selected_plan_id")
+                    ),
+                },
+                details=(
+                    None
+                    if modification_setup_success
+                    else "initial plan or selected-plan prerequisite was unavailable"
+                ),
+            )
+            execution_success = (
+                modification_setup_success
+                and actual_outcome == "plan"
+                and bool((final_row or {}).get("plans"))
+            )
+            add(
+                "modification_execution_success",
+                "not_evaluable"
+                if not modification_setup_success
+                else "passed" if execution_success else "failed",
+                expected="replacement reaches a verified plan",
+                actual=actual_outcome,
+                details=(
+                    "setup_failure: replacement execution is not evaluable"
+                    if not modification_setup_success
+                    else None
+                ),
+            )
         _score_modification(case, final_row, transcript, add_downstream)
     else:
         _score_planning_shape(case, final_row, add_downstream)
@@ -1507,7 +1576,30 @@ def _downstream_assertions_evaluable(
         (item for item in transcript if item.get("action") == "message"),
         None,
     )
-    return bool((first_message or {}).get("plans"))
+    return _modification_setup_succeeded(transcript)
+
+
+def _modification_setup_succeeded(transcript: Sequence[dict[str, Any]]) -> bool:
+    """Return whether a modification case reached a selected base plan.
+
+    A first planning response is not enough: the replacement endpoint requires
+    a server-confirmed selected plan.  Keeping this prerequisite separate lets
+    modification metrics report setup failures without blaming the replacer.
+    """
+
+    first_message = next(
+        (item for item in transcript if item.get("action") == "message"),
+        None,
+    )
+    selection = next(
+        (item for item in transcript if item.get("action") == "select_plan"),
+        None,
+    )
+    return bool(
+        (first_message or {}).get("plans")
+        and (selection or {}).get("status_code") == 200
+        and (selection or {}).get("selected_plan_id")
+    )
 
 
 def _failure_details(
@@ -1880,12 +1972,48 @@ def _score_modification(case: ResumeReleaseCase, row: dict[str, Any] | None, tra
                 if index != target_index
             )
         )
+    locked_preserved_values: list[bool] = []
+    for diff in diffs:
+        new_plan = next(
+            (plan for plan in plans if plan.get("plan_id") == diff.get("new_plan_id")),
+            None,
+        )
+        new_stops = (new_plan or {}).get("stops") or []
+        locks = diff.get("locked_stops") or []
+        expected_lock_count = max(0, len(base_stops) - 1) if target_index is not None else None
+        locks_ok = (
+            expected_lock_count is not None
+            and len(locks) == expected_lock_count
+            and all(
+            0 <= int(lock.get("stop_index", -1)) < len(base_stops)
+            and int(lock.get("stop_index", -1)) < len(new_stops)
+            and lock.get("resource_id") == base_stops[int(lock.get("stop_index"))].get("resource_id")
+            and lock.get("resource_id") == new_stops[int(lock.get("stop_index"))].get("resource_id")
+                for lock in locks
+            )
+        )
+        locked_preserved_values.append(locks_ok)
+    locked_status = "passed" if locked_preserved_values and all(locked_preserved_values) else "failed"
+    add(
+        "locked_stop_preservation_rate",
+        locked_status,
+        expected=1.0,
+        actual=(
+            sum(locked_preserved_values) / len(locked_preserved_values)
+            if locked_preserved_values
+            else 0.0
+        ),
+        details="locked stop identity is checked independently for every replacement candidate",
+    )
+    # Keep the older evaluator field for consumers of pre-E8 reports, but make
+    # the explicit locked-stop metric the required contract used by new runs.
     add(
         "non_target_identity_preservation_rate",
         "passed" if preserved_values and all(preserved_values) else "failed",
         expected=1.0,
         actual=(sum(preserved_values) / len(preserved_values) if preserved_values else 0.0),
-        details="identity is checked independently for every replacement candidate",
+        details="backward-compatible alias for non-target identity preservation",
+        required=False,
     )
 
 
@@ -2714,6 +2842,16 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         }
     stage_latency = _aggregate_stage_latency(executed_results)
     fallback_categories = _aggregate_fallback_categories(executed_results)
+    modification_metrics = {
+        metric: _aggregate_case_metric(executed_results, metric)
+        for metric in (
+            "modification_setup_success",
+            "modification_execution_success",
+            "replacement_target_accuracy",
+            "locked_stop_preservation_rate",
+            "plan_diff_valid",
+        )
+    }
     return {
         "unique_case_count": len({item.case_id for item in results}),
         "execution_count": len(results),
@@ -2756,6 +2894,19 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         "planning_intent_query_coverage": _intermediate_scope_metrics(
             query_assertions
         ),
+        "modification_setup_success_rate": modification_metrics[
+            "modification_setup_success"
+        ],
+        "modification_execution_success_rate": modification_metrics[
+            "modification_execution_success"
+        ],
+        "target_replacement_accuracy": modification_metrics[
+            "replacement_target_accuracy"
+        ],
+        "locked_stop_preservation_rate": modification_metrics[
+            "locked_stop_preservation_rate"
+        ],
+        "plan_diff_valid_rate": modification_metrics["plan_diff_valid"],
         "not_evaluable_assertion_count": not_evaluable_assertions,
         "normal_success_count": sum(item.task_status == "normal_success" for item in results),
         "degraded_but_completed_count": sum(
@@ -2834,6 +2985,11 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "conditional_assertion_pass_rate": "passed required assertions / evaluable required assertions",
             "planning_intent_objective_recall": "intermediate objective coverage with fixed/evaluable/conditional scopes",
             "planning_intent_query_coverage": "intermediate SemanticQuery coverage with fixed/evaluable/conditional scopes",
+            "modification_setup_success_rate": "passed setup prerequisites / evaluable positive modification cases",
+            "modification_execution_success_rate": "verified replacements / evaluable positive modification cases after setup",
+            "target_replacement_accuracy": "correct target index / evaluable replacement candidates",
+            "locked_stop_preservation_rate": "all locked non-target stops preserved / evaluable replacement candidates",
+            "plan_diff_valid_rate": "valid candidate-level PlanDiff / evaluable replacement candidates",
             "required_assertion_pass_rate": "legacy conditional assertion rate; use the three scoped metrics above",
             "fallback_rate": "fallback model decisions / model decisions",
             "model_decision_count": "logical runtime decisions that invoked a model",
@@ -2865,6 +3021,38 @@ def _intermediate_scope_metrics(
         "conditional_pass_rate": _metric(passed, len(evaluable)),
         "not_evaluable_count": sum(
             assertion.status == "not_evaluable" for assertion in assertions
+        ),
+    }
+
+
+def _aggregate_case_metric(
+    results: Sequence[EvaluationCaseResult],
+    metric: str,
+) -> dict[str, Any]:
+    """Aggregate a lifecycle metric without treating setup gaps as passes."""
+
+    observations = [
+        assertion
+        for result in results
+        if result.category == "modification"
+        for assertion in result.assertions
+        if assertion.metric == metric
+    ]
+    evaluable = [
+        assertion
+        for assertion in observations
+        if assertion.status in {"passed", "failed"}
+    ]
+    passed = sum(assertion.status == "passed" for assertion in evaluable)
+    return {
+        **_metric(passed, len(evaluable)),
+        "passed": passed,
+        "failed": sum(assertion.status == "failed" for assertion in evaluable),
+        "not_evaluable": sum(
+            assertion.status == "not_evaluable" for assertion in observations
+        ),
+        "not_applicable": sum(
+            assertion.status == "not_applicable" for assertion in observations
         ),
     }
 
@@ -3143,6 +3331,11 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
         "required_assertion_fixed_rate",
         "assertion_evaluable_rate",
         "conditional_assertion_pass_rate",
+        "modification_setup_success_rate",
+        "modification_execution_success_rate",
+        "target_replacement_accuracy",
+        "locked_stop_preservation_rate",
+        "plan_diff_valid_rate",
         "fallback_rate",
     ):
         metric = aggregate.get(key)

@@ -256,6 +256,25 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertGreaterEqual(result.plans[0].stops[1].start, "17:00")
         self.assertLessEqual(result.plans[0].stops[1].start, "20:30")
 
+    def test_single_required_dinner_without_exact_count_keeps_an_activity_slot(self) -> None:
+        constraints = planning_constraints(time_end="21:00").model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.DINNER,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="晚饭",
+                )
+            }
+        )
+
+        compilation = StructureCompiler().compile(constraints)
+
+        self.assertIsNone(compilation.conflict)
+        self.assertEqual(
+            [item.skeleton_id for item in compilation.skeletons or ()],
+            ["activity-meal-v1"],
+        )
+
     def test_departure_only_horizon_allows_activity_then_dinner_to_continue_into_evening(self) -> None:
         constraints = planning_constraints(time_end="23:59").model_copy(
             update={
@@ -557,7 +576,8 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertEqual(missing.plans, [])
         self.assertEqual(missing.conflict.fields, ["required_stop_roles", "plan_structure"])
         self.assertEqual(budget.plans, [])
-        self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(budget.conflict.fields))
+        self.assertEqual(budget.conflict.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
+        self.assertEqual(budget.conflict.fields, ["budget_per_person"])
         self.assertEqual(
             budget.conflict.relaxation_options,
             ["提高人均预算", "取消严格预算限制"],
@@ -1831,6 +1851,48 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertNotIn(
             "lunch-activity-dinner-v1",
             {plan.skeleton_id for plan in result.plans},
+        )
+
+    def test_explicit_multistop_plan_waits_for_dinner_anchor(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "上午活动", ["展览"], duration_minutes=60),
+                candidate("break", ResourceType.CAFE, "休息点", ["咖啡"], duration_minutes=60),
+                candidate("dinner", ResourceType.RESTAURANT, "晚餐馆", ["晚餐"], duration_minutes=60),
+            ]
+        )
+        constraints = planning_constraints(budget=1_000, time_end="21:00").model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="09:00", end="21:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+                "exact_stop_count": ConstraintValue[int](
+                    value=3,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="安排三站",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.BREAK,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="中间休息",
+                ),
+            }
+        )
+
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            all(
+                "17:00" <= stop.start <= "20:30"
+                for plan in result.plans
+                for stop in plan.stops
+                if stop.role == StopRole.DINNER
+            )
         )
 
     def test_return_by_appends_return_leg_and_counts_it(self) -> None:

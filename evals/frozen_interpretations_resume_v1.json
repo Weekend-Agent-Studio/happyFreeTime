@@ -137,7 +137,7 @@
           "plan_outing": 1.0
         },
         "raw_constraints": {
-          "date_text": null,
+          "date_text": "等忙完那天",
           "date_reference": null,
           "weekday": null,
           "week_offset": null,
@@ -177,6 +177,7 @@
         "conversation_command": null,
         "extraction_confidence": {},
         "evidence_map": {
+          "date_text": "等忙完那天",
           "members": "带家里人出去"
         },
         "inferred_fields": [],
@@ -199,7 +200,7 @@
           "plan_outing": 1.0
         },
         "raw_constraints": {
-          "date_text": "下午",
+          "date_text": null,
           "date_reference": null,
           "weekday": null,
           "week_offset": null,
@@ -640,7 +641,7 @@
     {
       "case_id": "modify_activity_similar",
       "step_index": 0,
-      "input_sha256": "2766b4b81af03c8db4b9f0cd366f092330dc68ed02e17512fa61f5a392a4bf08",
+      "input_sha256": "e494fb02622a2b5271b247745f0b3bb72704702beb681e9e5f076a61dc5ffd96",
       "interpretation_schema_version": "interpretation.v1",
       "interpretation": {
         "primary_intent": "plan_outing",
@@ -648,9 +649,9 @@
           "plan_outing": 1.0
         },
         "raw_constraints": {
-          "date_text": null,
-          "date_reference": null,
-          "weekday": null,
+          "date_text": "周六",
+          "date_reference": "weekday",
+          "weekday": "saturday",
           "week_offset": null,
           "absolute_date": null,
           "time_text": "下午",
@@ -661,7 +662,7 @@
           "exact_stop_count": null,
           "required_stop_roles": [
             "activity",
-            "dinner"
+            "meal"
           ],
           "duration_minutes": null,
           "location_text": null,
@@ -675,9 +676,7 @@
           "require_availability_confirmation": false,
           "max_distance_text": null,
           "max_distance_km": null,
-          "preferences": [
-            "轻松"
-          ],
+          "preferences": [],
           "diet_tags": [],
           "scene_tags": [],
           "avoid": [],
@@ -691,9 +690,10 @@
         "conversation_command": null,
         "extraction_confidence": {},
         "evidence_map": {
+          "date_reference": "周六",
+          "weekday": "周六",
           "time_scope": "下午",
-          "required_stop_roles": "下午和晚饭",
-          "preferences": "轻松的"
+          "required_stop_roles": "安排活动和吃饭"
         },
         "inferred_fields": [],
         "reply": "",

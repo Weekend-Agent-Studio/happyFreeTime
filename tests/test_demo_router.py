@@ -89,6 +89,26 @@ class DemoRouterTest(unittest.TestCase):
         self.assertEqual(result.raw_constraints.return_by_text, "最晚十八点回家")
         self.assertIsNone(result.raw_constraints.return_by)
 
+    def test_preserves_unresolved_date_phrase_for_the_question_gate(self) -> None:
+        result = self.router.interpret(
+            "等忙完那天带家里人出去",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.date_text, "等忙完那天")
+        self.assertIsNone(result.raw_constraints.date_reference)
+        self.assertEqual(result.evidence_map["date_text"], "等忙完那天")
+
+    def test_parses_chinese_strict_budget_amount_without_inventing_party_size(self) -> None:
+        result = self.router.interpret(
+            "人均最多十元而且绝对不能超，安排活动和晚饭",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.budget_per_person, 10)
+        self.assertTrue(result.raw_constraints.strict_budget)
+        self.assertEqual(result.raw_constraints.members, [])
+
     def test_extracts_dinner_only_structure_with_evidence(self) -> None:
         for text in (
             "明天只安排一家晚饭",

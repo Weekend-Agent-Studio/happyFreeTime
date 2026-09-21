@@ -91,6 +91,7 @@ class RuleBasedRecommendationAdvisor:
         overall_reason = _overall_reason(
             recommended,
             matched_text,
+            request=request,
             diff=diff_by_plan_id.get(recommended.plan_id),
         )
         return RecommendationAdvice(
@@ -369,6 +370,12 @@ def _build_plan_advice(
             if need.need_id.startswith("need.")
         ):
             supporting.append(evidence.evidence_id)
+        if (
+            request.weather_fact is not None
+            and request.weather_fact.is_adverse
+            and _is_weather_suitable_evidence(evidence.summary)
+        ):
+            supporting.append(evidence.evidence_id)
     supporting = list(dict.fromkeys(item for item in supporting if item in evidence_by_id))
     matched_text = _matched_need_text(
         PlanAdvice(
@@ -385,6 +392,9 @@ def _build_plan_advice(
         if matched_text
         else "没有找到直接的偏好标签证据；"
     ) + "同时通过了当前时间、路线、预算和可行性校验。"
+    weather_note = _weather_note(request, plan)
+    if weather_note:
+        reason += f" {weather_note}"
     if diff is not None:
         reason += f" {_diff_note(diff)}"
     return PlanAdvice(
@@ -456,7 +466,13 @@ def _matched_need_text(advice: PlanAdvice, needs: Sequence[NeedSummary]) -> str:
     return "、".join(dict.fromkeys(texts[:3]))
 
 
-def _overall_reason(plan, matched_text: str, *, diff=None) -> str:
+def _overall_reason(
+    plan,
+    matched_text: str,
+    *,
+    request: RecommendationAdviceRequest | None = None,
+    diff=None,
+) -> str:
     if matched_text:
         reason = (
             f"优先推荐“{plan.title}”：它在已验证候选中综合评分最高，"
@@ -467,7 +483,58 @@ def _overall_reason(plan, matched_text: str, *, diff=None) -> str:
             f"优先推荐“{plan.title}”：它在已验证候选中综合评分最高，"
             "并满足当前时间、路线和可行性要求。"
         )
+    if request is not None:
+        weather_note = _weather_note(request, plan)
+        if weather_note:
+            reason = f"{reason} {weather_note}"
     return f"{reason} {_diff_note(diff)}" if diff is not None else reason
+
+
+_WEATHER_PROFILE_TERMS = (
+    "室内",
+    "阴雨",
+    "雨天",
+    "不依赖天气",
+    "天气不好",
+    "不受天气",
+)
+
+
+def _is_weather_suitable_evidence(summary: str) -> bool:
+    text = summary.strip().casefold()
+    return bool(text) and any(term.casefold() in text for term in _WEATHER_PROFILE_TERMS)
+
+
+def _weather_evidence_for_plan(
+    request: RecommendationAdviceRequest,
+    plan,
+) -> tuple[EvidenceRef, ...]:
+    fact = request.weather_fact
+    if fact is None or not fact.is_adverse:
+        return ()
+    stop_ids = {stop.resource_id for stop in plan.stops}
+    return tuple(
+        evidence
+        for evidence in request.retrieval_evidence
+        if any(
+            _evidence_belongs_to_resource(evidence, resource_id)
+            for resource_id in stop_ids
+        )
+        and _is_weather_suitable_evidence(evidence.summary)
+    )
+
+
+def _weather_note(
+    request: RecommendationAdviceRequest,
+    plan,
+) -> str | None:
+    fact = request.weather_fact
+    if fact is None or not fact.is_adverse:
+        return None
+    evidence = _weather_evidence_for_plan(request, plan)
+    if evidence:
+        return f"天气实况为{fact.condition}，并引用了该活动的室内/雨天资料。"
+    return f"天气实况为{fact.condition}，已排除天气敏感活动。"
 
 
 def _diff_note(diff) -> str:
@@ -596,6 +663,12 @@ def _accept_proposal(
             item_reason = f"{item.reason} {_diff_note(diff)}"
         else:
             item_reason = item.reason
+        item_weather_note = _weather_note(
+            request,
+            next(plan for plan in request.verified_plans if plan.plan_id == item.plan_id),
+        )
+        if item_weather_note:
+            item_reason = f"{item_reason} {item_weather_note}"
         accepted.append(
             item.model_copy(
                 update={
@@ -607,6 +680,16 @@ def _accept_proposal(
     if _contains_ungrounded_prose(proposal.overall_reason, request, baseline):
         raise ValueError("ungrounded_text")
     overall_reason = proposal.overall_reason
+    weather_note = _weather_note(
+        request,
+        next(
+            plan
+            for plan in request.verified_plans
+            if plan.plan_id == proposal.recommended_plan_id
+        ),
+    )
+    if weather_note:
+        overall_reason = f"{overall_reason} {weather_note}"
     diff = diff_by_plan_id.get(proposal.recommended_plan_id)
     if diff is not None:
         overall_reason = f"{overall_reason} {_diff_note(diff)}"
@@ -833,6 +916,11 @@ def _build_context(
             item.model_dump(mode="json") for item in request.retrieval_evidence
         ],
         "plan_diffs": [item.model_dump(mode="json") for item in request.plan_diffs],
+        "weather_fact": (
+            request.weather_fact.model_dump(mode="json")
+            if request.weather_fact is not None
+            else None
+        ),
         "verified_plans": plans,
     }
     return (
@@ -857,5 +945,7 @@ _SYSTEM_PROMPT = """你是 HappyFreeTime 的 RecommendationAdvisor。
 - 如果某个方案没有允许的证据，不要声称它有对应的标签或资料支持。
 - understood_needs 必须原样复制输入 needs，不要增加或改写用户没有说过的需求。
 - 不要新增 POI、路线、价格、距离、时间、营业或可用性事实；不要输出任何数字。
+- 如果输入包含 weather_fact，只能引用其中已有的天气实况；只有在该方案的
+  allowed_supporting_evidence 中存在室内/雨天资料时，才能声称有对应资料支持。
 - reason 和 overall_reason 只写需求回应和取舍，不要编造新地点名称；具体事实由已验证 Plan 和界面渲染。
 """
