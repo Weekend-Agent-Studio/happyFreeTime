@@ -118,12 +118,15 @@ class ResumeReleaseCase(BaseModel):
                 raise ValueError("modification requires selection and replacement")
             if actions.index("select_plan") > actions.index("replace_stop"):
                 raise ValueError("selection must happen before replacement")
-            if not (
-                self.expected.require_plan_diff
-                and self.expected.preserve_non_target_stops
-                and self.expected.max_replacement_candidates == 2
-            ):
-                raise ValueError("modification invariants are incomplete")
+            if self.expected.outcome == "plan":
+                if not (
+                    self.expected.require_plan_diff
+                    and self.expected.preserve_non_target_stops
+                    and self.expected.max_replacement_candidates == 2
+                ):
+                    raise ValueError("successful modification invariants are incomplete")
+            elif self.expected.expected_conflict_code is None:
+                raise ValueError("conflict modification requires expected_conflict_code")
         return self
 
 

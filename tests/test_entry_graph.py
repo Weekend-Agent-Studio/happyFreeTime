@@ -61,6 +61,57 @@ class ExplicitLocationRouter:
 
 
 class EntryGraphTest(unittest.TestCase):
+    def test_refine_plan_without_resolved_command_asks_without_planning(self) -> None:
+        class UnresolvedModificationRouter:
+            def interpret(
+                self,
+                user_input: str,
+                context: RouterContext,
+            ) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.REFINE_PLAN,
+                    intent_scores={Intent.REFINE_PLAN: 1.0},
+                    conversation_command=None,
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-unresolved-modification",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=UnresolvedModificationRouter(),
+            environment_provider=lambda _: environment,
+        )
+
+        result = graph.invoke(
+            {
+                "user_input": "把那个地方换一下",
+                "actor": actor,
+                "has_plans": True,
+            },
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        self.assertEqual(
+            result["modification_question"].field,
+            "conversation_command",
+        )
+        self.assertTrue(result["modification_question"].need_question)
+        self.assertIsNone(result["candidate_set"])
+        self.assertIsNone(result["plan_diff"])
+        self.assertEqual(result["plan_diffs"], ())
+
     def test_replace_without_selected_plan_asks_before_planning(self) -> None:
         environment = EnvironmentContext(
             now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),

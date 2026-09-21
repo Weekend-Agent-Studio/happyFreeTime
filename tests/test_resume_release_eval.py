@@ -435,6 +435,38 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         self.assertEqual(summary["stage"]["planning_intent"]["fallback_count"], 0)
         self.assertEqual(summary["stage"]["candidate_retrieval"]["fallback_count"], 0)
 
+        separated = _runtime_summary(
+            [
+                {
+                    "runtime_decisions": [
+                        {
+                            "stage": "planning_intent",
+                            "adapter": "llm",
+                            "model_invoked": True,
+                            "attempts": 1,
+                            "input_tokens": 100,
+                            "output_tokens": 20,
+                            "fallback_reason": None,
+                        },
+                        {
+                            "stage": "candidate_retrieval",
+                            "adapter": "bge_hybrid",
+                            "model_invoked": True,
+                            "attempts": 1,
+                            "input_tokens": None,
+                            "output_tokens": None,
+                            "fallback_reason": None,
+                        },
+                    ]
+                }
+            ]
+        )
+        self.assertEqual(separated["model_decision_count"], 2)
+        self.assertEqual(separated["llm_decision_count"], 1)
+        self.assertEqual(separated["embedding_decision_count"], 1)
+        self.assertEqual(separated["llm_provider_attempt_count"], 1)
+        self.assertEqual(separated["llm_token_coverage_rate"], 1.0)
+
         details = _failure_details(
             assertions=[],
             transcript=[
@@ -466,9 +498,49 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         )
         self.assertIn("runtime_fallback.index_missing", {item.code for item in details})
 
+    def test_intentional_bypass_is_not_reported_as_model_failure(self) -> None:
+        details = _failure_details(
+            assertions=[],
+            transcript=[
+                {
+                    "runtime_decisions": [
+                        {
+                            "stage": "planning_intent",
+                            "adapter": "bypassed",
+                            "model_invoked": False,
+                            "attempts": 0,
+                            "fallback_reason": "structured_command",
+                        },
+                        {
+                            "stage": "planning_intent",
+                            "adapter": "bypassed",
+                            "model_invoked": False,
+                            "attempts": 0,
+                            "fallback_reason": "single_stop_modification_reuses_existing_structure",
+                        },
+                    ]
+                }
+            ],
+            error=None,
+            label_status="reviewed",
+        )
+        self.assertEqual(details, [])
+
+    def test_frozen_hybrid_variants_keep_the_router_frozen(self) -> None:
+        rule_hybrid = load_evaluation_variant("C2_FROZEN_RULE_INTENT_HYBRID")
+        llm_hybrid = load_evaluation_variant("C3_FROZEN_LLM_INTENT_HYBRID")
+        self.assertEqual(rule_hybrid.router_mode, "frozen")
+        self.assertEqual(rule_hybrid.planning_intent_mode, "rule")
+        self.assertEqual(rule_hybrid.retrieval_mode, "hybrid")
+        self.assertEqual(rule_hybrid.advisor_mode, "rule")
+        self.assertEqual(llm_hybrid.router_mode, "frozen")
+        self.assertEqual(llm_hybrid.planning_intent_mode, "llm")
+        self.assertEqual(llm_hybrid.retrieval_mode, "hybrid")
+        self.assertEqual(llm_hybrid.advisor_mode, "rule")
+
     def test_downstream_assertions_are_not_evaluable_after_missing_plan(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
-        case = next(item for item in dataset.cases if item.case_id == "modify_activity_shorter")
+        case = next(item for item in dataset.cases if item.case_id == "modify_dinner_shorter")
         result = _score_case(
             case,
             load_evaluation_variant("offline_sanity"),

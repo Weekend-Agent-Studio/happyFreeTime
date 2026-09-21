@@ -43,9 +43,13 @@ class ResumeReleaseDatasetTest(unittest.TestCase):
             actions = [step.action for step in case.steps]
             self.assertIn("select_plan", actions)
             self.assertIn("replace_stop", actions)
-            self.assertTrue(case.expected.require_plan_diff)
-            self.assertTrue(case.expected.preserve_non_target_stops)
-            self.assertEqual(case.expected.max_replacement_candidates, 2)
+            if case.expected.outcome == "plan":
+                self.assertTrue(case.expected.require_plan_diff)
+                self.assertTrue(case.expected.preserve_non_target_stops)
+                self.assertEqual(case.expected.max_replacement_candidates, 2)
+            else:
+                self.assertEqual(case.expected.outcome, "conflict")
+                self.assertIsNotNone(case.expected.expected_conflict_code)
 
     def test_external_fact_cases_pin_replay_fixtures(self) -> None:
         dataset = load_resume_release_dataset(

@@ -4,11 +4,18 @@ from pathlib import Path
 
 from app.domain.catalog import ResourceType
 from app.domain.constraints import StopRole
-from app.domain.semantics import EvidenceRef, SemanticQuery, SemanticRequest
+from app.domain.semantics import (
+    EvidenceRef,
+    SemanticQuery,
+    SemanticRequest,
+    SoftObjective,
+    SoftObjectiveKind,
+)
 from app.services.candidate_retriever import (
     HybridRagCandidateRetriever,
     RuleBasedCandidateRetriever,
 )
+from app.services.embedding import FakeEmbeddingProvider
 from tests.test_native_planning import candidate
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
 from app.domain.planning import PlanSkeleton, PlanningIntent
@@ -95,6 +102,27 @@ class CandidateRetrieverTest(unittest.TestCase):
         result = HybridRagCandidateRetriever().retrieve(self.candidates)
 
         self.assertEqual([item.candidate.resource_id for item in result.items], ["plain", "quiet"])
+
+    def test_hybrid_bypasses_embedding_for_route_only_objective(self) -> None:
+        embedding = FakeEmbeddingProvider()
+        request = SemanticRequest(
+            objectives=(
+                SoftObjective(
+                    kind=SoftObjectiveKind.SHORTER_TRAVEL,
+                    strength="required",
+                ),
+            )
+        )
+        result = HybridRagCandidateRetriever(
+            embedding_provider=embedding,
+            index_dir=self._missing_index_dir,
+        ).retrieve(self.candidates, semantic_request=request)
+
+        self.assertEqual(result.actual_adapter, "bypassed")
+        self.assertEqual(result.fallback_reason, "no_dense_query")
+        self.assertEqual(result.query_count, 0)
+        self.assertEqual(embedding.query_inputs, [])
+        self.assertEqual(result.mode, "rule")
 
     def test_hybrid_semantic_candidate_survives_three_stop_role_pool_truncation(self) -> None:
         distractors = [

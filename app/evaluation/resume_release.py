@@ -91,6 +91,8 @@ VariantId = Literal[
     "B3_GROUNDED_ADVICE",
     "C0_FROZEN_RULE_INTENT",
     "C1_FROZEN_LLM_INTENT",
+    "C2_FROZEN_RULE_INTENT_HYBRID",
+    "C3_FROZEN_LLM_INTENT_HYBRID",
 ]
 
 
@@ -358,6 +360,20 @@ _VARIANT_DEFINITIONS: dict[str, EvaluationVariant] = {
         router_mode="frozen",
         planning_intent_mode="llm",
         retrieval_mode="rule",
+        advisor_mode="rule",
+    ),
+    "C2_FROZEN_RULE_INTENT_HYBRID": EvaluationVariant(
+        variant_id="C2_FROZEN_RULE_INTENT_HYBRID",
+        router_mode="frozen",
+        planning_intent_mode="rule",
+        retrieval_mode="hybrid",
+        advisor_mode="rule",
+    ),
+    "C3_FROZEN_LLM_INTENT_HYBRID": EvaluationVariant(
+        variant_id="C3_FROZEN_LLM_INTENT_HYBRID",
+        router_mode="frozen",
+        planning_intent_mode="llm",
+        retrieval_mode="hybrid",
         advisor_mode="rule",
     ),
 }
@@ -1509,9 +1525,12 @@ def _failure_details(
         for decision in row.get("runtime_decisions") or []:
             if not isinstance(decision, dict) or not decision.get("fallback_reason"):
                 continue
-            # ``not_run`` is an intentional short-circuit (for example an
-            # expected conflict before PlanningIntent), not a model fallback.
-            if decision.get("adapter") == "not_run":
+            # ``not_run`` and ``bypassed`` are intentional short-circuits
+            # (for example an expected conflict, a structured command, or a
+            # single-stop modification that reuses the existing structure),
+            # not model fallbacks.  Keep them out of failure diagnostics so a
+            # normal routing decision is not reported as model instability.
+            if decision.get("adapter") in {"not_run", "bypassed"}:
                 continue
             stage = str(decision.get("stage") or "unknown")
             reason = _safe_detail_code(decision.get("fallback_reason"))
@@ -1768,6 +1787,11 @@ def _evidence_resource_id(
 
 
 def _score_modification(case: ResumeReleaseCase, row: dict[str, Any] | None, transcript, add) -> None:
+    # A negative modification fixture is evaluated by its explicit conflict
+    # contract.  It has no candidate set or PlanDiff to score, so do not turn
+    # the absence of those objects into four duplicate downstream failures.
+    if case.expected.outcome != "plan":
+        return
     plans = (row or {}).get("plans") or []
     diffs = (row or {}).get("plan_diffs") or []
     replacement_row = next(
@@ -2355,9 +2379,16 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
         if isinstance(item, dict)
     ]
     model_decisions = [item for item in decisions if item.get("model_invoked")]
+    embedding_decisions = [item for item in model_decisions if _is_embedding_decision(item)]
+    llm_decisions = [item for item in model_decisions if not _is_embedding_decision(item)]
     observed = [
         item
         for item in model_decisions
+        if item.get("input_tokens") is not None and item.get("output_tokens") is not None
+    ]
+    llm_observed = [
+        item
+        for item in llm_decisions
         if item.get("input_tokens") is not None and item.get("output_tokens") is not None
     ]
     stage_summary: dict[str, dict[str, Any]] = {}
@@ -2430,6 +2461,22 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "token_observed_call_count": len(observed),
         "token_unobserved_call_count": model_count - len(observed),
         "token_coverage_rate": (len(observed) / model_count if model_count else 1.0),
+        # Dense retrieval is model-backed work, but it does not expose LLM
+        # token usage. Keep explicit LLM-only metrics for ablation reports.
+        "llm_decision_count": len(llm_decisions),
+        "llm_provider_attempt_count": sum(_decision_attempts(item) for item in llm_decisions),
+        "llm_fallback_count": sum(bool(item.get("fallback_reason")) for item in llm_decisions),
+        "llm_known_input_tokens": sum(int(item["input_tokens"]) for item in llm_observed),
+        "llm_known_output_tokens": sum(int(item["output_tokens"]) for item in llm_observed),
+        "llm_token_observed_call_count": len(llm_observed),
+        "llm_token_unobserved_call_count": len(llm_decisions) - len(llm_observed),
+        "llm_token_coverage_rate": (
+            len(llm_observed) / len(llm_decisions) if llm_decisions else 1.0
+        ),
+        "embedding_decision_count": len(embedding_decisions),
+        "embedding_provider_attempt_count": sum(
+            _decision_attempts(item) for item in embedding_decisions
+        ),
         "degraded_completion": bool(fallback_count),
         "cold_start_count": sum(
             item.get("evaluation_cold_start") is True for item in decisions
@@ -2438,6 +2485,16 @@ def _runtime_summary(transcript: Sequence[dict[str, Any]]) -> dict[str, Any]:
             item.get("evaluation_cold_start") is False for item in decisions
         ),
     }
+
+
+def _is_embedding_decision(decision: dict[str, Any]) -> bool:
+    """Whether a runtime model decision is local dense retrieval, not an LLM."""
+
+    return (
+        decision.get("stage") == "candidate_retrieval"
+        and decision.get("adapter") == "bge_hybrid"
+        and bool(decision.get("model_invoked"))
+    )
 
 
 def _count_diagnostics(decisions: Sequence[dict[str, Any]]) -> dict[str, int]:
@@ -2518,6 +2575,26 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
     )
     fallback_calls = sum(
         item.runtime_summary.get("fallback_count", 0) for item in executed_results
+    )
+    llm_decisions = sum(
+        item.runtime_summary.get("llm_decision_count", 0)
+        for item in executed_results
+    )
+    llm_provider_attempts = sum(
+        item.runtime_summary.get("llm_provider_attempt_count", 0)
+        for item in executed_results
+    )
+    llm_fallback_calls = sum(
+        item.runtime_summary.get("llm_fallback_count", 0)
+        for item in executed_results
+    )
+    embedding_decisions = sum(
+        item.runtime_summary.get("embedding_decision_count", 0)
+        for item in executed_results
+    )
+    embedding_provider_attempts = sum(
+        item.runtime_summary.get("embedding_provider_attempt_count", 0)
+        for item in executed_results
     )
     postcondition_metrics: dict[str, Any] = {}
     for metric in (
@@ -2600,6 +2677,26 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             for item in executed_results
         ),
         "token_coverage_rate": _metric(observed_token_calls, model_decisions),
+        "llm_decision_count": llm_decisions,
+        "llm_provider_attempt_count": llm_provider_attempts,
+        "llm_fallback_rate": _metric(llm_fallback_calls, llm_decisions),
+        "llm_known_input_tokens": sum(
+            item.runtime_summary.get("llm_known_input_tokens", 0)
+            for item in executed_results
+        ),
+        "llm_known_output_tokens": sum(
+            item.runtime_summary.get("llm_known_output_tokens", 0)
+            for item in executed_results
+        ),
+        "llm_token_coverage_rate": _metric(
+            sum(
+                item.runtime_summary.get("llm_token_observed_call_count", 0)
+                for item in executed_results
+            ),
+            llm_decisions,
+        ),
+        "embedding_decision_count": embedding_decisions,
+        "embedding_provider_attempt_count": embedding_provider_attempts,
         "elapsed_ms": {
             "p50": _percentile([item.elapsed_ms for item in executed_results], 0.50),
             "p95": _percentile([item.elapsed_ms for item in executed_results], 0.95),
@@ -2626,6 +2723,9 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "fallback_rate": "fallback model decisions / model decisions",
             "model_decision_count": "logical runtime decisions that invoked a model",
             "provider_attempt_count": "sum of provider attempts across model decisions",
+            "llm_decision_count": "LLM runtime decisions; excludes local BGE embedding calls",
+            "embedding_decision_count": "local BGE retrieval decisions",
+            "llm_token_coverage_rate": "LLM decisions with provider-reported input and output tokens / LLM decisions",
         },
     }
 
@@ -2907,10 +3007,15 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
             f"- Not evaluable assertions (upstream prerequisite missing): {aggregate.get('not_evaluable_assertion_count', 0)}",
             f"- Model decisions: {aggregate.get('model_decision_count', 0)}",
             f"- Provider attempts: {aggregate.get('provider_attempt_count', report.metadata.get('actual_provider_attempts', 0))}",
+            f"- LLM decisions/attempts: {aggregate.get('llm_decision_count', 0)}/{aggregate.get('llm_provider_attempt_count', 0)}; "
+            f"embedding decisions/attempts: {aggregate.get('embedding_decision_count', 0)}/{aggregate.get('embedding_provider_attempt_count', 0)}",
             f"- Known tokens: input={aggregate.get('known_input_tokens', 0)}, output={aggregate.get('known_output_tokens', 0)}",
             f"- Token coverage: {aggregate.get('token_coverage_rate', {}).get('numerator', 0)}/"
             f"{aggregate.get('token_coverage_rate', {}).get('denominator', 0)} = "
             f"{aggregate.get('token_coverage_rate', {}).get('value')}",
+            f"- LLM token coverage: {aggregate.get('llm_token_coverage_rate', {}).get('numerator', 0)}/"
+            f"{aggregate.get('llm_token_coverage_rate', {}).get('denominator', 0)} = "
+            f"{aggregate.get('llm_token_coverage_rate', {}).get('value')}",
             "",
             "## Cases",
             "",

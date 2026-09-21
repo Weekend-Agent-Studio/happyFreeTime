@@ -157,6 +157,59 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertEqual(runtime.diagnostic_code, "target_resolution_required")
         self.assertIsNone(result.conversation_command)
 
+    def test_bounded_raw_target_aliases_compile_without_substring_guessing(self) -> None:
+        cases = (
+            ("活动", "activity", None, None),
+            ("晚饭", "dinner", None, None),
+            ("午饭", "lunch", None, None),
+            (" 第二站。 ", None, None, 1),
+            ("第四站", None, None, 3),
+            ("餐厅", None, "restaurant", None),
+        )
+        for raw_text, expected_role, expected_resource_type, expected_index in cases:
+            with self.subTest(raw_text=raw_text):
+                proposal = LlmInterpretationProposal.model_validate(
+                    {
+                        "primary_intent": "refine_plan",
+                        "conversation_command": {
+                            "operation": "replace",
+                            "target": {"raw_text": raw_text},
+                        },
+                    }
+                )
+
+                command = compile_llm_interpretation_proposal(
+                    proposal
+                ).conversation_command
+
+                self.assertIsNotNone(command)
+                self.assertEqual(
+                    command.target.role.value if command.target.role else None,
+                    expected_role,
+                )
+                self.assertEqual(
+                    (
+                        command.target.resource_type.value
+                        if command.target.resource_type
+                        else None
+                    ),
+                    expected_resource_type,
+                )
+                self.assertEqual(command.target.stop_index, expected_index)
+
+        ambiguous = LlmInterpretationProposal.model_validate(
+            {
+                "primary_intent": "refine_plan",
+                "conversation_command": {
+                    "operation": "replace",
+                    "target": {"raw_text": "想换活动"},
+                },
+            }
+        )
+        self.assertIsNone(
+            compile_llm_interpretation_proposal(ambiguous).conversation_command
+        )
+
     def test_plan_ignores_accidental_create_command(self) -> None:
         model = FakeStructuredModel(
             [

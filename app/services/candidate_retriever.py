@@ -317,9 +317,30 @@ class HybridRagCandidateRetriever(RuleBasedCandidateRetriever):
                 }
             )
 
+        query_text = _semantic_query_text(request.semantic_request, request.target_role)
+        if not query_text:
+            # A route-only objective (for example ``shorter_travel``) is a
+            # deterministic route comparison, not a text-retrieval request.
+            # Do not send an empty string to the embedding provider and then
+            # misreport its legitimate absence as an embedding failure.
+            result = super().retrieve(request)
+            return result.model_copy(
+                update={
+                    "mode": "rule",
+                    "index_version": RULE_INDEX_VERSION,
+                    "requested_mode": self.mode,
+                    "actual_adapter": "bypassed",
+                    "model_id": None,
+                    "query_count": 0,
+                    "candidate_count": len(kept),
+                    "fallback_reason": "no_dense_query",
+                    "fusion_version": HYBRID_FUSION_VERSION,
+                    "latency_ms": _elapsed_ms(started_at),
+                }
+            )
+
         try:
             manifest, embeddings = self._load_dense_index()
-            query_text = _semantic_query_text(request.semantic_request, request.target_role)
             query_vectors = self._embedding_provider.embed_queries([query_text])
             if len(query_vectors) != 1:
                 raise EmbeddingProviderError(
