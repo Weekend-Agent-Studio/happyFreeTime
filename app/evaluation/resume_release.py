@@ -255,6 +255,13 @@ class EvalFailureDetail(BaseModel):
     stage: str | None = Field(default=None, max_length=80)
     metric: str | None = Field(default=None, max_length=120)
     details: str = Field(default="", max_length=500)
+    fallback_class: Literal[
+        "model_fallback",
+        "retrieval_fallback",
+        "provider_fallback",
+        "degraded_but_completed",
+        "task_failure",
+    ] | None = None
 
 
 class EvaluationCaseResult(BaseModel):
@@ -1336,12 +1343,14 @@ def _score_case(
             else "failed",
             expected=case.expected.expected_conflict_code,
             actual=actual_code,
+            required=False,
         )
         add(
             "conflict_fields",
             "passed" if expected_fields.issubset(actual_fields) else "failed",
             expected=sorted(expected_fields),
             actual=sorted(actual_fields),
+            required=False,
         )
 
     constraints = _constraint_snapshot(final_row, final_view)
@@ -1391,9 +1400,9 @@ def _score_case(
         )
 
     if "hard_constraint" in case.tags:
-        hard_status = _hard_constraint_status(case, final_row, constraints)
+        hard_status = _hard_constraint_safety_status(case, final_row, constraints)
         add_downstream(
-            "hard_constraint_postconditions",
+            "hard_constraint_safety",
             hard_status[0],
             expected=hard_status[1],
             actual=hard_status[2],
@@ -1418,7 +1427,16 @@ def _score_case(
         failure_kinds = ["runner_failure"]
     elif not task_passed:
         failure_kinds = ["product_failure"]
-        if runtime_summary["fallback_count"]:
+        model_fallback = any(
+            isinstance(decision, dict)
+            and decision.get("fallback_reason")
+            and decision.get("adapter") not in {"not_run", "bypassed"}
+            and decision.get("stage")
+            in {"turn_interpreter", "planning_intent", "recommendation_advisor"}
+            for row in transcript
+            for decision in row.get("runtime_decisions") or []
+        )
+        if model_fallback:
             failure_kinds.append("model_failure")
     else:
         failure_kinds = []
@@ -1439,6 +1457,7 @@ def _score_case(
         transcript=transcript,
         error=error,
         label_status=case.label_status,
+        task_passed=task_passed,
     )
 
     return EvaluationCaseResult(
@@ -1497,12 +1516,13 @@ def _failure_details(
     transcript: Sequence[dict[str, Any]],
     error: str | None,
     label_status: Literal["draft", "reviewed"],
+    task_passed: bool = False,
 ) -> list[EvalFailureDetail]:
     """Build bounded diagnostics from observable evaluator facts only."""
 
     details: list[EvalFailureDetail] = []
     for assertion in assertions:
-        if assertion.status != "failed":
+        if assertion.status != "failed" or not assertion.required:
             continue
         details.append(
             EvalFailureDetail(
@@ -1539,12 +1559,21 @@ def _failure_details(
                 if decision.get("diagnostic_code")
                 else ""
             )
-            kind: Literal["product_failure", "model_failure", "fixture_failure", "runner_failure", "label_review_required"] = (
-                "fixture_failure"
-                if stage == "candidate_retrieval"
-                and reason.startswith(("missing_", "retrieval_", "embedding_", "index_"))
-                else "model_failure"
-            )
+            if stage == "candidate_retrieval":
+                fallback_class = "retrieval_fallback"
+                kind: Literal["product_failure", "model_failure", "fixture_failure", "runner_failure", "label_review_required"] = (
+                    "fixture_failure"
+                    if reason.startswith(("missing_", "retrieval_", "embedding_", "index_"))
+                    else "product_failure"
+                )
+            elif stage in {"turn_interpreter", "planning_intent", "recommendation_advisor"}:
+                fallback_class = "model_fallback"
+                kind = "model_failure"
+            else:
+                fallback_class = "provider_fallback"
+                kind = "product_failure"
+            if task_passed:
+                fallback_class = "degraded_but_completed"
             details.append(
                 EvalFailureDetail(
                     kind=kind,
@@ -1569,6 +1598,7 @@ def _failure_details(
                             else ""
                         )
                     ),
+                    fallback_class=fallback_class,
                 )
             )
 
@@ -1662,6 +1692,7 @@ def _score_semantic_objectives(case: ResumeReleaseCase, row: dict[str, Any] | No
             expected=objective,
             actual=sorted(item for item in actual if item is not None),
             details="creation path PlanningIntent objective coverage",
+            required=False,
         )
 
 
@@ -1692,6 +1723,7 @@ def _score_semantic_queries(case: ResumeReleaseCase, row: dict[str, Any] | None,
             expected=expected,
             actual=actual_queries,
             details="PlanningIntent SemanticRequest query text; Advisor wording excluded",
+            required=False,
         )
 
 
@@ -1745,6 +1777,7 @@ def _score_grounded_semantics(
 
 _GROUNDED_SEMANTIC_ALIASES: dict[str, frozenset[str]] = {
     "清淡": frozenset({"清淡", "清爽", "口味轻"}),
+    "能互动探索": frozenset({"能互动探索", "互动", "探索", "参与"}),
 }
 
 
@@ -2207,7 +2240,7 @@ def _score_all_unavailable_postcondition(
     )
 
 
-def _hard_constraint_status(
+def _hard_constraint_safety_status(
     case: ResumeReleaseCase,
     row: dict[str, Any] | None,
     constraints: dict[str, Any],
@@ -2220,19 +2253,22 @@ def _hard_constraint_status(
     expected = case.expected
     actual_outcome = _actual_outcome(row)
     if expected.outcome == "conflict":
-        actual_conflict = (row or {}).get("conflict") or {}
-        passed = actual_outcome == "conflict" and (
-            actual_conflict.get("code") == expected.expected_conflict_code
-        )
+        plans = (row or {}).get("plans") or []
+        passed = not plans and actual_outcome != "plan"
         return (
             "passed" if passed else "failed",
-            {"outcome": "conflict", "code": expected.expected_conflict_code},
-            {"outcome": actual_outcome, "code": actual_conflict.get("code")},
-            "conflict is an expected hard-constraint result",
+            "no violating plan is returned",
+            {"outcome": actual_outcome, "plan_count": len(plans)},
+            "conflict diagnosis is scored separately from hard-constraint safety",
         )
     plans = (row or {}).get("plans") or []
     if actual_outcome != "plan" or not plans:
-        return "failed", "all plans feasible", {"outcome": actual_outcome}, "no feasible plans returned"
+        return (
+            "passed",
+            "no violating plan is returned",
+            {"outcome": actual_outcome, "plan_count": len(plans)},
+            "no plan was returned; safety is separate from task completion",
+        )
     failures: list[str] = []
     if expected.expected_stop_count is not None:
         failures.extend(
@@ -2318,6 +2354,10 @@ def _hard_constraint_status(
         failures or "all checked plans passed",
         "all candidates are checked, not only the recommended plan",
     )
+
+
+# Compatibility alias for callers that imported the old evaluator helper.
+_hard_constraint_status = _hard_constraint_safety_status
 
 
 def _constraint_snapshot(
@@ -2533,7 +2573,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         assertion
         for item in hard_results
         for assertion in item.assertions
-        if assertion.metric == "hard_constraint_postconditions"
+        if assertion.metric in {"hard_constraint_safety", "hard_constraint_postconditions"}
     ]
     evaluable_hard_assertions = [
         assertion
@@ -2555,6 +2595,47 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         for assertion in item.assertions
     )
     passed_assertions = sum(assertion.status == "passed" for assertion in all_assertions)
+    all_required_assertions = [
+        assertion
+        for item in executed_results
+        for assertion in item.assertions
+        if assertion.required
+    ]
+    evaluable_required_assertions = [
+        assertion
+        for assertion in all_required_assertions
+        if assertion.status in {"passed", "failed"}
+    ]
+    objective_assertions = [
+        assertion
+        for item in executed_results
+        for assertion in item.assertions
+        if assertion.metric.startswith("semantic_objective.")
+    ]
+    query_assertions = [
+        assertion
+        for item in executed_results
+        for assertion in item.assertions
+        if assertion.metric.startswith("semantic_query.")
+    ]
+    conflict_diagnosis_rows = [
+        {
+            assertion.metric: assertion.status
+            for assertion in item.assertions
+            if assertion.metric in {"conflict_code", "conflict_fields"}
+        }
+        for item in executed_results
+    ]
+    conflict_diagnosis_rows = [
+        row
+        for row in conflict_diagnosis_rows
+        if row
+    ]
+    conflict_diagnosis_passed = sum(
+        row.get("conflict_code") == "passed"
+        and row.get("conflict_fields") == "passed"
+        for row in conflict_diagnosis_rows
+    )
     model_decisions = sum(
         item.runtime_summary.get(
             "model_decision_count",
@@ -2632,6 +2713,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "applicable_count": passed + failed + not_observable,
         }
     stage_latency = _aggregate_stage_latency(executed_results)
+    fallback_categories = _aggregate_fallback_categories(executed_results)
     return {
         "unique_case_count": len({item.case_id for item in results}),
         "execution_count": len(results),
@@ -2648,6 +2730,32 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             len(evaluable_hard_assertions),
         ),
         "required_assertion_pass_rate": _metric(passed_assertions, len(all_assertions)),
+        "hard_constraint_safety_rate": _metric(
+            hard_passed,
+            len(evaluable_hard_assertions),
+        ),
+        "conflict_diagnosis_accuracy": _metric(
+            conflict_diagnosis_passed,
+            len(conflict_diagnosis_rows),
+        ),
+        "required_assertion_fixed_rate": _metric(
+            sum(assertion.status == "passed" for assertion in all_required_assertions),
+            len(all_required_assertions),
+        ),
+        "assertion_evaluable_rate": _metric(
+            len(evaluable_required_assertions),
+            len(all_required_assertions),
+        ),
+        "conditional_assertion_pass_rate": _metric(
+            sum(assertion.status == "passed" for assertion in evaluable_required_assertions),
+            len(evaluable_required_assertions),
+        ),
+        "planning_intent_objective_recall": _intermediate_scope_metrics(
+            objective_assertions
+        ),
+        "planning_intent_query_coverage": _intermediate_scope_metrics(
+            query_assertions
+        ),
         "not_evaluable_assertion_count": not_evaluable_assertions,
         "normal_success_count": sum(item.task_status == "normal_success" for item in results),
         "degraded_but_completed_count": sum(
@@ -2657,6 +2765,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         "executed_case_count": len(executed_results),
         "skipped_case_count": total - len(executed_results),
         "fallback_rate": _metric(fallback_calls, model_decisions),
+        "fallback_categories": fallback_categories,
         "model_decision_count": model_decisions,
         "provider_attempt_count": provider_attempts,
         "postcondition_metrics": postcondition_metrics,
@@ -2718,8 +2827,14 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         ),
         "denominators": {
             "task_success_rate": "passed cases / all executed cases",
-            "hard_constraint_pass_rate": "passed / evaluable hard-constraint postconditions (not_evaluable excluded)",
-            "required_assertion_pass_rate": "passed / evaluable required assertions (not_evaluable excluded)",
+            "hard_constraint_safety_rate": "no violating plan / evaluable hard-constraint safety assertions",
+            "conflict_diagnosis_accuracy": "exact conflict code and fields / cases with conflict diagnosis",
+            "required_assertion_fixed_rate": "passed required assertions / all required assertions; not_evaluable is not a pass",
+            "assertion_evaluable_rate": "evaluable required assertions / all required assertions",
+            "conditional_assertion_pass_rate": "passed required assertions / evaluable required assertions",
+            "planning_intent_objective_recall": "intermediate objective coverage with fixed/evaluable/conditional scopes",
+            "planning_intent_query_coverage": "intermediate SemanticQuery coverage with fixed/evaluable/conditional scopes",
+            "required_assertion_pass_rate": "legacy conditional assertion rate; use the three scoped metrics above",
             "fallback_rate": "fallback model decisions / model decisions",
             "model_decision_count": "logical runtime decisions that invoked a model",
             "provider_attempt_count": "sum of provider attempts across model decisions",
@@ -2728,6 +2843,67 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "llm_token_coverage_rate": "LLM decisions with provider-reported input and output tokens / LLM decisions",
         },
     }
+
+
+def _intermediate_scope_metrics(
+    assertions: Sequence[EvalAssertion],
+) -> dict[str, Any]:
+    """Report semantic middle-layer quality without making it task success."""
+
+    evaluable = [
+        assertion
+        for assertion in assertions
+        if assertion.status in {"passed", "failed"}
+    ]
+    passed = sum(assertion.status == "passed" for assertion in evaluable)
+    return {
+        "fixed_rate": _metric(
+            sum(assertion.status == "passed" for assertion in assertions),
+            len(assertions),
+        ),
+        "evaluable_rate": _metric(len(evaluable), len(assertions)),
+        "conditional_pass_rate": _metric(passed, len(evaluable)),
+        "not_evaluable_count": sum(
+            assertion.status == "not_evaluable" for assertion in assertions
+        ),
+    }
+
+
+def _aggregate_fallback_categories(
+    results: Sequence[EvaluationCaseResult],
+) -> dict[str, int]:
+    """Separate intentional/degraded paths from actual model failures."""
+
+    counts = {
+        "model_fallback": 0,
+        "retrieval_fallback": 0,
+        "provider_fallback": 0,
+        "degraded_but_completed": sum(
+            result.task_status == "degraded_but_completed" for result in results
+        ),
+        "task_failure": sum(
+            result.task_status == "failed" for result in results
+        ),
+    }
+    for result in results:
+        for row in result.transcript:
+            for decision in row.get("runtime_decisions") or []:
+                if not isinstance(decision, dict) or not decision.get("fallback_reason"):
+                    continue
+                if decision.get("adapter") in {"not_run", "bypassed"}:
+                    continue
+                stage = decision.get("stage")
+                if stage == "candidate_retrieval":
+                    counts["retrieval_fallback"] += 1
+                elif stage in {
+                    "turn_interpreter",
+                    "planning_intent",
+                    "recommendation_advisor",
+                }:
+                    counts["model_fallback"] += 1
+                else:
+                    counts["provider_fallback"] += 1
+    return counts
 
 
 def _aggregate_failure_codes(
@@ -2962,8 +3138,11 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
     ]
     for key in (
         "task_success_rate",
-        "hard_constraint_pass_rate",
-        "required_assertion_pass_rate",
+        "hard_constraint_safety_rate",
+        "conflict_diagnosis_accuracy",
+        "required_assertion_fixed_rate",
+        "assertion_evaluable_rate",
+        "conditional_assertion_pass_rate",
         "fallback_rate",
     ):
         metric = aggregate.get(key)
@@ -2971,6 +3150,25 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
             lines.append(
                 f"- {key}: {metric.get('numerator')}/{metric.get('denominator')} = {metric.get('value')}"
             )
+    for key in (
+        "planning_intent_objective_recall",
+        "planning_intent_query_coverage",
+    ):
+        scoped = aggregate.get(key) or {}
+        conditional = scoped.get("conditional_pass_rate") or {}
+        lines.append(
+            f"- {key}: conditional {conditional.get('numerator')}/{conditional.get('denominator')} = {conditional.get('value')}; "
+            f"fixed {scoped.get('fixed_rate', {}).get('numerator')}/{scoped.get('fixed_rate', {}).get('denominator')} = {scoped.get('fixed_rate', {}).get('value')}; "
+            f"evaluable {scoped.get('evaluable_rate', {}).get('numerator')}/{scoped.get('evaluable_rate', {}).get('denominator')} = {scoped.get('evaluable_rate', {}).get('value')}"
+        )
+    fallback_categories = aggregate.get("fallback_categories") or {}
+    if fallback_categories:
+        lines.append(
+            "- fallback_categories: "
+            + ", ".join(
+                f"{name}={value}" for name, value in fallback_categories.items()
+            )
+        )
     postconditions = aggregate.get("postcondition_metrics") or {}
     if postconditions:
         lines.extend(["", "### Provider/catalog postconditions", ""])

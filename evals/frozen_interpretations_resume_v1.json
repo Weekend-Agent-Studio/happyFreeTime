@@ -855,8 +855,8 @@
           "weekday": null,
           "week_offset": null,
           "absolute_date": null,
-          "time_text": "晚上",
-          "time_scope": "evening",
+          "time_text": null,
+          "time_scope": null,
           "explicit_time_window": null,
           "departure_at_text": null,
           "departure_at": null,
@@ -894,7 +894,6 @@
         "evidence_map": {
           "exact_stop_count": "安排三站",
           "required_stop_roles": "晚上吃饭",
-          "time_scope": "晚上",
           "members": "带父母"
         },
         "inferred_fields": [],
@@ -1575,7 +1574,7 @@
           "plan_outing": 1.0
         },
         "raw_constraints": {
-          "date_text": "下午",
+          "date_text": null,
           "date_reference": null,
           "weekday": null,
           "week_offset": null,
@@ -1638,10 +1637,10 @@
       "step_index": 0,
       "input_sha256": "96693b2257b4c08d4fcda3e1bb1ba3d03318ca84607dfb3273c0e18de5615544",
       "interpretation_schema_version": "interpretation.v1",
-      "interpretation": {
-        "primary_intent": "refine_plan",
+        "interpretation": {
+          "primary_intent": "plan_outing",
         "intent_scores": {
-          "refine_plan": 1.0
+          "plan_outing": 1.0
         },
         "raw_constraints": {
           "date_text": null,
@@ -2130,7 +2129,7 @@
             "meal"
           ],
           "duration_minutes": null,
-          "location_text": "湖边",
+          "location_text": null,
           "adults": null,
           "children": null,
           "child_age": null,
@@ -2160,9 +2159,9 @@
         "conversation_command": null,
         "extraction_confidence": {},
         "evidence_map": {
-          "location_text": "湖边",
           "required_stop_roles": "顺便吃顿饭",
-          "preferences": "想在湖边走走，累了随时休息"
+          "preferences": "想在湖边走走，累了随时休息",
+          "scene_tags": "湖边"
         },
         "inferred_fields": [],
         "reply": "",

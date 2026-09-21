@@ -44,6 +44,96 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         )
         self.assertIn("low_spice", modification.expected.expected_objectives)
 
+    def test_reviewed_fixture_truth_separates_scene_time_and_open_semantics(self) -> None:
+        fixture_set = __import__(
+            "evals.frozen_interpretations",
+            fromlist=["load_frozen_interpretations"],
+        ).load_frozen_interpretations(
+            ROOT / "evals" / "frozen_interpretations_resume_v1.json"
+        )
+        by_id = {item.case_id: item for item in fixture_set.fixtures}
+
+        lakeside = by_id["plan_relaxed_lakeside"].interpretation.raw_constraints
+        self.assertIsNone(lakeside.location_text)
+        self.assertIn("湖边走走", lakeside.preferences)
+
+        family_dinner = by_id["plan_family_home_style_dinner"].interpretation.raw_constraints
+        self.assertIsNone(family_dinner.date_text)
+        self.assertEqual(family_dinner.time_scope.value, "afternoon")
+
+        new_plan = by_id["plan_fast_meal_more_activity"].interpretation
+        self.assertEqual(new_plan.primary_intent.value, "plan_outing")
+        self.assertIsNone(new_plan.conversation_command)
+
+        first_stop = by_id["modify_first_stop_parents"].interpretation.raw_constraints
+        self.assertIsNone(first_stop.time_text)
+        self.assertIsNone(first_stop.time_scope)
+
+        child_case = load_resume_release_dataset(DATASET_PATH)
+        child = next(item for item in child_case.cases if item.case_id == "plan_child_indoor_explore")
+        self.assertEqual(child.expected.expected_objectives, ("family_friendly",))
+        self.assertEqual(child.expected.expected_semantic_queries, ("能互动探索",))
+        self.assertEqual(child.expected.expected_grounded_semantics, ("能互动探索",))
+
+    def test_conflict_diagnosis_does_not_fail_safety_or_task(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item for item in dataset.cases if item.case_id == "conflict_impossible_budget"
+        )
+        result = _score_case(
+            case,
+            load_evaluation_variant("offline_sanity"),
+            repeat=1,
+            transcript=[
+                {
+                    "action": "message",
+                    "status": "conflict",
+                    "plans": [],
+                    "conflict": {
+                        "code": "NO_FEASIBLE_PLAN",
+                        "fields": ["plan_structure"],
+                    },
+                }
+            ],
+            final_view=None,
+            last_payload=None,
+            elapsed_ms=1,
+            error=None,
+        )
+        statuses = {item.metric: item.status for item in result.assertions}
+        self.assertEqual(statuses["outcome"], "passed")
+        self.assertEqual(statuses["hard_constraint_safety"], "passed")
+        self.assertEqual(statuses["conflict_code"], "failed")
+        self.assertTrue(result.task_passed)
+        self.assertEqual(result.failure_details, [])
+        aggregate = _aggregate_results([result])
+        self.assertEqual(aggregate["hard_constraint_safety_rate"], {"numerator": 1, "denominator": 1, "value": 1.0})
+        self.assertEqual(aggregate["conflict_diagnosis_accuracy"], {"numerator": 0, "denominator": 1, "value": 0.0})
+        self.assertIn("required_assertion_fixed_rate", aggregate)
+        self.assertIn("conditional_assertion_pass_rate", aggregate)
+
+    def test_retrieval_fallback_is_not_model_failure(self) -> None:
+        details = _failure_details(
+            assertions=[],
+            transcript=[
+                {
+                    "runtime_decisions": [
+                        {
+                            "stage": "candidate_retrieval",
+                            "adapter": "mixed",
+                            "model_invoked": True,
+                            "attempts": 1,
+                            "fallback_reason": "no_dense_query",
+                        }
+                    ]
+                }
+            ],
+            error=None,
+            label_status="reviewed",
+        )
+        self.assertEqual(details[0].kind, "product_failure")
+        self.assertEqual(details[0].fallback_class, "retrieval_fallback")
+
     def test_semantic_query_score_does_not_read_advisor_text(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
         case = next(
@@ -580,6 +670,11 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         aggregate = _aggregate_results([result])
         self.assertGreater(aggregate["not_evaluable_assertion_count"], 0)
         self.assertEqual(aggregate["required_assertion_pass_rate"]["denominator"], 1)
+        self.assertGreater(
+            aggregate["required_assertion_fixed_rate"]["denominator"],
+            aggregate["conditional_assertion_pass_rate"]["denominator"],
+        )
+        self.assertLess(aggregate["assertion_evaluable_rate"]["value"], 1.0)
 
     def test_empty_plan_cannot_turn_a_downstream_pass_into_success(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
