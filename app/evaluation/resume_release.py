@@ -93,6 +93,7 @@ VariantId = Literal[
     "C1_FROZEN_LLM_INTENT",
     "C2_FROZEN_RULE_INTENT_HYBRID",
     "C3_FROZEN_LLM_INTENT_HYBRID",
+    "C4_FROZEN_LLM_INTENT_HYBRID_LLM_ADVISOR",
 ]
 
 
@@ -382,6 +383,13 @@ _VARIANT_DEFINITIONS: dict[str, EvaluationVariant] = {
         planning_intent_mode="llm",
         retrieval_mode="hybrid",
         advisor_mode="rule",
+    ),
+    "C4_FROZEN_LLM_INTENT_HYBRID_LLM_ADVISOR": EvaluationVariant(
+        variant_id="C4_FROZEN_LLM_INTENT_HYBRID_LLM_ADVISOR",
+        router_mode="frozen",
+        planning_intent_mode="llm",
+        retrieval_mode="hybrid",
+        advisor_mode="llm",
     ),
 }
 
@@ -2688,6 +2696,253 @@ def _decision_attempts(decision: dict[str, Any]) -> int:
     return max(0, attempts)
 
 
+def _advisor_observations(
+    results: Sequence[EvaluationCaseResult],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Return ``(runtime decision, response row)`` pairs for model Advisor calls.
+
+    A response can contain a safe Rule fallback after the model was rejected;
+    keeping the runtime decision beside the row lets the evaluator report both
+    proposal quality and final user-visible safety without confusing them.
+    """
+
+    observations: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for result in results:
+        for row in result.transcript:
+            for decision in row.get("runtime_decisions") or []:
+                if (
+                    isinstance(decision, dict)
+                    and decision.get("stage") == "recommendation_advisor"
+                    and decision.get("model_invoked")
+                ):
+                    observations.append((decision, row))
+    return observations
+
+
+def _scoped_metric(
+    passed: int,
+    evaluable: int,
+    *,
+    not_evaluable: int = 0,
+    not_applicable: int = 0,
+) -> dict[str, Any]:
+    """Return a rate with explicit excluded-observation counts."""
+
+    return {
+        **_metric(passed, evaluable),
+        "passed": passed,
+        "failed": max(0, evaluable - passed),
+        "not_evaluable": not_evaluable,
+        "not_applicable": not_applicable,
+    }
+
+
+def _advisor_final_grounding(row: dict[str, Any]) -> dict[str, bool | None]:
+    """Check only public, post-harness advice facts.
+
+    These checks intentionally do not treat a Rule fallback as a successful
+    model proposal.  They answer a separate question: did the persisted,
+    user-visible advice remain grounded after any fallback?
+    """
+
+    advice = row.get("recommendation_advice") or {}
+    plans = row.get("plans") or []
+    if not advice or not plans:
+        return {
+            "recommended_plan_id": None,
+            "referenced_plan_id": None,
+            "evidence_id": None,
+            "understood_need": None,
+            "plan_diff": None,
+        }
+    plan_ids = {item.get("plan_id") for item in plans}
+    advice_plans = advice.get("plans") or []
+    known_evidence_ids = {
+        item.get("evidence_id")
+        for item in (row.get("retrieval_evidence") or [])
+        if item.get("evidence_id")
+    }
+    semantic = (
+        (row.get("planning_intent_decision") or {}).get("intent") or {}
+    ).get("semantic_request") or {}
+    known_evidence_ids.update(
+        item.get("evidence_id")
+        for item in semantic.get("evidence") or []
+        if item.get("evidence_id")
+    )
+    constraint_fields = {
+        item.get("field")
+        for item in (row.get("constraint_summary") or [])
+        if item.get("field")
+    }
+    need_ok = True
+    for need in advice.get("understood_needs") or []:
+        need_id = str(need.get("need_id") or "")
+        if need_id.startswith("need."):
+            need_ok = need_ok and need_id[5:] in known_evidence_ids
+            need_ok = need_ok and set(need.get("user_evidence_ids") or ()).issubset(
+                known_evidence_ids
+            )
+        elif need_id.startswith("constraint."):
+            need_ok = need_ok and need_id[11:] in constraint_fields
+        else:
+            need_ok = False
+    referenced_ok = bool(advice_plans) and all(
+        item.get("plan_id") in plan_ids for item in advice_plans
+    )
+    evidence_ok = all(
+        evidence_id in known_evidence_ids
+        for item in advice_plans
+        for evidence_id in item.get("supporting_evidence_ids") or []
+    )
+    diff_ok: bool | None = True
+    diffs = row.get("plan_diffs") or []
+    if diffs:
+        advice_by_plan = {item.get("plan_id"): item for item in advice_plans}
+        for diff in diffs:
+            item = advice_by_plan.get(diff.get("new_plan_id"))
+            replacement = (diff.get("replacements") or [{}])[0]
+            reason = str((item or {}).get("reason") or "")
+            if not item or replacement.get("before_name") not in reason or replacement.get(
+                "after_name"
+            ) not in reason:
+                diff_ok = False
+                break
+    return {
+        "recommended_plan_id": advice.get("recommended_plan_id") in plan_ids,
+        "referenced_plan_id": referenced_ok,
+        "evidence_id": evidence_ok,
+        "understood_need": need_ok,
+        "plan_diff": diff_ok,
+    }
+
+
+def _advisor_metrics(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
+    """Aggregate controlled LLM Advisor contract and grounding metrics."""
+
+    observations = _advisor_observations(results)
+    model_count = len(observations)
+    accepted = [
+        (decision, row)
+        for decision, row in observations
+        if decision.get("adapter") == "llm" and not decision.get("fallback_reason")
+    ]
+    fallback = [
+        (decision, row) for decision, row in observations if decision.get("fallback_reason")
+    ]
+    schema_valid = [
+        (decision, row)
+        for decision, row in observations
+        if not decision.get("fallback_reason")
+        or str(decision.get("fallback_reason", "")).startswith(
+            "invalid_proposal_contract:"
+        )
+    ]
+    metrics: dict[str, Any] = {
+        "advisor_schema_valid_rate": _metric(len(schema_valid), model_count),
+        "advisor_model_accept_rate": _metric(len(accepted), model_count),
+        "advisor_fallback_rate": _metric(len(fallback), model_count),
+    }
+
+    grounding_names = {
+        "recommended_plan_id": "recommended_plan_id_valid_rate",
+        "referenced_plan_id": "referenced_plan_id_valid_rate",
+        "evidence_id": "evidence_id_valid_rate",
+        "understood_need": "understood_need_grounding_rate",
+        "plan_diff": "plan_diff_grounding_rate",
+    }
+    for flag, metric_name in grounding_names.items():
+        passed = 0
+        evaluable = 0
+        not_evaluable = 0
+        not_applicable = 0
+        for decision, row in observations:
+            reason = str(decision.get("fallback_reason") or "")
+            code = reason.split(":", 1)[1] if reason.startswith("invalid_proposal_contract:") else ""
+            if flag == "plan_diff" and not row.get("plan_diffs"):
+                not_applicable += 1
+                continue
+            if not reason or decision.get("adapter") == "llm":
+                value = _advisor_final_grounding(row).get(flag)
+                if value is None:
+                    not_evaluable += 1
+                else:
+                    evaluable += 1
+                    passed += int(bool(value))
+                continue
+            # Contract codes identify a specific rejected proposal without
+            # storing raw model output.  Transport/parse failures are not
+            # evidence for or against a grounding property.
+            code_map = {
+                "recommended_plan_id": {"invalid_plan_id": False},
+                "referenced_plan_id": {"incomplete_plan_advice": False},
+                "evidence_id": {
+                    "invalid_evidence_id": False,
+                    "unsupported_plan_evidence": False,
+                    "unsupported_need_evidence": False,
+                },
+                "understood_need": {
+                    "ungrounded_need": False,
+                    "ungrounded_need_evidence": False,
+                },
+            }
+            if code in code_map.get(flag, {}):
+                evaluable += 1
+                passed += int(code_map[flag][code])
+            else:
+                not_evaluable += 1
+        metrics[metric_name] = _scoped_metric(
+            passed,
+            evaluable,
+            not_evaluable=not_evaluable,
+            not_applicable=not_applicable,
+        )
+
+    unsupported = sum(
+        str(decision.get("fallback_reason") or "").endswith(":unsupported_claim")
+        for decision, _ in observations
+    )
+    numeric = sum(
+        str(decision.get("fallback_reason") or "").endswith(":numeric_fact_violation")
+        for decision, _ in observations
+    )
+    metrics["unsupported_claim_rate"] = _metric(unsupported, model_count)
+    metrics["numeric_fact_violation_rate"] = _metric(numeric, model_count)
+
+    latencies = [
+        decision.get("latency_ms")
+        for decision, _ in observations
+        if decision.get("latency_ms") is not None
+    ]
+    token_observed = [
+        decision
+        for decision, _ in observations
+        if decision.get("input_tokens") is not None
+        and decision.get("output_tokens") is not None
+    ]
+    metrics.update(
+        {
+            "advisor_provider_attempts": sum(
+                _decision_attempts(decision) for decision, _ in observations
+            ),
+            "advisor_input_tokens": sum(
+                int(decision["input_tokens"])
+                for decision, _ in observations
+                if decision.get("input_tokens") is not None
+            ),
+            "advisor_output_tokens": sum(
+                int(decision["output_tokens"])
+                for decision, _ in observations
+                if decision.get("output_tokens") is not None
+            ),
+            "advisor_token_coverage_rate": _metric(len(token_observed), model_count),
+            "advisor_p50_ms": _percentile(latencies, 0.50),
+            "advisor_p95_ms": _percentile(latencies, 0.95),
+        }
+    )
+    return metrics
+
+
 def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
     total = len(results)
     executed_results = [item for item in results if item.executed]
@@ -2842,6 +3097,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         }
     stage_latency = _aggregate_stage_latency(executed_results)
     fallback_categories = _aggregate_fallback_categories(executed_results)
+    advisor_metrics = _advisor_metrics(executed_results)
     modification_metrics = {
         metric: _aggregate_case_metric(executed_results, metric)
         for metric in (
@@ -2907,6 +3163,7 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "locked_stop_preservation_rate"
         ],
         "plan_diff_valid_rate": modification_metrics["plan_diff_valid"],
+        **advisor_metrics,
         "not_evaluable_assertion_count": not_evaluable_assertions,
         "normal_success_count": sum(item.task_status == "normal_success" for item in results),
         "degraded_but_completed_count": sum(
@@ -2997,6 +3254,16 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "llm_decision_count": "LLM runtime decisions; excludes local BGE embedding calls",
             "embedding_decision_count": "local BGE retrieval decisions",
             "llm_token_coverage_rate": "LLM decisions with provider-reported input and output tokens / LLM decisions",
+            "advisor_schema_valid_rate": "Advisor model decisions with parsed proposal or explicit contract validation / Advisor model decisions",
+            "advisor_model_accept_rate": "Advisor proposals accepted by the grounding harness / Advisor model decisions",
+            "advisor_fallback_rate": "Advisor model decisions that returned to Rule advice / Advisor model decisions",
+            "recommended_plan_id_valid_rate": "evaluable Advisor proposals with a verified recommended plan id",
+            "referenced_plan_id_valid_rate": "evaluable Advisor proposals whose per-plan ids are verified",
+            "evidence_id_valid_rate": "evaluable Advisor proposals whose evidence ids are allowed",
+            "understood_need_grounding_rate": "evaluable Advisor proposals whose needs remain tied to user/constraint evidence",
+            "plan_diff_grounding_rate": "evaluable modification advice whose replacement names match the verified PlanDiff",
+            "unsupported_claim_rate": "Advisor model decisions rejected for unsupported claims / Advisor model decisions",
+            "numeric_fact_violation_rate": "Advisor model decisions rejected for numeric fact claims / Advisor model decisions",
         },
     }
 
@@ -3337,6 +3604,16 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
         "locked_stop_preservation_rate",
         "plan_diff_valid_rate",
         "fallback_rate",
+        "advisor_schema_valid_rate",
+        "advisor_model_accept_rate",
+        "advisor_fallback_rate",
+        "recommended_plan_id_valid_rate",
+        "referenced_plan_id_valid_rate",
+        "evidence_id_valid_rate",
+        "understood_need_grounding_rate",
+        "plan_diff_grounding_rate",
+        "unsupported_claim_rate",
+        "numeric_fact_violation_rate",
     ):
         metric = aggregate.get(key)
         if isinstance(metric, dict):
@@ -3407,6 +3684,12 @@ def _render_markdown(report: ResumeReleaseEvalReport) -> str:
             f"- LLM token coverage: {aggregate.get('llm_token_coverage_rate', {}).get('numerator', 0)}/"
             f"{aggregate.get('llm_token_coverage_rate', {}).get('denominator', 0)} = "
             f"{aggregate.get('llm_token_coverage_rate', {}).get('value')}",
+            f"- Advisor attempts/tokens: {aggregate.get('advisor_provider_attempts', 0)} / "
+            f"{aggregate.get('advisor_input_tokens', 0)} in, {aggregate.get('advisor_output_tokens', 0)} out; "
+            f"latency P50/P95={aggregate.get('advisor_p50_ms')}/{aggregate.get('advisor_p95_ms')} ms",
+            f"- Advisor token coverage: {aggregate.get('advisor_token_coverage_rate', {}).get('numerator', 0)}/"
+            f"{aggregate.get('advisor_token_coverage_rate', {}).get('denominator', 0)} = "
+            f"{aggregate.get('advisor_token_coverage_rate', {}).get('value')}",
             "",
             "## Cases",
             "",

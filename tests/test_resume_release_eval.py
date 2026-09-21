@@ -12,6 +12,7 @@ from app.evaluation.resume_release import (
     _EvaluationGeocodingProvider,
     _annotate_runtime_timing,
     _aggregate_results,
+    _advisor_metrics,
     _failure_details,
     _runtime_summary,
     _score_case,
@@ -619,6 +620,9 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
     def test_frozen_hybrid_variants_keep_the_router_frozen(self) -> None:
         rule_hybrid = load_evaluation_variant("C2_FROZEN_RULE_INTENT_HYBRID")
         llm_hybrid = load_evaluation_variant("C3_FROZEN_LLM_INTENT_HYBRID")
+        llm_advisor = load_evaluation_variant(
+            "C4_FROZEN_LLM_INTENT_HYBRID_LLM_ADVISOR"
+        )
         self.assertEqual(rule_hybrid.router_mode, "frozen")
         self.assertEqual(rule_hybrid.planning_intent_mode, "rule")
         self.assertEqual(rule_hybrid.retrieval_mode, "hybrid")
@@ -627,6 +631,69 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         self.assertEqual(llm_hybrid.planning_intent_mode, "llm")
         self.assertEqual(llm_hybrid.retrieval_mode, "hybrid")
         self.assertEqual(llm_hybrid.advisor_mode, "rule")
+        self.assertEqual(llm_advisor.router_mode, llm_hybrid.router_mode)
+        self.assertEqual(
+            llm_advisor.planning_intent_mode,
+            llm_hybrid.planning_intent_mode,
+        )
+        self.assertEqual(llm_advisor.retrieval_mode, llm_hybrid.retrieval_mode)
+        self.assertEqual(llm_advisor.advisor_mode, "llm")
+
+    def test_advisor_metrics_separate_acceptance_and_grounding(self) -> None:
+        result = __import__(
+            "app.evaluation.resume_release",
+            fromlist=["EvaluationCaseResult"],
+        ).EvaluationCaseResult(
+            case_id="advisor-metric",
+            variant_id="C4_FROZEN_LLM_INTENT_HYBRID_LLM_ADVISOR",
+            repeat=1,
+            label_status="reviewed",
+            category="planning",
+            task_status="normal_success",
+            task_passed=True,
+            actual_outcome="plan",
+            assertions=[],
+            runtime_summary={},
+            transcript=[
+                {
+                    "plans": [{"plan_id": "p1"}],
+                    "retrieval_evidence": [
+                        {"evidence_id": "e1"},
+                    ],
+                    "constraint_summary": [],
+                    "planning_intent_decision": {},
+                    "recommendation_advice": {
+                        "recommended_plan_id": "p1",
+                        "understood_needs": [],
+                        "plans": [
+                            {
+                                "plan_id": "p1",
+                                "supporting_evidence_ids": ["e1"],
+                            }
+                        ],
+                    },
+                    "runtime_decisions": [
+                        {
+                            "stage": "recommendation_advisor",
+                            "adapter": "llm",
+                            "model_invoked": True,
+                            "attempts": 1,
+                            "fallback_reason": None,
+                            "input_tokens": 10,
+                            "output_tokens": 4,
+                            "latency_ms": 12,
+                        }
+                    ],
+                }
+            ],
+            elapsed_ms=12,
+        )
+        metrics = _advisor_metrics([result])
+        self.assertEqual(metrics["advisor_model_accept_rate"]["value"], 1.0)
+        self.assertEqual(metrics["advisor_fallback_rate"]["value"], 0.0)
+        self.assertEqual(metrics["recommended_plan_id_valid_rate"]["value"], 1.0)
+        self.assertEqual(metrics["advisor_provider_attempts"], 1)
+        self.assertEqual(metrics["advisor_input_tokens"], 10)
 
     def test_downstream_assertions_are_not_evaluable_after_missing_plan(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)

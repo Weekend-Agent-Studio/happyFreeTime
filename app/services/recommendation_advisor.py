@@ -652,8 +652,9 @@ def _accept_proposal(
             for need in matched_needs.values()
         ):
             raise ValueError("unsupported_need_evidence")
-        if _contains_ungrounded_prose(item.reason, request, baseline):
-            raise ValueError("ungrounded_text")
+        prose_violation = _ungrounded_prose_code(item.reason, request, baseline)
+        if prose_violation is not None:
+            raise ValueError(prose_violation)
         # Tradeoffs are facts owned by the verified Plan.  The model cannot
         # replace them with a new numeric claim or a new POI description.
         diff = diff_by_plan_id.get(item.plan_id)
@@ -677,8 +678,13 @@ def _accept_proposal(
                 }
             )
         )
-    if _contains_ungrounded_prose(proposal.overall_reason, request, baseline):
-        raise ValueError("ungrounded_text")
+    prose_violation = _ungrounded_prose_code(
+        proposal.overall_reason,
+        request,
+        baseline,
+    )
+    if prose_violation is not None:
+        raise ValueError(prose_violation)
     overall_reason = proposal.overall_reason
     weather_note = _weather_note(
         request,
@@ -727,8 +733,24 @@ def _contains_ungrounded_prose(
     need and evidence identifiers are validated separately by the caller.
     """
 
+    return _ungrounded_prose_code(text, request, baseline) is not None
+
+
+def _ungrounded_prose_code(
+    text: str,
+    request: RecommendationAdviceRequest,
+    baseline: RecommendationAdvice,
+) -> str | None:
+    """Return a stable, non-sensitive grounding rejection code.
+
+    The old boolean helper remains as a compatibility wrapper, while the
+    evaluation harness needs to distinguish a numeric-fact violation from a
+    made-up POI/claim.  No model text crosses the runtime boundary; only this
+    fixed code is retained in ``fallback_reason``.
+    """
+
     if re.search(r"\d|[零一二三四五六七八九十百千万]|[¥￥%]", text):
-        return True
+        return "numeric_fact_violation"
     known_phrases = {
         item
         for item in (
@@ -754,7 +776,7 @@ def _contains_ungrounded_prose(
         for phrase in quoted_phrases
         if phrase.strip()
     ):
-        return True
+        return "unsupported_claim"
 
     # Catch the common unquoted hallucination shape (e.g. ``虚构景点``)
     # without trying to segment arbitrary Chinese prose.  Generic references
@@ -773,8 +795,8 @@ def _contains_ungrounded_prose(
         if phrase in generic_poi_phrases:
             continue
         if not any(phrase in known or known in phrase for known in known_phrases):
-            return True
-    return False
+            return "unsupported_claim"
+    return None
 
 
 def _validate_proposal(result: object) -> RecommendationAdviceProposal:

@@ -678,6 +678,14 @@ def _recommendation_runtime_decision(
 ) -> RuntimeDecision:
     """Expose the advisor's bounded runtime metadata in the common trace."""
 
+    diagnostic_code = None
+    if advice.fallback_reason:
+        prefix = "invalid_proposal_contract:"
+        if advice.fallback_reason.startswith(prefix):
+            diagnostic_code = advice.fallback_reason[len(prefix) :]
+        elif advice.fallback_reason == "invalid_proposal_parse":
+            diagnostic_code = "invalid_proposal_parse"
+
     return RuntimeDecision(
         stage="recommendation_advisor",
         adapter=advice.adapter,
@@ -685,6 +693,7 @@ def _recommendation_runtime_decision(
         model_name=advice.model_name,
         attempts=advice.attempts,
         fallback_reason=advice.fallback_reason,
+        diagnostic_code=diagnostic_code,
         latency_ms=advice.latency_ms,
         input_tokens=advice.input_tokens,
         output_tokens=advice.output_tokens,

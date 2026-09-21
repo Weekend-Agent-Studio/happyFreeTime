@@ -246,7 +246,7 @@ class RecommendationAdvisorTest(unittest.TestCase):
         self.assertEqual(advice.adapter, "fallback")
         self.assertEqual(
             advice.fallback_reason,
-            "invalid_proposal_contract:ungrounded_text",
+            "invalid_proposal_contract:numeric_fact_violation",
         )
 
     def test_format_repair_is_bounded_to_one_retry(self) -> None:
