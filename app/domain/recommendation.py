@@ -67,15 +67,30 @@ class PlanAdvice(BaseModel):
     tradeoffs: tuple[str, ...] = ()
 
 
+class PlanRationaleProposal(BaseModel):
+    """Small, untrusted model payload for one verified plan.
+
+    The model chooses references and qualitative wording only.  Complete
+    needs, tradeoffs, dynamic facts and PlanDiff prose are compiled by the
+    Harness from the deterministic baseline.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    plan_id: str = Field(min_length=1)
+    matched_need_ids: tuple[str, ...] = ()
+    supporting_evidence_ids: tuple[str, ...] = ()
+    supporting_fact_ids: tuple[str, ...] = ()
+    qualitative_reason: str = Field(min_length=1)
+
+
 class RecommendationAdviceProposal(BaseModel):
-    """Untrusted model payload; runtime metadata is added by the adapter."""
+    """V2 untrusted model payload; runtime metadata is added by the adapter."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     recommended_plan_id: str = Field(min_length=1)
-    understood_needs: tuple[NeedSummary, ...] = ()
-    overall_reason: str = Field(min_length=1)
-    plans: tuple[PlanAdvice, ...] = Field(min_length=1, max_length=3)
+    plans: tuple[PlanRationaleProposal, ...] = Field(min_length=1, max_length=3)
 
 
 class RecommendationAdvice(BaseModel):

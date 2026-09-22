@@ -685,6 +685,8 @@ def _recommendation_runtime_decision(
             diagnostic_code = advice.fallback_reason[len(prefix) :]
         elif advice.fallback_reason == "invalid_proposal_parse":
             diagnostic_code = "invalid_proposal_parse"
+        elif advice.fallback_reason.startswith("invalid_proposal_parse:"):
+            diagnostic_code = advice.fallback_reason.split(":", 1)[1]
 
     return RuntimeDecision(
         stage="recommendation_advisor",

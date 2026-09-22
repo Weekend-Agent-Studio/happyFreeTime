@@ -2770,6 +2770,17 @@ def _advisor_final_grounding(row: dict[str, Any]) -> dict[str, bool | None]:
         for item in semantic.get("evidence") or []
         if item.get("evidence_id")
     )
+    # Structured replacement commands carry their user evidence in the
+    # command compiler rather than the frozen planning-intent response.  The
+    # runtime request uses the stable replacement.N ids, so include those ids
+    # in the evaluator's read-only grounding oracle as well.
+    replacement_criteria = (
+        (row.get("conversation_command") or {}).get("replacement_criteria") or []
+    )
+    known_evidence_ids.update(
+        f"replacement.{index}"
+        for index, _ in enumerate(replacement_criteria, start=1)
+    )
     constraint_fields = {
         item.get("field")
         for item in (row.get("constraint_summary") or [])
@@ -2858,7 +2869,7 @@ def _advisor_metrics(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
         not_applicable = 0
         for decision, row in observations:
             reason = str(decision.get("fallback_reason") or "")
-            code = reason.split(":", 1)[1] if reason.startswith("invalid_proposal_contract:") else ""
+            code = _advisor_fallback_code(reason, "invalid_proposal_contract:")
             if flag == "plan_diff" and not row.get("plan_diffs"):
                 not_applicable += 1
                 continue
@@ -2875,7 +2886,10 @@ def _advisor_metrics(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
             # evidence for or against a grounding property.
             code_map = {
                 "recommended_plan_id": {"invalid_plan_id": False},
-                "referenced_plan_id": {"incomplete_plan_advice": False},
+                "referenced_plan_id": {
+                    "incomplete_plan_advice": False,
+                    "invalid_plan_id": False,
+                },
                 "evidence_id": {
                     "invalid_evidence_id": False,
                     "unsupported_plan_evidence": False,
@@ -2909,6 +2923,38 @@ def _advisor_metrics(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
     metrics["unsupported_claim_rate"] = _metric(unsupported, model_count)
     metrics["numeric_fact_violation_rate"] = _metric(numeric, model_count)
 
+    # V2 names make the distinction between the model proposal and the final
+    # post-Harness response explicit.  The final response is always complete
+    # because omitted plan rationales are filled by the Rule baseline; these
+    # metrics therefore remain scoped to model decisions and are conservative
+    # when a proposal was rejected before compilation.
+    metrics["advisor_model_plan_coverage"] = _metric(
+        sum(
+            bool(not decision.get("fallback_reason") and row.get("recommendation_advice"))
+            for decision, row in observations
+        ),
+        model_count,
+    )
+    metrics["advisor_id_grounding_rate"] = metrics["referenced_plan_id_valid_rate"]
+    metrics["advisor_fact_grounding_rate"] = _scoped_metric(
+        sum(
+            1
+            for decision, _ in observations
+            if not decision.get("fallback_reason")
+            or "invalid_fact_id" not in str(decision.get("fallback_reason") or "")
+        ),
+        model_count,
+        not_evaluable=sum(
+            1
+            for decision, _ in observations
+            if decision.get("fallback_reason")
+            and "invalid_fact_id" not in str(decision.get("fallback_reason") or "")
+        ),
+    )
+    metrics["advisor_numeric_fact_violation_rate"] = metrics[
+        "numeric_fact_violation_rate"
+    ]
+
     latencies = [
         decision.get("latency_ms")
         for decision, _ in observations
@@ -2941,6 +2987,12 @@ def _advisor_metrics(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
         }
     )
     return metrics
+
+
+def _advisor_fallback_code(reason: str, prefix: str) -> str:
+    """Extract a safe advisor diagnostic suffix without exposing raw errors."""
+
+    return reason[len(prefix) :] if reason.startswith(prefix) else ""
 
 
 def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
@@ -3264,6 +3316,10 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "plan_diff_grounding_rate": "evaluable modification advice whose replacement names match the verified PlanDiff",
             "unsupported_claim_rate": "Advisor model decisions rejected for unsupported claims / Advisor model decisions",
             "numeric_fact_violation_rate": "Advisor model decisions rejected for numeric fact claims / Advisor model decisions",
+            "advisor_model_plan_coverage": "accepted Advisor decisions with a grounded recommendation rationale / Advisor model decisions",
+            "advisor_id_grounding_rate": "Advisor decisions whose referenced plan ids are verified",
+            "advisor_fact_grounding_rate": "Advisor decisions whose supporting fact ids are allowed",
+            "advisor_numeric_fact_violation_rate": "Advisor decisions rejected for dynamic numeric facts / Advisor model decisions",
         },
     }
 

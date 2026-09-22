@@ -11,6 +11,7 @@ from app.domain.planning import (
     StopReplacement,
 )
 from app.domain.recommendation import (
+    PlanRationaleProposal,
     RecommendationAdviceProposal,
     RecommendationAdviceRequest,
 )
@@ -110,12 +111,25 @@ def make_request(*, plans: tuple[Plan, ...] | None = None, diffs=()) -> Recommen
 
 def valid_proposal(request: RecommendationAdviceRequest) -> RecommendationAdviceProposal:
     baseline = RuleBasedRecommendationAdvisor().advise(request)
+    facts = recommendation_advisor_module._build_advice_facts(request, baseline)
+    recommended = baseline.recommended_plan_id
     return RecommendationAdviceProposal(
-        recommended_plan_id=baseline.recommended_plan_id,
-        understood_needs=baseline.understood_needs,
-        overall_reason="优先回应你的轻松约会需求，并通过可行性校验。",
+        recommended_plan_id=recommended,
         plans=tuple(
-            item.model_copy(update={"reason": "回应了你的轻松约会需求，并通过校验。"})
+            PlanRationaleProposal(
+                plan_id=item.plan_id,
+                matched_need_ids=item.matched_need_ids,
+                supporting_evidence_ids=item.supporting_evidence_ids,
+                supporting_fact_ids=(
+                    f"fact.{item.plan_id}.verified",
+                    *tuple(
+                        fact_id
+                        for fact_id in facts[item.plan_id]
+                        if fact_id != f"fact.{item.plan_id}.verified"
+                    )[:1]
+                ),
+                qualitative_reason="回应了你的轻松约会需求，并且安排更从容。",
+            )
             for item in baseline.plans
         ),
     )
@@ -175,6 +189,7 @@ class RecommendationAdvisorTest(unittest.TestCase):
             self.assertIn("allowed_matched_need_ids", plan)
             self.assertIn("allowed_supporting_evidence_ids", plan)
             self.assertIn("allowed_supporting_evidence", plan)
+            self.assertIn("allowed_supporting_fact_ids", plan)
             self.assertEqual(
                 plan["allowed_supporting_evidence_ids"],
                 ["user.preferences.1"],
@@ -183,6 +198,10 @@ class RecommendationAdvisorTest(unittest.TestCase):
                 [item["evidence_id"] for item in plan["allowed_supporting_evidence"]],
                 ["user.preferences.1"],
             )
+            self.assertNotIn("total_price", plan)
+            self.assertNotIn("total_duration_minutes", plan)
+            self.assertNotIn("route_legs", plan)
+            self.assertNotIn("start", plan["stops"][0] if plan["stops"] else {})
 
 
     def test_rule_adapter_recommends_highest_scoring_verified_plan(self) -> None:
@@ -206,6 +225,73 @@ class RecommendationAdvisorTest(unittest.TestCase):
         self.assertEqual(advice.attempts, 1)
         self.assertEqual(len(model.calls), 1)
 
+    def test_model_may_explain_only_recommended_plan_and_rule_fills_others(self) -> None:
+        request = make_request()
+        baseline = RuleBasedRecommendationAdvisor().advise(request)
+        facts = recommendation_advisor_module._build_advice_facts(request, baseline)
+        proposal = RecommendationAdviceProposal(
+            recommended_plan_id=baseline.recommended_plan_id,
+            plans=(
+                PlanRationaleProposal(
+                    plan_id=baseline.recommended_plan_id,
+                    matched_need_ids=baseline.plans[1].matched_need_ids,
+                    supporting_evidence_ids=baseline.plans[1].supporting_evidence_ids,
+                    supporting_fact_ids=(
+                        f"fact.{baseline.recommended_plan_id}.verified",
+                    ),
+                    qualitative_reason="更适合轻松聊天。",
+                ),
+            ),
+        )
+        advice = LlmRecommendationAdvisor(SequenceModel(proposal)).advise(request)
+
+        self.assertEqual(advice.adapter, "llm")
+        self.assertEqual(
+            {item.plan_id for item in advice.plans},
+            {item.plan_id for item in baseline.plans},
+        )
+        fallback_plan = next(
+            item for item in advice.plans if item.plan_id != baseline.recommended_plan_id
+        )
+        baseline_fallback = next(
+            item for item in baseline.plans if item.plan_id == fallback_plan.plan_id
+        )
+        self.assertEqual(fallback_plan.reason, baseline_fallback.reason)
+
+    def test_unknown_fact_or_plan_is_rejected(self) -> None:
+        request = make_request()
+        proposal = valid_proposal(request)
+        recommended_index = next(
+            index
+            for index, item in enumerate(proposal.plans)
+            if item.plan_id == proposal.recommended_plan_id
+        )
+        bad = list(proposal.plans)
+        bad[recommended_index] = bad[recommended_index].model_copy(
+            update={"supporting_fact_ids": ("fact.unknown",)}
+        )
+        advice = LlmRecommendationAdvisor(
+            SequenceModel(proposal.model_copy(update={"plans": tuple(bad)}))
+        ).advise(request)
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:invalid_fact_id",
+        )
+
+        unknown_plan = PlanRationaleProposal(
+            plan_id="not-verified",
+            qualitative_reason="更适合聊天。",
+        )
+        bad_plans = list(proposal.plans)
+        bad_plans.append(unknown_plan)
+        advice = LlmRecommendationAdvisor(
+            SequenceModel(proposal.model_copy(update={"plans": tuple(bad_plans)}))
+        ).advise(request)
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:invalid_plan_id",
+        )
+
     def test_invalid_plan_or_evidence_falls_back_without_leaking_model_text(self) -> None:
         request = make_request()
         baseline = RuleBasedRecommendationAdvisor().advise(request)
@@ -216,7 +302,7 @@ class RecommendationAdvisorTest(unittest.TestCase):
                     item.model_copy(
                         update={"supporting_evidence_ids": ("not-known",)}
                     )
-                    for item in baseline.plans
+                    for item in valid_proposal(request).plans
                 ),
             }
         )
@@ -234,10 +320,18 @@ class RecommendationAdvisorTest(unittest.TestCase):
 
     def test_numeric_or_quoted_unknown_claim_falls_back(self) -> None:
         request = make_request()
+        base = valid_proposal(request)
+        recommended_index = next(
+            index
+            for index, item in enumerate(base.plans)
+            if item.plan_id == base.recommended_plan_id
+        )
+        bad_plans = list(base.plans)
+        bad_plans[recommended_index] = bad_plans[recommended_index].model_copy(
+            update={"qualitative_reason": "路线约 2 公里，更适合聊天。"}
+        )
         proposal = valid_proposal(request).model_copy(
-            update={
-                "overall_reason": "优先推荐“虚构景点”，节省 3 公里。",
-            }
+            update={"plans": tuple(bad_plans)}
         )
         model = SequenceModel(proposal)
 
@@ -247,6 +341,38 @@ class RecommendationAdvisorTest(unittest.TestCase):
         self.assertEqual(
             advice.fallback_reason,
             "invalid_proposal_contract:numeric_fact_violation",
+        )
+
+    def test_generic_ordinal_prose_is_allowed_but_unknown_quoted_name_is_not(self) -> None:
+        request = make_request()
+        base = valid_proposal(request)
+        recommended_index = next(
+            index
+            for index, item in enumerate(base.plans)
+            if item.plan_id == base.recommended_plan_id
+        )
+        ordinal = base.plans[recommended_index].model_copy(
+            update={"qualitative_reason": "第一站更适合聊天，两种方案都保留可行性。"}
+        )
+        ordinal_plans = list(base.plans)
+        ordinal_plans[recommended_index] = ordinal
+        advice = LlmRecommendationAdvisor(
+            SequenceModel(base.model_copy(update={"plans": tuple(ordinal_plans)}))
+        ).advise(request)
+        self.assertEqual(advice.adapter, "llm")
+
+        quoted = base.plans[recommended_index].model_copy(
+            update={"qualitative_reason": "“虚构景点”更适合聊天。"}
+        )
+        quoted_plans = list(base.plans)
+        quoted_plans[recommended_index] = quoted
+        rejected = LlmRecommendationAdvisor(
+            SequenceModel(base.model_copy(update={"plans": tuple(quoted_plans)}))
+        ).advise(request)
+        self.assertEqual(rejected.adapter, "fallback")
+        self.assertEqual(
+            rejected.fallback_reason,
+            "invalid_proposal_contract:unsupported_claim",
         )
 
     def test_format_repair_is_bounded_to_one_retry(self) -> None:
@@ -266,7 +392,10 @@ class RecommendationAdvisorTest(unittest.TestCase):
         advice = LlmRecommendationAdvisor(model).advise(request)
 
         self.assertEqual(advice.adapter, "fallback")
-        self.assertEqual(advice.fallback_reason, "invalid_proposal_parse")
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_parse:advisor_missing_field",
+        )
         self.assertEqual(advice.attempts, 2)
 
     def test_timeout_falls_back_and_no_semantic_request_skips_model(self) -> None:

@@ -23,6 +23,7 @@ from app.domain.constraints import StopRole
 from app.domain.recommendation import (
     NeedSummary,
     PlanAdvice,
+    PlanRationaleProposal,
     RecommendationAdvice,
     RecommendationAdviceProposal,
     RecommendationAdviceRequest,
@@ -33,8 +34,23 @@ from app.services.model_errors import model_failure_reason
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
 
-PROMPT_VERSION = "recommendation-advisor.v1"
+PROMPT_VERSION = "recommendation-advisor.v2"
 DEFAULT_MODEL_TIMEOUT_SECONDS = 15.0
+
+
+class AdvisorProposalValidationError(ValueError):
+    """Safe, stable diagnostics for untrusted structured model output."""
+
+    def __init__(
+        self,
+        code: str,
+        paths: Sequence[str] = (),
+        error_types: Sequence[str] = (),
+    ) -> None:
+        self.code = code
+        self.paths = tuple(paths)[:8]
+        self.error_types = tuple(error_types)[:8]
+        super().__init__(code)
 
 
 class StructuredRecommendationModel(Protocol):
@@ -152,14 +168,15 @@ class LlmRecommendationAdvisor:
             )
         try:
             proposal = _validate_proposal(raw_result)
-        except Exception:
+        except Exception as parse_error:
+            parse_code, parse_paths = _proposal_parse_diagnostics(parse_error)
             retry_messages = [
                 *messages,
                 HumanMessage(
                     content=(
-                        "上一次推荐解释未通过结构或证据校验。只返回合法的 "
-                        "RecommendationAdviceProposal JSON，不要解释。错误类型："
-                        "invalid_proposal_parse"
+                        "上一次 RecommendationAdviceProposal 未通过结构校验。"
+                        "只返回合法 JSON，不要解释。"
+                        f"诊断码={parse_code}；字段路径={','.join(parse_paths) or '$'}。"
                     )
                 ),
             ]
@@ -180,13 +197,14 @@ class LlmRecommendationAdvisor:
                 )
             try:
                 proposal = _validate_proposal(raw_retry)
-            except Exception:
+            except Exception as retry_error:
                 if token_usage.attempt_count < 2:
                     token_usage.record_unknown()
+                retry_code, _ = _proposal_parse_diagnostics(retry_error)
                 return _fallback_advice(
                     baseline,
                     attempts=2,
-                    reason="invalid_proposal_parse",
+                    reason=f"invalid_proposal_parse:{retry_code}",
                     started_at=started_at,
                     model_name=self._model_name,
                     prompt_version=self._prompt_version,
@@ -590,6 +608,49 @@ def _should_call_model(request: RecommendationAdviceRequest) -> bool:
     )
 
 
+def _build_advice_facts(
+    request: RecommendationAdviceRequest,
+    baseline: RecommendationAdvice,
+) -> dict[str, dict[str, str]]:
+    """Compile qualitative, deterministic facts the model may cite.
+
+    The model receives IDs and qualitative summaries only.  Numeric route,
+    price, time and diff values stay in the verified domain objects and are
+    rendered after acceptance by the Harness.
+    """
+
+    facts: dict[str, dict[str, str]] = {}
+    plans = request.verified_plans
+    distances = {
+        plan.plan_id: sum(leg.distance_km for leg in plan.route_legs)
+        for plan in plans
+    }
+    durations = {plan.plan_id: plan.total_duration_minutes for plan in plans}
+    prices = {plan.plan_id: plan.total_price for plan in plans}
+    min_distance = min(distances.values(), default=None)
+    min_duration = min(durations.values(), default=None)
+    min_price = min(prices.values(), default=None)
+    diff_by_plan_id = {item.new_plan_id: item for item in request.plan_diffs}
+
+    for plan in plans:
+        plan_facts: dict[str, str] = {
+            f"fact.{plan.plan_id}.verified": "已通过当前时间、路线、预算、营业与可行性校验。",
+        }
+        if min_distance is not None and distances[plan.plan_id] == min_distance:
+            plan_facts[f"fact.{plan.plan_id}.shorter_route"] = "在当前候选中路线更紧凑。"
+        if min_duration is not None and durations[plan.plan_id] == min_duration:
+            plan_facts[f"fact.{plan.plan_id}.shorter_duration"] = "在当前候选中整体更省时。"
+        if min_price is not None and prices[plan.plan_id] == min_price:
+            plan_facts[f"fact.{plan.plan_id}.lower_cost"] = "在当前候选中地点费用更低。"
+        if _weather_evidence_for_plan(request, plan):
+            plan_facts[f"fact.{plan.plan_id}.weather_fit"] = "方案包含与当前不利天气相适配的资料证据。"
+        diff = diff_by_plan_id.get(plan.plan_id)
+        if diff is not None and diff.locked_stops:
+            plan_facts[f"fact.{plan.plan_id}.locked_stops_preserved"] = "修改只替换目标站，其他已锁定站点保持不变。"
+        facts[plan.plan_id] = plan_facts
+    return facts
+
+
 def _accept_proposal(
     proposal: RecommendationAdviceProposal,
     request: RecommendationAdviceRequest,
@@ -604,108 +665,111 @@ def _accept_proposal(
     plan_ids = {plan.plan_id for plan in request.verified_plans}
     if proposal.recommended_plan_id not in plan_ids:
         raise ValueError("invalid_plan_id")
-    proposal_plan_ids = [item.plan_id for item in proposal.plans]
-    if set(proposal_plan_ids) != plan_ids or len(proposal_plan_ids) != len(plan_ids):
-        raise ValueError("incomplete_plan_advice")
+    rationale_ids = [item.plan_id for item in proposal.plans]
+    if len(rationale_ids) != len(set(rationale_ids)):
+        raise ValueError("duplicate_plan_rationale")
+    if not set(rationale_ids).issubset(plan_ids):
+        raise ValueError("invalid_plan_id")
+    if proposal.recommended_plan_id not in set(rationale_ids):
+        raise ValueError("missing_recommended_rationale")
+
     baseline_needs = {item.need_id: item for item in baseline.understood_needs}
     known_evidence = {
         item.evidence_id
-        for item in (
-            *request.semantic_request.evidence,
-            *request.retrieval_evidence,
-        )
+        for item in (*request.semantic_request.evidence, *request.retrieval_evidence)
     }
-    for need in proposal.understood_needs:
-        expected = baseline_needs.get(need.need_id)
-        if expected is None or need.text != expected.text:
-            raise ValueError("ungrounded_need")
-        if need.user_evidence_ids != expected.user_evidence_ids:
-            raise ValueError("ungrounded_need_evidence")
-    known_need_ids = set(baseline_needs)
     baseline_by_plan = {item.plan_id: item for item in baseline.plans}
+    plan_by_id = {plan.plan_id: plan for plan in request.verified_plans}
+    facts_by_plan = _build_advice_facts(request, baseline)
     diff_by_plan_id = {item.new_plan_id: item for item in request.plan_diffs}
+    rationale_by_plan = {item.plan_id: item for item in proposal.plans}
+
     accepted: list[PlanAdvice] = []
-    for item in proposal.plans:
-        if not set(item.matched_need_ids).issubset(known_need_ids):
+    for plan in request.verified_plans:
+        baseline_item = baseline_by_plan[plan.plan_id]
+        rationale = rationale_by_plan.get(plan.plan_id)
+        if rationale is None:
+            accepted.append(baseline_item)
+            continue
+        if not set(rationale.matched_need_ids).issubset(baseline_needs):
             raise ValueError("invalid_need_id")
-        if not set(item.supporting_evidence_ids).issubset(known_evidence):
+        if not set(rationale.supporting_evidence_ids).issubset(known_evidence):
             raise ValueError("invalid_evidence_id")
-        baseline_item = baseline_by_plan[item.plan_id]
-        if not set(item.matched_need_ids).issubset(
+        if not set(rationale.matched_need_ids).issubset(
             set(baseline_item.matched_need_ids)
         ):
             raise ValueError("unsupported_plan_need")
-        if not set(item.supporting_evidence_ids).issubset(
+        if not set(rationale.supporting_evidence_ids).issubset(
             set(baseline_item.supporting_evidence_ids)
         ):
             raise ValueError("unsupported_plan_evidence")
         matched_needs = {
             need.need_id: need
             for need in baseline.understood_needs
-            if need.need_id in item.matched_need_ids
+            if need.need_id in rationale.matched_need_ids
         }
         if any(
             need.user_evidence_ids
             and not set(need.user_evidence_ids).issubset(
-                set(item.supporting_evidence_ids)
+                set(rationale.supporting_evidence_ids)
             )
             for need in matched_needs.values()
         ):
             raise ValueError("unsupported_need_evidence")
-        prose_violation = _ungrounded_prose_code(item.reason, request, baseline)
+        allowed_facts = facts_by_plan[plan.plan_id]
+        if not set(rationale.supporting_fact_ids).issubset(allowed_facts):
+            raise ValueError("invalid_fact_id")
+        prose_violation = _ungrounded_prose_code(
+            rationale.qualitative_reason,
+            request,
+            baseline,
+        )
         if prose_violation is not None:
             raise ValueError(prose_violation)
-        # Tradeoffs are facts owned by the verified Plan.  The model cannot
-        # replace them with a new numeric claim or a new POI description.
-        diff = diff_by_plan_id.get(item.plan_id)
+        reason_parts = [rationale.qualitative_reason]
+        reason_parts.extend(allowed_facts[item] for item in rationale.supporting_fact_ids)
+        weather_note = _weather_note(request, plan)
+        if weather_note:
+            reason_parts.append(weather_note)
+        diff = diff_by_plan_id.get(plan.plan_id)
         if diff is not None:
-            # Keep the model's qualitative wording, but append the verified
-            # change facts so an LLM cannot accidentally omit what changed.
-            item_reason = f"{item.reason} {_diff_note(diff)}"
-        else:
-            item_reason = item.reason
-        item_weather_note = _weather_note(
-            request,
-            next(plan for plan in request.verified_plans if plan.plan_id == item.plan_id),
-        )
-        if item_weather_note:
-            item_reason = f"{item_reason} {item_weather_note}"
+            reason_parts.append(_diff_note(diff))
         accepted.append(
-            item.model_copy(
-                update={
-                    "reason": item_reason,
-                    "tradeoffs": baseline_by_plan[item.plan_id].tradeoffs,
-                }
+            PlanAdvice(
+                plan_id=plan.plan_id,
+                reason=" ".join(dict.fromkeys(reason_parts)),
+                matched_need_ids=rationale.matched_need_ids,
+                supporting_evidence_ids=rationale.supporting_evidence_ids,
+                tradeoffs=baseline_item.tradeoffs,
             )
         )
+
+    recommended = plan_by_id[proposal.recommended_plan_id]
+    recommended_rationale = rationale_by_plan[proposal.recommended_plan_id]
     prose_violation = _ungrounded_prose_code(
-        proposal.overall_reason,
+        recommended_rationale.qualitative_reason,
         request,
         baseline,
     )
     if prose_violation is not None:
         raise ValueError(prose_violation)
-    overall_reason = proposal.overall_reason
-    weather_note = _weather_note(
-        request,
-        next(
-            plan
-            for plan in request.verified_plans
-            if plan.plan_id == proposal.recommended_plan_id
-        ),
+    overall_parts = [
+        f"优先推荐“{recommended.title}”：{recommended_rationale.qualitative_reason}"
+    ]
+    overall_parts.extend(
+        facts_by_plan[recommended.plan_id][item]
+        for item in recommended_rationale.supporting_fact_ids
     )
+    weather_note = _weather_note(request, recommended)
     if weather_note:
-        overall_reason = f"{overall_reason} {weather_note}"
-    diff = diff_by_plan_id.get(proposal.recommended_plan_id)
+        overall_parts.append(weather_note)
+    diff = diff_by_plan_id.get(recommended.plan_id)
     if diff is not None:
-        overall_reason = f"{overall_reason} {_diff_note(diff)}"
-    # The model is allowed to select a subset of needs for emphasis, but the
-    # complete deterministic need list remains the persisted user-understanding
-    # record and cannot be replaced by a hallucinated summary.
+        overall_parts.append(_diff_note(diff))
     return RecommendationAdvice(
         recommended_plan_id=proposal.recommended_plan_id,
         understood_needs=baseline.understood_needs,
-        overall_reason=overall_reason,
+        overall_reason=" ".join(dict.fromkeys(overall_parts)),
         plans=tuple(accepted),
         adapter="llm",
         fallback_reason=None,
@@ -749,8 +813,24 @@ def _ungrounded_prose_code(
     fixed code is retained in ``fallback_reason``.
     """
 
-    if re.search(r"\d|[零一二三四五六七八九十百千万]|[¥￥%]", text):
+    # Only reject numbers that look like dynamic facts.  Ordinals and generic
+    # Chinese quantifiers (第一站、两种方案) are normal qualitative prose.
+    dynamic_patterns = (
+        r"(?:¥|￥)\s?\d+(?:\.\d+)?",
+        r"\d+(?:\.\d+)?\s*(?:元|块|人民币)",
+        r"[零一二三四五六七八九十百千万两]{1,6}\s*(?:元|块|人民币)",
+        r"\d+(?:\.\d+)?\s*(?:公里|千米|km|KM)",
+        r"[零一二三四五六七八九十百千万两]{1,6}\s*(?:公里|千米)",
+        r"\d+(?:\.\d+)?\s*(?:分钟|小时)",
+        r"[零一二三四五六七八九十百千万两]{1,6}\s*(?:分钟|小时)",
+        r"\b\d{1,2}:\d{2}\b",
+        r"(?:零|一|二|三|四|五|六|七|八|九|十){1,3}(?:点|时)(?:半|[零一二三四五六七八九十]{1,3}分)?",
+        r"\d+(?:\.\d+)?\s*(?:%|分)",
+        r"(?:价格|费用|花费|预算|距离|时长|路线)\s*[:：]?\s*(?:¥|￥)?\d+",
+    )
+    if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in dynamic_patterns):
         return "numeric_fact_violation"
+
     known_phrases = {
         item
         for item in (
@@ -778,24 +858,9 @@ def _ungrounded_prose_code(
     ):
         return "unsupported_claim"
 
-    # Catch the common unquoted hallucination shape (e.g. ``虚构景点``)
-    # without trying to segment arbitrary Chinese prose.  Generic references
-    # such as ``这个景点`` are harmless; named suffixes must occur in the
-    # verified plan/evidence vocabulary.
-    generic_poi_phrases = {"景点", "这个景点", "该景点", "地点", "餐厅", "这家餐厅"}
-    poi_suffixes = (
-        "景点", "公园", "博物馆", "餐厅", "餐馆", "咖啡馆", "咖啡店", "书店",
-        "展馆", "美术馆", "商场", "广场", "乐园", "湖", "园", "馆", "店",
-    )
-    for match in re.finditer(
-        rf"[\u4e00-\u9fff]{{2,16}}(?:{'|'.join(poi_suffixes)})",
-        text,
-    ):
-        phrase = match.group(0)
-        if phrase in generic_poi_phrases:
-            continue
-        if not any(phrase in known or known in phrase for known in known_phrases):
-            return "unsupported_claim"
+    # Do not reject ordinary unquoted Chinese prose.  Quoted names are the
+    # unambiguous hallucination boundary and are checked against verified
+    # plan/evidence vocabulary above.
     return None
 
 
@@ -805,16 +870,51 @@ def _validate_proposal(result: object) -> RecommendationAdviceProposal:
     ):
         parsing_error = result.get("parsing_error")
         if parsing_error is not None:
-            raise ValueError(f"structured proposal parsing failed: {parsing_error}")
+            raise AdvisorProposalValidationError("advisor_nested_parse_error", ("$",))
         parsed = result.get("parsed")
         if parsed is None:
-            raise ValueError("structured proposal parser returned no proposal")
+            raise AdvisorProposalValidationError("advisor_missing_field", ("$",))
         return _validate_proposal(parsed)
     if isinstance(result, RecommendationAdviceProposal):
         return result
-    if isinstance(result, str):
-        return RecommendationAdviceProposal.model_validate_json(result)
-    return RecommendationAdviceProposal.model_validate(result)
+    try:
+        if isinstance(result, str):
+            return RecommendationAdviceProposal.model_validate_json(result)
+        return RecommendationAdviceProposal.model_validate(result)
+    except Exception as error:
+        code, paths = _proposal_parse_diagnostics(error)
+        raise AdvisorProposalValidationError(code, paths) from None
+
+
+def _proposal_parse_diagnostics(error: Exception) -> tuple[str, tuple[str, ...]]:
+    """Map provider/Pydantic parse failures to safe stable diagnostics."""
+
+    if isinstance(error, AdvisorProposalValidationError):
+        return error.code, error.paths
+    errors = getattr(error, "errors", None)
+    if callable(errors):
+        raw_errors = errors()
+        paths: list[str] = []
+        types: list[str] = []
+        for item in raw_errors[:8]:
+            loc = item.get("loc") or ("$",)
+            paths.append(".".join(str(part) for part in loc))
+            types.append(str(item.get("type") or ""))
+        error_type = types[0] if types else ""
+        if error_type == "missing":
+            code = "advisor_missing_field"
+        elif error_type == "extra_forbidden":
+            code = "advisor_extra_forbidden"
+        elif error_type in {"too_short", "too_long"} and any(
+            path.endswith("plans") for path in paths
+        ):
+            code = "advisor_invalid_plan_count"
+        elif error_type.endswith("_type") or error_type in {"string_type", "int_type"}:
+            code = "advisor_invalid_type"
+        else:
+            code = "advisor_nested_parse_error"
+        return code, tuple(paths)
+    return "advisor_nested_parse_error", ("$",)
 
 
 def _fallback_advice(
@@ -882,6 +982,7 @@ def _build_context(
         )
     }
     baseline_by_plan = {item.plan_id: item for item in baseline.plans}
+    facts_by_plan = _build_advice_facts(request, baseline)
     plans = []
     for plan in request.verified_plans:
         baseline_item = baseline_by_plan[plan.plan_id]
@@ -889,66 +990,123 @@ def _build_context(
         plans.append(
             {
                 "plan_id": plan.plan_id,
-                "title": plan.title,
+                "title": _redact_dynamic_text(plan.title),
                 "strategy": plan.strategy.value,
-                "total_score": plan.total_score,
-                "total_price": plan.total_price,
-                "total_duration_minutes": plan.total_duration_minutes,
                 "stops": [
                     {
-                        "resource_id": stop.resource_id,
-                        "name": stop.name,
+                        "name": _redact_dynamic_text(stop.name),
                         "role": stop.role.value if stop.role else None,
-                        "start": stop.start,
-                        "end": stop.end,
-                        "price": stop.price,
+                        "category_tags": list(stop.category_tags),
                     }
                     for stop in plan.stops
                 ],
-                "route_legs": [
-                    {
-                        "origin_name": leg.origin_name,
-                        "destination_name": leg.destination_name,
-                        "distance_km": leg.distance_km,
-                        "duration_minutes": leg.duration_minutes,
-                        "degraded": leg.degraded,
-                    }
-                    for leg in plan.route_legs
-                ],
-                "highlights": plan.highlights,
-                "tradeoffs": plan.tradeoffs,
-                # The global retrieval_evidence list is useful for auditing,
-                # but a model must not infer that every item supports every
-                # plan.  Keep the deterministic baseline's per-plan allowlist
-                # beside each plan so valid citations are easy to select and
-                # cross-plan citations remain rejectable by the harness.
+                "highlights": [_redact_dynamic_text(item) for item in plan.highlights],
+                "tradeoffs": [_redact_dynamic_text(item) for item in plan.tradeoffs],
                 "allowed_matched_need_ids": list(baseline_item.matched_need_ids),
                 "allowed_supporting_evidence_ids": list(allowed_evidence_ids),
                 "allowed_supporting_evidence": [
-                    evidence_by_id[evidence_id].model_dump(mode="json")
+                    {
+                        "evidence_id": evidence_by_id[evidence_id].evidence_id,
+                        "summary": _redact_dynamic_text(evidence_by_id[evidence_id].summary),
+                        "source_type": evidence_by_id[evidence_id].source_type,
+                    }
                     for evidence_id in allowed_evidence_ids
                     if evidence_id in evidence_by_id
                 ],
+                "allowed_supporting_fact_ids": sorted(facts_by_plan[plan.plan_id]),
+                "allowed_supporting_facts": [
+                    {"fact_id": fact_id, "summary": facts_by_plan[plan.plan_id][fact_id]}
+                    for fact_id in sorted(facts_by_plan[plan.plan_id])
+                ],
             }
         )
-    context = {
-        "needs": [item.model_dump(mode="json") for item in baseline.understood_needs],
-        "semantic_request": request.semantic_request.model_dump(mode="json"),
-        "retrieval_evidence": [
-            item.model_dump(mode="json") for item in request.retrieval_evidence
+    semantic_request = {
+        "evidence": [
+            {
+                "evidence_id": item.evidence_id,
+                "summary": _redact_dynamic_text(item.summary),
+                "source_type": item.source_type,
+            }
+            for item in request.semantic_request.evidence
         ],
-        "plan_diffs": [item.model_dump(mode="json") for item in request.plan_diffs],
+        "objectives": [
+            {
+                "kind": item.kind.value,
+                "strength": item.strength,
+                "target_role": item.target_role.value if item.target_role else None,
+                "evidence_refs": list(item.evidence_refs),
+            }
+            for item in request.semantic_request.objectives
+        ],
+        "queries": [
+            {
+                "query_id": item.query_id,
+                "text": _redact_dynamic_text(item.text),
+                "target_role": item.target_role.value if item.target_role else None,
+                "evidence_refs": list(item.evidence_refs),
+            }
+            for item in request.semantic_request.queries
+        ],
+    }
+    diff_facts = {
+        diff.new_plan_id: sorted(facts_by_plan.get(diff.new_plan_id, {}))
+        for diff in request.plan_diffs
+    }
+    context = {
+        "needs": [
+            {
+                "need_id": item.need_id,
+                "summary": _redact_dynamic_text(item.text),
+                "user_evidence_ids": list(item.user_evidence_ids),
+            }
+            for item in baseline.understood_needs
+        ],
+        "semantic_request": semantic_request,
+        "retrieval_evidence": [
+            {
+                "evidence_id": item.evidence_id,
+                "summary": _redact_dynamic_text(item.summary),
+                "source_type": item.source_type,
+            }
+            for item in request.retrieval_evidence
+        ],
+        "plan_diffs": diff_facts,
         "weather_fact": (
-            request.weather_fact.model_dump(mode="json")
+            {
+                "adverse": request.weather_fact.is_adverse,
+                "condition": request.weather_fact.condition,
+            }
             if request.weather_fact is not None
             else None
         ),
         "verified_plans": plans,
     }
     return (
-        "只在已验证方案之间选择和解释，不要重新规划。输入如下：\n"
+        "只在已验证方案之间选择和解释，不要重新规划。模型只提交方案级定性理由、需求/证据/事实 ID；精确数字由系统渲染。输入如下：\n"
         + json.dumps(context, ensure_ascii=False, sort_keys=True)
     )
+
+
+def _redact_dynamic_text(text: str) -> str:
+    """Remove exact dynamic quantities before sending context to the model."""
+
+    redactions = (
+        (r"(?:¥|￥)\s?\d+(?:\.\d+)?", "费用"),
+        (r"\d+(?:\.\d+)?\s*(?:元|块|人民币)", "费用"),
+        (r"[零一二三四五六七八九十百千万两]{1,6}\s*(?:元|块|人民币)", "费用"),
+        (r"\d+(?:\.\d+)?\s*(?:公里|千米|km|KM)", "距离"),
+        (r"[零一二三四五六七八九十百千万两]{1,6}\s*(?:公里|千米)", "距离"),
+        (r"\d+(?:\.\d+)?\s*(?:分钟|小时)", "时长"),
+        (r"[零一二三四五六七八九十百千万两]{1,6}\s*(?:分钟|小时)", "时长"),
+        (r"\b\d{1,2}:\d{2}\b", "具体时间"),
+        (r"(?:上午|下午|晚上|早上|中午)?[零一二三四五六七八九十百千万两]{1,4}(?:点|时)(?:半|[零一二三四五六七八九十百千万两]{1,4}分)?", "具体时间"),
+        (r"\d{4}[-年]\d{1,2}[-月]\d{1,2}(?:日)?", "具体日期"),
+        (r"\d+(?:\.\d+)?\s*(?:%|分)", "评分"),
+    )
+    redacted = text
+    for pattern, replacement in redactions:
+        redacted = re.sub(pattern, replacement, redacted, flags=re.IGNORECASE)
+    return redacted
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -956,18 +1114,18 @@ def _elapsed_ms(started_at: float) -> int:
 
 
 _SYSTEM_PROMPT = """你是 HappyFreeTime 的 RecommendationAdvisor。
-你只能在输入的 verified_plans 中选择推荐方案，并说明它如何回应输入的用户需求。
-只返回 RecommendationAdviceProposal 的结构化 JSON。
+你只能在输入的 verified_plans 中选择推荐方案，并为需要说明的方案提供定性理由。
+只返回 RecommendationAdviceProposal 的结构化 JSON：
+recommended_plan_id + plans[{plan_id, matched_need_ids, supporting_evidence_ids,
+supporting_fact_ids, qualitative_reason}]。
 
 严格限制：
-- recommended_plan_id、PlanAdvice.plan_id 必须使用输入中已有的 plan_id。
-- matched_need_ids 必须使用输入中已有的 need_id；supporting_evidence_ids 必须使用输入中已有的证据 id。
-- 对每个方案，只能使用该方案对象中的 allowed_matched_need_ids 和
-  allowed_supporting_evidence_ids；全局 retrieval_evidence 不是该方案的自动证据。
-- 如果某个方案没有允许的证据，不要声称它有对应的标签或资料支持。
-- understood_needs 必须原样复制输入 needs，不要增加或改写用户没有说过的需求。
-- 不要新增 POI、路线、价格、距离、时间、营业或可用性事实；不要输出任何数字。
-- 如果输入包含 weather_fact，只能引用其中已有的天气实况；只有在该方案的
-  allowed_supporting_evidence 中存在室内/雨天资料时，才能声称有对应资料支持。
-- reason 和 overall_reason 只写需求回应和取舍，不要编造新地点名称；具体事实由已验证 Plan 和界面渲染。
+- 所有 plan_id、need_id、supporting_evidence_ids、supporting_fact_ids 必须来自
+  对应方案的 allowlist；不要跨方案引用证据或事实。
+- 只需要解释推荐方案，也可以额外解释少量其他方案；遗漏的方案由系统使用规则基线补齐。
+- qualitative_reason 只能是定性说明，例如“更适合安静聊天”“安排更从容”。
+- 不要输出价格、距离、时长、时间、评分、百分比或其他动态数字；不要输出新的 POI、路线、营业或天气事实。
+- “第一站”“两种方案”等普通序号/数量表达可以使用，但不要把它们写成路线或价格事实。
+- 天气、PlanDiff、锁定站点和精确变化由系统根据已验证事实自动补充，模型只引用允许的 fact_id。
+- 不要输出 understood_needs、overall_reason 或任何额外字段。
 """
