@@ -9,15 +9,17 @@ from app.domain.catalog import StopCandidate
 from app.domain.constraints import NormalizedConstraints
 from app.domain.providers import AvailabilityFact, AvailabilityStatus
 from app.domain.planning import Plan, StopRole
+from app.services.itinerary_scheduler import (
+    DEFAULT_TEMPORAL_POLICY,
+    MEAL_ANCHOR_WINDOWS,
+)
 from app.services.opening_hours import visit_fits_opening_hours
 
 
-# 版本化餐时锚点：LUNCH/DINNER 只表达“顺序角色”，到店时间必须落在独立
-# 用餐窗口内，否则方案在时间上不可信。窗口按“到达时刻”判定，边界包含。
-_MEAL_ANCHOR_WINDOWS: dict[StopRole, tuple[int, int]] = {
-    StopRole.LUNCH: (11 * 60, 14 * 60),
-    StopRole.DINNER: (17 * 60, 20 * 60 + 30),
-}
+# Backward-compatible alias for callers that imported the old private name.
+# The policy itself is now owned by itinerary_scheduler and is shared by the
+# timeline builder and this verifier.
+_MEAL_ANCHOR_WINDOWS = MEAL_ANCHOR_WINDOWS
 
 
 @dataclass(frozen=True)
@@ -126,9 +128,10 @@ class PlanVerifier:
                         )
                     )
         for stop in plan.stops:
-            if stop.role in _MEAL_ANCHOR_WINDOWS:
+            anchor = DEFAULT_TEMPORAL_POLICY.window_for(stop.role)
+            if anchor is not None:
                 arrival = _elapsed_minutes(stop.start)
-                window_start, window_end = _MEAL_ANCHOR_WINDOWS[stop.role]
+                window_start, window_end = anchor
                 if arrival is None or not (
                     window_start <= arrival <= window_end
                 ):

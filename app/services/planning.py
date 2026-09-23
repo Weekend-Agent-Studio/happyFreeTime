@@ -83,7 +83,15 @@ from app.services.planning_intent import (
 from app.services.plan_verifier import (
     PlanVerifier,
     VerificationFinding,
-    _MEAL_ANCHOR_WINDOWS,
+)
+from app.services.itinerary_scheduler import (
+    DEFAULT_TEMPORAL_POLICY,
+    TimelineScheduler,
+)
+from app.services.plan_spec import (
+    CompiledPlanSpec,
+    RolePrecedence,
+    coerce_plan_spec,
 )
 from app.services.candidate_retriever import (
     CandidateRetriever,
@@ -267,7 +275,7 @@ class PlanningService:
         self,
         candidates: list[StopCandidate],
         planning_intent: PlanningIntent,
-        skeletons: tuple[PlanSkeleton, ...],
+        plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
     ) -> tuple[RetrievedCandidateSet, dict[str, float]]:
         """Retrieve independently for each role, then restore Catalog identity order.
 
@@ -278,7 +286,11 @@ class PlanningService:
         by more than one compatible meal role are cached in this round.
         """
 
-        roles = tuple(dict.fromkeys(role for skeleton in skeletons for role in skeleton.roles))
+        specs = tuple(
+            coerce_plan_spec(spec, pace=planning_intent.pace)
+            for spec in plan_specs
+        )
+        roles = tuple(dict.fromkeys(role for spec in specs for role in spec.roles))
         by_role: dict[StopRole, list[StopCandidate]] = {
             role: [
                 candidate
@@ -443,21 +455,22 @@ class PlanningService:
         # An explicit role/count request owns structure selection. Only the
         # absence of such a request delegates skeleton eligibility to the soft
         # PlanningIntent path.
-        if structure_compilation.skeletons is None:
-            skeletons = _select_plan_skeletons(constraints, planning_intent)
+        if structure_compilation.specs is None:
+            plan_specs = _select_plan_specs(constraints, planning_intent)
         else:
-            skeletons = structure_compilation.skeletons
+            plan_specs = structure_compilation.specs
+        skeletons = tuple(spec.skeleton for spec in plan_specs)
         retrieved, semantic_scores = self._retrieve_for_skeleton_roles(
             candidates,
             planning_intent,
-            skeletons,
+            plan_specs,
         )
         retrieval_runtime_decision = _retrieval_runtime(retrieved)
         candidates = [item.candidate for item in retrieved.items]
         local_result = _rank_skeleton_plans(
             candidates,
             constraints,
-            skeletons,
+            plan_specs,
             planning_intent,
             semantic_scores=(
                 semantic_scores if not planning_intent.semantic_request.is_empty else None
@@ -633,7 +646,7 @@ class PlanningService:
                 not local_result.rejected_fields
                 and _catalog_budget_exhausted_for_skeletons(
                     catalog_result,
-                    skeletons,
+                    plan_specs,
                 )
             )
         )
@@ -704,7 +717,6 @@ class PlanningService:
                         )
                         if field in reported_failure_fields
                     ]
-                    + _structure_conflict_fields(planning_intent, constraints)
                     + _meal_anchor_conflict_fields(constraints),
                     relaxation_options=_route_relaxation_options(
                         reported_failure_fields
@@ -732,24 +744,39 @@ class PlanningService:
             )
             if field in local_result.rejected_fields
         ]
-        if (
-            _structure_conflict_fields(planning_intent, constraints)
-            and any(
-                violation.code == "outside_basic_opening_hours"
-                for violation in catalog_result.violations
+        # Catalog hard filters can eliminate every candidate before local
+        # skeleton enumeration.  Preserve those concrete rejection fields
+        # (distance, budget, opening hours, etc.) instead of falling through
+        # to a misleading generic structure diagnosis.
+        catalog_fields = {
+            violation.field
+            for violation in catalog_result.violations
+            if violation.field
+        }
+        if "weather" not in local_result.rejected_fields:
+            conflict_fields.extend(
+                field
+                for field in (
+                    "budget_per_person",
+                    "max_distance_km",
+                    "total_distance_km",
+                    "opening_hours",
+                    "weather",
+                    "party",
+                )
+                if field in catalog_fields
             )
+        if any(
+            violation.code == "outside_basic_opening_hours"
+            for violation in catalog_result.violations
         ):
             conflict_fields.append("opening_hours")
-        structure_fields = _structure_conflict_fields(planning_intent, constraints)
-        if not conflict_fields and structure_fields:
-            conflict_fields = structure_fields
-        elif not conflict_fields:
+        if not conflict_fields:
             conflict_fields = ["time_window", "max_distance_km", "party"]
         conflict_fields = [
             *dict.fromkeys(
                 [
                     *conflict_fields,
-                    *structure_fields,
                     *_meal_anchor_conflict_fields(constraints),
                 ]
             )
@@ -1264,6 +1291,7 @@ class PlanningService:
         current_minutes = start_minutes
         rebuilt_stops: list[Stop] = []
         rebuilt_legs: list[RouteLeg] = []
+        scheduler = TimelineScheduler()
 
         for stop in plan.stops:
             resource = candidate_by_id.get(stop.resource_id)
@@ -1306,27 +1334,21 @@ class PlanningService:
                     geometry=route.geometry,
                 )
             )
-            # Meal roles are temporal anchors, not merely labels.  If the
-            # route reaches a lunch/dinner POI too early, preserve the route
-            # fact and wait before starting the stop instead of manufacturing
-            # an off-anchor meal.  The waiting time is part of the verified
-            # itinerary duration and is still subject to the user's window,
-            # opening hours, return deadline and Verifier.
-            anchor = (
-                _MEAL_ANCHOR_WINDOWS.get(stop.role)
-                if constraints.exact_stop_count is not None
-                else None
+            # Meal anchors are determined by the role itself.  They must not
+            # depend on whether the user happened to state an exact number of
+            # stops; explicit role sequences such as lunch -> activity ->
+            # dinner need the same temporal semantics.
+            scheduled_stop = scheduler.schedule_stop(
+                arrival_minutes=current_minutes,
+                role=stop.role,
+                duration_minutes=stop.duration_minutes,
             )
-            if anchor is not None:
-                anchor_start, _ = anchor
-                current_minutes = max(current_minutes, anchor_start)
-            stop_start = _minutes_to_time(current_minutes)
-            current_minutes += stop.duration_minutes
+            current_minutes = scheduled_stop.end_minutes
             rebuilt_stops.append(
                 stop.model_copy(
                     update={
-                        "start": stop_start,
-                        "end": _minutes_to_time(current_minutes),
+                        "start": _minutes_to_time(scheduled_stop.start_minutes),
+                        "end": _minutes_to_time(scheduled_stop.end_minutes),
                     }
                 )
             )
@@ -1798,7 +1820,14 @@ def _plan_diversity(left: Plan, right: Plan) -> float:
         + 0.2 * (1.0 - price_gap)
         + 0.2 * (1.0 - distance_gap)
     )
-    return 1.0 - similarity
+    diversity = 1.0 - similarity
+    # A different stop count is a meaningful user-visible alternative even
+    # when the shorter plan reuses most of the longer plan's POIs.  Without
+    # this floor, adding the newly feasible meal-anchored three-stop plan could
+    # hide a valid four-stop full-day plan as a near duplicate.
+    if left.skeleton_id != right.skeleton_id and len(left.stops) != len(right.stops):
+        diversity = max(diversity, 0.4)
+    return diversity
 
 
 _build_planning_intent = build_rule_based_planning_intent
@@ -1808,6 +1837,22 @@ def _select_plan_skeletons(
     constraints: NormalizedConstraints,
     intent: PlanningIntent,
 ) -> tuple[PlanSkeleton, ...]:
+    """Backward-compatible skeleton view of the internal PlanSpec compiler."""
+
+    return tuple(spec.skeleton for spec in _select_plan_specs(constraints, intent))
+
+
+def _select_plan_specs(
+    constraints: NormalizedConstraints,
+    intent: PlanningIntent,
+) -> tuple[CompiledPlanSpec, ...]:
+    """Select only closed-world specs after explicit structure compilation.
+
+    Explicit role/count constraints are compiled before this helper is called.
+    For unconstrained requests, PlanningIntent may narrow the existing template
+    set, but it still cannot create an arbitrary new structure.
+    """
+
     if (
         constraints.exact_stop_count is not None
         or (
@@ -1816,10 +1861,24 @@ def _select_plan_skeletons(
         )
     ):
         compiled = StructureCompiler().compile(constraints)
-        return compiled.skeletons or ()
+        return compiled.specs or ()
     maximum_minutes, _ = _planning_minutes(constraints)
     return tuple(
-        skeleton
+        CompiledPlanSpec.from_skeleton(
+            skeleton,
+            precedence=tuple(
+                RolePrecedence(before=before, after=after)
+                for before, after in intent.precedence
+            ),
+            min_stops=intent.minimum_stops,
+            max_stops=intent.maximum_stops,
+            pace=intent.pace,
+            coverage=(
+                constraints.time_scope.value
+                if constraints.time_scope is not None
+                else None
+            ),
+        )
         for skeleton in _ALL_PLAN_SKELETONS
         if _skeleton_matches_intent(skeleton, intent, maximum_minutes)
     )
@@ -1829,15 +1888,23 @@ def _select_plan_skeletons(
 class _StructureCompilation:
     """The result of compiling one bounded structure request.
 
-    ``skeletons=None`` means that the user did not provide an explicit
+    ``specs=None`` means that the user did not provide an explicit
     structure and the caller still needs to use PlanningIntent.  An empty
     tuple is reserved for an explicit request that has no compatible skeleton;
     that distinction prevents an unsupported request from silently falling
     back to the default outing shape.
     """
 
-    skeletons: tuple[PlanSkeleton, ...] | None = None
+    specs: tuple[CompiledPlanSpec, ...] | None = None
     conflict: ConstraintConflict | None = None
+
+    @property
+    def skeletons(self) -> tuple[PlanSkeleton, ...] | None:
+        """Compatibility view for callers and older tests."""
+
+        if self.specs is None:
+            return None
+        return tuple(spec.skeleton for spec in self.specs)
 
 
 class StructureCompiler:
@@ -1874,7 +1941,21 @@ class StructureCompiler:
             required_roles=required_roles,
         )
         if matches:
-            return _StructureCompilation(skeletons=matches)
+            precedence = tuple(
+                RolePrecedence(before=before, after=after)
+                for before, after in zip(required_roles, required_roles[1:])
+            )
+            return _StructureCompilation(
+                specs=tuple(
+                    CompiledPlanSpec.from_skeleton(
+                        skeleton,
+                        precedence=precedence,
+                        min_stops=len(skeleton.roles),
+                        max_stops=len(skeleton.roles),
+                    )
+                    for skeleton in matches
+                )
+            )
 
         fields: list[str] = []
         if exact_stop_count is not None:
@@ -1883,7 +1964,7 @@ class StructureCompiler:
             fields.append("required_stop_roles")
         fields.append("plan_structure")
         return _StructureCompilation(
-            skeletons=(),
+            specs=(),
             conflict=ConstraintConflict(
                 code="UNSUPPORTED_PLAN_STRUCTURE",
                 message="当前请求指定的站点数量或角色组合与现有行程骨架不匹配。",
@@ -2099,13 +2180,15 @@ def _structure_conflict_fields(
 def _rank_skeleton_plans(
     candidates: list[StopCandidate],
     constraints: NormalizedConstraints,
-    skeletons: tuple[PlanSkeleton, ...],
+    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
 ) -> _LocalPlanningResult:
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
-    for skeleton in skeletons:
+    for raw_spec in plan_specs:
+        spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
+        skeleton = spec.skeleton
         role_pool_limit = (
             _MAX_CANDIDATES_PER_ROLE_FOR_MULTI_STOP
             if len(skeleton.roles) >= 3
@@ -2237,11 +2320,13 @@ def _candidate_role_rank(
 
 def _build_local_plan(
     sequence: tuple[StopCandidate, ...],
-    skeleton: PlanSkeleton,
+    plan_spec: CompiledPlanSpec | PlanSkeleton,
     constraints: NormalizedConstraints,
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
 ) -> tuple[Plan | None, str | None]:
+    spec = coerce_plan_spec(plan_spec, pace=planning_intent.pace)
+    skeleton = spec.skeleton
     if len(sequence) != len(skeleton.roles):
         raise ValueError("plan sequence must fill every skeleton role")
 
@@ -2253,11 +2338,14 @@ def _build_local_plan(
     for candidate in sequence:
         route_distances.append(_haversine_km(current_point, candidate.location))
         current_point = candidate.location
-    route_minutes = sum(
-        _estimated_route_minutes(distance)
-        for distance in route_distances
+    scheduler = TimelineScheduler()
+    estimated_timeline = scheduler.schedule(
+        start_minutes=_planning_start_minutes(constraints),
+        roles=tuple(skeleton.roles),
+        travel_minutes=tuple(_estimated_route_minutes(distance) for distance in route_distances),
+        stop_durations=tuple(item.duration_minutes for item in sequence),
     )
-    total_duration = sum(item.duration_minutes for item in sequence) + route_minutes
+    total_duration = estimated_timeline.elapsed_minutes
     maximum_minutes, target_minutes = _planning_minutes(constraints)
     if total_duration > maximum_minutes:
         return None, "duration_minutes" if constraints.duration_minutes else "time_window"
@@ -2514,16 +2602,14 @@ def _build_local_plan(
         )
     total_score = round(sum(item.points for item in score_breakdown), 1)
 
-    current_minutes = _planning_start_minutes(constraints)
     stops: list[Stop] = []
-    for role, candidate, distance in zip(
+    for role, candidate, scheduled in zip(
         skeleton.roles,
         sequence,
-        route_distances,
+        estimated_timeline.stops,
+        strict=True,
     ):
-        current_minutes += _estimated_route_minutes(distance)
-        stops.append(_to_stop(candidate, role, current_minutes))
-        current_minutes += candidate.duration_minutes
+        stops.append(_to_stop(candidate, role, scheduled.start_minutes))
     highlights = ["已通过 Catalog 单资源硬约束筛选"]
     if matched_preferences:
         highlights.append(f"匹配偏好：{'、'.join(matched_preferences)}")
@@ -2771,7 +2857,7 @@ def _meal_anchor_conflict_fields(
         )
 
     for role in required_roles:
-        anchor = _MEAL_ANCHOR_WINDOWS.get(role)
+        anchor = DEFAULT_TEMPORAL_POLICY.window_for(role)
         if anchor is None:
             continue
         anchor_start, anchor_end = anchor
@@ -2929,7 +3015,7 @@ def _estimated_route_minutes(distance_km: float) -> int:
 
 def _catalog_budget_exhausted_for_skeletons(
     catalog_result: CatalogResult,
-    skeletons: Sequence[PlanSkeleton],
+    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
 ) -> bool:
     """Prove that every eligible skeleton lost a role to strict budget.
 
@@ -2942,7 +3028,7 @@ def _catalog_budget_exhausted_for_skeletons(
     rejections cannot manufacture a budget diagnosis.
     """
 
-    if not catalog_result.violations or not skeletons:
+    if not catalog_result.violations or not plan_specs:
         return False
     surviving_types = {
         candidate.resource_type for candidate in catalog_result.candidates
@@ -2959,7 +3045,8 @@ def _catalog_budget_exhausted_for_skeletons(
             violation.field
         )
 
-    for skeleton in skeletons:
+    for raw_spec in plan_specs:
+        skeleton = coerce_plan_spec(raw_spec)
         budget_exhausted_role = False
         for role in skeleton.roles:
             role_types = _ROLE_RESOURCE_TYPES[role]

@@ -574,7 +574,8 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         ).plan(self._dinner_only_constraints())
 
         self.assertEqual(missing.plans, [])
-        self.assertEqual(missing.conflict.fields, ["required_stop_roles", "plan_structure"])
+        self.assertNotIn("plan_structure", missing.conflict.fields)
+        self.assertIn("time_window", missing.conflict.fields)
         self.assertEqual(budget.plans, [])
         self.assertEqual(budget.conflict.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
         self.assertEqual(budget.conflict.fields, ["budget_per_person"])
@@ -583,7 +584,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             ["提高人均预算", "取消严格预算限制"],
         )
         self.assertEqual(unavailable_result.plans, [])
-        self.assertTrue({"required_stop_roles", "plan_structure"}.issubset(unavailable_result.conflict.fields))
+        self.assertIn("availability", unavailable_result.conflict.fields)
 
     def test_dinner_only_still_rejects_off_anchor_and_closed_restaurants(self) -> None:
         off_anchor = self._dinner_only_constraints().model_copy(
@@ -1812,7 +1813,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                         f"dinner off-anchor at {stop.start}",
                     )
 
-    def test_off_anchor_dinner_plan_is_not_returned(self) -> None:
+    def test_early_dinner_arrival_waits_for_anchor_instead_of_rejecting_plan(self) -> None:
         catalog = InMemoryCatalog(
             [
                 candidate(
@@ -1848,10 +1849,14 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         ).plan(self._full_day_constraints())
 
         self.assertTrue(result.plans)
-        self.assertNotIn(
-            "lunch-activity-dinner-v1",
-            {plan.skeleton_id for plan in result.plans},
+        anchored = next(
+            plan
+            for plan in result.plans
+            if plan.skeleton_id == "lunch-activity-dinner-v1"
         )
+        dinner = anchored.stops[-1]
+        self.assertEqual(dinner.role, StopRole.DINNER)
+        self.assertGreaterEqual(dinner.start, "17:00")
 
     def test_explicit_multistop_plan_waits_for_dinner_anchor(self) -> None:
         catalog = InMemoryCatalog(
