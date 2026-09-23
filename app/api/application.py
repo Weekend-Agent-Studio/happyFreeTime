@@ -22,6 +22,7 @@ from app.api.schemas import (
 )
 from app.domain.constraints import (
     ActorContext,
+    ClarificationAction,
     CommandOperation,
     IdentityType,
     NormalizedConstraints,
@@ -255,6 +256,30 @@ def create_app(
         if repository.get_session(x_user_id, session_id) is None:
             raise HTTPException(status_code=404, detail="session not found")
 
+        config = {"configurable": {"thread_id": session_id}}
+        pending_snapshot = graph.get_state(config)
+        pending_interrupt = (
+            pending_snapshot.interrupts[0].value
+            if pending_snapshot.next and pending_snapshot.interrupts
+            else None
+        )
+        if request.clarification_reply is not None:
+            if pending_interrupt is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="当前会话没有待处理的反问",
+                )
+            pending_id = (
+                pending_interrupt.get("clarification_id")
+                if isinstance(pending_interrupt, dict)
+                else None
+            )
+            if pending_id and request.clarification_reply.clarification_id != pending_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="反问已更新，请使用当前问题的选项或重新输入",
+                )
+
         # Validate structured replacement anchors before creating a planning
         # run or user message.  Invalid UI commands must be side-effect free;
         # natural-language commands are still interpreted by the Graph and do
@@ -307,12 +332,26 @@ def create_app(
 
         try:
             actor = actor_for(x_user_id, session_id)
-            config = {"configurable": {"thread_id": session_id}}
             # checkpoint 中存在未完成 interrupt，说明本条消息是上一问题的答案；
             # 否则将它作为新一轮用户目标调用 Graph。前端无需理解 Graph 状态机。
             snapshot = graph.get_state(config)
             if snapshot.next and snapshot.interrupts:
-                result = graph.invoke(Command(resume=request.content), config=config)
+                if request.clarification_reply is not None:
+                    resume_value: object = request.clarification_reply.model_dump(mode="json")
+                else:
+                    # Compatibility for the old input box: plain text is an
+                    # answer to the exact pending field, not a new full Router
+                    # turn and not a concatenation with the old request.
+                    resume_value = {
+                        "clarification_id": (
+                            pending_interrupt.get("clarification_id", "legacy")
+                            if isinstance(pending_interrupt, dict)
+                            else "legacy"
+                        ),
+                        "action": ClarificationAction.ANSWER.value,
+                        "value": request.content,
+                    }
+                result = graph.invoke(Command(resume=resume_value), config=config)
             else:
                 session_snapshot = repository.get_session_snapshot(
                     x_user_id,

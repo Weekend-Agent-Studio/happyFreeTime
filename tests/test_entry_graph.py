@@ -6,6 +6,7 @@ from langgraph.types import Command
 
 from app.domain.constraints import (
     ActorContext,
+    ClarificationAction,
     GeoLocation,
     IdentityType,
     Intent,
@@ -163,6 +164,179 @@ class EntryGraphTest(unittest.TestCase):
         result = graph.invoke({"user_input": "不存在地标今天下午出去玩", "actor": actor}, config={"configurable": {"thread_id": actor.session_id}})
 
         self.assertEqual(result["__interrupt__"][0].value["field"], "location")
+
+    def test_location_question_can_use_default_without_reentering_router(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user", session_id="session-location-default",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=ExplicitLocationRouter(),
+            environment_provider=lambda _: environment,
+            geocoding_provider=MockGeocodingProvider.from_locations({}),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {"user_input": "不存在地标今天下午出去玩", "actor": actor},
+            config=config,
+        )
+        question = first["__interrupt__"][0].value
+        self.assertIn("use-default-location", {item["id"] for item in question["options"]})
+        final = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.USE_DEFAULT.value,
+                }
+            ),
+            config=config,
+        )
+        self.assertTrue(final["ready_for_planning"])
+        self.assertEqual(
+            final["enrichment"].constraints.location.source.value,
+            "system_context",
+        )
+        self.assertTrue(
+            any(item.rule_id == "clarification.default.location.v1" for item in final["enrichment"].assumptions)
+        )
+
+    def test_invalid_clarification_reaches_cap_without_repeating_free_text_forever(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user", session_id="session-location-cap",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=ExplicitLocationRouter(),
+            environment_provider=lambda _: environment,
+            geocoding_provider=MockGeocodingProvider.from_locations({}),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {"user_input": "不存在地标今天下午出去玩", "actor": actor},
+            config=config,
+        )
+        current = first["__interrupt__"][0].value
+        for _ in range(2):
+            result = graph.invoke(
+                Command(
+                    resume={
+                        "clarification_id": current["clarification_id"],
+                        "action": ClarificationAction.ANSWER.value,
+                        "value": "?",
+                    }
+                ),
+                config=config,
+            )
+            current = result["__interrupt__"][0].value
+        self.assertEqual(current["attempt"], 2)
+        self.assertFalse(current["allow_free_text"])
+
+    def test_clarification_cancel_returns_without_planning(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user", session_id="session-location-cancel",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=ExplicitLocationRouter(),
+            environment_provider=lambda _: environment,
+            geocoding_provider=MockGeocodingProvider.from_locations({}),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {"user_input": "不存在地标今天下午出去玩", "actor": actor},
+            config=config,
+        )
+        question = first["__interrupt__"][0].value
+        cancelled = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.CANCEL.value,
+                }
+            ),
+            config=config,
+        )
+        self.assertIsNone(cancelled["candidate_set"])
+        self.assertIn("取消", cancelled["interpretation"].reply)
+
+    def test_new_request_during_clarification_does_not_carry_old_interpretation(self) -> None:
+        class NewRequestRouter:
+            def __init__(self) -> None:
+                self.inputs: list[str] = []
+
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                self.inputs.append(user_input)
+                if user_input.startswith("旧需求"):
+                    return Interpretation(
+                        primary_intent=Intent.PLAN_OUTING,
+                        intent_scores={Intent.PLAN_OUTING: 1.0},
+                        raw_constraints=RawConstraints(
+                            date_text="今天", time_text="下午", location_text="不存在地标",
+                            preferences=["旧偏好"],
+                        ),
+                    )
+                return Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    raw_constraints=RawConstraints(date_text="今天", time_text="下午"),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user", session_id="session-new-request",
+            identity_type=IdentityType.DEMO,
+        )
+        router = NewRequestRouter()
+        graph = build_entry_graph(
+            router=router,
+            environment_provider=lambda _: environment,
+            geocoding_provider=MockGeocodingProvider.from_locations({}),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {"user_input": "旧需求今天下午出去玩", "actor": actor}, config=config
+        )
+        question = first["__interrupt__"][0].value
+        resumed = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.NEW_REQUEST.value,
+                    "value": "新需求今天下午看展",
+                }
+            ),
+            config=config,
+        )
+        self.assertTrue(resumed["ready_for_planning"])
+        self.assertEqual(router.inputs, ["旧需求今天下午出去玩", "新需求今天下午看展"])
+        self.assertNotIn("旧偏好", resumed["interpretation"].raw_constraints.preferences)
     def test_interrupts_for_blocking_field_and_resumes_through_router(self) -> None:
         router = FollowUpRouter()
         environment = EnvironmentContext(
@@ -203,8 +377,11 @@ class EntryGraphTest(unittest.TestCase):
             final_result["enrichment"].constraints.budget_per_person.value,
             200,
         )
-        self.assertEqual(len(router.inputs), 2)
-        self.assertIn("用户补充：人均200", router.inputs[1])
+        # The answer is projected onto the pending field and resumes at
+        # Enrichment; the original request is not sent through the full Router
+        # a second time.
+        self.assertEqual(len(router.inputs), 1)
+        self.assertNotIn("用户补充：人均200", router.inputs[0])
 
     def test_chitchat_finishes_without_entering_planning(self) -> None:
         class ChitchatRouter:

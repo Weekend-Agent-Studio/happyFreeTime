@@ -1,16 +1,17 @@
 """HappyFreeTime V2 的 LangGraph 编排层。
 
 创建链路为：TurnInterpreter -> Enrichment -> Gate -> Planning；定向修改链路从
-TurnInterpreter 进入单个 modify_plan 节点。Gate 判断需要反问时，
-进入 ask_question 并通过 interrupt 暂停；用户下一条消息通过 Command(resume)
-恢复后，重新从 TurnInterpreter 解释“原请求 + 补充答案”。Graph 只负责节点顺序和状态，
-具体业务逻辑仍位于可独立测试的 service 中。
+TurnInterpreter 进入单个 modify_plan 节点。Gate 判断需要反问时，进入
+ask_question 并通过 interrupt 暂停；用户下一条消息通过 Command(resume) 恢复，
+由 field-scoped ClarificationResolver 只更新待补字段，再回到 Enrichment/Gate。
+Graph 只负责节点顺序和状态，具体业务逻辑仍位于可独立测试的 service 中。
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Callable, Protocol, TypedDict
+import uuid
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -18,6 +19,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from app.domain.constraints import (
     ActorContext,
+    Assumption,
+    ClarificationAction,
+    ClarificationOption,
+    ClarificationReply,
     CommandOperation,
     ConstraintPatch,
     CriterionStrength,
@@ -93,6 +98,7 @@ from app.services.planning import PlanningService
 from app.services.candidate_retriever import CandidateRetriever
 from app.services.planning_intent import PlanningIntentProvider
 from app.services.question_gate import GateContext, NeedQuestionGate
+from app.services.clarification import ClarificationResolution, ClarificationResolver
 from app.services.router_extractor import RouterContext
 
 
@@ -114,7 +120,7 @@ class EntryState(TypedDict, total=False):
     """
     user_input: str
     actor: ActorContext
-    interpretation: Interpretation
+    interpretation: Interpretation | None
     enrichment: EnrichmentResult | None
     question_decision: QuestionDecision | None
     candidate_set: CandidateSet | None
@@ -128,6 +134,8 @@ class EntryState(TypedDict, total=False):
     conversation_command_override: ConversationCommand | None
     modification_question: QuestionDecision | None
     runtime_decisions: tuple[RuntimeDecision, ...]
+    clarification_default_fields: tuple[str, ...]
+    clarification_resolution: str | None
 
 
 EnvironmentProvider = Callable[[ActorContext], EnvironmentContext]
@@ -153,6 +161,7 @@ def build_entry_graph(
     """
     enrichment_service = EnrichmentService(geocoding_provider=geocoding_provider)
     question_gate = NeedQuestionGate()
+    clarification_resolver = ClarificationResolver()
     planning_service = PlanningService(
         weather_provider=weather_provider,
         route_provider=route_provider,
@@ -232,6 +241,8 @@ def build_entry_graph(
             "conversation_command_override": None,
             "modification_question": None,
             "runtime_decisions": (runtime_decision,),
+            "clarification_default_fields": (),
+            "clarification_resolution": None,
         }
 
     def route_after_router(state: EntryState) -> str:
@@ -315,6 +326,31 @@ def build_entry_graph(
             state["actor"],
             environment,
         )
+        default_fields = state.get("clarification_default_fields", ())
+        if default_fields:
+            assumptions = list(result.assumptions)
+            for field in default_fields:
+                if any(
+                    item.field == field
+                    and item.rule_id == f"clarification.default.{field}.v1"
+                    for item in assumptions
+                ):
+                    continue
+                value = getattr(result.constraints, field, None)
+                raw_value = (
+                    value.value.model_dump(mode="json")
+                    if value is not None and hasattr(value.value, "model_dump")
+                    else value.value if value is not None else None
+                )
+                assumptions.append(
+                    Assumption(
+                        field=field,
+                        value=raw_value,
+                        reason="用户选择使用该字段的系统默认值",
+                        rule_id=f"clarification.default.{field}.v1",
+                    )
+                )
+            result = result.model_copy(update={"assumptions": assumptions})
         return {"enrichment": result}
 
     def gate_node(state: EntryState) -> dict[str, object]:
@@ -335,7 +371,7 @@ def build_entry_graph(
             and _weather_condition_requests_planning(state["interpretation"])
         )
         return {
-            "question_decision": decision,
+            "question_decision": _prepare_question_decision(decision),
             "ready_for_planning": (
                 not decision.need_question
                 and (
@@ -381,23 +417,71 @@ def build_entry_graph(
         decision = state["question_decision"]
         if decision is None:
             raise ValueError("ask_question requires a QuestionDecision")
-        # interrupt 会保存当前节点位置和状态。API 下一次收到用户回答时，以
-        # Command(resume=...) 恢复同一个 checkpoint，进程重启后仍可继续。
-        answer = interrupt(
-            {
-                "field": decision.field,
-                "question": decision.question,
-                "severity": decision.severity,
-                "rule_id": decision.rule_id,
-            }
+        answer = interrupt(_question_payload(decision))
+        reply = _coerce_clarification_reply(answer, decision)
+        outcome = clarification_resolver.resolve(
+            pending_question=decision,
+            reply=reply,
+            base_interpretation=state["interpretation"],
         )
-        original = state["user_input"]
-        # 把原请求和补充答案一起重新抽取，避免在 Graph 中为每个待补字段实现
-        # 一套手工 merge 逻辑，也让真实 Router 和 DemoRouter 保持同一接口。
-        return {
-            "user_input": f"{original}\n用户补充：{answer}",
+        trace = _clarification_runtime_decision(decision, reply, outcome.status)
+        common: dict[str, object] = {
             "ready_for_planning": False,
+            "clarification_resolution": outcome.status.value,
+            "runtime_decisions": (
+                *state.get("runtime_decisions", ()),
+                trace,
+            ),
         }
+        if outcome.status == ClarificationResolution.UNRESOLVED:
+            common.update(
+                {
+                    "question_decision": outcome.question,
+                    "interpretation": outcome.interpretation,
+                }
+            )
+        elif outcome.status == ClarificationResolution.RESOLVED:
+            common.update(
+                {
+                    "question_decision": None,
+                    "interpretation": outcome.interpretation,
+                }
+            )
+        elif outcome.status == ClarificationResolution.USE_DEFAULT:
+            common.update(
+                {
+                    "question_decision": None,
+                    "interpretation": outcome.interpretation,
+                    "clarification_default_fields": (
+                        *state.get("clarification_default_fields", ()),
+                        outcome.defaulted_field,
+                    ),
+                }
+            )
+        elif outcome.status == ClarificationResolution.NEW_REQUEST:
+            common.update(
+                {
+                    "user_input": outcome.value or "",
+                    "interpretation": None,
+                    "enrichment": None,
+                    "question_decision": None,
+                    "candidate_set": None,
+                    "plan_diff": None,
+                    "plan_diffs": (),
+                    "clarification_default_fields": (),
+                }
+            )
+        else:
+            common.update(
+                {
+                    "question_decision": None,
+                    "interpretation": outcome.interpretation,
+                    "enrichment": None,
+                    "candidate_set": None,
+                    "clarification_default_fields": (),
+                }
+            )
+        return common
 
     graph = StateGraph(EntryState)
     graph.add_node("router", router_node)
@@ -419,13 +503,130 @@ def build_entry_graph(
         route_after_gate,
         {"ask_question": "ask_question", "planning": "planning", END: END},
     )
-    graph.add_edge("ask_question", "router")
+    graph.add_conditional_edges(
+        "ask_question",
+        route_after_clarification,
+        {
+            "enrichment": "enrichment",
+            "router": "router",
+            "ask_question": "ask_question",
+            END: END,
+        },
+    )
     graph.add_edge("planning", END)
     if checkpointer is None:
         checkpointer = MemorySaver(
             serde=checkpoint_serializer()
         )
     return graph.compile(checkpointer=checkpointer)
+
+
+def _prepare_question_decision(decision: QuestionDecision) -> QuestionDecision:
+    """Persist stable interruption metadata before entering ``interrupt``."""
+
+    if not decision.need_question:
+        return decision
+    clarification_id = decision.clarification_id or uuid.uuid4().hex
+    options = decision.options or _clarification_options(decision.field)
+    return decision.model_copy(
+        update={
+            "clarification_id": clarification_id,
+            "options": options,
+            "allow_free_text": decision.allow_free_text and decision.attempt < decision.max_attempts,
+        }
+    )
+
+
+def _clarification_options(field: str | None) -> tuple[ClarificationOption, ...]:
+    options: list[ClarificationOption] = []
+    if field in {"location", "date", "time_window", "max_distance_km", "total_distance_km", "party"}:
+        option_id = "use-default-location" if field == "location" else f"use-default-{field}"
+        label = "使用默认出发地" if field == "location" else "按系统默认处理"
+        options.append(
+            ClarificationOption(
+                id=option_id,
+                label=label,
+                action=ClarificationAction.USE_DEFAULT,
+            )
+        )
+    options.extend(
+        (
+            ClarificationOption(id="cancel", label="取消本轮", action=ClarificationAction.CANCEL),
+            ClarificationOption(id="new-request", label="开始新需求", action=ClarificationAction.NEW_REQUEST),
+        )
+    )
+    return tuple(options)
+
+
+def _question_payload(decision: QuestionDecision) -> dict[str, object]:
+    """Serialize only safe, bounded interruption data to the client."""
+
+    return {
+        "field": decision.field,
+        "question": decision.question,
+        "severity": decision.severity,
+        "rule_id": decision.rule_id,
+        "clarification_id": decision.clarification_id,
+        "attempt": decision.attempt,
+        "max_attempts": decision.max_attempts,
+        "allow_free_text": decision.allow_free_text,
+        "options": [item.model_dump(mode="json") for item in decision.options],
+    }
+
+
+def _coerce_clarification_reply(
+    answer: object,
+    decision: QuestionDecision,
+) -> ClarificationReply:
+    """Keep direct ``Command(resume="text")`` callers backwards compatible."""
+
+    if isinstance(answer, ClarificationReply):
+        return answer
+    if isinstance(answer, dict):
+        payload = dict(answer)
+        payload.setdefault("clarification_id", decision.clarification_id or "legacy")
+        payload.setdefault("action", ClarificationAction.ANSWER.value)
+        return ClarificationReply.model_validate(payload)
+    return ClarificationReply(
+        clarification_id=decision.clarification_id or "legacy",
+        action=ClarificationAction.ANSWER,
+        value=str(answer) if answer is not None else None,
+    )
+
+
+def route_after_clarification(state: EntryState) -> str:
+    status = state.get("clarification_resolution")
+    if status in {
+        ClarificationResolution.RESOLVED.value,
+        ClarificationResolution.USE_DEFAULT.value,
+    }:
+        return "enrichment"
+    if status == ClarificationResolution.NEW_REQUEST.value:
+        return "router"
+    if status == ClarificationResolution.UNRESOLVED.value:
+        return "ask_question"
+    return END
+
+
+def _clarification_runtime_decision(
+    decision: QuestionDecision,
+    reply: ClarificationReply,
+    status: ClarificationResolution,
+) -> RuntimeDecision:
+    """Record bounded clarification diagnostics without answer text."""
+
+    return RuntimeDecision(
+        stage="turn_interpreter",
+        adapter="clarification_resolver",
+        model_invoked=False,
+        model_name=None,
+        attempts=0,
+        fallback_reason=None,
+        diagnostic_code=f"clarification_{status.value}",
+        diagnostic_paths=((decision.field,) if decision.field else ()),
+        requested_mode=reply.action.value,
+        wire_schema_version="clarification.v1",
+    )
 
 
 def _weather_condition_requests_planning(interpretation: Interpretation) -> bool:
@@ -509,6 +710,9 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             StopType,
             WeatherFact,
             RuntimeDecision,
+            ClarificationAction,
+            ClarificationOption,
+            ClarificationReply,
             EvidenceRef,
             SemanticQuery,
             SemanticRequest,

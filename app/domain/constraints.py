@@ -68,6 +68,15 @@ class ConstraintSource(str, Enum):
     DEFAULT_RULE = "default_rule"
 
 
+class ClarificationAction(str, Enum):
+    """A bounded response to a currently pending clarification."""
+
+    ANSWER = "answer"
+    USE_DEFAULT = "use_default"
+    CANCEL = "cancel"
+    NEW_REQUEST = "new_request"
+
+
 class StopRole(str, Enum):
     """A semantic purpose fulfilled by one concrete itinerary stop."""
 
@@ -550,6 +559,26 @@ class EnrichmentResult(BaseModel):
     geocoding_fact: GeocodingFact | None = None
 
 
+class ClarificationOption(BaseModel):
+    """Backend-owned action presented by a field-scoped clarification card."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    action: ClarificationAction
+
+
+class ClarificationReply(BaseModel):
+    """A reply to one exact pending question, never a free-standing command."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    clarification_id: str = Field(min_length=1)
+    action: ClarificationAction
+    value: str | None = None
+
+
 class QuestionDecision(BaseModel):
     """Gate 的决策结果；``need_question=True`` 会触发 Graph interrupt。"""
     model_config = ConfigDict(extra="forbid")
@@ -562,3 +591,11 @@ class QuestionDecision(BaseModel):
     # question is presentation; callers should classify the decision by this
     # code instead of matching Chinese wording.
     rule_id: str = "question.none.v1"
+    # Additive interruption metadata.  Old checkpoints and non-interrupting
+    # modification questions remain readable because every field has a
+    # backwards-compatible default.
+    clarification_id: str | None = None
+    attempt: int = Field(default=0, ge=0, le=2)
+    max_attempts: int = Field(default=2, ge=0, le=2)
+    options: tuple[ClarificationOption, ...] = ()
+    allow_free_text: bool = True

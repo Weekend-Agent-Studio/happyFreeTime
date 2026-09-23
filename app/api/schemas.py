@@ -5,7 +5,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.constraints import ConstraintSource, ConversationCommand
+from app.domain.constraints import ClarificationReply, ConstraintSource, ConversationCommand
 from app.domain.runtime import RuntimeDecision
 
 
@@ -23,6 +23,7 @@ class MessageRequest(BaseModel):
 
     request_id: str = Field(min_length=8, max_length=64)
     content: str = Field(min_length=1, max_length=4000)
+    clarification_reply: ClarificationReply | None = None
     # Structured UI actions bypass semantic interpretation but still enter the
     # same Graph authorization and planning service.  It is additive so old
     # natural-language clients remain valid.

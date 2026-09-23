@@ -1131,6 +1131,120 @@ class ApiTest(unittest.TestCase):
             "NO_PLAN_WITHIN_STRICT_BUDGET",
         )
 
+    def test_blocking_question_exposes_options_and_accepts_scoped_reply(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩，别超预算")
+        body = first.json()["data"]
+        question = body["question"]
+        self.assertTrue(question["clarification_id"])
+        self.assertEqual(question["attempt"], 0)
+        self.assertIn("cancel", {item["id"] for item in question["options"]})
+
+        second = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "content": "人均200",
+                "clarification_reply": {
+                    "clarification_id": question["clarification_id"],
+                    "action": "answer",
+                    "value": "人均200",
+                },
+            },
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["data"]["status"], "completed")
+
+    def test_stale_clarification_reply_is_rejected_before_new_run(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩，别超预算")
+        question = first.json()["data"]["question"]
+        stale = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "content": "人均200",
+                "clarification_reply": {
+                    "clarification_id": "stale-clarification",
+                    "action": "answer",
+                    "value": "人均200",
+                },
+            },
+        )
+        self.assertEqual(stale.status_code, 409, stale.text)
+        restored = self._session_view(session_id)
+        self.assertEqual(
+            restored["latest_response"]["question"]["clarification_id"],
+            question["clarification_id"],
+        )
+
+    def test_clarification_can_be_cancelled_without_clearing_active_history(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩，别超预算")
+        question = first.json()["data"]["question"]
+        cancelled = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "content": "取消本轮",
+                "clarification_reply": {
+                    "clarification_id": question["clarification_id"],
+                    "action": "cancel",
+                },
+            },
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertEqual(cancelled.json()["data"]["status"], "completed")
+        self.assertIn("取消", cancelled.json()["data"]["reply"])
+
+    def test_sqlite_checkpoint_restores_pending_question_after_app_restart(self) -> None:
+        database_path = Path(self.temp_dir.name) / "clarification-restart.db"
+        with TestClient(
+            create_app(
+                database_path=database_path,
+                router=RuleRouter(),
+                environment_provider=lambda _: self.environment,
+                route_provider=FixedReplayRouteProvider(),
+            )
+        ) as first_client:
+            session_id = first_client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            first = first_client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "clarification-restart-001",
+                    "content": "今天下午出去玩，别超预算",
+                },
+            )
+            question = first.json()["data"]["question"]
+
+        with TestClient(
+            create_app(
+                database_path=database_path,
+                router=RuleRouter(),
+                environment_provider=lambda _: self.environment,
+                route_provider=FixedReplayRouteProvider(),
+            )
+        ) as restarted_client:
+            resumed = restarted_client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "clarification-restart-002",
+                    "content": "人均200",
+                    "clarification_reply": {
+                        "clarification_id": question["clarification_id"],
+                        "action": "answer",
+                        "value": "人均200",
+                    },
+                },
+            )
+        self.assertEqual(resumed.status_code, 200, resumed.text)
+        self.assertEqual(resumed.json()["data"]["status"], "completed")
+
     def test_other_user_cannot_read_or_write_the_session(self) -> None:
         session_id = self._create_session()
 
