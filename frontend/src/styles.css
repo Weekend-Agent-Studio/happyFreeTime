@@ -196,6 +196,14 @@ h2, h3, p { margin-top: 0; }
 .conflict-panel strong { font-size: 13px; }
 .conflict-panel div { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
 .conflict-panel button { min-height: 38px; color: #5b4920; background: rgba(255,255,255,.68); border: 0; border-radius: 10px; padding: 7px 10px; }
+.clarification-card { margin: 9px 0 0; padding: 14px; color: #24496d; background: rgba(238, 247, 255, .9); border: 1px solid rgba(65, 133, 202, .22); border-radius: 13px; }
+.clarification-card strong { font-size: 13px; }
+.clarification-card p { margin: 6px 0 0; padding: 0; color: #365778; background: transparent; box-shadow: none; font-size: 13px; }
+.clarification-card small { display: block; margin-top: 9px; color: #6a819a; font-size: 11px; }
+.clarification-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.clarification-options button { min-height: 36px; color: #2369ad; background: rgba(255,255,255,.86); border: 1px solid rgba(69,130,195,.3); border-radius: 10px; padding: 7px 11px; font-size: 12px; font-weight: 700; }
+.clarification-options button:disabled { opacity: .5; }
+.clarification-status { margin: 0 3px 7px; color: #35658e; font-size: 11px; font-weight: 700; }
 
 .rich-planning-reply { min-width: 0; margin-top: 10px; animation: replyReveal 600ms var(--ease-out) both; }
 @keyframes replyReveal { from { opacity: .55; clip-path: inset(0 0 12% 0 round 16px); filter: blur(6px); transform: translateY(12px); } to { opacity: 1; clip-path: inset(0 round 0); filter: blur(0); transform: translateY(0); } }

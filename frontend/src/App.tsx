@@ -43,6 +43,8 @@ import type {
   AgentResponse,
   Assumption,
   ChatMessage,
+  ClarificationOption,
+  ClarificationReply,
   ConversationCommand,
   ConstraintSummaryItem,
   Plan,
@@ -471,9 +473,10 @@ function App() {
   const [rightTab, setRightTab] = useState<InspectorTab>("trip");
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [newRequestMode, setNewRequestMode] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 900px)");
-  const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string; conversationCommand?: ConversationCommand } | null>(null);
+  const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string; conversationCommand?: ConversationCommand; clarificationReply?: ClarificationReply } | null>(null);
   const [replacementDraft, setReplacementDraft] = useState<ReplacementDraft | null>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -511,8 +514,9 @@ function App() {
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
       setResponse(restoredResponse);
       setInspectedResponse(restoredActiveResponse ?? restoredResponse);
-       setSelectedPlanId(restoredSelectedId);
+      setSelectedPlanId(restoredSelectedId);
        setReplacementDraft(null);
+      setNewRequestMode(false);
       const restoredViewedId = restoredSelectedId && restoredActiveResponse?.plans.some(
         (plan) => plan.plan_id === restoredSelectedId,
       )
@@ -532,6 +536,7 @@ function App() {
       setSelectedPlanId(null);
       setViewedPlanId(null);
       setReplacementDraft(null);
+      setNewRequestMode(false);
       setFocusedLegIndex(null);
       if (sessionIdFromUrl() === nextSessionId) updateSessionUrl(null, true);
       setError(reason instanceof Error ? reason.message : "会话恢复失败");
@@ -558,6 +563,7 @@ function App() {
         setSelectedPlanId(null);
         setViewedPlanId(null);
         setReplacementDraft(null);
+        setNewRequestMode(false);
         setFocusedLegIndex(null);
         setFailedRequest(null);
         setError("");
@@ -578,13 +584,22 @@ function App() {
     conversationEndRef.current?.scrollIntoView?.({ block: "end", behavior: loading ? "smooth" : "auto" });
   }, [loading, messages, restoring]);
 
-  async function submit(content: string, conversationCommand?: ConversationCommand) {
+  async function submit(content: string, conversationCommand?: ConversationCommand, clarificationReply?: ClarificationReply) {
     const trimmed = content.trim() || (
       replacementDraft
         ? `更换第 ${replacementDraft.stopIndex + 1} 站`
         : ""
     );
     if (!trimmed || loading || restoring) return;
+    const effectiveClarificationReply = clarificationReply ?? (
+      response?.question?.clarification_id && !conversationCommand
+        ? {
+            clarification_id: response.question.clarification_id,
+            action: newRequestMode ? "new_request" : "answer",
+            value: trimmed,
+          } satisfies ClarificationReply
+        : undefined
+    );
     setLoading(true);
     setError("");
     setInput("");
@@ -602,12 +617,15 @@ function App() {
         && failedRequest.content === trimmed
         && JSON.stringify(failedRequest.conversationCommand ?? null)
           === JSON.stringify(conversationCommand ?? null)
+        && JSON.stringify(failedRequest.clarificationReply ?? null)
+          === JSON.stringify(effectiveClarificationReply ?? null)
       );
       const requestId = isRetry ? failedRequest.requestId : crypto.randomUUID();
       if (!isRetry) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
-      setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand });
-      const nextResponse = await sendMessage(activeSession, trimmed, requestId, conversationCommand);
+      setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply });
+      const nextResponse = await sendMessage(activeSession, trimmed, requestId, conversationCommand, effectiveClarificationReply);
       setFailedRequest(null);
+      setNewRequestMode(false);
       setResponse(nextResponse);
       if (nextResponse.plans.length) {
         activePlanVersionIdRef.current = nextResponse.plan_version_id ?? null;
@@ -641,6 +659,24 @@ function App() {
       ? replacementCommandFromDraft(replacementDraft, replacementDraft.criteria, input)
       : undefined;
     void submit(input, command);
+  }
+
+  function onClarificationOption(option: ClarificationOption, question: NonNullable<AgentResponse["question"]>) {
+    if (!question.clarification_id || loading || restoring) return;
+    if (option.action === "new_request") {
+      setNewRequestMode(true);
+      setInput("");
+      return;
+    }
+    void submit(
+      option.label,
+      undefined,
+      {
+        clarification_id: question.clarification_id,
+        action: option.action,
+        value: null,
+      },
+    );
   }
 
   function resetSession() {
@@ -755,6 +791,7 @@ function App() {
               {messages.map((message) => <ChatBubble
                 key={message.id}
                 message={message}
+                loading={loading || restoring}
                 selectedPlan={message.response === detailResponse ? inspectorPlan : message.response?.plans[0]}
                 selectedPlanId={selectedPlanId}
                 showMobileDetails={Boolean(isMobile && !mobileDetailOpen && message.response === detailResponse)}
@@ -764,6 +801,7 @@ function App() {
                  onOpenRoute={(index) => message.response && openInspectorForResponse(message.response, "map", index)}
                  onReplaceStop={startReplacement}
                  onChooseConflict={setInput}
+                 onClarificationOption={(option) => message.response?.question && onClarificationOption(option, message.response.question)}
               />)}
               {loading ? <ThinkingRow /> : null}
               <div ref={conversationEndRef} aria-hidden="true" />
@@ -791,11 +829,12 @@ function App() {
               </div>
             </section>
           ) : null}
+          {response?.question ? <div className="clarification-status" role="status">{newRequestMode ? "正在输入新的规划需求" : `正在回答：${response.question.field ?? "待补充信息"}`}</div> : null}
           <form className="composer" onSubmit={onSubmit}>
-            <label className="sr-only" htmlFor="planning-input">{response?.question ? "补充这个信息后继续" : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
+            <label className="sr-only" htmlFor="planning-input">{response?.question ? (newRequestMode ? "输入新的规划需求" : "补充这个信息后继续") : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
             <div className="composer-row">
               <div className="composer-tools" aria-hidden="true"><Plus size={19} /><Compass size={18} /><Settings2 size={18} /></div>
-              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring} />
+              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={newRequestMode ? "描述新的规划需求……" : response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring} />
               <button type="submit" disabled={loading || restoring || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
             </div>
           </form>
@@ -868,8 +907,9 @@ function ButlerAvatar() {
   return <span className="butler-avatar" aria-hidden="true"><Compass size={18} /></span>;
 }
 
-function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onChooseConflict }: {
+function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onChooseConflict, onClarificationOption }: {
   message: ChatMessage;
+  loading: boolean;
   selectedPlan?: Plan;
   selectedPlanId: string | null;
   showMobileDetails: boolean;
@@ -879,6 +919,7 @@ function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, 
   onOpenRoute: (legIndex: number) => void;
   onReplaceStop: (plan: Plan, stopIndex: number) => void;
   onChooseConflict: (option: string) => void;
+  onClarificationOption: (option: ClarificationOption) => void;
 }) {
   return (
     <article className={`message ${message.role} ${message.response?.plans.length ? "rich-turn" : ""}`}>
@@ -886,6 +927,18 @@ function ChatBubble({ message, selectedPlan, selectedPlanId, showMobileDetails, 
       <div className="message-content">
         <span>{message.role === "user" ? "你" : "周末管家"}</span>
         {message.content ? <p>{message.content}</p> : null}
+        {message.response?.question?.options?.length ? (
+          <section className="clarification-card" role="group" aria-label="补充信息选项">
+            <strong>需要补充：{message.response.question.field ?? "相关信息"}</strong>
+            <p>{message.response.question.question}</p>
+            <div className="clarification-options">
+              {message.response.question.options.map((option) => (
+                <button type="button" key={option.id} disabled={loading} onClick={() => onClarificationOption(option)}>{option.label}</button>
+              ))}
+            </div>
+            {message.response.question.allow_free_text === false ? <small>请使用上面的选项继续，避免重复询问。</small> : <small>也可以在下方直接输入。</small>}
+          </section>
+        ) : null}
         {message.response?.conflict ? (
           <section className="conflict-panel" role="status">
             <strong>{message.response.conflict.message}</strong>

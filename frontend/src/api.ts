@@ -1,4 +1,4 @@
-import type { AgentResponse, ConversationCommand, SessionSummary, SessionView, WebMapConfig } from "./types";
+import type { AgentResponse, ClarificationReply, ConversationCommand, SessionSummary, SessionView, WebMapConfig } from "./types";
 
 // M1 使用固定 Demo 用户，但后端所有数据仍按 user_id 隔离。接入匿名身份或
 // 登录后，只需在这一层替换身份获取方式，业务组件不需要散落认证逻辑。
@@ -53,6 +53,7 @@ export async function sendMessage(
   content: string,
   requestId: string,
   conversationCommand?: ConversationCommand,
+  clarificationReply?: ClarificationReply,
 ): Promise<AgentResponse> {
   // 同一接口同时承载初始目标和反问答案；后端根据 checkpoint 判断语义。
   const response = await fetch(`/api/sessions/${sessionId}/messages`, {
@@ -62,6 +63,7 @@ export async function sendMessage(
       request_id: requestId,
       content,
       ...(conversationCommand ? { conversation_command: conversationCommand } : {}),
+      ...(clarificationReply ? { clarification_reply: clarificationReply } : {}),
     }),
   });
   const body = await readJson<{ data: AgentResponse }>(response);

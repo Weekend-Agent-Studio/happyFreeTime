@@ -700,6 +700,74 @@ describe("planning workspace", () => {
     expect(screen.getByText("已选择这个方案")).toBeInTheDocument();
   });
 
+  it("renders backend clarification options and sends a scoped default action", async () => {
+    const user = userEvent.setup();
+    const questionResponse: AgentResponse = {
+      ...response,
+      status: "needs_input",
+      reply: "",
+      plans: [],
+      question: {
+        field: "location",
+        question: "我还不能确定这个位置，能提供更具体的地点或地标吗？",
+        severity: "blocking",
+        clarification_id: "clarification-location-1",
+        attempt: 0,
+        max_attempts: 2,
+        allow_free_text: true,
+        options: [
+          { id: "use-default-location", label: "使用默认出发地", action: "use_default" },
+          { id: "cancel", label: "取消本轮", action: "cancel" },
+          { id: "new-request", label: "开始新需求", action: "new_request" },
+        ],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(questionResponse).mockResolvedValueOnce(response);
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "去一个不确定的地方");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("group", { name: "补充信息选项" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "使用默认出发地" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
+      clarification_id: "clarification-location-1",
+      action: "use_default",
+      value: null,
+    });
+  });
+
+  it("lets a pending clarification switch into an explicit new request", async () => {
+    const user = userEvent.setup();
+    const questionResponse: AgentResponse = {
+      ...response,
+      status: "needs_input",
+      reply: "",
+      plans: [],
+      question: {
+        field: "location",
+        question: "请补充地点",
+        severity: "blocking",
+        clarification_id: "clarification-location-2",
+        options: [{ id: "new-request", label: "开始新需求", action: "new_request" }],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(questionResponse).mockResolvedValueOnce(response);
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "原始需求");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("button", { name: "开始新需求" });
+    await user.click(screen.getByRole("button", { name: "开始新需求" }));
+    await user.type(screen.getByPlaceholderText("描述新的规划需求……"), "今天下午去看展");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
+      clarification_id: "clarification-location-2",
+      action: "new_request",
+      value: "今天下午去看展",
+    });
+  });
+
   it("clears the selection when a new plan version is generated", async () => {
     const user = userEvent.setup();
     api.sendMessage

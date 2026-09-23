@@ -284,11 +284,35 @@ export type ConversationCommand = {
   replacement_criteria: ReplacementCriterion[];
 };
 
+export type ClarificationAction = "answer" | "use_default" | "cancel" | "new_request";
+
+export type ClarificationOption = {
+  id: string;
+  label: string;
+  action: ClarificationAction;
+};
+
+export type ClarificationReply = {
+  clarification_id: string;
+  action: ClarificationAction;
+  value?: string | null;
+};
+
 export type AgentResponse = {
   /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
   status: "completed" | "needs_input";
   reply: string;
-  question: { field: string; question: string; severity: string } | null;
+  question: {
+    field: string | null;
+    question: string;
+    severity: string;
+    rule_id?: string;
+    clarification_id?: string | null;
+    attempt?: number;
+    max_attempts?: number;
+    allow_free_text?: boolean;
+    options?: ClarificationOption[];
+  } | null;
   assumptions: Assumption[];
   constraint_summary: ConstraintSummaryItem[];
   plans: Plan[];
