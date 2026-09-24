@@ -34,6 +34,7 @@ from app.domain.constraints import (
     Intent,
     Interpretation,
     NormalizedConstraints,
+    PendingModification,
     QuestionDecision,
     RouteObjective,
     SemanticCriterion,
@@ -99,6 +100,7 @@ from app.services.candidate_retriever import CandidateRetriever
 from app.services.planning_intent import PlanningIntentProvider
 from app.services.question_gate import GateContext, NeedQuestionGate
 from app.services.clarification import ClarificationResolution, ClarificationResolver
+from app.services.constraint_patch import ConstraintPatchCompiler
 from app.services.router_extractor import RouterContext
 
 
@@ -136,6 +138,9 @@ class EntryState(TypedDict, total=False):
     runtime_decisions: tuple[RuntimeDecision, ...]
     clarification_default_fields: tuple[str, ...]
     clarification_resolution: str | None
+    pending_modification: PendingModification | None
+    planning_constraints: NormalizedConstraints | None
+    mutation_kind: str | None
 
 
 EnvironmentProvider = Callable[[ActorContext], EnvironmentContext]
@@ -162,6 +167,9 @@ def build_entry_graph(
     enrichment_service = EnrichmentService(geocoding_provider=geocoding_provider)
     question_gate = NeedQuestionGate()
     clarification_resolver = ClarificationResolver()
+    constraint_patch_compiler = ConstraintPatchCompiler(
+        geocoding_provider=geocoding_provider,
+    )
     planning_service = PlanningService(
         weather_provider=weather_provider,
         route_provider=route_provider,
@@ -182,13 +190,19 @@ def build_entry_graph(
             interpretation = Interpretation(
                 primary_intent=(
                     Intent.REFINE_PLAN
-                    if structured_command.operation == CommandOperation.REPLACE
+                    if structured_command.operation in {
+                        CommandOperation.REPLACE,
+                        CommandOperation.PATCH_CONSTRAINTS,
+                    }
                     else Intent.CLARIFY
                 ),
                 intent_scores={
                     (
                         Intent.REFINE_PLAN
-                        if structured_command.operation == CommandOperation.REPLACE
+                        if structured_command.operation in {
+                            CommandOperation.REPLACE,
+                            CommandOperation.PATCH_CONSTRAINTS,
+                        }
                         else Intent.CLARIFY
                     ): 1.0
                 },
@@ -243,6 +257,9 @@ def build_entry_graph(
             "runtime_decisions": (runtime_decision,),
             "clarification_default_fields": (),
             "clarification_resolution": None,
+            "pending_modification": None,
+            "planning_constraints": None,
+            "mutation_kind": None,
         }
 
     def route_after_router(state: EntryState) -> str:
@@ -257,8 +274,13 @@ def build_entry_graph(
         ):
             return "enrichment"
         command = state["interpretation"].conversation_command
+        if command is not None and command.operation == CommandOperation.PATCH_CONSTRAINTS:
+            return "compile_patch"
         if intent == Intent.REFINE_PLAN or (
-            command is not None and command.operation == CommandOperation.REPLACE
+            command is not None
+            and command.operation in {
+                CommandOperation.REPLACE,
+            }
         ):
             return "modify_plan"
         return "enrichment"
@@ -267,13 +289,37 @@ def build_entry_graph(
         interpretation = state["interpretation"]
         command = interpretation.conversation_command
         if command is None or command.operation != CommandOperation.REPLACE:
-            return {
-                "modification_question": QuestionDecision(
+            if interpretation.target_reference:
+                question = _prepare_question_decision(
+                    QuestionDecision(
+                        need_question=True,
+                        field="target_reference",
+                        question="要替换哪一站？可以输入“活动”“晚餐”或“第二站”。",
+                        severity="blocking",
+                        rule_id="question.target_reference.v1",
+                    )
+                )
+                return {
+                    "modification_question": question,
+                    "question_decision": question,
+                    "pending_modification": PendingModification(
+                        target_raw_text=interpretation.target_reference,
+                        evidence=interpretation.evidence_map,
+                    ),
+                }
+            question = _prepare_question_decision(
+                QuestionDecision(
                     need_question=True,
                     field="conversation_command",
-                    question="请明确要保留哪一站，以及要替换哪一站。",
+                    question="要替换哪一站？可以输入“活动”“晚餐”或“第二站”。",
                     severity="blocking",
+                    rule_id="question.target_reference.v1",
                 )
+            )
+            return {
+                "modification_question": question,
+                "question_decision": question,
+                "pending_modification": PendingModification(),
             }
         selected_plan = state.get("selected_plan")
         active_constraints = state.get("active_constraints")
@@ -300,11 +346,24 @@ def build_entry_graph(
             constraints=active_constraints,
             command=command,
         )
+        question = outcome.question
+        prepared_question = _prepare_question_decision(question) if question is not None else None
+        pending = None
+        if prepared_question is not None and prepared_question.field in {"target_reference", "locked_stop"}:
+            pending = PendingModification(
+                target_raw_text=command.target.raw_text if command.target else None,
+                locked_targets=command.locked_targets,
+                constraint_patch=command.constraint_patch,
+                replacement_criteria=command.replacement_criteria,
+                evidence=command.evidence,
+            )
         return {
             "candidate_set": outcome.candidate_set,
             "plan_diff": outcome.plan_diff,
             "plan_diffs": outcome.plan_diffs,
-            "modification_question": outcome.question,
+            "modification_question": prepared_question,
+            "question_decision": prepared_question,
+            "pending_modification": pending,
             "runtime_decisions": (
                 *state.get("runtime_decisions", ()),
                 outcome.runtime_decision,
@@ -317,6 +376,64 @@ def build_entry_graph(
                     else ()
                 ),
             ),
+        }
+
+    def compile_patch_node(state: EntryState) -> dict[str, object]:
+        """Compile one PATCH_CONSTRAINTS proposal before re-entering planning."""
+        command = state["interpretation"].conversation_command
+        active_constraints = state.get("active_constraints")
+        if command is None or command.operation != CommandOperation.PATCH_CONSTRAINTS:
+            raise ValueError("compile_patch requires PATCH_CONSTRAINTS")
+        if active_constraints is None:
+            question = _prepare_question_decision(
+                QuestionDecision(
+                    need_question=True,
+                    field="active_plan_version_id",
+                    continuation="patch_constraints",
+                    question="当前方案缺少可恢复的约束快照，请重新生成并选择方案。",
+                    severity="blocking",
+                    rule_id="question.patch.active_constraints.v1",
+                )
+            )
+            return {
+                "modification_question": question,
+                "question_decision": question,
+                "pending_modification": PendingModification(
+                    operation="patch_constraints",
+                    constraint_patch=command.constraint_patch,
+                    evidence=command.evidence,
+                ),
+            }
+        actor = state["actor"]
+        result = constraint_patch_compiler.compile(
+            base=active_constraints,
+            proposal=command.constraint_patch,
+            actor=actor,
+            environment=environment_provider(actor),
+        )
+        if result.question is not None:
+            prepared = _prepare_question_decision(result.question)
+            return {
+                "modification_question": prepared,
+                "question_decision": prepared,
+                "pending_modification": PendingModification(
+                    operation="patch_constraints",
+                    constraint_patch=command.constraint_patch,
+                    evidence=command.evidence,
+                ),
+            }
+        if result.conflict is not None:
+            return {
+                "candidate_set": CandidateSet(conflict=result.conflict),
+                "mutation_kind": "constraint_patch_conflict",
+                "modification_question": None,
+                "question_decision": None,
+            }
+        return {
+            "planning_constraints": result.updated_constraints,
+            "mutation_kind": "constraint_patch",
+            "modification_question": None,
+            "question_decision": None,
         }
 
     def enrichment_node(state: EntryState) -> dict[str, object]:
@@ -390,8 +507,9 @@ def build_entry_graph(
         return END
 
     def planning_node(state: EntryState) -> dict[str, object]:
-        candidate_set = planning_service.plan(state["enrichment"].constraints)
-        geocoding_fact = state["enrichment"].geocoding_fact
+        constraints = state.get("planning_constraints") or state["enrichment"].constraints
+        candidate_set = planning_service.plan(constraints)
+        geocoding_fact = state["enrichment"].geocoding_fact if state.get("enrichment") else None
         if geocoding_fact is not None:
             candidate_set = candidate_set.model_copy(
                 update={"provider_facts": [geocoding_fact, *candidate_set.provider_facts]}
@@ -423,6 +541,7 @@ def build_entry_graph(
             pending_question=decision,
             reply=reply,
             base_interpretation=state["interpretation"],
+            pending_modification=state.get("pending_modification"),
         )
         trace = _clarification_runtime_decision(decision, reply, outcome.status)
         common: dict[str, object] = {
@@ -447,6 +566,15 @@ def build_entry_graph(
                     "interpretation": outcome.interpretation,
                 }
             )
+        elif outcome.status == ClarificationResolution.MODIFICATION_RESOLVED:
+            common.update(
+                {
+                    "question_decision": None,
+                    "interpretation": outcome.interpretation,
+                    "pending_modification": None,
+                    "modification_question": None,
+                }
+            )
         elif outcome.status == ClarificationResolution.USE_DEFAULT:
             common.update(
                 {
@@ -469,6 +597,8 @@ def build_entry_graph(
                     "plan_diff": None,
                     "plan_diffs": (),
                     "clarification_default_fields": (),
+                    "pending_modification": None,
+                    "planning_constraints": None,
                 }
             )
         else:
@@ -479,12 +609,15 @@ def build_entry_graph(
                     "enrichment": None,
                     "candidate_set": None,
                     "clarification_default_fields": (),
+                    "pending_modification": None,
+                    "modification_question": None,
                 }
             )
         return common
 
     graph = StateGraph(EntryState)
     graph.add_node("router", router_node)
+    graph.add_node("compile_patch", compile_patch_node)
     graph.add_node("modify_plan", modify_plan_node)
     graph.add_node("enrichment", enrichment_node)
     graph.add_node("gate", gate_node)
@@ -494,9 +627,23 @@ def build_entry_graph(
     graph.add_conditional_edges(
         "router",
         route_after_router,
-        {"enrichment": "enrichment", "modify_plan": "modify_plan", END: END},
+        {
+            "enrichment": "enrichment",
+            "compile_patch": "compile_patch",
+            "modify_plan": "modify_plan",
+            END: END,
+        },
     )
-    graph.add_edge("modify_plan", END)
+    graph.add_conditional_edges(
+        "compile_patch",
+        route_after_patch,
+        {"ask_question": "ask_question", "planning": "planning", END: END},
+    )
+    graph.add_conditional_edges(
+        "modify_plan",
+        route_after_modify,
+        {"ask_question": "ask_question", "planning": "planning", END: END},
+    )
     graph.add_edge("enrichment", "gate")
     graph.add_conditional_edges(
         "gate",
@@ -509,6 +656,8 @@ def build_entry_graph(
         {
             "enrichment": "enrichment",
             "router": "router",
+            "compile_patch": "compile_patch",
+            "modify_plan": "modify_plan",
             "ask_question": "ask_question",
             END: END,
         },
@@ -549,6 +698,14 @@ def _clarification_options(field: str | None) -> tuple[ClarificationOption, ...]
                 action=ClarificationAction.USE_DEFAULT,
             )
         )
+    if field == "constraint_patch":
+        options.extend(
+            (
+                ClarificationOption(id="patch-time", label="调整时间", action=ClarificationAction.ANSWER),
+                ClarificationOption(id="patch-budget", label="调整预算", action=ClarificationAction.ANSWER),
+                ClarificationOption(id="patch-location", label="调整地点", action=ClarificationAction.ANSWER),
+            )
+        )
     options.extend(
         (
             ClarificationOption(id="cancel", label="取消本轮", action=ClarificationAction.CANCEL),
@@ -570,6 +727,7 @@ def _question_payload(decision: QuestionDecision) -> dict[str, object]:
         "attempt": decision.attempt,
         "max_attempts": decision.max_attempts,
         "allow_free_text": decision.allow_free_text,
+        "continuation": decision.continuation,
         "options": [item.model_dump(mode="json") for item in decision.options],
     }
 
@@ -601,9 +759,36 @@ def route_after_clarification(state: EntryState) -> str:
         ClarificationResolution.USE_DEFAULT.value,
     }:
         return "enrichment"
+    if status == ClarificationResolution.MODIFICATION_RESOLVED.value:
+        command = state.get("interpretation").conversation_command if state.get("interpretation") else None
+        if command is not None and command.operation == CommandOperation.PATCH_CONSTRAINTS:
+            return "compile_patch"
+        return "modify_plan"
     if status == ClarificationResolution.NEW_REQUEST.value:
         return "router"
     if status == ClarificationResolution.UNRESOLVED.value:
+        return "ask_question"
+    return END
+
+
+def route_after_patch(state: EntryState) -> str:
+    if state.get("mutation_kind") == "constraint_patch":
+        return "planning"
+    if state.get("mutation_kind") == "constraint_patch_conflict":
+        return END
+    question = state.get("modification_question")
+    if question is not None and question.need_question:
+        return "ask_question"
+    return END
+
+
+def route_after_modify(state: EntryState) -> str:
+    """Only incomplete mutations enter the interrupt/resume path."""
+    question = state.get("modification_question")
+    if question is not None and question.need_question and (
+        question.field in {"target_reference", "locked_stop", "constraint_patch"}
+        or question.continuation == "patch_constraints"
+    ):
         return "ask_question"
     return END
 
@@ -677,6 +862,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             CriterionStrength,
             ConversationCommand,
             NormalizedConstraints,
+            PendingModification,
             LockedStop,
             Plan,
             PlanDiff,

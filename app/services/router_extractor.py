@@ -211,6 +211,13 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
   locked_targets 中使用 resource_type=restaurant，constraint_patch.prefer_shorter_travel=true。
   只保留用户语言引用，不猜测 resource_id；若无法确定 role、resource_type 或 stop_index，
   仍可只填写 target.raw_text，有限解析和对象锁定由 Harness 完成，无法唯一解析时由系统反问。
+- 当会话已有 active plan 且用户是在补充“最晚几点回家、预算、少辣、安静”等约束时，
+  输出 operation=patch_constraints，不要重新生成 create command；只填写
+  constraint_patch 中对应的原始文本或偏好数组（date_text、time_window_text、
+  departure_at_text、return_by_text、location_text、budget_text、距离文本、
+  preferences/diet_tags/avoid、必要时 clear_fields）。该命令由 Harness 基于 active
+  constraints 重新规划，模型不得输出规范化日期、坐标、路线或资源事实；不要为了
+  “补充”而输出 replace，只有明确指出要替换某一站时才使用 replace。
 - “严格控制预算”“千万别超预算”等表达令 strict_budget=true；只有明确金额才填写 budget_per_person。
 - 只有用户明确要求“确认有位”“必须可预约”等动态库存确认时，才填写
   require_availability_confirmation=true；普通的“想去某餐厅/景点”保持 false。
@@ -599,12 +606,18 @@ def _compile_llm_interpretation_proposal(
         proposal.conversation_command,
         primary_intent=proposal.primary_intent,
     )
+    unresolved_target = None
+    if command is None and proposal.conversation_command is not None:
+        target = proposal.conversation_command.target
+        if target is not None:
+            unresolved_target = target.raw_text
     return _ProposalCompileResult(
         interpretation=Interpretation(
             primary_intent=proposal.primary_intent,
             intent_scores={proposal.primary_intent: 1.0},
             raw_constraints=proposal.raw_constraints,
             selected_plan_index=proposal.selected_plan_index,
+            target_reference=unresolved_target,
             conversation_command=command,
             extraction_confidence={},
             evidence_map=dict(proposal.evidence_map),

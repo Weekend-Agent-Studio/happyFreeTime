@@ -286,14 +286,19 @@ def create_app(
         # not enter this boundary check.
         if (
             request.conversation_command is not None
-            and request.conversation_command.operation == CommandOperation.REPLACE
+            and request.conversation_command.operation in {
+                CommandOperation.REPLACE,
+                CommandOperation.PATCH_CONSTRAINTS,
+            }
         ):
             command = request.conversation_command
             session_snapshot = repository.get_session_snapshot(
                 x_user_id,
                 session_id,
             )
-            if command.base_plan_version_id is None or command.base_plan_id is None:
+            if command.base_plan_version_id is None or (
+                command.operation == CommandOperation.REPLACE and command.base_plan_id is None
+            ):
                 raise HTTPException(
                     status_code=409,
                     detail=(
@@ -310,7 +315,10 @@ def create_app(
                     status_code=409,
                     detail="修改请求基于的方案版本已不是当前 active 版本",
                 )
-            if command.base_plan_id != session_snapshot.selected_plan_id:
+            if (
+                command.operation == CommandOperation.REPLACE
+                and command.base_plan_id != session_snapshot.selected_plan_id
+            ):
                 raise HTTPException(
                     status_code=409,
                     detail="修改请求基于的方案已不是当前 selected 方案",
@@ -359,9 +367,15 @@ def create_app(
                 )
                 if request.conversation_command is not None:
                     command = request.conversation_command
-                    if command.operation == CommandOperation.REPLACE and (
+                    if command.operation in {
+                        CommandOperation.REPLACE,
+                        CommandOperation.PATCH_CONSTRAINTS,
+                    } and (
                         command.base_plan_version_id is None
-                        or command.base_plan_id is None
+                        or (
+                            command.operation == CommandOperation.REPLACE
+                            and command.base_plan_id is None
+                        )
                     ):
                         raise HTTPException(
                             status_code=409,
@@ -497,9 +511,10 @@ def create_app(
             plans = candidate_set.plans if candidate_set else []
             conflict = candidate_set.conflict if candidate_set else None
             effective_constraints = (
-                result["enrichment"].constraints
+                result.get("planning_constraints")
+                or (result["enrichment"].constraints
                 if result.get("enrichment") is not None
-                else result.get("active_constraints")
+                else result.get("active_constraints"))
             )
             if plans:
                 reply = present_candidate_set(
@@ -524,7 +539,7 @@ def create_app(
             )
             supersedes_version_id = (
                 result.get("active_plan_version_id")
-                if plans and plan_diffs
+                if plans and (plan_diffs or result.get("mutation_kind") == "constraint_patch")
                 else None
             )
             if plan_diffs and plan_version_id is not None:
@@ -766,7 +781,11 @@ def _modification_reply(plan_diffs: list) -> str:
 def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
     """把规划实际使用的约束转换成稳定的前端摘要。"""
     enrichment = result.get("enrichment")
-    constraints = enrichment.constraints if enrichment is not None else result.get("active_constraints")
+    constraints = (
+        result.get("planning_constraints")
+        or (enrichment.constraints if enrichment is not None else None)
+        or result.get("active_constraints")
+    )
     if constraints is None:
         return []
     summary = []

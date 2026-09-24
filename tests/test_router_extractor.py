@@ -230,6 +230,23 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertIsNone(runtime.fallback_reason)
         self.assertEqual(runtime.diagnostic_code, "command_ignored_for_plan")
 
+    def test_patch_constraints_command_compiles_without_target(self) -> None:
+        proposal = LlmInterpretationProposal.model_validate(
+            {
+                "primary_intent": "refine_plan",
+                "conversation_command": {
+                    "operation": "patch_constraints",
+                    "constraint_patch": {
+                        "return_by_text": "19:00 前回家",
+                        "preferences": ["安静"],
+                    },
+                },
+            }
+        )
+        compiled = compile_llm_interpretation_proposal(proposal)
+        self.assertEqual(compiled.conversation_command.operation.value, "patch_constraints")
+        self.assertEqual(compiled.conversation_command.constraint_patch.return_by_text, "19:00 前回家")
+
     def test_plain_date_evidence_compiles_without_model_confidence(self) -> None:
         proposal = LlmInterpretationProposal.model_validate(
             {

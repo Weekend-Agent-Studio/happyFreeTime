@@ -7,17 +7,25 @@ from langgraph.types import Command
 from app.domain.constraints import (
     ActorContext,
     ClarificationAction,
+    CommandOperation,
+    ConstraintPatch,
+    ConversationCommand,
     GeoLocation,
     IdentityType,
     Intent,
     Interpretation,
     RawConstraints,
+    StopRole,
 )
-from app.orchestration.entry_graph import build_entry_graph
+from app.orchestration.entry_graph import (
+    build_entry_graph,
+)
 from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext
 from app.providers.geocoding import MockGeocodingProvider
+from app.services.catalog import InMemoryCatalog
 from app.services.router_extractor import RouterContext
+from tests.test_planning import planning_constraints
 
 
 class FollowUpRouter:
@@ -62,6 +70,98 @@ class ExplicitLocationRouter:
 
 
 class EntryGraphTest(unittest.TestCase):
+    def test_active_plan_time_supplement_is_not_misclassified_as_replacement(self) -> None:
+        interpretation = DemoRouter().interpret(
+            "补充一下，想玩一整天",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                has_plans=True,
+            ),
+        )
+        self.assertIsNotNone(interpretation.conversation_command)
+        self.assertEqual(
+            interpretation.conversation_command.operation.value,
+            "patch_constraints",
+        )
+        self.assertEqual(
+            interpretation.conversation_command.constraint_patch.time_window_text,
+            "补充一下，想玩一整天",
+        )
+
+    def test_role_preservation_diet_request_stays_replacement(self) -> None:
+        interpretation = DemoRouter().interpret(
+            "活动保留，晚餐希望少辣",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                has_plans=True,
+                has_selected_plan=True,
+            ),
+        )
+        command = interpretation.conversation_command
+        self.assertIsNotNone(command)
+        self.assertEqual(command.operation, CommandOperation.REPLACE)
+        self.assertEqual(command.target.role, StopRole.DINNER)
+        self.assertEqual(command.locked_targets[0].role, StopRole.ACTIVITY)
+
+    def test_patch_question_resumes_into_compiler_without_reasking(self) -> None:
+        class PatchRouter:
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.REFINE_PLAN,
+                    intent_scores={Intent.REFINE_PLAN: 1.0},
+                    conversation_command=ConversationCommand(
+                        operation=CommandOperation.PATCH_CONSTRAINTS,
+                        constraint_patch=ConstraintPatch(departure_at_text="早上出门吧"),
+                    ),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-patch-resume",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=PatchRouter(),
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog([]),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {
+                "user_input": "改成早上出发",
+                "actor": actor,
+                "has_plans": True,
+                "active_constraints": planning_constraints(),
+            },
+            config=config,
+        )
+        question = first["__interrupt__"][0].value
+        self.assertEqual(question["field"], "departure_at")
+        self.assertEqual(question["continuation"], "patch_constraints")
+
+        resumed = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": "answer",
+                    "value": "早上九点",
+                }
+            ),
+            config=config,
+        )
+        self.assertNotIn("__interrupt__", resumed)
+        self.assertEqual(resumed["planning_constraints"].departure_at.value, "09:00")
+
     def test_refine_plan_without_resolved_command_asks_without_planning(self) -> None:
         class UnresolvedModificationRouter:
             def interpret(

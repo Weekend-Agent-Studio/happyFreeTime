@@ -18,6 +18,7 @@ from app.domain.constraints import (
 )
 from app.domain.runtime import RuntimeDecision
 from app.services.enrichment import TemporalCompiler
+from app.services.constraint_patch import ConstraintPatchCompiler
 from app.services.router_extractor import RouterContext
 
 
@@ -112,8 +113,82 @@ class DemoRouter:
                 ),
             )
 
-        # 反问答案会与原问题拼成一段文本重新进入 Router，因此正则可以同时
-        # 处理初始请求和“用户补充：人均300”这种恢复后的输入。
+        if (
+            context.has_selected_plan
+            and "活动保留" in text
+            and any(value in text for value in ("晚餐", "晚饭"))
+            and any(value in text for value in ("少辣", "清淡"))
+        ):
+            return Interpretation(
+                primary_intent=Intent.REFINE_PLAN,
+                intent_scores={Intent.REFINE_PLAN: 1.0},
+                conversation_command=ConversationCommand(
+                    operation=CommandOperation.REPLACE,
+                    target=TargetReference(role=StopRole.DINNER, raw_text="晚餐"),
+                    locked_targets=(TargetReference(role=StopRole.ACTIVITY, raw_text="活动"),),
+                    constraint_patch=ConstraintPatch(
+                        diet_tags=("少辣" if "少辣" in text else "清淡",),
+                    ),
+                    evidence={"replace": "晚餐", "keep": "活动"},
+                ),
+            )
+
+        # A follow-up that adds a constraint to the selected plan is compiled
+        # by the same bounded proposal adapter used by the patch compiler.  No
+        # Graph or clarification service scans the message independently.
+        patch = ConstraintPatchCompiler.proposal_from_text(
+            text,
+            has_plans=context.has_plans,
+        )
+        if patch is not None:
+            return Interpretation(
+                primary_intent=Intent.REFINE_PLAN,
+                intent_scores={Intent.REFINE_PLAN: 1.0},
+                conversation_command=ConversationCommand(
+                    operation=CommandOperation.PATCH_CONSTRAINTS,
+                    constraint_patch=patch,
+                    evidence={"patch": text},
+                ),
+            )
+
+        # Unresolved natural-language replacement enters the same field-level
+        # clarification flow as a Gate question. Keep only the raw target.
+        if context.has_selected_plan and any(marker in text for marker in ("换", "替换", "更换")):
+            raw_target = next(
+                (value for value in ("活动", "晚餐", "晚饭", "午饭", "餐厅", "那个地方", "那一站") if value in text),
+                "那个地方",
+            )
+            target_aliases = {
+                "活动": TargetReference(role=StopRole.ACTIVITY, raw_text=raw_target),
+                "晚餐": TargetReference(role=StopRole.DINNER, raw_text=raw_target),
+                "晚饭": TargetReference(role=StopRole.DINNER, raw_text=raw_target),
+                "午饭": TargetReference(role=StopRole.LUNCH, raw_text=raw_target),
+                "餐厅": TargetReference(resource_type=ResourceType.RESTAURANT, raw_text=raw_target),
+            }
+            target = target_aliases.get(raw_target)
+            if target is not None:
+                return Interpretation(
+                    primary_intent=Intent.REFINE_PLAN,
+                    intent_scores={Intent.REFINE_PLAN: 1.0},
+                    conversation_command=ConversationCommand(
+                        operation=CommandOperation.REPLACE,
+                        target=target,
+                        constraint_patch=ConstraintPatch(
+                            prefer_shorter_travel=any(value in text for value in ("近一点", "近点", "更近")),
+                        ),
+                        evidence={"target": raw_target},
+                    ),
+                )
+            return Interpretation(
+                primary_intent=Intent.REFINE_PLAN,
+                intent_scores={Intent.REFINE_PLAN: 1.0},
+                target_reference=raw_target,
+                evidence_map={"target": raw_target},
+                requires_clarification=True,
+            )
+
+        # 普通创建请求仍由这一组有限规则抽取；字段级反问恢复不会把答案
+        # 拼回这里，而是由 ClarificationResolver 直接投影到待补字段。
         budget_match = re.search(
             r"(?:人均|每人)\s*"
             r"(?:(?:最多|不超过|至多|不超|严格控制在|控制在|约|大约)\s*)?"

@@ -126,6 +126,7 @@ class CommandOperation(str, Enum):
     SELECT = "select"
     KEEP = "keep"
     REPLACE = "replace"
+    PATCH_CONSTRAINTS = "patch_constraints"
     UNSUPPORTED = "unsupported"
 
 
@@ -156,11 +157,29 @@ class TargetReference(BaseModel):
 
 
 class ConstraintPatch(BaseModel):
-    """The small, explicit modification vocabulary supported by Resume V1."""
+    """The bounded mutation vocabulary used by replacement and plan patches.
+
+    The wire adapter may carry raw user-language values here.  It must not
+    manufacture normalized dates, route facts, or resource ids; the planner
+    resolves these values against the active session constraints.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     prefer_shorter_travel: bool = False
+    date_text: str | None = None
+    return_by_text: str | None = None
+    departure_at_text: str | None = None
+    time_window_text: str | None = None
+    location_text: str | None = None
+    budget_text: str | None = None
+    max_distance_text: str | None = None
+    total_distance_text: str | None = None
+    strict_budget: bool | None = None
+    preferences: tuple[str, ...] = ()
+    diet_tags: tuple[str, ...] = ()
+    avoid: tuple[str, ...] = ()
+    clear_fields: tuple[str, ...] = ()
 
 
 class CriterionStrength(str, Enum):
@@ -225,6 +244,25 @@ class ConversationCommand(BaseModel):
                 "replace command requires a target",
             )
         return self
+
+
+class PendingModification(BaseModel):
+    """Safe checkpoint payload for an incomplete natural-language mutation.
+
+    The model may have identified a replacement request without identifying a
+    unique target.  Keeping only the bounded proposal fields here lets the
+    next answer complete the same command without sending the whole history
+    back through the Router.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: Literal["replace", "patch_constraints"] = "replace"
+    target_raw_text: str | None = None
+    locked_targets: tuple[TargetReference, ...] = ()
+    constraint_patch: ConstraintPatch = Field(default_factory=ConstraintPatch)
+    replacement_criteria: tuple[ReplacementCriterion, ...] = ()
+    evidence: dict[str, str] = Field(default_factory=dict)
 
 
 def effective_replacement_criteria(
@@ -599,3 +637,7 @@ class QuestionDecision(BaseModel):
     max_attempts: int = Field(default=2, ge=0, le=2)
     options: tuple[ClarificationOption, ...] = ()
     allow_free_text: bool = True
+    # The continuation identifies the deterministic compiler to resume.  It
+    # is intentionally separate from ``field`` so old checkpoints remain
+    # readable while patch questions can name the actual missing field.
+    continuation: str | None = None

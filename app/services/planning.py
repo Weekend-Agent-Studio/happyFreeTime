@@ -31,6 +31,7 @@ from app.domain.constraints import (
     StopRole,
     TargetReference,
     TimeScope,
+    TimeWindow,
 )
 from app.domain.planning import (
     CandidateSet,

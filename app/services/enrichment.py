@@ -79,6 +79,7 @@ class TemporalCompiler:
         ("后晚", TimeScope.EVENING),
         ("今夜", TimeScope.EVENING),
         ("上午", TimeScope.MORNING),
+        ("早上", TimeScope.MORNING),
         ("下午", TimeScope.AFTERNOON),
         ("晚上", TimeScope.EVENING),
     )
@@ -242,6 +243,68 @@ class TemporalCompiler:
             TimeScope.ALL_DAY: TimeWindow(start="09:00", end="21:00"),
             TimeScope.EXPLICIT_RANGE: None,
         }[scope]
+
+    @classmethod
+    def normalize_clock_text(cls, text: str | None) -> str | None:
+        """Normalize one field-directed clock expression to ``HH:MM``.
+
+        This is intentionally independent of a surrounding intent.  Callers
+        must already know whether the value is a departure or return clock;
+        the method only handles the bounded Chinese/Arabic clock vocabulary.
+        """
+        if not text:
+            return None
+        value = text.strip()
+        match = re.search(
+            r"(?P<period>上午|早上|中午|下午|晚上|夜里|夜间)?\s*"
+            r"(?P<hour>\d{1,2}|[零〇一二两三四五六七八九十]+)"
+            r"(?:[:：](?P<minute>\d{1,2})|点(?P<half>半)|点(?P<cnminute>[零〇一二两三四五六七八九十]+)分?|点)?",
+            value,
+        )
+        if match is None:
+            return None
+        hour_text = match.group("hour")
+        if hour_text.isdigit():
+            hour = int(hour_text)
+        else:
+            hour = cls._parse_chinese_number(hour_text)
+        if hour is None:
+            return None
+        if match.group("half"):
+            minute = 30
+        elif match.group("cnminute"):
+            minute = cls._parse_chinese_number(match.group("cnminute"))
+        else:
+            minute = int(match.group("minute")) if match.group("minute") else 0
+        if minute is None or not 0 <= minute <= 59:
+            return None
+        period = match.group("period")
+        if period in {"下午", "晚上", "夜里", "夜间"} and 1 <= hour <= 11:
+            hour += 12
+        elif period == "中午" and hour < 11:
+            hour += 12
+        elif period in {"上午", "早上"} and hour == 12:
+            hour = 0
+        if not 0 <= hour <= 23:
+            return None
+        return f"{hour:02d}:{minute:02d}"
+
+    @staticmethod
+    def _parse_chinese_number(value: str) -> int | None:
+        digits = {
+            "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
+            "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+        }
+        if value in digits:
+            return digits[value]
+        if value == "十":
+            return 10
+        if "十" in value:
+            left, right = value.split("十", 1)
+            tens = digits.get(left, 1) if left else 1
+            ones = digits.get(right, 0) if right else 0
+            return tens * 10 + ones
+        return None
 
 
 class EnrichmentService:

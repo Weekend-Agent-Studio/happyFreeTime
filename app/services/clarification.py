@@ -16,10 +16,16 @@ from typing import Callable
 from app.domain.constraints import (
     ClarificationAction,
     ClarificationReply,
+    ConversationCommand,
+    CommandOperation,
     Interpretation,
+    PendingModification,
     QuestionDecision,
     RawConstraints,
+    TargetReference,
+    StopRole,
 )
+from app.domain.catalog import ResourceType
 
 
 class ClarificationResolution(str, Enum):
@@ -28,6 +34,7 @@ class ClarificationResolution(str, Enum):
     UNRESOLVED = "unresolved"
     CANCELLED = "cancelled"
     NEW_REQUEST = "new_request"
+    MODIFICATION_RESOLVED = "modification_resolved"
 
 
 @dataclass(frozen=True)
@@ -37,6 +44,7 @@ class ClarificationOutcome:
     question: QuestionDecision | None = None
     defaulted_field: str | None = None
     value: str | None = None
+    command: ConversationCommand | None = None
 
 
 AnswerInterpreter = Callable[[str], Interpretation]
@@ -68,6 +76,7 @@ class ClarificationResolver:
         pending_question: QuestionDecision,
         reply: ClarificationReply,
         base_interpretation: Interpretation,
+        pending_modification: PendingModification | None = None,
         answer_interpreter: AnswerInterpreter | None = None,
     ) -> ClarificationOutcome:
         clarification_id = pending_question.clarification_id
@@ -156,6 +165,78 @@ class ClarificationResolver:
             value,
             base_interpretation,
         )
+        if pending_question.field in {"target_reference", "conversation_command"} and pending_modification is not None:
+            target = self._parse_target_reference(value)
+            if target is not None:
+                command = ConversationCommand(
+                    operation=CommandOperation.REPLACE,
+                    target=target,
+                    locked_targets=pending_modification.locked_targets,
+                    constraint_patch=pending_modification.constraint_patch,
+                    replacement_criteria=pending_modification.replacement_criteria,
+                    evidence={
+                        **pending_modification.evidence,
+                        "target": value,
+                    },
+                )
+                updated = base_interpretation.model_copy(
+                    update={
+                        "target_reference": value,
+                        "conversation_command": command,
+                        "reply": "",
+                        "requires_clarification": False,
+                    }
+                )
+                return ClarificationOutcome(
+                    status=ClarificationResolution.MODIFICATION_RESOLVED,
+                    interpretation=updated,
+                    value=value,
+                    command=command,
+                )
+        if (
+            pending_modification is not None
+            and pending_modification.operation == "patch_constraints"
+            and (
+                pending_question.continuation == "patch_constraints"
+                or pending_question.field == "constraint_patch"
+            )
+        ):
+            patch_field = self._patch_field_for_question(
+                pending_question.field,
+                pending_question.rule_id,
+            )
+            if patch_field is not None:
+                patch_value: object = value
+                update: dict[str, object] = {patch_field: patch_value}
+                if pending_question.field in {"preferences", "diet_tags", "avoid"}:
+                    update[patch_field] = (value,)
+                if pending_question.field == "strict_budget":
+                    if value in {"不限", "预算不限", "不设预算", "取消预算"}:
+                        update = {
+                            "strict_budget": False,
+                            "clear_fields": ("budget_per_person", "strict_budget"),
+                        }
+                    else:
+                        return self._unresolved(pending_question, base_interpretation)
+                patch = pending_modification.constraint_patch.model_copy(update=update)
+                command = ConversationCommand(
+                    operation=CommandOperation.PATCH_CONSTRAINTS,
+                    constraint_patch=patch,
+                    evidence={**pending_modification.evidence, "patch": value},
+                )
+                updated = base_interpretation.model_copy(
+                    update={
+                        "conversation_command": command,
+                        "reply": "",
+                        "requires_clarification": False,
+                    }
+                )
+                return ClarificationOutcome(
+                    status=ClarificationResolution.MODIFICATION_RESOLVED,
+                    interpretation=updated,
+                    value=value,
+                    command=command,
+                )
         if updated is None and answer_interpreter is not None:
             # This optional path is still field-scoped: the model's other
             # fields are discarded by ``_project_answer_interpretation``.
@@ -177,6 +258,65 @@ class ClarificationResolver:
             interpretation=updated,
             value=value,
         )
+
+    @staticmethod
+    def _parse_target_reference(value: str) -> TargetReference | None:
+        normalized = re.sub(r"\s+", "", value).strip("，。！？；：")
+        role_aliases = {
+            "活动": StopRole.ACTIVITY,
+            "项目": StopRole.ACTIVITY,
+            "景点": StopRole.ACTIVITY,
+            "午饭": StopRole.LUNCH,
+            "午餐": StopRole.LUNCH,
+            "晚饭": StopRole.DINNER,
+            "晚餐": StopRole.DINNER,
+            "吃饭": StopRole.MEAL,
+        }
+        if normalized in role_aliases:
+            return TargetReference(role=role_aliases[normalized], raw_text=value)
+        if normalized in {"餐厅", "饭店"}:
+            return TargetReference(resource_type=ResourceType.RESTAURANT, raw_text=value)
+        index_aliases = {
+            "第一站": 0,
+            "第1站": 0,
+            "第二站": 1,
+            "第2站": 1,
+            "第三站": 2,
+            "第3站": 2,
+            "第四站": 3,
+            "第4站": 3,
+        }
+        if normalized in index_aliases:
+            return TargetReference(stop_index=index_aliases[normalized], raw_text=value)
+        return None
+
+    @staticmethod
+    def _patch_field_for_question(field: str | None, rule_id: str | None = None) -> str | None:
+        if field == "constraint_patch" and rule_id:
+            field = {
+                "question.patch.date.v1": "date",
+                "question.patch.time_window.v1": "time_window",
+                "question.patch.departure_at.v1": "departure_at",
+                "question.patch.return_by.v1": "return_by",
+                "question.patch.location.v1": "location",
+                "question.patch.budget.v1": "budget_per_person",
+                "question.patch.distance.v1": "max_distance_km",
+                "question.patch.total_distance.v1": "total_distance_km",
+            }.get(rule_id)
+        return {
+            "date": "date_text",
+            "time_window": "time_window_text",
+            "departure_at": "departure_at_text",
+            "return_by": "return_by_text",
+            "location": "location_text",
+            "budget_per_person": "budget_text",
+            "max_distance_km": "max_distance_text",
+            "total_distance_km": "total_distance_text",
+            "preferences": "preferences",
+            "diet_tags": "diet_tags",
+            "avoid": "avoid",
+            "strict_budget": "strict_budget",
+        }.get(field or "")
 
     def _unresolved(
         self,
@@ -417,14 +557,20 @@ class ClarificationResolver:
     @classmethod
     def _parse_clock(cls, value: str) -> str | None:
         match = re.search(
-            r"(?P<period>上午|中午|下午|晚上|夜里|夜间)?\s*"
+            r"(?P<period>上午|早上|中午|下午|晚上|夜里|夜间)?\s*"
             r"(?P<hour>\d{1,2}|[一二三四五六七八九十两]+)"
-            r"(?:[:：](?P<minute>\d{1,2})|点(?P<half>半)|点(?P<cnminute>[零〇一二三四五六七八九十两]+)分?)?",
+            r"(?:[:：](?P<minute>\d{1,2})|点(?P<half>半)|点(?P<cnminute>[零〇一二三四五六七八九十两]+)分?|点)?",
             value,
         )
         if not match:
             return None
         hour_text = match.group("hour")
+        # Do not interpret the first Chinese numeral in phrases such as
+        # “一整天” or “两站” as a clock.  Chinese hour forms must carry the
+        # explicit “点” marker; Arabic digits remain compatible with the
+        # concise answer “9”.
+        if not hour_text.isdigit() and "点" not in match.group(0):
+            return None
         hour = int(hour_text) if hour_text.isdigit() else cls._parse_int(hour_text)
         if hour is None:
             return None
