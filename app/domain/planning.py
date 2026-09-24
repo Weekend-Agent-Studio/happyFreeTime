@@ -17,7 +17,7 @@ from app.domain.catalog import (
     ImageRef,
     PriceKind,
 )
-from app.domain.constraints import QuestionDecision, StopRole, TimeScope
+from app.domain.constraints import QuestionDecision, StopRole
 from app.domain.semantics import EvidenceRef, SemanticRequest
 from app.domain.providers import (
     AvailabilityFact,
@@ -65,6 +65,15 @@ class PlanStrategy(str, Enum):
     WEATHER_SAFE = "weather_safe"
 
 
+class PlanningSlot(BaseModel):
+    """One ordered, bounded role slot retained after Harness validation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: StopRole
+    required: bool = True
+
+
 class PlanningIntent(BaseModel):
     """Evidence-linked structural guidance; it is not feasibility proof."""
 
@@ -76,7 +85,7 @@ class PlanningIntent(BaseModel):
     minimum_stops: int = Field(default=2, ge=1, le=4)
     maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
-    coverage: TimeScope | None = None
+    slots: tuple["PlanningSlot", ...] = Field(default_factory=tuple, max_length=4)
     evidence: dict[str, str] = Field(default_factory=dict)
     semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
 
@@ -87,15 +96,6 @@ class PlanningIntent(BaseModel):
         return self
 
 
-class PlanningSlotProposal(BaseModel):
-    """One bounded role slot proposed by the PlanningIntent model."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    role: StopRole
-    required: bool = True
-
-
 class RoleQueryProposal(BaseModel):
     """A role-scoped retrieval query grounded in normalized user evidence."""
 
@@ -103,6 +103,9 @@ class RoleQueryProposal(BaseModel):
 
     text: str = Field(min_length=1, max_length=200)
     evidence_refs: tuple[str, ...] = Field(min_length=1)
+
+
+PlanningSlotProposal = PlanningSlot
 
 
 class PlanningIntentProposal(BaseModel):
@@ -119,7 +122,6 @@ class PlanningIntentProposal(BaseModel):
     # S-P4 fields are optional for checkpoint and provider compatibility. When
     # present, the Harness compiles them back to the closed PlanSkeleton set.
     slots: tuple[PlanningSlotProposal, ...] = Field(default_factory=tuple, max_length=4)
-    coverage: TimeScope | None = None
     role_queries: dict[str, RoleQueryProposal] = Field(default_factory=dict)
     evidence: dict[str, str] = Field(default_factory=dict)
     semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)

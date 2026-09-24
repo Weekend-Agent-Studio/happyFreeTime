@@ -30,6 +30,7 @@ from app.domain.planning import (
     PlanningIntent,
     PlanningIntentDecision,
     PlanningIntentProposal,
+    PlanningSlot,
     RoleQueryProposal,
 )
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
@@ -251,7 +252,7 @@ def build_rule_based_planning_intent(
             minimum_stops=1,
             maximum_stops=1,
             pace=PlanPace.RELAXED,
-            coverage=constraints.time_scope.value if constraints.time_scope else None,
+            slots=(PlanningSlot(role=single_role, required=True),),
             evidence={
                 "exact_stop_count": constraints.exact_stop_count.raw_text or "1",
                 "required_stop_roles": constraints.required_stop_roles.raw_text or single_role.value,
@@ -307,7 +308,7 @@ def build_rule_based_planning_intent(
         minimum_stops=2,
         maximum_stops=maximum_stops,
         pace=pace,
-        coverage=constraints.time_scope.value if constraints.time_scope else None,
+        slots=(PlanningSlot(role=StopRole.ACTIVITY, required=True),),
         evidence={
             "time_window": f"{window.start}-{window.end}",
             "pace": pace.value,
@@ -429,6 +430,7 @@ def _accept_proposal(
     # Baseline required roles encode the existing product structure; a soft
     # preference may not remove or invent a required role.
     proposed_slots = tuple(slot.role for slot in proposal.slots)
+    accepted_slots: tuple[PlanningSlot, ...] = ()
     if proposal.slots:
         if not proposed_slots:
             raise ValueError("slots cannot be empty when provided")
@@ -443,14 +445,19 @@ def _accept_proposal(
         # required role.
         if not set(baseline.required_roles).issubset(proposed_slots):
             raise ValueError("slots cannot remove a baseline required role")
-        if proposal.required_roles and proposal.required_roles != effective_required_roles:
+        if proposal.required_roles and tuple(dict.fromkeys(proposal.required_roles)) != effective_required_roles:
             raise ValueError("slot roles and required_roles must agree")
-        if proposal.optional_roles and not set(proposal.optional_roles).issubset(
-            set(effective_optional_roles)
-        ):
+        if proposal.optional_roles and tuple(dict.fromkeys(proposal.optional_roles)) != effective_optional_roles:
             raise ValueError("slot roles and optional_roles must agree")
         required_roles = effective_required_roles
         optional_roles = effective_optional_roles
+        # Preserve the model's bounded order and repeated roles.  The role
+        # sets above are only compatibility summaries for the legacy fields;
+        # the ordered slots are what the structure matcher consumes.
+        accepted_slots = tuple(
+            PlanningSlot(role=slot.role, required=slot.required)
+            for slot in proposal.slots
+        )
     else:
         required_roles = proposal.required_roles
         optional_roles = proposal.optional_roles
@@ -463,10 +470,6 @@ def _accept_proposal(
         raise ValueError("optional role is not allowed by the baseline intent")
     if set(required_roles) & set(optional_roles):
         raise ValueError("required and optional roles must be disjoint")
-    if proposal.coverage is not None:
-        expected_coverage = baseline.coverage
-        if expected_coverage is None or proposal.coverage != expected_coverage:
-            raise ValueError("coverage cannot change the normalized time scope")
     for before, after in proposal.precedence:
         if before == after or before not in allowed_roles or after not in allowed_roles:
             raise ValueError("precedence references a role outside the allowed intent")
@@ -511,7 +514,7 @@ def _accept_proposal(
         minimum_stops=proposal.minimum_stops,
         maximum_stops=proposal.maximum_stops,
         pace=proposal.pace,
-        coverage=baseline.coverage,
+        slots=accepted_slots,
         evidence=_sanitize_evidence(proposal.evidence, constraints, baseline),
         semantic_request=semantic_request,
     )
@@ -746,10 +749,38 @@ def _skeleton_matches_proposal(
         return False
     if not role_set.issubset(set(proposal.required_roles) | set(proposal.optional_roles)):
         return False
+    if proposal.slots:
+        required_slot_roles = tuple(
+            slot.role for slot in proposal.slots if slot.required
+        )
+        if not _contains_ordered_roles(roles, required_slot_roles):
+            return False
     for before, after in proposal.precedence:
         if before in role_set and after in role_set and roles.index(before) >= roles.index(after):
             return False
     return True
+
+
+def _contains_ordered_roles(
+    actual: tuple[StopRole, ...],
+    required: tuple[StopRole, ...],
+) -> bool:
+    """Return whether ``required`` occurs as an ordered subsequence.
+
+    Repeated roles are intentionally significant (for example
+    ``activity -> lunch -> activity -> dinner``).  Optional slots are omitted
+    by the caller, so a closed skeleton may still leave an optional break out.
+    """
+
+    if not required:
+        return True
+    cursor = 0
+    for role in actual:
+        if role == required[cursor]:
+            cursor += 1
+            if cursor == len(required):
+                return True
+    return False
 
 
 def _build_context(
@@ -791,9 +822,9 @@ def _build_context(
         "allowed_objective_kinds": [kind.value for kind in SOFT_OBJECTIVE_ALIASES],
     }
     return (
-        "请根据用户的软偏好提出 PlanningIntentProposal。只能在 allowed_roles 内提出 1-4 个 slots，"
+        "请根据用户的软偏好提出 PlanningIntentProposal。只能在 allowed_roles 内提出 1-4 个有序 slots，"
         "调整节奏、可选角色、合法的站数范围和顺序偏好；不得修改硬约束。"
-        "slots 中的 required 角色不能删除 baseline required_roles。"
+        "slots 中的 required 角色不能删除 baseline required_roles；重复角色必须保留其顺序。"
         "role_queries 是按角色的检索表达，必须引用 role_query_evidence 中的 evidence_id；"
         "不要输出 POI、路线、价格、营业、天气、确切开始时间或可行性结论。\n"
         + json.dumps(context, ensure_ascii=False, sort_keys=True)
@@ -808,8 +839,7 @@ def _clock_minutes(value: str) -> int:
 _SYSTEM_PROMPT = """你是 HappyFreeTime 的受约束 PlanningIntent 节点。
 只输出一个合法的 PlanningIntentProposal JSON 对象，不要返回 Markdown 代码围栏或解释文字。你的输出不是最终方案，也不能包含 POI、路线、天气、价格、库存或硬约束值。
 只能使用 allowed_roles 中的角色，slots 站数必须在 1 到 4 内，且至少有一个现有骨架能够匹配；不能删除 baseline required role。
-如果返回 slots，required_roles/optional_roles 应与 slots 一致；如果不需要结构提案可以保留旧字段。
-coverage 只能复制 baseline_intent.coverage，不能改变时间窗。
+如果返回 slots，required_roles/optional_roles 只是按首次出现去重后的兼容摘要；如果不需要结构提案可以保留旧字段。
 role_queries 的每一项必须包含 text 和 evidence_refs，evidence_refs 只能使用对应角色允许的 role_query_evidence。
 evidence 只能引用输入中出现的软偏好词，不要编造用户没有说过的事实。
 semantic_request 只能引用 baseline_intent.semantic_request 中已有的 evidence_id；

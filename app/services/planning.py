@@ -2158,6 +2158,12 @@ def _skeleton_matches_intent(
         return False
     if not role_set.issubset(set(intent.required_roles) | set(intent.optional_roles)):
         return False
+    if intent.slots:
+        required_slot_roles = tuple(
+            slot.role for slot in intent.slots if slot.required
+        )
+        if not _contains_ordered_roles(roles, required_slot_roles):
+            return False
     for before, after in intent.precedence:
         if before in role_set and after in role_set and roles.index(before) >= roles.index(after):
             return False
@@ -2170,6 +2176,23 @@ def _skeleton_matches_intent(
         _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON.skeleton_id: 8 * 60,
     }.get(skeleton.skeleton_id, len(roles) * 30)
     return minimum_capacity <= available_minutes
+
+
+def _contains_ordered_roles(
+    actual: tuple[StopRole, ...],
+    required: tuple[StopRole, ...],
+) -> bool:
+    """Return whether required roles occur in order, including repeats."""
+
+    if not required:
+        return True
+    cursor = 0
+    for role in actual:
+        if role == required[cursor]:
+            cursor += 1
+            if cursor == len(required):
+                return True
+    return False
 
 
 def _structure_conflict_fields(
@@ -2321,7 +2344,6 @@ def _rank_skeleton_plans_beam(
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
     expansions = 0
-    finalists = 0
     pruned: dict[str, int] = {}
     config = BeamSearchConfig()
     origin = GeoPoint(
@@ -2329,10 +2351,8 @@ def _rank_skeleton_plans_beam(
         longitude=constraints.location.value.longitude,
     )
 
+    prepared_specs: list[tuple[CompiledPlanSpec, list[list[StopCandidate]]]] = []
     for raw_spec in plan_specs:
-        remaining_expansions = config.max_expansions - expansions
-        if remaining_expansions <= 0:
-            break
         spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
         role_pools = [
             _candidates_for_role(
@@ -2346,9 +2366,24 @@ def _rank_skeleton_plans_beam(
         ]
         if any(not pool for pool in role_pools):
             continue
-        remaining_finalists = config.max_finalists - finalists
-        if remaining_finalists <= 0:
+        prepared_specs.append((spec, role_pools))
+
+    remaining_specs = len(prepared_specs)
+    for spec, role_pools in prepared_specs:
+        if remaining_specs <= 0:
             break
+        remaining_expansions = config.max_expansions - expansions
+        if remaining_expansions <= 0:
+            break
+        # Each closed-world structure receives an independent share of the
+        # search budget.  Unused budget is redistributed, but one early
+        # skeleton cannot consume all expansions/finalists before later
+        # skeletons get a chance to produce local plans.
+        spec_expansion_budget = max(1, remaining_expansions // remaining_specs)
+        spec_finalist_budget = max(
+            1,
+            config.route_leg_budget // max(1, len(spec.roles)),
+        )
         result = bounded_beam_search(
             role_pools=role_pools,
             roles=spec.roles,
@@ -2357,15 +2392,11 @@ def _rank_skeleton_plans_beam(
             semantic_scores=semantic_scores,
             config=replace(
                 config,
-                max_expansions=remaining_expansions,
-                max_finalists=min(
-                    remaining_finalists,
-                    max(1, config.route_leg_budget // max(1, len(spec.roles))),
-                ),
+                max_expansions=spec_expansion_budget,
+                max_finalists=spec_finalist_budget,
             ),
         )
         expansions += result.stats.expansions
-        finalists += result.stats.finalists
         for field, count in result.stats.pruned_by:
             pruned[field] = pruned.get(field, 0) + count
         rejected_fields.update(result.rejected_fields)
@@ -2381,6 +2412,7 @@ def _rank_skeleton_plans_beam(
                 plans.append(plan)
             elif rejected_field:
                 rejected_fields.add(rejected_field)
+        remaining_specs -= 1
 
     plans.sort(
         key=lambda plan: (
@@ -2397,6 +2429,9 @@ def _rank_skeleton_plans_beam(
             continue
         seen_compositions.add(composition)
         unique_plans.append(plan)
+    # This is the global hand-off pool for route verification.  It is applied
+    # only after every skeleton had a local scheduling opportunity.
+    unique_plans = unique_plans[: config.max_finalists]
     return _LocalPlanningResult(
         plans=unique_plans,
         rejected_fields=rejected_fields,
@@ -2406,7 +2441,7 @@ def _rank_skeleton_plans_beam(
             max_expansions=config.max_expansions,
             max_finalists=config.max_finalists,
             expansions=expansions,
-            finalists=finalists,
+            finalists=len(unique_plans),
             pruned_by=tuple(sorted(pruned.items())),
         ),
     )
@@ -2518,9 +2553,19 @@ def _build_local_plan(
         travel_minutes=tuple(_estimated_route_minutes(distance) for distance in route_distances),
         stop_durations=tuple(item.duration_minutes for item in sequence),
     )
+    # Estimated travel is retained for ranking/presentation, but it is not a
+    # safe feasibility bound.  A zero-travel schedule is the optimistic lower
+    # bound used for early rejection; real route facts are checked later.
+    lower_bound_timeline = scheduler.schedule(
+        start_minutes=_planning_start_minutes(constraints),
+        roles=tuple(skeleton.roles),
+        travel_minutes=(0,) * len(sequence),
+        stop_durations=tuple(item.duration_minutes for item in sequence),
+    )
     total_duration = estimated_timeline.elapsed_minutes
+    lower_bound_duration = lower_bound_timeline.elapsed_minutes
     maximum_minutes, target_minutes = _planning_minutes(constraints)
-    if total_duration > maximum_minutes:
+    if lower_bound_duration > maximum_minutes:
         return None, "duration_minutes" if constraints.duration_minutes else "time_window"
     if (
         constraints.max_distance_km
@@ -2544,8 +2589,7 @@ def _build_local_plan(
         start_minutes = _planning_start_minutes(constraints)
         home_arrival = (
             start_minutes
-            + total_duration
-            + _estimated_route_minutes(return_distance)
+            + lower_bound_duration
         )
         if home_arrival > _time_to_minutes(constraints.return_by.value):
             return None, "return_by"

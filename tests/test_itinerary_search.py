@@ -86,3 +86,33 @@ class BoundedItinerarySearchTest(unittest.TestCase):
         self.assertIn("max_distance_km", result.rejected_fields)
         self.assertTrue(all(sequence[0].resource_id == "near" for sequence in result.sequences))
 
+    def test_estimated_route_time_is_not_a_hard_feasibility_prune(self) -> None:
+        constraints = planning_constraints(time_end="18:00").model_copy(
+            update={"max_distance_km": None}
+        )
+        far_activity = candidate(
+            "far-activity",
+            ResourceType.ACTIVITY,
+            "远处活动",
+            ["activity"],
+        ).model_copy(
+            update={"location": GeoPoint(latitude=40.8, longitude=116.9)}
+        )
+        second_activity = candidate(
+            "second-activity",
+            ResourceType.ACTIVITY,
+            "第二个活动",
+            ["activity"],
+        )
+
+        result = bounded_beam_search(
+            role_pools=((far_activity,), (second_activity,)),
+            roles=(StopRole.ACTIVITY, StopRole.ACTIVITY),
+            constraints=constraints,
+            origin=GeoPoint(latitude=39.9219, longitude=116.4436),
+        )
+
+        self.assertEqual(
+            [item.resource_id for item in result.sequences[0]],
+            ["far-activity", "second-activity"],
+        )

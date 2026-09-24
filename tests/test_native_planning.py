@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from app.domain.catalog import (
     CatalogSource,
@@ -18,6 +19,7 @@ from app.domain.constraints import (
 from app.domain.planning import (
     PlanPace,
     PlanPriceStatus,
+    PlanSkeleton,
     PlanningIntent,
     PlanningIntentDecision,
     ScoreContribution,
@@ -39,6 +41,7 @@ from app.services.planning import (
     _apply_dynamic_strategies,
     _build_planning_intent,
     _diversify_plans,
+    _rank_skeleton_plans,
     _select_plan_skeletons,
 )
 from app.services.plan_verifier import PlanVerifier
@@ -108,6 +111,62 @@ class UnexpectedWeatherProvider:
 
 
 class NativePlanningBehaviorTest(unittest.TestCase):
+    def test_beam_gives_later_skeleton_a_budget_after_earlier_failure(self) -> None:
+        constraints = planning_constraints(time_end="18:00")
+        specs = (
+            PlanSkeleton(
+                skeleton_id="too-long-first",
+                roles=(StopRole.ACTIVITY, StopRole.ACTIVITY),
+            ),
+            PlanSkeleton(
+                skeleton_id="valid-later",
+                roles=(StopRole.DINNER,),
+            ),
+        )
+        intent = PlanningIntent(
+            required_roles=(),
+            optional_roles=(StopRole.ACTIVITY, StopRole.DINNER),
+            minimum_stops=1,
+            maximum_stops=4,
+            pace=PlanPace.BALANCED,
+        )
+        candidates = [
+            candidate(
+                "long-activity-a",
+                ResourceType.ACTIVITY,
+                "过长活动 A",
+                ["activity"],
+                duration_minutes=180,
+            ),
+            candidate(
+                "long-activity-b",
+                ResourceType.ACTIVITY,
+                "过长活动 B",
+                ["activity"],
+                duration_minutes=180,
+            ),
+            candidate(
+                "later-dinner",
+                ResourceType.RESTAURANT,
+                "可行晚餐",
+                ["restaurant"],
+                duration_minutes=60,
+            ),
+        ]
+
+        with patch.dict("os.environ", {"HFT_PLANNER_SEARCH_MODE": "beam"}):
+            result = _rank_skeleton_plans(
+                candidates,
+                constraints,
+                specs,
+                intent,
+            )
+
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            any(plan.skeleton_id == "valid-later" for plan in result.plans)
+        )
+
     @staticmethod
     def _dinner_only_constraints(*, return_by: bool = False, strict_budget: bool = False) -> NormalizedConstraints:
         base = planning_constraints(budget=150, time_end="22:00").model_copy(

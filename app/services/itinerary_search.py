@@ -2,8 +2,8 @@
 
 This module deliberately stops at *candidate composition*.  Provider-backed
 route facts and the final verifier remain in ``PlanningService``.  The search
-only uses deterministic lower-bound estimates to avoid spending the provider
-budget on combinations that are already impossible.
+uses deterministic estimates for ordering and only applies hard pruning when
+an optimistic zero-travel bound already proves a prefix impossible.
 """
 
 from __future__ import annotations
@@ -71,9 +71,10 @@ def bounded_beam_search(
     """Return a bounded set of promising role-complete sequences.
 
     ``role_pools`` may contain the full retrieved pool.  Beam pruning happens
-    after every slot, so the Cartesian product is never materialized.  Every
-    hard check here is a conservative lower-bound check; final truth still
-    comes from the existing local planner, Route Provider and Verifier.
+    after every slot, so the Cartesian product is never materialized.  Travel
+    estimates rank states but never hard-reject them; hard time pruning uses
+    only the optimistic zero-travel bound.  Final truth still comes from the
+    existing local planner, Route Provider and Verifier.
     """
 
     config = config or BeamSearchConfig()
@@ -157,16 +158,26 @@ def bounded_beam_search(
                     for index, item in enumerate(selected)
                 )
                 travel_minutes = tuple(_estimated_route_minutes(value) for value in distances)
-                schedule = scheduler.schedule(
+                estimated_schedule = scheduler.schedule(
                     start_minutes=start_minutes,
                     roles=roles[: slot_index + 1],
                     travel_minutes=travel_minutes,
                     stop_durations=tuple(item.duration_minutes for item in selected),
                 )
+                # The straight-line/25 km/h estimate is useful for ordering,
+                # but it is not a safe lower bound for real traffic.  Only a
+                # zero-travel schedule may reject a prefix here; Route
+                # Provider + Verifier remain the authority on actual timing.
+                lower_bound_schedule = scheduler.schedule(
+                    start_minutes=start_minutes,
+                    roles=roles[: slot_index + 1],
+                    travel_minutes=(0,) * len(selected),
+                    stop_durations=tuple(item.duration_minutes for item in selected),
+                )
                 accumulated_distance = state.estimated_distance + leg_distance
                 accumulated_cost = state.accumulated_cost + float(candidate.avg_price or 0)
 
-                if schedule.elapsed_minutes > maximum_minutes:
+                if lower_bound_schedule.elapsed_minutes > maximum_minutes:
                     _count(rejected, "duration_minutes")
                     continue
                 if constraints.strict_budget and budget is not None and accumulated_cost > budget:
@@ -189,7 +200,7 @@ def bounded_beam_search(
                         selected_candidates=selected,
                         next_slot=slot_index + 1,
                         current_location=candidate.location,
-                        estimated_time=schedule.end_minutes,
+                        estimated_time=estimated_schedule.end_minutes,
                         accumulated_cost=accumulated_cost,
                         semantic_score=semantic_score,
                         estimated_distance=accumulated_distance,

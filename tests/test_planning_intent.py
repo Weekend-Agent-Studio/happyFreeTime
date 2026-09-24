@@ -123,9 +123,10 @@ class PlanningIntentProviderTest(unittest.TestCase):
         proposal = relaxed_proposal(
             required_roles=[],
             optional_roles=[],
-            minimum_stops=3,
-            maximum_stops=3,
+            minimum_stops=4,
+            maximum_stops=4,
             slots=[
+                {"role": "activity", "required": True},
                 {"role": "lunch", "required": True},
                 {"role": "activity", "required": True},
                 {"role": "dinner", "required": True},
@@ -153,7 +154,16 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(decision.source, "llm")
         self.assertEqual(
             decision.intent.required_roles,
-            (StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
+            (StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER),
+        )
+        self.assertEqual(
+            tuple(slot.role for slot in decision.intent.slots),
+            (
+                StopRole.ACTIVITY,
+                StopRole.LUNCH,
+                StopRole.ACTIVITY,
+                StopRole.DINNER,
+            ),
         )
         self.assertEqual(
             {
