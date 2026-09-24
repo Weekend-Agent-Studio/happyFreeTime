@@ -89,6 +89,12 @@ class AgentResponse(BaseModel):
     runtime_decisions: list[RuntimeDecision] = Field(default_factory=list)
     retrieval_mode: str | None = None
     retrieval_index_version: str | None = None
+    search_mode: str | None = None
+    search_beam_width: int | None = Field(default=None, ge=0)
+    search_max_expansions: int | None = Field(default=None, ge=0)
+    search_expansions: int | None = Field(default=None, ge=0)
+    search_finalist_count: int | None = Field(default=None, ge=0)
+    search_pruned_by: dict[str, int] = Field(default_factory=dict)
     conversation_command: dict[str, Any] | None = None
     plan_diff: dict[str, Any] | None = None
     plan_diffs: list[dict[str, Any]] = Field(default_factory=list)

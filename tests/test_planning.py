@@ -1,5 +1,6 @@
 import unittest
 from datetime import date, datetime, timezone
+from unittest.mock import patch
 
 from app.domain.catalog import VerificationStatus, ViolationCode
 from app.domain.constraints import (
@@ -93,6 +94,18 @@ def planning_constraints(
 
 
 class PlanningServiceTest(unittest.TestCase):
+    def test_beam_search_is_opt_in_and_exposes_bounded_metrics(self) -> None:
+        with patch.dict("os.environ", {"HFT_PLANNER_SEARCH_MODE": "beam"}):
+            result = PlanningService(
+                route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
+            ).plan(planning_constraints(max_distance_km=30, time_end="22:00"))
+
+        self.assertEqual(result.search_mode, "beam")
+        self.assertEqual(result.search_beam_width, 16)
+        self.assertLessEqual(result.search_expansions or 0, 200)
+        self.assertLessEqual(result.search_finalist_count or 0, 12)
+        self.assertTrue(result.plans or result.conflict is not None)
+
     def test_default_catalog_uses_generated_snapshot_records(self) -> None:
         result = PlanningService(
             route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2)

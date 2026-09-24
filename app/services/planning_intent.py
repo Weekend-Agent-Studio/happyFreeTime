@@ -30,6 +30,7 @@ from app.domain.planning import (
     PlanningIntent,
     PlanningIntentDecision,
     PlanningIntentProposal,
+    RoleQueryProposal,
 )
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
@@ -250,6 +251,7 @@ def build_rule_based_planning_intent(
             minimum_stops=1,
             maximum_stops=1,
             pace=PlanPace.RELAXED,
+            coverage=constraints.time_scope.value if constraints.time_scope else None,
             evidence={
                 "exact_stop_count": constraints.exact_stop_count.raw_text or "1",
                 "required_stop_roles": constraints.required_stop_roles.raw_text or single_role.value,
@@ -305,6 +307,7 @@ def build_rule_based_planning_intent(
         minimum_stops=2,
         maximum_stops=maximum_stops,
         pace=pace,
+        coverage=constraints.time_scope.value if constraints.time_scope else None,
         evidence={
             "time_window": f"{window.start}-{window.end}",
             "pace": pace.value,
@@ -425,13 +428,45 @@ def _accept_proposal(
 ) -> PlanningIntent:
     # Baseline required roles encode the existing product structure; a soft
     # preference may not remove or invent a required role.
-    if proposal.required_roles != baseline.required_roles:
-        raise ValueError("required roles cannot be changed by a soft preference")
+    proposed_slots = tuple(slot.role for slot in proposal.slots)
+    if proposal.slots:
+        if not proposed_slots:
+            raise ValueError("slots cannot be empty when provided")
+        effective_required_roles = tuple(
+            dict.fromkeys(slot.role for slot in proposal.slots if slot.required)
+        )
+        effective_optional_roles = tuple(
+            dict.fromkeys(slot.role for slot in proposal.slots if not slot.required)
+        )
+        # A model structure proposal is still only a soft proposal: it may
+        # enrich the closed-world baseline but cannot remove a deterministic
+        # required role.
+        if not set(baseline.required_roles).issubset(proposed_slots):
+            raise ValueError("slots cannot remove a baseline required role")
+        if proposal.required_roles and proposal.required_roles != effective_required_roles:
+            raise ValueError("slot roles and required_roles must agree")
+        if proposal.optional_roles and not set(proposal.optional_roles).issubset(
+            set(effective_optional_roles)
+        ):
+            raise ValueError("slot roles and optional_roles must agree")
+        required_roles = effective_required_roles
+        optional_roles = effective_optional_roles
+    else:
+        required_roles = proposal.required_roles
+        optional_roles = proposal.optional_roles
+    if not set(baseline.required_roles).issubset(required_roles):
+        raise ValueError("required roles cannot remove a baseline required role")
     allowed_roles = set(baseline.required_roles) | set(baseline.optional_roles)
-    if not set(proposal.optional_roles).issubset(allowed_roles):
+    if not set(required_roles).issubset(allowed_roles):
+        raise ValueError("required role is not allowed by the baseline intent")
+    if not set(optional_roles).issubset(allowed_roles):
         raise ValueError("optional role is not allowed by the baseline intent")
-    if set(proposal.required_roles) & set(proposal.optional_roles):
+    if set(required_roles) & set(optional_roles):
         raise ValueError("required and optional roles must be disjoint")
+    if proposal.coverage is not None:
+        expected_coverage = baseline.coverage
+        if expected_coverage is None or proposal.coverage != expected_coverage:
+            raise ValueError("coverage cannot change the normalized time scope")
     for before, after in proposal.precedence:
         if before == after or before not in allowed_roles or after not in allowed_roles:
             raise ValueError("precedence references a role outside the allowed intent")
@@ -448,23 +483,82 @@ def _accept_proposal(
         raise ValueError("minimum stop count cannot be weakened")
     if proposal.maximum_stops < proposal.minimum_stops:
         raise ValueError("invalid stop range")
+    effective_proposal = proposal.model_copy(
+        update={
+            "required_roles": required_roles,
+            "optional_roles": optional_roles,
+        }
+    )
     if not any(
-        _skeleton_matches_proposal(skeleton, proposal)
+        _skeleton_matches_proposal(skeleton, effective_proposal)
         for skeleton in ALL_PLAN_SKELETONS
     ):
         raise ValueError("proposal does not match an existing plan skeleton")
+    semantic_request = _sanitize_semantic_request(
+        proposal.semantic_request,
+        baseline.semantic_request,
+    )
+    semantic_request = _merge_role_queries(
+        semantic_request,
+        proposal.role_queries,
+        baseline.semantic_request,
+        allowed_roles=allowed_roles,
+    )
     return PlanningIntent(
-        required_roles=proposal.required_roles,
-        optional_roles=proposal.optional_roles,
+        required_roles=required_roles,
+        optional_roles=optional_roles,
         precedence=proposal.precedence,
         minimum_stops=proposal.minimum_stops,
         maximum_stops=proposal.maximum_stops,
         pace=proposal.pace,
+        coverage=baseline.coverage,
         evidence=_sanitize_evidence(proposal.evidence, constraints, baseline),
-        semantic_request=_sanitize_semantic_request(
-            proposal.semantic_request,
-            baseline.semantic_request,
-        ),
+        semantic_request=semantic_request,
+    )
+
+
+def _merge_role_queries(
+    semantic_request: SemanticRequest,
+    role_queries: dict[str, RoleQueryProposal],
+    baseline: SemanticRequest,
+    *,
+    allowed_roles: set[StopRole],
+) -> SemanticRequest:
+    """Compile bounded role queries into the shared semantic contract."""
+
+    if not role_queries:
+        return semantic_request
+    baseline_evidence = {item.evidence_id: item for item in baseline.evidence}
+    known_evidence = set(baseline_evidence)
+    evidence = list(semantic_request.evidence)
+    evidence_ids = {item.evidence_id for item in evidence}
+    queries = list(semantic_request.queries)
+    for raw_role, query in role_queries.items():
+        try:
+            role = StopRole(raw_role)
+        except ValueError as error:
+            raise ValueError("role query references an unknown role") from error
+        if role not in allowed_roles:
+            raise ValueError("role query references a role outside the baseline")
+        if not set(query.evidence_refs).issubset(known_evidence):
+            raise ValueError("role query has ungrounded evidence")
+        for evidence_id in query.evidence_refs:
+            if evidence_id not in evidence_ids:
+                evidence.append(baseline_evidence[evidence_id])
+                evidence_ids.add(evidence_id)
+        queries.append(
+            SemanticQuery(
+                query_id=f"semantic.query.role.{role.value}",
+                text=query.text,
+                target_role=role,
+                evidence_refs=query.evidence_refs,
+            )
+        )
+    deduped: dict[str, SemanticQuery] = {query.query_id: query for query in queries}
+    return SemanticRequest(
+        evidence=tuple(evidence),
+        objectives=semantic_request.objectives,
+        queries=tuple(deduped.values()),
     )
 
 
@@ -684,11 +778,24 @@ def _build_context(
             else []
         ),
         "baseline_intent": baseline.model_dump(mode="json"),
+        "allowed_roles": sorted(
+            {role.value for role in (*baseline.required_roles, *baseline.optional_roles)}
+        ),
+        "role_query_evidence": {
+            role.value: [
+                item.evidence_id
+                for item in baseline.semantic_request.evidence
+            ]
+            for role in (*baseline.required_roles, *baseline.optional_roles)
+        },
         "allowed_objective_kinds": [kind.value for kind in SOFT_OBJECTIVE_ALIASES],
     }
     return (
-        "请根据用户的软偏好提出 PlanningIntentProposal。只能调整节奏、可选角色、"
-        "合法的站数范围和顺序偏好；不得修改硬约束。\n"
+        "请根据用户的软偏好提出 PlanningIntentProposal。只能在 allowed_roles 内提出 1-4 个 slots，"
+        "调整节奏、可选角色、合法的站数范围和顺序偏好；不得修改硬约束。"
+        "slots 中的 required 角色不能删除 baseline required_roles。"
+        "role_queries 是按角色的检索表达，必须引用 role_query_evidence 中的 evidence_id；"
+        "不要输出 POI、路线、价格、营业、天气、确切开始时间或可行性结论。\n"
         + json.dumps(context, ensure_ascii=False, sort_keys=True)
     )
 
@@ -700,8 +807,10 @@ def _clock_minutes(value: str) -> int:
 
 _SYSTEM_PROMPT = """你是 HappyFreeTime 的受约束 PlanningIntent 节点。
 只输出一个合法的 PlanningIntentProposal JSON 对象，不要返回 Markdown 代码围栏或解释文字。你的输出不是最终方案，也不能包含 POI、路线、天气、价格、库存或硬约束值。
-required_roles 必须保持 baseline_intent.required_roles；不要把模糊偏好升级成新的 required role。
-只使用 baseline_intent 中允许的角色，站数必须在 1 到 4 内，且至少有一个现有骨架能够匹配。
+只能使用 allowed_roles 中的角色，slots 站数必须在 1 到 4 内，且至少有一个现有骨架能够匹配；不能删除 baseline required role。
+如果返回 slots，required_roles/optional_roles 应与 slots 一致；如果不需要结构提案可以保留旧字段。
+coverage 只能复制 baseline_intent.coverage，不能改变时间窗。
+role_queries 的每一项必须包含 text 和 evidence_refs，evidence_refs 只能使用对应角色允许的 role_query_evidence。
 evidence 只能引用输入中出现的软偏好词，不要编造用户没有说过的事实。
 semantic_request 只能引用 baseline_intent.semantic_request 中已有的 evidence_id；
 可以选择或重排已有 objective/query，但不得创建未被用户输入支持的证据。

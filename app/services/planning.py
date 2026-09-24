@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import uuid
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from enum import Enum
 from itertools import product
@@ -99,6 +100,11 @@ from app.services.candidate_retriever import (
     RetrievalRequest,
     RetrievedCandidateSet,
     build_default_candidate_retriever,
+)
+from app.services.itinerary_search import (
+    BeamSearchConfig,
+    BeamSearchStats,
+    bounded_beam_search,
 )
 
 
@@ -634,6 +640,7 @@ class PlanningService:
                 retrieval_index_version=retrieved.index_version,
                 semantic_request=planning_intent.semantic_request,
                 retrieval_evidence=_retrieval_evidence_for_plans(retrieved, plans),
+                **_search_metadata(local_result.search_stats),
             )
 
         # Diagnose a strict-budget exhaustion before returning a generic route
@@ -671,6 +678,7 @@ class PlanningService:
                 retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
+                **_search_metadata(local_result.search_stats),
             )
 
         if route_candidates:
@@ -728,6 +736,7 @@ class PlanningService:
                 retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
+                **_search_metadata(local_result.search_stats),
             )
 
         conflict_fields = [
@@ -811,6 +820,7 @@ class PlanningService:
             retrieval_runtime_decision=retrieval_runtime_decision,
             retrieval_mode=retrieved.mode,
             retrieval_index_version=retrieved.index_version,
+            **_search_metadata(local_result.search_stats),
         )
 
     def modify_selected_plan(
@@ -1409,6 +1419,22 @@ class PlanningService:
 class _LocalPlanningResult:
     plans: list[Plan]
     rejected_fields: set[str]
+    search_stats: BeamSearchStats | None = None
+
+
+def _search_metadata(stats: BeamSearchStats | None) -> dict[str, object]:
+    """Expose bounded composition metrics without coupling API to the searcher."""
+
+    if stats is None:
+        return {}
+    return {
+        "search_mode": stats.mode,
+        "search_beam_width": stats.beam_width,
+        "search_max_expansions": stats.max_expansions,
+        "search_expansions": stats.expansions,
+        "search_finalist_count": stats.finalists,
+        "search_pruned_by": dict(stats.pruned_by),
+    }
 
 
 def _select_route_candidates(
@@ -2185,6 +2211,33 @@ def _rank_skeleton_plans(
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
 ) -> _LocalPlanningResult:
+    mode = os.getenv("HFT_PLANNER_SEARCH_MODE", "legacy").strip().lower()
+    if mode not in {"legacy", "beam"}:
+        raise RuntimeError("HFT_PLANNER_SEARCH_MODE must be one of: legacy, beam")
+    if mode == "beam":
+        return _rank_skeleton_plans_beam(
+            candidates,
+            constraints,
+            plan_specs,
+            planning_intent,
+            semantic_scores=semantic_scores,
+        )
+    return _rank_skeleton_plans_legacy(
+        candidates,
+        constraints,
+        plan_specs,
+        planning_intent,
+        semantic_scores=semantic_scores,
+    )
+
+
+def _rank_skeleton_plans_legacy(
+    candidates: list[StopCandidate],
+    constraints: NormalizedConstraints,
+    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+    planning_intent: PlanningIntent,
+    semantic_scores: dict[str, float] | None = None,
+) -> _LocalPlanningResult:
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
     for raw_spec in plan_specs:
@@ -2237,7 +2290,126 @@ def _rank_skeleton_plans(
             continue
         seen_compositions.add(composition)
         unique_plans.append(plan)
-    return _LocalPlanningResult(plans=unique_plans, rejected_fields=rejected_fields)
+    return _LocalPlanningResult(
+        plans=unique_plans,
+        rejected_fields=rejected_fields,
+        search_stats=BeamSearchStats(
+            mode="legacy",
+            beam_width=0,
+            max_expansions=0,
+            max_finalists=0,
+            expansions=0,
+            finalists=len(unique_plans),
+        ),
+    )
+
+
+def _rank_skeleton_plans_beam(
+    candidates: list[StopCandidate],
+    constraints: NormalizedConstraints,
+    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+    planning_intent: PlanningIntent,
+    semantic_scores: dict[str, float] | None = None,
+) -> _LocalPlanningResult:
+    """Route-aware bounded composition search used by S-P3.
+
+    The final local plan construction remains the single source of scoring and
+    candidate validity.  Beam search only controls which compositions reach
+    that stage, using conservative distance/time/budget lower bounds.
+    """
+
+    plans: list[Plan] = []
+    rejected_fields: set[str] = set()
+    expansions = 0
+    finalists = 0
+    pruned: dict[str, int] = {}
+    config = BeamSearchConfig()
+    origin = GeoPoint(
+        latitude=constraints.location.value.latitude,
+        longitude=constraints.location.value.longitude,
+    )
+
+    for raw_spec in plan_specs:
+        remaining_expansions = config.max_expansions - expansions
+        if remaining_expansions <= 0:
+            break
+        spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
+        role_pools = [
+            _candidates_for_role(
+                candidates,
+                role,
+                constraints,
+                limit=None,
+                semantic_scores=semantic_scores,
+            )
+            for role in spec.roles
+        ]
+        if any(not pool for pool in role_pools):
+            continue
+        remaining_finalists = config.max_finalists - finalists
+        if remaining_finalists <= 0:
+            break
+        result = bounded_beam_search(
+            role_pools=role_pools,
+            roles=spec.roles,
+            constraints=constraints,
+            origin=origin,
+            semantic_scores=semantic_scores,
+            config=replace(
+                config,
+                max_expansions=remaining_expansions,
+                max_finalists=min(
+                    remaining_finalists,
+                    max(1, config.route_leg_budget // max(1, len(spec.roles))),
+                ),
+            ),
+        )
+        expansions += result.stats.expansions
+        finalists += result.stats.finalists
+        for field, count in result.stats.pruned_by:
+            pruned[field] = pruned.get(field, 0) + count
+        rejected_fields.update(result.rejected_fields)
+        for sequence in result.sequences:
+            plan, rejected_field = _build_local_plan(
+                sequence,
+                spec,
+                constraints,
+                planning_intent,
+                semantic_scores=semantic_scores,
+            )
+            if plan is not None:
+                plans.append(plan)
+            elif rejected_field:
+                rejected_fields.add(rejected_field)
+
+    plans.sort(
+        key=lambda plan: (
+            -plan.total_score,
+            plan.total_duration_minutes,
+            plan.composition_fingerprint,
+        )
+    )
+    unique_plans: list[Plan] = []
+    seen_compositions: set[tuple[str, ...]] = set()
+    for plan in plans:
+        composition = tuple(stop.resource_id for stop in plan.stops)
+        if composition in seen_compositions:
+            continue
+        seen_compositions.add(composition)
+        unique_plans.append(plan)
+    return _LocalPlanningResult(
+        plans=unique_plans,
+        rejected_fields=rejected_fields,
+        search_stats=BeamSearchStats(
+            mode="beam",
+            beam_width=config.beam_width,
+            max_expansions=config.max_expansions,
+            max_finalists=config.max_finalists,
+            expansions=expansions,
+            finalists=finalists,
+            pruned_by=tuple(sorted(pruned.items())),
+        ),
+    )
 
 
 def _candidates_for_role(

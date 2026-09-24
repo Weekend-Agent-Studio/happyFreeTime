@@ -16,6 +16,7 @@ from app.domain.planning import (
     PlanningIntent,
     PlanningIntentDecision,
     PlanningIntentProposal,
+    RoleQueryProposal,
 )
 from app.services.planning import PlanningService, _build_planning_intent
 from app.services.catalog import InMemoryCatalog
@@ -107,6 +108,89 @@ def single_role_constraints(role: StopRole):
 
 
 class PlanningIntentProviderTest(unittest.TestCase):
+    def test_llm_bounded_slots_and_role_queries_are_compiled_to_grounded_intent(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={
+                "preferences": ["纪念日", "适合聊天"],
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="11:00", end="22:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+            }
+        )
+        baseline = RuleBasedPlanningIntentProvider().decide(constraints).intent
+        evidence = [item.evidence_id for item in baseline.semantic_request.evidence]
+        proposal = relaxed_proposal(
+            required_roles=[],
+            optional_roles=[],
+            minimum_stops=3,
+            maximum_stops=3,
+            slots=[
+                {"role": "lunch", "required": True},
+                {"role": "activity", "required": True},
+                {"role": "dinner", "required": True},
+            ],
+            role_queries={
+                "lunch": {
+                    "text": "纪念日午餐，适合聊天",
+                    "evidence_refs": evidence,
+                },
+                "activity": {
+                    "text": "纪念日共同体验",
+                    "evidence_refs": evidence,
+                },
+                "dinner": {
+                    "text": "浪漫晚餐，适合聊天",
+                    "evidence_refs": evidence,
+                },
+            },
+        )
+
+        decision = LlmPlanningIntentProvider(SequencePlanningModel(proposal)).decide(
+            constraints
+        )
+
+        self.assertEqual(decision.source, "llm")
+        self.assertEqual(
+            decision.intent.required_roles,
+            (StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
+        )
+        self.assertEqual(
+            {
+                query.target_role: query.text
+                for query in decision.intent.semantic_request.queries
+                if query.target_role is not None
+            },
+            {
+                StopRole.LUNCH: "纪念日午餐，适合聊天",
+                StopRole.ACTIVITY: "纪念日共同体验",
+                StopRole.DINNER: "浪漫晚餐，适合聊天",
+            },
+        )
+
+    def test_role_query_with_unknown_evidence_falls_back(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={"preferences": ["纪念日"]}
+        )
+        proposal = relaxed_proposal(
+            role_queries={
+                "activity": RoleQueryProposal(
+                    text="未出现的偏好",
+                    evidence_refs=("user.preferences.999",),
+                )
+            }
+        )
+
+        decision = LlmPlanningIntentProvider(SequencePlanningModel(proposal)).decide(
+            constraints
+        )
+
+        self.assertEqual(decision.source, "fallback")
+        self.assertEqual(
+            decision.fallback_reason,
+            "invalid_proposal_contract:proposal_out_of_bounds",
+        )
+
     def test_llm_decision_aggregates_token_usage_across_format_repair(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"preferences": ["慢慢走"]}

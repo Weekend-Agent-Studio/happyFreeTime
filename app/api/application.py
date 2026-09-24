@@ -655,6 +655,22 @@ def create_app(
                 retrieval_index_version=(
                     candidate_set.retrieval_index_version if candidate_set else None
                 ),
+                search_mode=(candidate_set.search_mode if candidate_set else None),
+                search_beam_width=(
+                    candidate_set.search_beam_width if candidate_set else None
+                ),
+                search_max_expansions=(
+                    candidate_set.search_max_expansions if candidate_set else None
+                ),
+                search_expansions=(
+                    candidate_set.search_expansions if candidate_set else None
+                ),
+                search_finalist_count=(
+                    candidate_set.search_finalist_count if candidate_set else None
+                ),
+                search_pruned_by=(
+                    candidate_set.search_pruned_by if candidate_set else {}
+                ),
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")
                     if interpretation

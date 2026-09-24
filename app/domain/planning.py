@@ -17,7 +17,7 @@ from app.domain.catalog import (
     ImageRef,
     PriceKind,
 )
-from app.domain.constraints import QuestionDecision, StopRole
+from app.domain.constraints import QuestionDecision, StopRole, TimeScope
 from app.domain.semantics import EvidenceRef, SemanticRequest
 from app.domain.providers import (
     AvailabilityFact,
@@ -76,6 +76,7 @@ class PlanningIntent(BaseModel):
     minimum_stops: int = Field(default=2, ge=1, le=4)
     maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
+    coverage: TimeScope | None = None
     evidence: dict[str, str] = Field(default_factory=dict)
     semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
 
@@ -84,6 +85,24 @@ class PlanningIntent(BaseModel):
         if self.minimum_stops > self.maximum_stops:
             raise ValueError("minimum_stops cannot exceed maximum_stops")
         return self
+
+
+class PlanningSlotProposal(BaseModel):
+    """One bounded role slot proposed by the PlanningIntent model."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: StopRole
+    required: bool = True
+
+
+class RoleQueryProposal(BaseModel):
+    """A role-scoped retrieval query grounded in normalized user evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    text: str = Field(min_length=1, max_length=200)
+    evidence_refs: tuple[str, ...] = Field(min_length=1)
 
 
 class PlanningIntentProposal(BaseModel):
@@ -97,6 +116,11 @@ class PlanningIntentProposal(BaseModel):
     minimum_stops: int = Field(default=2, ge=1, le=4)
     maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
+    # S-P4 fields are optional for checkpoint and provider compatibility. When
+    # present, the Harness compiles them back to the closed PlanSkeleton set.
+    slots: tuple[PlanningSlotProposal, ...] = Field(default_factory=tuple, max_length=4)
+    coverage: TimeScope | None = None
+    role_queries: dict[str, RoleQueryProposal] = Field(default_factory=dict)
     evidence: dict[str, str] = Field(default_factory=dict)
     semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
     confidence: float = Field(default=0.0, ge=0, le=1)
@@ -295,6 +319,15 @@ class CandidateSet(BaseModel):
     retrieval_runtime_decision: RuntimeDecision | None = None
     retrieval_mode: str | None = None
     retrieval_index_version: str | None = None
+    # Bounded local composition provenance.  These fields are additive and
+    # remain optional for early exits (question/conflict before search) and
+    # for modification responses that reuse a selected plan's structure.
+    search_mode: str | None = None
+    search_beam_width: int | None = Field(default=None, ge=0)
+    search_max_expansions: int | None = Field(default=None, ge=0)
+    search_expansions: int | None = Field(default=None, ge=0)
+    search_finalist_count: int | None = Field(default=None, ge=0)
+    search_pruned_by: dict[str, int] = Field(default_factory=dict)
     # The exact semantic request and profile citations used by the Retriever
     # travel with the verified value so downstream recommendation advice does
     # not need to reconstruct or silently broaden retrieval evidence.
