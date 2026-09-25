@@ -109,6 +109,33 @@ class RoleQueryProposal(BaseModel):
     evidence_refs: tuple[str, ...] = Field(min_length=1)
 
 
+# ``PlanningIntentProposal`` is kept below as a compatibility DTO for old
+# checkpoints and test fixtures.  New live model calls use this smaller,
+# ordered structure proposal instead of asking the model to repeat derived
+# role sets, precedence and stop bounds.
+class PlanSlotProposal(BaseModel):
+    """One model-proposed ordered slot before deterministic compilation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: StopRole
+    inclusion: Literal["core", "optional"]
+
+
+class PlanStructureProposal(BaseModel):
+    """Versioned wire proposal for an arbitrary bounded role sequence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["plan-structure-proposal.v2"] = (
+        "plan-structure-proposal.v2"
+    )
+    slots: tuple[PlanSlotProposal, ...] = Field(min_length=1, max_length=4)
+    pace: PlanPace = PlanPace.BALANCED
+    role_queries: dict[str, RoleQueryProposal] = Field(default_factory=dict)
+    evidence_refs: tuple[str, ...] = ()
+
+
 PlanningSlotProposal = PlanningSlot
 
 
@@ -158,6 +185,9 @@ class PlanningIntentDecision(BaseModel):
     proposal_present: bool = False
     proposal_accepted: bool = False
     proposal_rejection_reason: str | None = None
+    # New V2 wire proposal, retained alongside the compiled legacy-shaped
+    # PlanningIntent so old checkpoints and API consumers remain readable.
+    structure_proposal: PlanStructureProposal | None = None
 
 
 class SkeletonSearchTrace(BaseModel):
@@ -374,6 +404,13 @@ class CandidateSet(BaseModel):
     beam_finalist_count: int | None = Field(default=None, ge=0)
     legacy_expansions: int | None = Field(default=None, ge=0)
     accepted_plan_spec_ids: list[str] = Field(default_factory=list)
+    planning_intent_proposal_schema_version: str | None = None
+    planning_intent_proposal_slots: list[dict[str, str]] = Field(default_factory=list)
+    planning_intent_proposal_compiled: bool = False
+    planning_intent_preferred_spec_ids: list[str] = Field(default_factory=list)
+    planning_intent_fallback_spec_ids: list[str] = Field(default_factory=list)
+    planning_intent_structure_fallback_used: bool = False
+    planning_intent_structure_fallback_reason: str | None = None
     # The exact semantic request and profile citations used by the Retriever
     # travel with the verified value so downstream recommendation advice does
     # not need to reconstruct or silently broaden retrieval evidence.

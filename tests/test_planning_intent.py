@@ -13,6 +13,7 @@ from app.domain.constraints import (
 )
 from app.domain.planning import (
     PlanPace,
+    PlanStructureProposal,
     PlanningIntent,
     PlanningIntentDecision,
     PlanningIntentProposal,
@@ -605,7 +606,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(kwargs["max_retries"], 0)
         self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "disabled"}})
         chat_openai.return_value.with_structured_output.assert_called_once_with(
-            PlanningIntentProposal,
+            PlanStructureProposal,
             method="function_calling",
             include_raw=True,
         )

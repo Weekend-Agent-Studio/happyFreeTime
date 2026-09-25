@@ -705,6 +705,41 @@ def create_app(
                 accepted_plan_spec_ids=(
                     candidate_set.accepted_plan_spec_ids if candidate_set else []
                 ),
+                planning_intent_proposal_schema_version=(
+                    candidate_set.planning_intent_proposal_schema_version
+                    if candidate_set
+                    else None
+                ),
+                planning_intent_proposal_slots=(
+                    candidate_set.planning_intent_proposal_slots
+                    if candidate_set
+                    else []
+                ),
+                planning_intent_proposal_compiled=(
+                    candidate_set.planning_intent_proposal_compiled
+                    if candidate_set
+                    else False
+                ),
+                planning_intent_preferred_spec_ids=(
+                    candidate_set.planning_intent_preferred_spec_ids
+                    if candidate_set
+                    else []
+                ),
+                planning_intent_fallback_spec_ids=(
+                    candidate_set.planning_intent_fallback_spec_ids
+                    if candidate_set
+                    else []
+                ),
+                planning_intent_structure_fallback_used=(
+                    candidate_set.planning_intent_structure_fallback_used
+                    if candidate_set
+                    else False
+                ),
+                planning_intent_structure_fallback_reason=(
+                    candidate_set.planning_intent_structure_fallback_reason
+                    if candidate_set
+                    else None
+                ),
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")
                     if interpretation

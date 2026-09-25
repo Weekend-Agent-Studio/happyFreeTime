@@ -27,6 +27,7 @@ from app.domain.semantics import (
 from app.domain.planning import (
     PlanPace,
     PlanSkeleton,
+    PlanStructureProposal,
     PlanningIntent,
     PlanningIntentDecision,
     PlanningIntentProposal,
@@ -88,7 +89,7 @@ SINGLE_STOP_ROLES = frozenset(
     {StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER}
 )
 
-PROMPT_VERSION = "planning-intent.v1"
+PROMPT_VERSION = "planning-intent.v2"
 MIN_LLM_CONFIDENCE = 0.6
 DEFAULT_MODEL_TIMEOUT_SECONDS = 15.0
 
@@ -169,8 +170,8 @@ class LlmPlanningIntentProvider:
                 *messages,
                 HumanMessage(
                     content=(
-                        "上一次 PlanningIntent 提议未通过结构校验。只返回合法的 "
-                        "PlanningIntentProposal JSON，不要解释。错误类型：invalid_output"
+                        "上一次结构提议未通过结构校验。只返回合法的 "
+                        "PlanStructureProposal v2 JSON，不要解释。错误类型：invalid_output"
                     )
                 ),
             ]
@@ -198,6 +199,37 @@ class LlmPlanningIntentProvider:
         else:
             attempts = 1
 
+        if isinstance(proposal, PlanStructureProposal):
+            try:
+                intent = _accept_v2_proposal(proposal, constraints, baseline.intent)
+            except ValueError as error:
+                return self._fallback_decision(
+                    baseline,
+                    attempts,
+                    f"invalid_proposal_contract:{_safe_contract_code(error, 'proposal_out_of_bounds')}",
+                    token_usage.total,
+                    proposal_present=True,
+                    structure_proposal=proposal,
+                )
+            usage = token_usage.total
+            return PlanningIntentDecision(
+                intent=intent,
+                source="llm",
+                confidence=1.0,
+                attempts=attempts,
+                fallback_reason=None,
+                prompt_version=self._prompt_version,
+                model_name=self._model_name,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                proposal_present=True,
+                proposal_accepted=True,
+                structure_proposal=proposal,
+            )
+
+        # Legacy proposal DTOs remain readable for old checkpoints and local
+        # tests.  They are never used as the live provider schema, but retain
+        # the one-format-repair and confidence behavior during migration.
         if proposal.confidence < MIN_LLM_CONFIDENCE:
             return self._fallback_decision(
                 baseline,
@@ -239,6 +271,7 @@ class LlmPlanningIntentProvider:
         token_usage: ModelTokenUsage,
         *,
         proposal_present: bool = False,
+        structure_proposal: PlanStructureProposal | None = None,
     ) -> PlanningIntentDecision:
         return PlanningIntentDecision(
             intent=baseline.intent,
@@ -253,6 +286,7 @@ class LlmPlanningIntentProvider:
             proposal_present=proposal_present,
             proposal_accepted=False,
             proposal_rejection_reason=reason,
+            structure_proposal=structure_proposal,
         )
 
 
@@ -369,7 +403,7 @@ def build_default_planning_intent_provider(
     )
     return LlmPlanningIntentProvider(
         llm.with_structured_output(
-            structured_output_schema(model_name, PlanningIntentProposal),
+            structured_output_schema(model_name, PlanStructureProposal),
             method="function_calling",
             include_raw=True,
         ),
@@ -424,7 +458,9 @@ def _should_call_model(constraints: NormalizedConstraints) -> bool:
     )
 
 
-def _validate_proposal(result: object) -> PlanningIntentProposal:
+def _validate_proposal(
+    result: object,
+) -> PlanStructureProposal | PlanningIntentProposal:
     # ChatOpenAI(...).with_structured_output(..., include_raw=True) returns an
     # envelope. Local Pydantic validation remains the final authority, so a
     # provider-specific parser cannot silently bypass the repair contract.
@@ -442,9 +478,92 @@ def _validate_proposal(result: object) -> PlanningIntentProposal:
         return _validate_proposal(parsed)
     if isinstance(result, PlanningIntentProposal):
         return result
+    if isinstance(result, PlanStructureProposal):
+        return result
     if isinstance(result, str):
-        return PlanningIntentProposal.model_validate_json(result)
-    return PlanningIntentProposal.model_validate(result)
+        payload = json.loads(result)
+    else:
+        payload = result
+    if isinstance(payload, dict) and (
+        payload.get("schema_version") == "plan-structure-proposal.v2"
+        or any(
+            isinstance(item, dict) and "inclusion" in item
+            for item in payload.get("slots", ())
+        )
+    ):
+        return PlanStructureProposal.model_validate(payload)
+    return PlanningIntentProposal.model_validate(payload)
+
+
+def _accept_v2_proposal(
+    proposal: PlanStructureProposal,
+    constraints: NormalizedConstraints,
+    baseline: PlanningIntent,
+) -> PlanningIntent:
+    """Turn the small wire proposal into the compatibility PlanningIntent.
+
+    The ordered slots remain in the proposal and are consumed by
+    ``PlanSpecCompiler``.  The legacy-shaped fields below are only summaries
+    for existing planner/trace consumers; they are not used as an LLM
+    legality gate.
+    """
+
+    roles = tuple(slot.role for slot in proposal.slots)
+    if len(roles) < 1 or len(roles) > 4:
+        raise ValueError("slot_count_out_of_bounds")
+    if roles.count(StopRole.LUNCH) > 1 or roles.count(StopRole.DINNER) > 1:
+        raise ValueError("duplicate_meal_role")
+    if StopRole.LUNCH in roles and StopRole.DINNER in roles:
+        if roles.index(StopRole.LUNCH) >= roles.index(StopRole.DINNER):
+            raise ValueError("lunch_before_dinner_required")
+
+    known_evidence = {item.evidence_id for item in baseline.semantic_request.evidence}
+    if not set(proposal.evidence_refs).issubset(known_evidence):
+        raise ValueError("proposal_evidence_ungrounded")
+    for raw_role, query in proposal.role_queries.items():
+        try:
+            role = StopRole(raw_role)
+        except ValueError as error:
+            raise ValueError("role_query_unknown_role") from error
+        if role not in roles:
+            raise ValueError("role_query_role_not_in_slots")
+        if not set(query.evidence_refs).issubset(known_evidence):
+            raise ValueError("role_query_ungrounded")
+
+    core_roles = tuple(dict.fromkeys(
+        slot.role for slot in proposal.slots if slot.inclusion == "core"
+    ))
+    optional_roles = tuple(dict.fromkeys(
+        slot.role for slot in proposal.slots if slot.inclusion == "optional"
+    ))
+    semantic_request = _merge_role_queries(
+        baseline.semantic_request,
+        proposal.role_queries,
+        baseline.semantic_request,
+        allowed_roles=set(roles),
+    )
+    return PlanningIntent(
+        required_roles=core_roles,
+        optional_roles=optional_roles,
+        precedence=tuple(
+            (left, right)
+            for left, right in zip(roles, roles[1:])
+            if left != right
+        ),
+        minimum_stops=sum(slot.inclusion == "core" for slot in proposal.slots),
+        maximum_stops=len(proposal.slots),
+        pace=proposal.pace,
+        coverage=baseline.coverage,
+        slots=tuple(
+            PlanningSlot(
+                role=slot.role,
+                required=slot.inclusion == "core",
+            )
+            for slot in proposal.slots
+        ),
+        evidence=dict(baseline.evidence),
+        semantic_request=semantic_request,
+    )
 
 
 def _accept_proposal(
@@ -835,24 +954,22 @@ def _build_context(
             else []
         ),
         "baseline_intent": baseline.model_dump(mode="json"),
-        "allowed_roles": sorted(
-            {role.value for role in (*baseline.required_roles, *baseline.optional_roles)}
+        "explicit_roles": (
+            [role.value for role in constraints.required_stop_roles.value]
+            if constraints.required_stop_roles is not None
+            else []
         ),
-        "role_query_evidence": {
-            role.value: [
-                item.evidence_id
-                for item in baseline.semantic_request.evidence
-            ]
-            for role in (*baseline.required_roles, *baseline.optional_roles)
-        },
+        "available_evidence_ids": [
+            item.evidence_id for item in baseline.semantic_request.evidence
+        ],
         "allowed_objective_kinds": [kind.value for kind in SOFT_OBJECTIVE_ALIASES],
     }
     return (
-        "请根据用户的软偏好提出 PlanningIntentProposal。只能在 allowed_roles 内提出 1-4 个有序 slots，"
-        "调整节奏、可选角色、合法的站数范围和顺序偏好；不得修改硬约束。"
-        "slots 中的 required 角色不能删除 baseline required_roles；重复角色必须保留其顺序。"
-        "role_queries 是按角色的检索表达，必须引用 role_query_evidence 中的 evidence_id；"
-        "不要输出 POI、路线、价格、营业、天气、确切开始时间或可行性结论。\n"
+        "请根据用户需求提出一个 PlanStructureProposal v2。slots 是 1-4 个有序角色，"
+        "每个 slot 的 inclusion 只能是 core 或 optional；允许未注册的新角色序列和重复 activity。"
+        "不得删除或重排用户明确要求的角色；不得修改用户硬约束。role_queries 是按角色的检索表达，"
+        "evidence_refs 只能引用 available_evidence_ids。不要输出 POI、路线、价格、营业、天气、"
+        "确切开始时间或可行性结论；core 只是模型建议，不等于用户硬约束。\n"
         + json.dumps(context, ensure_ascii=False, sort_keys=True)
     )
 
@@ -863,11 +980,9 @@ def _clock_minutes(value: str) -> int:
 
 
 _SYSTEM_PROMPT = """你是 HappyFreeTime 的受约束 PlanningIntent 节点。
-只输出一个合法的 PlanningIntentProposal JSON 对象，不要返回 Markdown 代码围栏或解释文字。你的输出不是最终方案，也不能包含 POI、路线、天气、价格、库存或硬约束值。
-只能使用 allowed_roles 中的角色，slots 站数必须在 1 到 4 内，且至少有一个现有骨架能够匹配；不能删除 baseline required role。
-如果返回 slots，required_roles/optional_roles 只是按首次出现去重后的兼容摘要；如果不需要结构提案可以保留旧字段。
-role_queries 的每一项必须包含 text 和 evidence_refs，evidence_refs 只能使用对应角色允许的 role_query_evidence。
-evidence 只能引用输入中出现的软偏好词，不要编造用户没有说过的事实。
-semantic_request 只能引用 baseline_intent.semantic_request 中已有的 evidence_id；
-可以选择或重排已有 objective/query，但不得创建未被用户输入支持的证据。
-"""
+只输出一个合法的 PlanStructureProposal v2 JSON 对象，不要返回 Markdown 代码围栏或解释文字。
+slots 必须是 1 到 4 个有序角色；允许提出当前注册骨架中没有的新序列，也允许重复 activity。
+每个 slot 必须标记 inclusion=core 或 optional。core 是结构建议，不是用户硬约束。
+不得删除或重排用户明确指定的角色；午饭必须在晚饭前；最多一个 lunch、一个 dinner。
+role_queries 必须绑定输入中的 evidence_id。不得输出 POI、resource_id、路线、距离、价格、营业、天气、
+确切开始时间、Availability 或最终可行性。"""

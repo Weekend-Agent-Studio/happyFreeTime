@@ -96,6 +96,10 @@ from app.services.plan_spec import (
     RolePrecedence,
     coerce_plan_spec,
 )
+from app.services.plan_spec_compiler import (
+    CompiledPlanChoices,
+    PlanSpecCompiler,
+)
 from app.services.candidate_retriever import (
     CandidateRetriever,
     RetrievalRequest,
@@ -278,6 +282,7 @@ class PlanningService:
         # the closed skeleton vocabulary auditable without adding another Graph
         # node or exposing a second planning API.
         self._structure_compiler = StructureCompiler()
+        self._plan_spec_compiler = PlanSpecCompiler()
 
     def _retrieve_for_skeleton_roles(
         self,
@@ -425,8 +430,19 @@ class PlanningService:
             latency_ms=_elapsed_ms(started_at),
             input_tokens=planning_intent_decision.input_tokens,
             output_tokens=planning_intent_decision.output_tokens,
+            wire_schema_version=(
+                planning_intent_decision.structure_proposal.schema_version
+                if planning_intent_decision.structure_proposal is not None
+                else None
+            ),
+            prompt_version=planning_intent_decision.prompt_version,
         )
         planning_intent = planning_intent_decision.intent
+        # Keep the deterministic Rule baseline separate from the model's
+        # semantic view.  V2 fallback specs must come from this baseline, not
+        # from a possibly incomplete LLM role list.  The legacy DTO path keeps
+        # its old compatibility behavior until old checkpoints are retired.
+        rule_baseline = build_rule_based_planning_intent(constraints)
 
         location = constraints.location.value
         weather = self._weather_provider.get_weather(
@@ -460,25 +476,74 @@ class PlanningService:
             for candidate in catalog_result.candidates
             if candidate.resource_id not in weather_removed_ids
         ]
-        # An explicit role/count request owns structure selection. Only the
-        # absence of such a request delegates skeleton eligibility to the soft
-        # PlanningIntent path.
+        # Explicit user structure remains authoritative.  Otherwise the LLM
+        # proposal is compiled into arbitrary bounded PlanSpecs; the registry
+        # is used only to construct the deterministic Rule fallback.
         if structure_compilation.specs is None:
-            plan_specs = _select_plan_specs(constraints, planning_intent)
+            compiler_baseline = (
+                rule_baseline
+                if planning_intent_decision.structure_proposal is not None
+                else planning_intent
+            )
+            plan_choices = self._plan_spec_compiler.compile(
+                constraints,
+                compiler_baseline,
+                planning_intent_decision.structure_proposal
+                if planning_intent_decision.source == "llm"
+                else None,
+            )
+            preferred_specs = plan_choices.preferred_specs
+            fallback_specs = plan_choices.fallback_specs
+            plan_specs = preferred_specs or fallback_specs
+            structure_fallback_used = bool(
+                plan_choices.proposal_status == "rejected" and fallback_specs
+            )
+            structure_fallback_reason = plan_choices.diagnostic_code
+            # The provider can validate the wire shape, but the compiler is
+            # the authority for proposal acceptance in the trace.
+            if planning_intent_decision.structure_proposal is not None:
+                planning_intent_decision = planning_intent_decision.model_copy(
+                    update={
+                        "proposal_accepted": plan_choices.proposal_status == "compiled",
+                        "proposal_rejection_reason": plan_choices.diagnostic_code,
+                    }
+                )
         else:
+            plan_choices = CompiledPlanChoices(
+                preferred_specs=structure_compilation.specs,
+                fallback_specs=(),
+                proposal_status="not_used",
+            )
+            preferred_specs = structure_compilation.specs
+            fallback_specs = ()
             plan_specs = structure_compilation.specs
-        skeletons = tuple(spec.skeleton for spec in plan_specs)
+            structure_fallback_used = False
+            structure_fallback_reason = None
+        if not plan_specs:
+            return CandidateSet(
+                conflict=ConstraintConflict(
+                    code="NO_PLAN_SPEC",
+                    message="当前请求没有可执行的行程结构。",
+                    fields=["plan_structure"],
+                    relaxation_options=["放宽站点结构限制"],
+                ),
+                planning_intent_decision=planning_intent_decision,
+                runtime_decision=runtime_decision,
+            )
+        # Retrieval is shared by preferred and fallback structures so a
+        # deterministic fallback does not need another provider/model call.
+        retrieval_specs = _dedupe_plan_specs((*preferred_specs, *fallback_specs))
         retrieved, semantic_scores = self._retrieve_for_skeleton_roles(
             candidates,
             planning_intent,
-            plan_specs,
+            retrieval_specs,
         )
         retrieval_runtime_decision = _retrieval_runtime(retrieved)
         candidates = [item.candidate for item in retrieved.items]
         local_result = _rank_skeleton_plans(
             candidates,
             constraints,
-            plan_specs,
+            preferred_specs or fallback_specs,
             planning_intent,
             semantic_scores=(
                 semantic_scores if not planning_intent.semantic_request.is_empty else None
@@ -486,6 +551,37 @@ class PlanningService:
             explicit_structure=structure_compilation.specs is not None,
             planning_intent_source=planning_intent_decision.source,
         )
+        # If the preferred LLM structure cannot even produce a local,
+        # scheduler-valid candidate, retry the deterministic Rule specs.  This
+        # is bounded and does not call the model again.  Provider/Verifier
+        # fallback is handled by the same route loop once this local pool is
+        # available.
+        if (
+            preferred_specs
+            and fallback_specs
+            and not local_result.plans
+        ):
+            fallback_result = _rank_skeleton_plans(
+                candidates,
+                constraints,
+                fallback_specs,
+                planning_intent,
+                semantic_scores=(
+                    semantic_scores
+                    if not planning_intent.semantic_request.is_empty
+                    else None
+                ),
+                explicit_structure=False,
+                planning_intent_source="fallback",
+            )
+            local_result = _merge_local_planning_results(
+                fallback_result,
+                preferred=local_result,
+            )
+            structure_fallback_reason = (
+                structure_fallback_reason or "preferred_plan_spec_infeasible"
+            )
+            structure_fallback_used = bool(local_result.plans)
         if weather_removed and not any(
             candidate.resource_type == ResourceType.ACTIVITY
             for candidate in candidates
@@ -691,6 +787,12 @@ class PlanningService:
                 retrieval_index_version=retrieved.index_version,
                 semantic_request=planning_intent.semantic_request,
                 retrieval_evidence=_retrieval_evidence_for_plans(retrieved, plans),
+                **_plan_spec_metadata(
+                    planning_intent_decision,
+                    plan_choices,
+                    fallback_used=structure_fallback_used,
+                    fallback_reason=structure_fallback_reason,
+                ),
                 **_search_metadata(local_result),
             )
 
@@ -729,6 +831,12 @@ class PlanningService:
                 retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
+                **_plan_spec_metadata(
+                    planning_intent_decision,
+                    plan_choices,
+                    fallback_used=structure_fallback_used,
+                    fallback_reason=structure_fallback_reason,
+                ),
                 **_search_metadata(local_result),
             )
 
@@ -787,6 +895,12 @@ class PlanningService:
                 retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
+                **_plan_spec_metadata(
+                    planning_intent_decision,
+                    plan_choices,
+                    fallback_used=structure_fallback_used,
+                    fallback_reason=structure_fallback_reason,
+                ),
                 **_search_metadata(local_result),
             )
 
@@ -871,6 +985,12 @@ class PlanningService:
             retrieval_runtime_decision=retrieval_runtime_decision,
             retrieval_mode=retrieved.mode,
             retrieval_index_version=retrieved.index_version,
+            **_plan_spec_metadata(
+                planning_intent_decision,
+                plan_choices,
+                fallback_used=structure_fallback_used,
+                fallback_reason=structure_fallback_reason,
+            ),
             **_search_metadata(local_result),
         )
 
@@ -1511,6 +1631,85 @@ def _search_metadata(result: _LocalPlanningResult | None) -> dict[str, object]:
         ),
         "accepted_plan_spec_ids": list(result.accepted_plan_spec_ids),
     }
+
+
+def _plan_spec_metadata(
+    decision: object,
+    choices: CompiledPlanChoices,
+    *,
+    fallback_used: bool,
+    fallback_reason: str | None,
+) -> dict[str, object]:
+    """Serialize PlanSpec compilation provenance into CandidateSet safely."""
+
+    proposal = getattr(decision, "structure_proposal", None)
+    return {
+        "planning_intent_proposal_schema_version": (
+            proposal.schema_version if proposal is not None else None
+        ),
+        "planning_intent_proposal_slots": (
+            [
+                {"role": slot.role.value, "inclusion": slot.inclusion}
+                for slot in proposal.slots
+            ]
+            if proposal is not None
+            else []
+        ),
+        "planning_intent_proposal_compiled": choices.proposal_status == "compiled",
+        "planning_intent_preferred_spec_ids": [
+            spec.skeleton_id for spec in choices.preferred_specs
+        ],
+        "planning_intent_fallback_spec_ids": [
+            spec.skeleton_id for spec in choices.fallback_specs
+        ],
+        "planning_intent_structure_fallback_used": fallback_used,
+        "planning_intent_structure_fallback_reason": fallback_reason,
+    }
+
+
+def _dedupe_plan_specs(
+    specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+) -> tuple[CompiledPlanSpec, ...]:
+    by_key: dict[tuple[str, tuple[StopRole, ...]], CompiledPlanSpec] = {}
+    for raw_spec in specs:
+        spec = coerce_plan_spec(raw_spec)
+        by_key[(spec.skeleton_id, spec.roles)] = spec
+    return tuple(by_key.values())
+
+
+def _merge_local_planning_results(
+    fallback: _LocalPlanningResult,
+    *,
+    preferred: _LocalPlanningResult,
+) -> _LocalPlanningResult:
+    """Use Rule local candidates while retaining both search traces."""
+
+    preferred_stats = preferred.search_stats
+    fallback_stats = fallback.search_stats
+    combined_stats = fallback_stats
+    if preferred_stats is not None and fallback_stats is not None:
+        combined_stats = replace(
+            fallback_stats,
+            theoretical_combinations=(
+                preferred_stats.theoretical_combinations
+                + fallback_stats.theoretical_combinations
+            ),
+            expansions=preferred_stats.expansions + fallback_stats.expansions,
+            pruned_by=_merge_rejection_counts(
+                preferred_stats.pruned_by,
+                fallback_stats.pruned_by,
+            ),
+        )
+    return replace(
+        fallback,
+        search_stats=combined_stats,
+        search_traces=_merge_search_traces(
+            preferred.search_traces,
+            fallback.search_traces,
+        ),
+        accepted_plan_spec_ids=fallback.accepted_plan_spec_ids,
+        primary_search_mode=fallback.primary_search_mode,
+    )
 
 
 def _select_route_candidates(
