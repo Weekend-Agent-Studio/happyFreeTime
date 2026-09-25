@@ -75,6 +75,12 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         self.assertEqual(child.expected.expected_objectives, ("family_friendly",))
         self.assertEqual(child.expected.expected_semantic_queries, ("能互动探索",))
         self.assertEqual(child.expected.expected_grounded_semantics, ("能互动探索",))
+        child_fixture = by_id["plan_child_indoor_explore"].interpretation.raw_constraints
+        self.assertEqual(child_fixture.members, ["六岁孩子"])
+        self.assertEqual(
+            by_id["plan_child_indoor_explore"].interpretation.evidence_map["members"],
+            "六岁孩子",
+        )
 
     def test_conflict_diagnosis_does_not_fail_safety_or_task(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
@@ -334,6 +340,117 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
                 len(replacement["plan_diffs"]),
                 len(replacement["plans"]),
             )
+
+    def test_shorter_modification_accepts_verified_no_closer_conflict(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item for item in dataset.cases if item.case_id == "modify_activity_shorter"
+        )
+        result = _score_case(
+            case,
+            load_evaluation_variant("offline_sanity"),
+            repeat=1,
+            transcript=[
+                {
+                    "action": "message",
+                    "plans": [
+                        {
+                            "plan_id": "base",
+                            "composition_fingerprint": "composition-base",
+                            "stops": [],
+                        }
+                    ],
+                },
+                {
+                    "action": "select_plan",
+                    "status_code": 200,
+                    "selected_plan_id": "base",
+                },
+                {
+                    "action": "replace_stop",
+                    "plans": [],
+                    "plan_diffs": [],
+                    "conflict": {
+                        "code": "NO_CLOSER_REPLACEMENT",
+                        "fields": ["replacement", "route_distance"],
+                    },
+                    "base_plan_id": "base",
+                    "base_plan_stops": [],
+                    "target_stop_index": 0,
+                },
+            ],
+            final_view=None,
+            last_payload=None,
+            elapsed_ms=1,
+            error=None,
+        )
+        self.assertTrue(result.task_passed)
+        self.assertEqual(result.actual_outcome, "conflict")
+        statuses = {item.metric: item for item in result.assertions}
+        self.assertEqual(statuses["outcome"].status, "passed")
+        self.assertEqual(statuses["modification_execution_success"].status, "passed")
+        self.assertEqual(statuses["replacement_oracle"].status, "passed")
+
+    def test_fixed_base_modification_asserts_composition_anchor(self) -> None:
+        dataset = load_resume_release_dataset(DATASET_PATH)
+        case = next(
+            item
+            for item in dataset.cases
+            if item.case_id == "modify_preserves_selected_anchor"
+        )
+        result = _score_case(
+            case,
+            load_evaluation_variant("offline_sanity"),
+            repeat=1,
+            transcript=[
+                {
+                    "action": "message",
+                    "plans": [
+                        {
+                            "plan_id": "base",
+                            "composition_fingerprint": "composition-848bab36007f",
+                            "stops": [{"resource_id": "a"}, {"resource_id": "b"}],
+                        }
+                    ],
+                },
+                {
+                    "action": "select_plan",
+                    "status_code": 200,
+                    "selected_plan_id": "base",
+                },
+                {
+                    "action": "replace_stop",
+                    "plans": [
+                        {
+                            "plan_id": "new",
+                            "stops": [{"resource_id": "c"}, {"resource_id": "b"}],
+                        }
+                    ],
+                    "plan_diffs": [
+                        {
+                            "new_plan_id": "new",
+                            "replacements": [{"stop_index": 0}],
+                            "locked_stops": [{"stop_index": 1, "resource_id": "b"}],
+                        }
+                    ],
+                    "base_plan_id": "base",
+                    "base_plan_composition_fingerprint": "composition-848bab36007f",
+                    "base_plan_stops": [
+                        {"resource_id": "a"},
+                        {"resource_id": "b"},
+                    ],
+                    "target_stop_index": 0,
+                },
+            ],
+            final_view=None,
+            last_payload=None,
+            elapsed_ms=1,
+            error=None,
+        )
+        fixed = next(
+            item for item in result.assertions if item.metric == "fixed_base_composition"
+        )
+        self.assertEqual(fixed.status, "passed")
 
     def test_report_marks_no_model_usage_for_offline_variant(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)

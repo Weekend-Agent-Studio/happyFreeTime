@@ -71,6 +71,15 @@ class EvaluationExpectation(BaseModel):
     require_plan_diff: bool = False
     preserve_non_target_stops: bool = False
     max_replacement_candidates: int | None = Field(default=None, ge=1, le=2)
+    # A route-improvement request may legitimately end in the verified
+    # ``NO_CLOSER_REPLACEMENT`` conflict when the selected base plan has no
+    # feasible shorter candidate.  Keep this oracle explicit instead of
+    # forcing every variant to produce a replacement.
+    acceptable_conflict_codes: tuple[str, ...] = ()
+    # Optional composition-level anchor for a modification case whose
+    # purpose is to measure replacement invariants independently of upstream
+    # recommendation/semantic ranking.
+    expected_base_composition_fingerprint: str | None = None
 
     @model_validator(mode="after")
     def validate_outcome_fields(self) -> "EvaluationExpectation":

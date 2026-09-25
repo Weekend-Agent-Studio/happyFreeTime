@@ -1112,6 +1112,9 @@ def _replace_step(
         {
             "base_plan_id": selected_id,
             "base_plan_version_id": view.get("active_plan_version_id"),
+            "base_plan_composition_fingerprint": selected_plan.get(
+                "composition_fingerprint"
+            ),
             "base_plan_stops": [
                 {
                     "resource_id": item.get("resource_id"),
@@ -1209,6 +1212,7 @@ def _transcript_row(
         "base_plan_id",
         "base_plan_version_id",
         "base_plan_stops",
+        "base_plan_composition_fingerprint",
         "target_stop_index",
     ):
         if key in response:
@@ -1298,11 +1302,21 @@ def _score_case(
         )
 
     expected_outcome = case.expected.outcome
+    accepted_modification_conflict = _accepted_modification_conflict(
+        case, final_row
+    )
+    outcome_passed = actual_outcome == expected_outcome or (
+        expected_outcome == "plan" and accepted_modification_conflict is not None
+    )
     add(
         "outcome",
-        "passed" if actual_outcome == expected_outcome else "failed",
-        expected=expected_outcome,
-        actual=actual_outcome,
+        "passed" if outcome_passed else "failed",
+        expected=(
+            expected_outcome
+            if accepted_modification_conflict is None
+            else f"{expected_outcome} or {accepted_modification_conflict}"
+        ),
+        actual=(accepted_modification_conflict or actual_outcome),
     )
 
     downstream_evaluable = _downstream_assertions_evaluable(
@@ -1336,7 +1350,26 @@ def _score_case(
         # plan is absent.  Convert even an accidentally passing scorer (for
         # example ``all([])``) so an upstream failure cannot become a phantom
         # downstream success.
-        if not downstream_evaluable and status != "not_applicable":
+        if (
+            accepted_modification_conflict is not None
+            and metric != "replacement_oracle"
+            and status != "not_applicable"
+        ):
+            status = "not_applicable"
+            required = False
+            details = (
+                "该变体的选中基准方案经完整替换复核没有更短候选；仅评价安全冲突，不评价方案/解释字段"
+                if not details
+                else f"该变体的选中基准方案没有更短候选；{details}"
+            )
+        elif (
+            not downstream_evaluable
+            and not (
+                accepted_modification_conflict is not None
+                and metric == "replacement_oracle"
+            )
+            and status != "not_applicable"
+        ):
             status = "not_evaluable"
             details = (
                 "前置结果未满足，无法评价该下游断言；仅保留主结果失败"
@@ -1455,13 +1488,19 @@ def _score_case(
                 and actual_outcome == "plan"
                 and bool((final_row or {}).get("plans"))
             )
+            if accepted_modification_conflict is not None:
+                execution_success = bool(modification_setup_success)
             add(
                 "modification_execution_success",
                 "not_evaluable"
                 if not modification_setup_success
                 else "passed" if execution_success else "failed",
-                expected="replacement reaches a verified plan",
-                actual=actual_outcome,
+                expected=(
+                    "replacement reaches a verified plan"
+                    if accepted_modification_conflict is None
+                    else f"verified replacement or {accepted_modification_conflict}"
+                ),
+                actual=(accepted_modification_conflict or actual_outcome),
                 details=(
                     "setup_failure: replacement execution is not evaluable"
                     if not modification_setup_success
@@ -1626,6 +1665,27 @@ def _modification_setup_succeeded(transcript: Sequence[dict[str, Any]]) -> bool:
         and (selection or {}).get("status_code") == 200
         and (selection or {}).get("selected_plan_id")
     )
+
+
+def _accepted_modification_conflict(
+    case: ResumeReleaseCase,
+    row: dict[str, Any] | None,
+) -> str | None:
+    """Return an explicitly accepted safe modification conflict, if any.
+
+    A route-improvement case may legitimately end in a verified
+    ``NO_CLOSER_REPLACEMENT`` for its selected base plan.  The reviewed
+    dataset declares that oracle explicitly instead of forcing every variant
+    to produce a replacement.
+    """
+
+    if case.category != "modification" or not case.expected.acceptable_conflict_codes:
+        return None
+    conflict = (row or {}).get("conflict") or {}
+    code = conflict.get("code")
+    if code in set(case.expected.acceptable_conflict_codes):
+        return str(code)
+    return None
 
 
 def _failure_details(
@@ -1949,6 +2009,43 @@ def _score_modification(case: ResumeReleaseCase, row: dict[str, Any] | None, tra
         (item for item in reversed(transcript) if item.get("action") == "replace_stop"),
         None,
     )
+    if case.expected.expected_base_composition_fingerprint is not None:
+        actual_fingerprint = (replacement_row or {}).get(
+            "base_plan_composition_fingerprint"
+        )
+        add(
+            "fixed_base_composition",
+            "passed"
+            if actual_fingerprint == case.expected.expected_base_composition_fingerprint
+            else "failed",
+            expected=case.expected.expected_base_composition_fingerprint,
+            actual=actual_fingerprint,
+            details="fixed-base modification case isolates replacement invariants from recommendation ranking",
+        )
+    accepted_conflict = _accepted_modification_conflict(case, row)
+    if accepted_conflict is not None:
+        add(
+            "replacement_oracle",
+            "passed",
+            expected=f"verified replacement or {accepted_conflict}",
+            actual=accepted_conflict,
+            details="the selected base plan was fully rechecked and no shorter replacement survived",
+        )
+        for metric in (
+            "replacement_candidate_count",
+            "plan_diff_valid",
+            "replacement_route_distance_decreased",
+            "replacement_target_accuracy",
+            "locked_stop_preservation_rate",
+            "non_target_identity_preservation_rate",
+        ):
+            add(
+                metric,
+                "not_applicable",
+                required=False,
+                details="no replacement plan exists for this selected-base oracle",
+            )
+        return
     target_index = (replacement_row or {}).get("target_stop_index")
     base_stops = (replacement_row or {}).get("base_plan_stops") or []
     expected_max = case.expected.max_replacement_candidates or 2
@@ -1990,6 +2087,17 @@ def _score_modification(case: ResumeReleaseCase, row: dict[str, Any] | None, tra
             expected="every returned candidate has route_distance_delta_km < 0",
             actual=route_deltas,
             details="shorter_travel replacement must be verified by the route-aware PlanDiff",
+        )
+        add(
+            "replacement_oracle",
+            "passed" if route_deltas and all(delta < 0 for delta in route_deltas) else "failed",
+            expected="verified shorter replacement or NO_CLOSER_REPLACEMENT",
+            actual=(
+                "verified_shorter_replacement"
+                if route_deltas
+                else "no_verified_replacement"
+            ),
+            details="oracle is evaluated against the actual selected base plan, not a cross-variant success expectation",
         )
     replacement_indexes = [
         (item.get("replacements") or [{}])[0].get("stop_index")

@@ -1262,7 +1262,9 @@
           "adults": null,
           "children": 1,
           "child_age": 6,
-          "members": [],
+          "members": [
+            "六岁孩子"
+          ],
           "budget_text": null,
           "budget_per_person": null,
           "strict_budget": false,
@@ -1289,6 +1291,7 @@
         "evidence_map": {
           "children": "带六岁孩子",
           "child_age": "六岁孩子",
+          "members": "六岁孩子",
           "preferences": "能互动探索",
           "scene_tags": "室内"
         },
