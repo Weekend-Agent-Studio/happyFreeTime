@@ -18,7 +18,7 @@ from app.domain.catalog import (
     PriceKind,
 )
 from app.domain.constraints import QuestionDecision, StopRole, TimeScope
-from app.domain.semantics import EvidenceRef, SemanticRequest
+from app.domain.semantics import EvidenceRef, SemanticRequest, SoftObjective
 from app.domain.providers import (
     AvailabilityFact,
     GeocodingFact,
@@ -132,6 +132,11 @@ class PlanStructureProposal(BaseModel):
     )
     slots: tuple[PlanSlotProposal, ...] = Field(min_length=1, max_length=4)
     pace: PlanPace = PlanPace.BALANCED
+    # Finite semantic objectives are deliberately part of the small wire
+    # proposal.  The model may select only objectives grounded in the
+    # deterministic evidence supplied by the Harness; it cannot create new
+    # evidence, confidence maps, or a second SemanticRequest shape.
+    objectives: tuple[SoftObjective, ...] = ()
     role_queries: dict[str, RoleQueryProposal] = Field(default_factory=dict)
     evidence_refs: tuple[str, ...] = ()
 
@@ -406,11 +411,15 @@ class CandidateSet(BaseModel):
     accepted_plan_spec_ids: list[str] = Field(default_factory=list)
     planning_intent_proposal_schema_version: str | None = None
     planning_intent_proposal_slots: list[dict[str, str]] = Field(default_factory=list)
+    planning_intent_proposal_rejected: bool = False
     planning_intent_proposal_compiled: bool = False
     planning_intent_preferred_spec_ids: list[str] = Field(default_factory=list)
     planning_intent_fallback_spec_ids: list[str] = Field(default_factory=list)
     planning_intent_structure_fallback_used: bool = False
     planning_intent_structure_fallback_reason: str | None = None
+    planning_intent_structure_fallback_stage: str | None = None
+    planning_intent_preferred_failure_fields: list[str] = Field(default_factory=list)
+    planning_intent_fallback_failure_fields: list[str] = Field(default_factory=list)
     # The exact semantic request and profile citations used by the Retriever
     # travel with the verified value so downstream recommendation advice does
     # not need to reconstruct or silently broaden retrieval evidence.

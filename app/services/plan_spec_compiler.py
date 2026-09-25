@@ -101,6 +101,24 @@ class PlanSpecCompiler:
         if lunch is not None and dinner is not None and lunch >= dinner:
             raise ValueError("lunch_before_dinner_required")
 
+        # Semantic objectives are part of the same bounded proposal, but they
+        # do not become valid merely because their enum value parsed.  Every
+        # objective must cite evidence already produced by the deterministic
+        # semantic layer; the model cannot manufacture provenance here.
+        known_evidence = {item.evidence_id for item in baseline.semantic_request.evidence}
+        seen_objectives: set[tuple[object, object | None]] = set()
+        for objective in proposal.objectives:
+            if not objective.evidence_refs or not set(objective.evidence_refs).issubset(
+                known_evidence
+            ):
+                raise ValueError("objective_ungrounded")
+            if objective.target_role is not None and objective.target_role not in roles:
+                raise ValueError("objective_role_not_in_slots")
+            objective_key = (objective.kind, objective.target_role)
+            if objective_key in seen_objectives:
+                raise ValueError("duplicate_objective")
+            seen_objectives.add(objective_key)
+
         required_roles = _explicit_roles(constraints)
         if required_roles and not _contains_compatible_subsequence(roles, required_roles):
             raise ValueError("explicit_roles_not_preserved")
@@ -120,7 +138,6 @@ class PlanSpecCompiler:
             if exact_count not in possible_counts:
                 raise ValueError("explicit_stop_count_not_preserved")
 
-        known_evidence = {item.evidence_id for item in baseline.semantic_request.evidence}
         if not set(proposal.evidence_refs).issubset(known_evidence):
             raise ValueError("proposal_evidence_ungrounded")
         slot_roles = set(roles)

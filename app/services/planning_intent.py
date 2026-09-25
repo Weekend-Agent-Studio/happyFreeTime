@@ -500,48 +500,25 @@ def _accept_v2_proposal(
     constraints: NormalizedConstraints,
     baseline: PlanningIntent,
 ) -> PlanningIntent:
-    """Turn the small wire proposal into the compatibility PlanningIntent.
+    """Project a wire proposal into the compatibility domain view.
 
-    The ordered slots remain in the proposal and are consumed by
-    ``PlanSpecCompiler``.  The legacy-shaped fields below are only summaries
-    for existing planner/trace consumers; they are not used as an LLM
-    legality gate.
+    Structural legality belongs exclusively to ``PlanSpecCompiler``.  This
+    projection therefore preserves the ordered proposal, carries only
+    evidence-grounded semantic material into the old domain object, and does
+    not reject a role sequence before the compiler can record its stable
+    rejection code.  Invalid semantic references are omitted from this
+    compatibility view; the compiler still rejects the original proposal and
+    selects the deterministic Rule fallback.
     """
 
     roles = tuple(slot.role for slot in proposal.slots)
-    if len(roles) < 1 or len(roles) > 4:
-        raise ValueError("slot_count_out_of_bounds")
-    if roles.count(StopRole.LUNCH) > 1 or roles.count(StopRole.DINNER) > 1:
-        raise ValueError("duplicate_meal_role")
-    if StopRole.LUNCH in roles and StopRole.DINNER in roles:
-        if roles.index(StopRole.LUNCH) >= roles.index(StopRole.DINNER):
-            raise ValueError("lunch_before_dinner_required")
-
-    known_evidence = {item.evidence_id for item in baseline.semantic_request.evidence}
-    if not set(proposal.evidence_refs).issubset(known_evidence):
-        raise ValueError("proposal_evidence_ungrounded")
-    for raw_role, query in proposal.role_queries.items():
-        try:
-            role = StopRole(raw_role)
-        except ValueError as error:
-            raise ValueError("role_query_unknown_role") from error
-        if role not in roles:
-            raise ValueError("role_query_role_not_in_slots")
-        if not set(query.evidence_refs).issubset(known_evidence):
-            raise ValueError("role_query_ungrounded")
-
     core_roles = tuple(dict.fromkeys(
         slot.role for slot in proposal.slots if slot.inclusion == "core"
     ))
     optional_roles = tuple(dict.fromkeys(
         slot.role for slot in proposal.slots if slot.inclusion == "optional"
     ))
-    semantic_request = _merge_role_queries(
-        baseline.semantic_request,
-        proposal.role_queries,
-        baseline.semantic_request,
-        allowed_roles=set(roles),
-    )
+    semantic_request = _project_v2_semantics(proposal, baseline, roles)
     return PlanningIntent(
         required_roles=core_roles,
         optional_roles=optional_roles,
@@ -550,7 +527,9 @@ def _accept_v2_proposal(
             for left, right in zip(roles, roles[1:])
             if left != right
         ),
-        minimum_stops=sum(slot.inclusion == "core" for slot in proposal.slots),
+        minimum_stops=max(
+            1, sum(slot.inclusion == "core" for slot in proposal.slots)
+        ),
         maximum_stops=len(proposal.slots),
         pace=proposal.pace,
         coverage=baseline.coverage,
@@ -564,6 +543,66 @@ def _accept_v2_proposal(
         evidence=dict(baseline.evidence),
         semantic_request=semantic_request,
     )
+
+
+def _project_v2_semantics(
+    proposal: PlanStructureProposal,
+    baseline: PlanningIntent,
+    roles: tuple[StopRole, ...],
+) -> SemanticRequest:
+    """Carry only grounded V2 semantic material into the legacy domain view.
+
+    ``PlanSpecCompiler`` remains the authority for accepting or rejecting the
+    proposal.  This helper is intentionally a tolerant projection so invalid
+    references can be reported by that compiler instead of being rejected by a
+    second, drifting validator in the provider.
+    """
+
+    known = {item.evidence_id for item in baseline.semantic_request.evidence}
+    valid_objectives = tuple(
+        objective
+        for objective in proposal.objectives
+        if objective.evidence_refs
+        and set(objective.evidence_refs).issubset(known)
+        and (
+            objective.target_role is None
+            or objective.target_role in roles
+        )
+    )
+    objectives = _merge_objectives(
+        baseline.semantic_request,
+        valid_objectives,
+    )
+    valid_role_queries: dict[str, RoleQueryProposal] = {}
+    for raw_role, query in proposal.role_queries.items():
+        try:
+            role = StopRole(raw_role)
+        except ValueError:
+            continue
+        if role not in roles or not set(query.evidence_refs).issubset(known):
+            continue
+        valid_role_queries[raw_role] = query
+    semantic_request = _merge_role_queries(
+        baseline.semantic_request.model_copy(update={"objectives": objectives}),
+        valid_role_queries,
+        baseline.semantic_request,
+        allowed_roles=set(roles),
+    )
+    return semantic_request
+
+
+def _merge_objectives(
+    baseline: SemanticRequest,
+    proposed: tuple[SoftObjective, ...],
+) -> tuple[SoftObjective, ...]:
+    """Merge model objectives over the Rule baseline without duplicate kinds."""
+
+    merged: dict[tuple[SoftObjectiveKind, StopRole | None], SoftObjective] = {}
+    for objective in proposed:
+        merged[(objective.kind, objective.target_role)] = objective
+    for objective in baseline.objectives:
+        merged.setdefault((objective.kind, objective.target_role), objective)
+    return tuple(merged.values())
 
 
 def _accept_proposal(
@@ -968,7 +1007,9 @@ def _build_context(
         "请根据用户需求提出一个 PlanStructureProposal v2。slots 是 1-4 个有序角色，"
         "每个 slot 的 inclusion 只能是 core 或 optional；允许未注册的新角色序列和重复 activity。"
         "不得删除或重排用户明确要求的角色；不得修改用户硬约束。role_queries 是按角色的检索表达，"
-        "evidence_refs 只能引用 available_evidence_ids。不要输出 POI、路线、价格、营业、天气、"
+        "objectives 只能使用 allowed_objective_kinds 中的有限目标，每个 objective 必须至少引用一个 "
+        "available_evidence_ids；不得创建 evidence 或输出 confidence。role_queries 的 evidence_refs "
+        "也只能引用 available_evidence_ids。不要输出 POI、路线、价格、营业、天气、"
         "确切开始时间或可行性结论；core 只是模型建议，不等于用户硬约束。\n"
         + json.dumps(context, ensure_ascii=False, sort_keys=True)
     )
@@ -983,6 +1024,8 @@ _SYSTEM_PROMPT = """你是 HappyFreeTime 的受约束 PlanningIntent 节点。
 只输出一个合法的 PlanStructureProposal v2 JSON 对象，不要返回 Markdown 代码围栏或解释文字。
 slots 必须是 1 到 4 个有序角色；允许提出当前注册骨架中没有的新序列，也允许重复 activity。
 每个 slot 必须标记 inclusion=core 或 optional。core 是结构建议，不是用户硬约束。
+objectives 只能使用输入中的 allowed_objective_kinds；每个 objective 必须引用至少一个
+available_evidence_ids，不能创建 evidence、confidence 或新的目标种类。
 不得删除或重排用户明确指定的角色；午饭必须在晚饭前；最多一个 lunch、一个 dinner。
 role_queries 必须绑定输入中的 evidence_id。不得输出 POI、resource_id、路线、距离、价格、营业、天气、
 确切开始时间、Availability 或最终可行性。"""

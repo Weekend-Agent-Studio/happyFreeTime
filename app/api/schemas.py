@@ -106,11 +106,15 @@ class AgentResponse(BaseModel):
     accepted_plan_spec_ids: list[str] = Field(default_factory=list)
     planning_intent_proposal_schema_version: str | None = None
     planning_intent_proposal_slots: list[dict[str, str]] = Field(default_factory=list)
+    planning_intent_proposal_rejected: bool = False
     planning_intent_proposal_compiled: bool = False
     planning_intent_preferred_spec_ids: list[str] = Field(default_factory=list)
     planning_intent_fallback_spec_ids: list[str] = Field(default_factory=list)
     planning_intent_structure_fallback_used: bool = False
     planning_intent_structure_fallback_reason: str | None = None
+    planning_intent_structure_fallback_stage: str | None = None
+    planning_intent_preferred_failure_fields: list[str] = Field(default_factory=list)
+    planning_intent_fallback_failure_fields: list[str] = Field(default_factory=list)
     conversation_command: dict[str, Any] | None = None
     plan_diff: dict[str, Any] | None = None
     plan_diffs: list[dict[str, Any]] = Field(default_factory=list)

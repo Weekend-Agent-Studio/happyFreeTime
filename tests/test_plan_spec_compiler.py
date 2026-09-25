@@ -2,6 +2,7 @@ import unittest
 
 from app.domain.constraints import ConstraintSource, ConstraintValue, StopRole
 from app.domain.planning import PlanStructureProposal
+from app.domain.semantics import SoftObjective
 from app.services.plan_spec_compiler import PlanSpecCompiler
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
 from tests.test_planning import planning_constraints
@@ -121,6 +122,42 @@ class PlanSpecCompilerTest(unittest.TestCase):
         self.assertEqual(choices.proposal_status, "rejected")
         self.assertEqual(choices.diagnostic_code, "lunch_before_dinner_required")
         self.assertTrue(choices.fallback_specs)
+
+    def test_objectives_must_reference_existing_evidence(self) -> None:
+        evidence_id = self.baseline.semantic_request.evidence[0].evidence_id
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v2",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "core"},
+            ],
+            objectives=[
+                SoftObjective(
+                    kind="novelty",
+                    evidence_refs=(evidence_id,),
+                )
+            ],
+        )
+        choices = PlanSpecCompiler().compile(
+            self.constraints, self.baseline, proposal
+        )
+        self.assertEqual(choices.proposal_status, "compiled")
+
+        ungrounded = proposal.model_copy(
+            update={
+                "objectives": (
+                    SoftObjective(
+                        kind="novelty",
+                        evidence_refs=("user.preferences.missing",),
+                    ),
+                )
+            }
+        )
+        rejected = PlanSpecCompiler().compile(
+            self.constraints, self.baseline, ungrounded
+        )
+        self.assertEqual(rejected.proposal_status, "rejected")
+        self.assertEqual(rejected.diagnostic_code, "objective_ungrounded")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from app.domain.planning import (
     PlanPace,
     PlanPriceStatus,
     PlanSkeleton,
+    PlanStructureProposal,
     PlanningIntent,
     PlanningIntentDecision,
     ScoreContribution,
@@ -44,6 +45,7 @@ from app.services.planning import (
     _rank_skeleton_plans,
     _select_plan_skeletons,
 )
+from app.services.planning_intent import RuleBasedPlanningIntentProvider
 from app.services.plan_verifier import PlanVerifier
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
 
@@ -111,6 +113,67 @@ class UnexpectedWeatherProvider:
 
 
 class NativePlanningBehaviorTest(unittest.TestCase):
+    def test_llm_structure_falls_back_after_route_verifier_rejects_preferred(self) -> None:
+        constraints = planning_constraints(budget=1_000, time_end="22:00").model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="11:00", end="22:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+                "preferences": ["浪漫"],
+            }
+        )
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v2",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "break", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "core"},
+            ],
+            pace="relaxed",
+        )
+        baseline = RuleBasedPlanningIntentProvider().decide(constraints)
+
+        class FixedStructureProvider:
+            def decide(self, _: object) -> PlanningIntentDecision:
+                return baseline.model_copy(
+                    update={
+                        "source": "llm",
+                        "model_name": "fake",
+                        "attempts": 1,
+                        "proposal_present": True,
+                        "proposal_accepted": True,
+                        "structure_proposal": proposal,
+                    }
+                )
+
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "展览", ["展览"]),
+                candidate("break", ResourceType.CAFE, "咖啡馆", ["咖啡"]),
+                candidate("dinner", ResourceType.RESTAURANT, "晚餐", ["餐厅"]),
+            ]
+        )
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=FixedReplayRouteProvider(duration_minutes=5, distance_km=1),
+            availability_provider=MockAvailabilityProvider(
+                statuses={"break": AvailabilityStatus.UNAVAILABLE}
+            ),
+            planning_intent_provider=FixedStructureProvider(),
+        ).plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(result.planning_intent_structure_fallback_used)
+        self.assertEqual(result.planning_intent_structure_fallback_stage, "route")
+        self.assertIn("availability", result.planning_intent_fallback_failure_fields)
+        self.assertTrue(
+            all(
+                StopRole.BREAK not in {stop.role for stop in plan.stops}
+                for plan in result.plans
+            )
+        )
+
     def test_beam_gives_later_skeleton_a_budget_after_earlier_failure(self) -> None:
         constraints = planning_constraints(time_end="18:00")
         specs = (

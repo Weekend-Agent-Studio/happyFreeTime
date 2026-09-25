@@ -497,6 +497,9 @@ class PlanningService:
                 plan_choices.proposal_status == "rejected" and fallback_specs
             )
             structure_fallback_reason = plan_choices.diagnostic_code
+            structure_fallback_stage = (
+                "compile" if plan_choices.proposal_status == "rejected" else None
+            )
             # The provider can validate the wire shape, but the compiler is
             # the authority for proposal acceptance in the trace.
             if planning_intent_decision.structure_proposal is not None:
@@ -517,6 +520,7 @@ class PlanningService:
             plan_specs = structure_compilation.specs
             structure_fallback_used = False
             structure_fallback_reason = None
+            structure_fallback_stage = None
         if not plan_specs:
             return CandidateSet(
                 conflict=ConstraintConflict(
@@ -580,16 +584,12 @@ class PlanningService:
                 structure_fallback_reason or "preferred_plan_spec_infeasible"
             )
             structure_fallback_used = bool(local_result.plans)
+            structure_fallback_stage = "local_search"
         if weather_removed and not any(
             candidate.resource_type == ResourceType.ACTIVITY
             for candidate in candidates
         ):
             local_result.rejected_fields.add("weather")
-        route_candidates = _select_route_candidates(
-            local_result.plans,
-            _MAX_ROUTE_LEG_VERIFICATIONS,
-            has_return_leg=constraints.return_by is not None,
-        )
         search_trace_by_id = {
             trace.skeleton_id: trace for trace in local_result.search_traces
         }
@@ -612,19 +612,14 @@ class PlanningService:
             }
             search_trace_by_id[key] = trace.model_copy(update=updates)
 
-        def commit_search_traces() -> _LocalPlanningResult:
+        def commit_search_traces(current_result: _LocalPlanningResult) -> _LocalPlanningResult:
             return replace(
-                local_result,
+                current_result,
                 search_traces=tuple(
                     search_trace_by_id[key] for key in search_trace_order
                 ),
             )
 
-        for route_candidate in route_candidates:
-            increment_search_trace(
-                route_candidate.skeleton_id,
-                route_candidates=1,
-            )
         plans = []
         availability_facts_by_plan: dict[str, tuple[AvailabilityFact, ...]] = {}
         verification_warnings_by_plan: dict[str, tuple[VerificationFinding, ...]] = {}
@@ -634,101 +629,209 @@ class PlanningService:
         route_leg_verifications = 0
         exhausted_repair_chain = False
         verified_compositions: set[str] = set()
-        repair_coordinator = _RepairCoordinator()
-        pending_candidates = deque(
-            _FinalistAttempt(
-                plan=plan,
-                root_fingerprint=plan.composition_fingerprint,
+        had_route_candidates = False
+        preferred_failure_fields: set[str] = set()
+        fallback_failure_fields: set[str] = set()
+
+        def verify_local_candidates(
+            current_result: _LocalPlanningResult,
+        ) -> _VerifiedPlanningResult:
+            """Run one shared Route/Availability/Verifier pass.
+
+            Preferred and Rule fallback specs both cross this seam.  Budgets
+            and verified-composition de-duplication are shared across passes,
+            so a structural fallback cannot create an unbounded second route
+            loop or hide provider truth.
+            """
+
+            nonlocal availability_batches, route_leg_verifications
+            nonlocal exhausted_repair_chain, had_route_candidates
+            route_candidates = _select_route_candidates(
+                current_result.plans,
+                max(0, _MAX_ROUTE_LEG_VERIFICATIONS - route_leg_verifications),
+                has_return_leg=constraints.return_by is not None,
             )
-            for plan in route_candidates
-        )
-        while pending_candidates:
-            attempt = pending_candidates.popleft()
-            plan = attempt.plan
-            if plan.composition_fingerprint in verified_compositions:
-                continue
-            verified_compositions.add(plan.composition_fingerprint)
-            verified = self._rebuild_route_timeline(
-                plan,
-                constraints,
-                candidate_by_id,
+            if route_candidates:
+                had_route_candidates = True
+            for route_candidate in route_candidates:
+                increment_search_trace(
+                    route_candidate.skeleton_id,
+                    route_candidates=1,
+                )
+
+            batch_plans: list[Plan] = []
+            batch_failure_fields: set[str] = set()
+            batch_failure_field_sets: list[set[str]] = []
+            repair_coordinator = _RepairCoordinator()
+            pending_candidates = deque(
+                _FinalistAttempt(
+                    plan=plan,
+                    root_fingerprint=plan.composition_fingerprint,
+                )
+                for plan in route_candidates
             )
-            route_request_count = len(verified.route_legs)
-            route_leg_verifications += route_request_count
-            increment_search_trace(
-                plan.skeleton_id,
-                route_provider_requests=route_request_count,
-                route_leg_count=len(verified.route_legs),
-            )
-            verified = _refresh_verified_score(verified, constraints)
-            availability_facts: tuple[AvailabilityFact, ...] = ()
-            availability_budget_exhausted = availability_batches >= _MAX_AVAILABILITY_BATCHES
-            if not availability_budget_exhausted:
-                availability_facts = tuple(
-                    self._availability_provider.check(
-                        AvailabilityRequest(
-                            date=constraints.date.value,
-                            checks=tuple(
-                                AvailabilityCheck(
-                                    resource_id=stop.resource_id,
-                                    start=stop.start,
-                                    end=stop.end,
-                                )
-                                for stop in verified.stops
-                            ),
+            while pending_candidates:
+                attempt = pending_candidates.popleft()
+                plan = attempt.plan
+                if plan.composition_fingerprint in verified_compositions:
+                    continue
+                verified_compositions.add(plan.composition_fingerprint)
+                verified = self._rebuild_route_timeline(
+                    plan,
+                    constraints,
+                    candidate_by_id,
+                )
+                route_request_count = len(verified.route_legs)
+                route_leg_verifications += route_request_count
+                increment_search_trace(
+                    plan.skeleton_id,
+                    route_provider_requests=route_request_count,
+                    route_leg_count=len(verified.route_legs),
+                )
+                verified = _refresh_verified_score(verified, constraints)
+                availability_facts: tuple[AvailabilityFact, ...] = ()
+                availability_budget_exhausted = (
+                    availability_batches >= _MAX_AVAILABILITY_BATCHES
+                )
+                if not availability_budget_exhausted:
+                    availability_facts = tuple(
+                        self._availability_provider.check(
+                            AvailabilityRequest(
+                                date=constraints.date.value,
+                                checks=tuple(
+                                    AvailabilityCheck(
+                                        resource_id=stop.resource_id,
+                                        start=stop.start,
+                                        end=stop.end,
+                                    )
+                                    for stop in verified.stops
+                                ),
+                            )
                         )
                     )
+                    availability_batches += 1
+                verification = self._plan_verifier.verify(
+                    verified,
+                    constraints,
+                    candidate_by_id,
+                    availability_facts=availability_facts,
                 )
-                availability_batches += 1
-            verification = self._plan_verifier.verify(
-                verified,
-                constraints,
-                candidate_by_id,
-                availability_facts=availability_facts,
-            )
-            if not verification.is_feasible:
-                issue_fields = {
-                    violation.field
-                    for violation in verification.violations
-                }
-                route_failure_fields.update(issue_fields)
-                route_failure_field_sets.append(issue_fields)
-                repair = repair_coordinator.decide(
-                    context=_RepairContext(
-                        failed=attempt,
-                        findings=verification.violations,
-                        remaining_route_leg_budget=(
-                            _MAX_ROUTE_LEG_VERIFICATIONS - route_leg_verifications
+                if not verification.is_feasible:
+                    issue_fields = {
+                        violation.field
+                        for violation in verification.violations
+                    }
+                    batch_failure_fields.update(issue_fields)
+                    batch_failure_field_sets.append(issue_fields)
+                    route_failure_fields.update(issue_fields)
+                    route_failure_field_sets.append(issue_fields)
+                    repair = repair_coordinator.decide(
+                        context=_RepairContext(
+                            failed=attempt,
+                            findings=verification.violations,
+                            remaining_route_leg_budget=(
+                                _MAX_ROUTE_LEG_VERIFICATIONS
+                                - route_leg_verifications
+                            ),
+                            remaining_availability_batches=(
+                                _MAX_AVAILABILITY_BATCHES
+                                - availability_batches
+                            ),
                         ),
-                        remaining_availability_batches=(
-                            _MAX_AVAILABILITY_BATCHES - availability_batches
-                        ),
-                    ),
-                    pending=pending_candidates,
-                    verified_compositions=verified_compositions,
-                )
-                if repair.outcome == RepairOutcome.LOCAL_REPLACEMENT:
-                    if repair.replacement is None:
-                        raise AssertionError("local replacement repair requires a replacement")
-                    pending_candidates.appendleft(repair.replacement)
-                elif repair.outcome == RepairOutcome.TERMINAL:
-                    exhausted_repair_chain = (
-                        exhausted_repair_chain
-                        or attempt.repair_rounds >= _MAX_LOCAL_REPLAN_ROUNDS
+                        pending=pending_candidates,
+                        verified_compositions=verified_compositions,
                     )
-                continue
-            plans.append(verified)
-            availability_facts_by_plan[verified.plan_id] = availability_facts
-            verification_warnings_by_plan[verified.plan_id] = verification.warnings
-            if availability_budget_exhausted:
-                verification_warnings_by_plan[verified.plan_id] = (
-                    *verification.warnings,
-                    _availability_budget_warning(),
-                )
-            if len(plans) == _MAX_FEASIBLE_PLANS:
-                break
+                    if repair.outcome == RepairOutcome.LOCAL_REPLACEMENT:
+                        if repair.replacement is None:
+                            raise AssertionError(
+                                "local replacement repair requires a replacement"
+                            )
+                        pending_candidates.appendleft(repair.replacement)
+                    elif repair.outcome == RepairOutcome.TERMINAL:
+                        exhausted_repair_chain = (
+                            exhausted_repair_chain
+                            or attempt.repair_rounds >= _MAX_LOCAL_REPLAN_ROUNDS
+                        )
+                    continue
+                batch_plans.append(verified)
+                availability_facts_by_plan[verified.plan_id] = availability_facts
+                verification_warnings_by_plan[verified.plan_id] = verification.warnings
+                if availability_budget_exhausted:
+                    verification_warnings_by_plan[verified.plan_id] = (
+                        *verification.warnings,
+                        _availability_budget_warning(),
+                    )
+                if len(batch_plans) == _MAX_FEASIBLE_PLANS:
+                    break
+            return _VerifiedPlanningResult(
+                plans=batch_plans,
+                route_candidates=tuple(route_candidates),
+                failure_fields=batch_failure_fields,
+                failure_field_sets=tuple(batch_failure_field_sets),
+                exhausted_repair_chain=exhausted_repair_chain,
+            )
 
-        local_result = commit_search_traces()
+        preferred_result = local_result
+        preferred_verified = verify_local_candidates(preferred_result)
+        plans = preferred_verified.plans
+        preferred_failure_fields = set(preferred_verified.failure_fields)
+        local_result = commit_search_traces(preferred_result)
+
+        # An accepted LLM structure may survive local scheduling yet fail only
+        # after real route/availability/Verifier facts are applied.  In that
+        # case run the deterministic Rule specs through the same bounded seam;
+        # explicit user structure never reaches this branch.
+        fallback_verified: _VerifiedPlanningResult | None = None
+        if (
+            not plans
+            and preferred_specs
+            and fallback_specs
+            and structure_compilation.specs is None
+        ):
+            fallback_local = _rank_skeleton_plans(
+                candidates,
+                constraints,
+                fallback_specs,
+                planning_intent,
+                semantic_scores=(
+                    semantic_scores
+                    if not planning_intent.semantic_request.is_empty
+                    else None
+                ),
+                explicit_structure=False,
+                planning_intent_source="fallback",
+            )
+            fallback_local = _merge_local_planning_results(
+                fallback_local,
+                preferred=local_result,
+            )
+            search_trace_by_id = {
+                trace.skeleton_id: trace
+                for trace in fallback_local.search_traces
+            }
+            search_trace_order = [
+                trace.skeleton_id for trace in fallback_local.search_traces
+            ]
+            local_result = fallback_local
+            fallback_verified = verify_local_candidates(fallback_local)
+            plans = fallback_verified.plans
+            fallback_failure_fields = set(fallback_verified.failure_fields)
+            if fallback_verified.plans:
+                structure_fallback_used = True
+                structure_fallback_reason = (
+                    structure_fallback_reason
+                    or "preferred_route_verification_failed"
+                )
+                structure_fallback_stage = "route"
+            local_result = commit_search_traces(local_result)
+        else:
+            local_result = commit_search_traces(local_result)
+
+        exhausted_repair_chain = exhausted_repair_chain or (
+            fallback_verified.exhausted_repair_chain
+            if fallback_verified is not None
+            else False
+        )
         if plans:
             plans = _apply_dynamic_strategies(
                 plans,
@@ -749,7 +852,7 @@ class PlanningService:
                     selected_plan.skeleton_id,
                     final_selected=1,
                 )
-            local_result = commit_search_traces()
+            local_result = commit_search_traces(local_result)
             selected_ids = {
                 stop.resource_id
                 for plan in plans
@@ -790,6 +893,9 @@ class PlanningService:
                     plan_choices,
                     fallback_used=structure_fallback_used,
                     fallback_reason=structure_fallback_reason,
+                    fallback_stage=structure_fallback_stage,
+                    preferred_failure_fields=preferred_failure_fields,
+                    fallback_failure_fields=fallback_failure_fields,
                 ),
                 **_search_metadata(local_result),
             )
@@ -834,11 +940,14 @@ class PlanningService:
                     plan_choices,
                     fallback_used=structure_fallback_used,
                     fallback_reason=structure_fallback_reason,
+                    fallback_stage=structure_fallback_stage,
+                    preferred_failure_fields=preferred_failure_fields,
+                    fallback_failure_fields=fallback_failure_fields,
                 ),
                 **_search_metadata(local_result),
             )
 
-        if route_candidates:
+        if had_route_candidates:
             universal_failure_fields = (
                 set.intersection(*route_failure_field_sets)
                 if route_failure_field_sets
@@ -898,6 +1007,9 @@ class PlanningService:
                     plan_choices,
                     fallback_used=structure_fallback_used,
                     fallback_reason=structure_fallback_reason,
+                    fallback_stage=structure_fallback_stage,
+                    preferred_failure_fields=preferred_failure_fields,
+                    fallback_failure_fields=fallback_failure_fields,
                 ),
                 **_search_metadata(local_result),
             )
@@ -988,6 +1100,9 @@ class PlanningService:
                 plan_choices,
                 fallback_used=structure_fallback_used,
                 fallback_reason=structure_fallback_reason,
+                fallback_stage=structure_fallback_stage,
+                preferred_failure_fields=preferred_failure_fields,
+                fallback_failure_fields=fallback_failure_fields,
             ),
             **_search_metadata(local_result),
         )
@@ -1598,6 +1713,17 @@ class _LocalPlanningResult:
     accepted_plan_spec_ids: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class _VerifiedPlanningResult:
+    """One bounded Route/Availability/Verifier pass over local finalists."""
+
+    plans: list[Plan]
+    route_candidates: tuple[Plan, ...]
+    failure_fields: set[str]
+    failure_field_sets: tuple[set[str], ...]
+    exhausted_repair_chain: bool = False
+
+
 def _search_metadata(result: _LocalPlanningResult | None) -> dict[str, object]:
     """Expose bounded composition metrics without coupling API to the searcher."""
 
@@ -1637,6 +1763,9 @@ def _plan_spec_metadata(
     *,
     fallback_used: bool,
     fallback_reason: str | None,
+    fallback_stage: str | None = None,
+    preferred_failure_fields: Sequence[str] = (),
+    fallback_failure_fields: Sequence[str] = (),
 ) -> dict[str, object]:
     """Serialize PlanSpec compilation provenance into CandidateSet safely."""
 
@@ -1653,6 +1782,9 @@ def _plan_spec_metadata(
             if proposal is not None
             else []
         ),
+        "planning_intent_proposal_rejected": (
+            proposal is not None and choices.proposal_status == "rejected"
+        ),
         "planning_intent_proposal_compiled": choices.proposal_status == "compiled",
         "planning_intent_preferred_spec_ids": [
             spec.skeleton_id for spec in choices.preferred_specs
@@ -1662,6 +1794,13 @@ def _plan_spec_metadata(
         ],
         "planning_intent_structure_fallback_used": fallback_used,
         "planning_intent_structure_fallback_reason": fallback_reason,
+        "planning_intent_structure_fallback_stage": fallback_stage,
+        "planning_intent_preferred_failure_fields": sorted(
+            set(preferred_failure_fields)
+        ),
+        "planning_intent_fallback_failure_fields": sorted(
+            set(fallback_failure_fields)
+        ),
     }
 
 
@@ -1700,6 +1839,7 @@ def _merge_local_planning_results(
         )
     return replace(
         fallback,
+        rejected_fields=fallback.rejected_fields | preferred.rejected_fields,
         search_stats=combined_stats,
         search_traces=_merge_search_traces(
             preferred.search_traces,
@@ -2689,6 +2829,19 @@ def _merge_search_traces(
                     "local_schedule_passes": (
                         current.local_schedule_passes
                         + trace.local_schedule_passes
+                    ),
+                    "route_candidates": (
+                        current.route_candidates + trace.route_candidates
+                    ),
+                    "route_provider_requests": (
+                        current.route_provider_requests
+                        + trace.route_provider_requests
+                    ),
+                    "route_leg_count": (
+                        current.route_leg_count + trace.route_leg_count
+                    ),
+                    "final_selected": (
+                        current.final_selected + trace.final_selected
                     ),
                     "rejected_by": rejected,
                 }

@@ -19,6 +19,7 @@ from app.domain.planning import (
     PlanningIntentProposal,
     RoleQueryProposal,
 )
+from app.domain.semantics import SoftObjective
 from app.services.planning import PlanningService, _build_planning_intent
 from app.services.catalog import InMemoryCatalog
 from app.services.planning_intent import (
@@ -109,6 +110,42 @@ def single_role_constraints(role: StopRole):
 
 
 class PlanningIntentProviderTest(unittest.TestCase):
+    def test_v2_objectives_are_merged_into_semantic_request(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={"preferences": ["带父母", "新鲜感", "不希望太累"]}
+        )
+        baseline = RuleBasedPlanningIntentProvider().decide(constraints).intent
+        evidence = [item.evidence_id for item in baseline.semantic_request.evidence]
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v2",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "core"},
+            ],
+            objectives=[
+                SoftObjective(kind="family_friendly", evidence_refs=(evidence[0],)),
+                SoftObjective(kind="novelty", evidence_refs=(evidence[1],)),
+                SoftObjective(kind="low_fatigue", evidence_refs=(evidence[-1],)),
+            ],
+        )
+
+        decision = LlmPlanningIntentProvider(
+            SequencePlanningModel(proposal)
+        ).decide(constraints)
+
+        self.assertEqual(decision.source, "llm")
+        self.assertTrue(decision.proposal_accepted)
+        self.assertEqual(
+            {
+                objective.kind.value
+                for objective in decision.intent.semantic_request.objectives
+            },
+            {"family_friendly", "novelty", "low_fatigue"},
+        )
+        self.assertTrue(
+            all(objective.evidence_refs for objective in decision.intent.semantic_request.objectives)
+        )
+
     def test_llm_bounded_slots_and_role_queries_are_compiled_to_grounded_intent(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={

@@ -715,6 +715,11 @@ def create_app(
                     if candidate_set
                     else []
                 ),
+                planning_intent_proposal_rejected=(
+                    candidate_set.planning_intent_proposal_rejected
+                    if candidate_set
+                    else False
+                ),
                 planning_intent_proposal_compiled=(
                     candidate_set.planning_intent_proposal_compiled
                     if candidate_set
@@ -739,6 +744,21 @@ def create_app(
                     candidate_set.planning_intent_structure_fallback_reason
                     if candidate_set
                     else None
+                ),
+                planning_intent_structure_fallback_stage=(
+                    candidate_set.planning_intent_structure_fallback_stage
+                    if candidate_set
+                    else None
+                ),
+                planning_intent_preferred_failure_fields=(
+                    candidate_set.planning_intent_preferred_failure_fields
+                    if candidate_set
+                    else []
+                ),
+                planning_intent_fallback_failure_fields=(
+                    candidate_set.planning_intent_fallback_failure_fields
+                    if candidate_set
+                    else []
                 ),
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")
