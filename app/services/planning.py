@@ -488,9 +488,7 @@ class PlanningService:
             plan_choices = self._plan_spec_compiler.compile(
                 constraints,
                 compiler_baseline,
-                planning_intent_decision.structure_proposal
-                if planning_intent_decision.source == "llm"
-                else None,
+                planning_intent_decision.structure_proposal,
             )
             preferred_specs = plan_choices.preferred_specs
             fallback_specs = plan_choices.fallback_specs
