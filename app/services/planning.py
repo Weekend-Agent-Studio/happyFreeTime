@@ -483,6 +483,8 @@ class PlanningService:
             semantic_scores=(
                 semantic_scores if not planning_intent.semantic_request.is_empty else None
             ),
+            explicit_structure=structure_compilation.specs is not None,
+            planning_intent_source=planning_intent_decision.source,
         )
         if weather_removed and not any(
             candidate.resource_type == ResourceType.ACTIVITY
@@ -1470,6 +1472,12 @@ class _LocalPlanningResult:
     rejected_fields: set[str]
     search_stats: BeamSearchStats | None = None
     search_traces: tuple[SkeletonSearchTrace, ...] = ()
+    primary_search_mode: str = "legacy"
+    legacy_fallback_used: bool = False
+    legacy_fallback_reason: str | None = None
+    beam_stats: BeamSearchStats | None = None
+    legacy_stats: BeamSearchStats | None = None
+    accepted_plan_spec_ids: tuple[str, ...] = ()
 
 
 def _search_metadata(result: _LocalPlanningResult | None) -> dict[str, object]:
@@ -1487,6 +1495,21 @@ def _search_metadata(result: _LocalPlanningResult | None) -> dict[str, object]:
         "search_finalist_count": stats.finalists,
         "search_pruned_by": dict(stats.pruned_by),
         "search_traces": list(result.search_traces),
+        "primary_search_mode": result.primary_search_mode,
+        "legacy_fallback_used": result.legacy_fallback_used,
+        "legacy_fallback_reason": result.legacy_fallback_reason,
+        "beam_expansions": (
+            result.beam_stats.expansions if result.beam_stats is not None else None
+        ),
+        "beam_finalist_count": (
+            result.beam_stats.finalists if result.beam_stats is not None else None
+        ),
+        "legacy_expansions": (
+            result.legacy_stats.expansions
+            if result.legacy_stats is not None
+            else None
+        ),
+        "accepted_plan_spec_ids": list(result.accepted_plan_spec_ids),
     }
 
 
@@ -2286,17 +2309,82 @@ def _rank_skeleton_plans(
     plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
+    *,
+    explicit_structure: bool = False,
+    planning_intent_source: str = "rule_based",
 ) -> _LocalPlanningResult:
-    mode = os.getenv("HFT_PLANNER_SEARCH_MODE", "legacy").strip().lower()
+    mode = os.getenv("HFT_PLANNER_SEARCH_MODE", "beam").strip().lower()
     if mode not in {"legacy", "beam"}:
         raise RuntimeError("HFT_PLANNER_SEARCH_MODE must be one of: legacy, beam")
     if mode == "beam":
-        return _rank_skeleton_plans_beam(
+        beam_result = _rank_skeleton_plans_beam(
             candidates,
             constraints,
             plan_specs,
             planning_intent,
             semantic_scores=semantic_scores,
+        )
+        beam_result = replace(
+            beam_result,
+            primary_search_mode="beam",
+            beam_stats=beam_result.search_stats,
+            accepted_plan_spec_ids=tuple(
+                spec.skeleton_id
+                for spec in (
+                    coerce_plan_spec(item, pace=planning_intent.pace)
+                    for item in plan_specs
+                )
+            ),
+        )
+        fallback_reason = _beam_fallback_reason(
+            beam_result,
+            explicit_structure=explicit_structure,
+            planning_intent_source=planning_intent_source,
+        )
+        if fallback_reason is None:
+            return beam_result
+
+        # Legacy is deliberately invoked only when Beam failed before any
+        # route/provider truth was observed.  This is a search recovery path,
+        # not a way to hide a real budget, distance, timing, availability, or
+        # provider conflict.
+        legacy_result = _rank_skeleton_plans_legacy(
+            candidates,
+            constraints,
+            plan_specs,
+            planning_intent,
+            semantic_scores=semantic_scores,
+        )
+        merged_traces = _merge_search_traces(
+            beam_result.search_traces,
+            legacy_result.search_traces,
+        )
+        combined_stats = replace(
+            beam_result.search_stats,
+            expansions=(
+                (beam_result.search_stats.expansions if beam_result.search_stats else 0)
+                + (legacy_result.search_stats.expansions if legacy_result.search_stats else 0)
+            ),
+            finalists=(legacy_result.search_stats.finalists if legacy_result.search_stats else 0),
+            theoretical_combinations=(
+                (beam_result.search_stats.theoretical_combinations if beam_result.search_stats else 0)
+                + (legacy_result.search_stats.theoretical_combinations if legacy_result.search_stats else 0)
+            ),
+            pruned_by=_merge_rejection_counts(
+                beam_result.search_stats.pruned_by if beam_result.search_stats else (),
+                legacy_result.search_stats.pruned_by if legacy_result.search_stats else (),
+            ),
+        )
+        return replace(
+            legacy_result,
+            search_stats=combined_stats,
+            search_traces=merged_traces,
+            primary_search_mode="beam",
+            legacy_fallback_used=True,
+            legacy_fallback_reason=fallback_reason,
+            beam_stats=beam_result.search_stats,
+            legacy_stats=legacy_result.search_stats,
+            accepted_plan_spec_ids=beam_result.accepted_plan_spec_ids,
         )
     return _rank_skeleton_plans_legacy(
         candidates,
@@ -2304,7 +2392,111 @@ def _rank_skeleton_plans(
         plan_specs,
         planning_intent,
         semantic_scores=semantic_scores,
+        accepted_plan_spec_ids=tuple(
+            spec.skeleton_id
+            for spec in (
+                coerce_plan_spec(item, pace=planning_intent.pace)
+                for item in plan_specs
+            )
+        ),
     )
+
+
+_SEARCH_HARD_FAILURE_FIELDS = frozenset(
+    {
+        "departure_at",
+        "time_window",
+        "duration_minutes",
+        "max_distance_km",
+        "total_distance_km",
+        "return_by",
+        "budget_per_person",
+        "opening_hours",
+        "meal_window",
+        "availability",
+        "weather",
+        "party",
+    }
+)
+
+
+def _beam_fallback_reason(
+    result: _LocalPlanningResult,
+    *,
+    explicit_structure: bool,
+    planning_intent_source: str,
+) -> str | None:
+    """Return a safe Legacy fallback code for a pre-provider Beam miss.
+
+    The fallback is intentionally conservative.  A hard rejection, or a
+    catalog role with no candidates, is already a product truth and must not
+    be disguised as a search miss.  Only a bounded search miss with a
+    non-empty theoretical space is eligible.
+    """
+
+    stats = result.search_stats
+    if stats is None or result.plans:
+        return None
+    if stats.theoretical_combinations <= 0:
+        return None
+    if result.rejected_fields & _SEARCH_HARD_FAILURE_FIELDS:
+        return None
+    if result.search_traces and all(
+        "empty_role_pool" in trace.rejected_by
+        and trace.theoretical_combinations == 0
+        for trace in result.search_traces
+    ):
+        return None
+    if stats.expansions >= stats.max_expansions:
+        return "beam_budget_exhausted"
+    if explicit_structure:
+        return "beam_explicit_structure_no_local_finalist"
+    if planning_intent_source == "llm":
+        return "beam_llm_plan_spec_no_local_finalist"
+    return "beam_no_local_finalist"
+
+
+def _merge_rejection_counts(
+    *values: tuple[tuple[str, int], ...],
+) -> tuple[tuple[str, int], ...]:
+    merged: dict[str, int] = {}
+    for items in values:
+        for key, count in items:
+            merged[key] = merged.get(key, 0) + count
+    return tuple(sorted(merged.items()))
+
+
+def _merge_search_traces(
+    *groups: tuple[SkeletonSearchTrace, ...],
+) -> tuple[SkeletonSearchTrace, ...]:
+    by_id: dict[str, SkeletonSearchTrace] = {}
+    order: list[str] = []
+    for group in groups:
+        for trace in group:
+            current = by_id.get(trace.skeleton_id)
+            if current is None:
+                by_id[trace.skeleton_id] = trace
+                order.append(trace.skeleton_id)
+                continue
+            rejected = dict(current.rejected_by)
+            for key, count in trace.rejected_by.items():
+                rejected[key] = rejected.get(key, 0) + count
+            by_id[trace.skeleton_id] = current.model_copy(
+                update={
+                    "theoretical_combinations": max(
+                        current.theoretical_combinations,
+                        trace.theoretical_combinations,
+                    ),
+                    "expansions": current.expansions + trace.expansions,
+                    "finalists": current.finalists + trace.finalists,
+                    "local_schedule_passes": (
+                        current.local_schedule_passes
+                        + trace.local_schedule_passes
+                    ),
+                    "rejected_by": rejected,
+                }
+            )
+    return tuple(by_id[key] for key in order)
 
 
 def _rank_skeleton_plans_legacy(
@@ -2313,6 +2505,8 @@ def _rank_skeleton_plans_legacy(
     plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
+    *,
+    accepted_plan_spec_ids: tuple[str, ...] = (),
 ) -> _LocalPlanningResult:
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
@@ -2417,6 +2611,20 @@ def _rank_skeleton_plans_legacy(
             pruned_by=tuple(sorted(legacy_rejected.items())),
         ),
         search_traces=tuple(search_traces),
+        primary_search_mode="legacy",
+        legacy_stats=BeamSearchStats(
+            mode="legacy",
+            beam_width=0,
+            max_expansions=0,
+            max_finalists=0,
+            theoretical_combinations=sum(
+                trace.theoretical_combinations for trace in search_traces
+            ),
+            expansions=sum(trace.expansions for trace in search_traces),
+            finalists=len(unique_plans),
+            pruned_by=tuple(sorted(legacy_rejected.items())),
+        ),
+        accepted_plan_spec_ids=accepted_plan_spec_ids,
     )
 
 
@@ -2450,7 +2658,7 @@ def _rank_skeleton_plans_beam(
     ] = []
     for raw_spec in plan_specs:
         spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
-        role_pools = [
+        full_role_pools = [
             _candidates_for_role(
                 candidates,
                 role,
@@ -2460,8 +2668,8 @@ def _rank_skeleton_plans_beam(
             )
             for role in spec.roles
         ]
-        theoretical_combinations = math.prod(len(pool) for pool in role_pools)
-        if any(not pool for pool in role_pools):
+        theoretical_combinations = math.prod(len(pool) for pool in full_role_pools)
+        if any(not pool for pool in full_role_pools):
             search_traces.append(
                 SkeletonSearchTrace(
                     skeleton_id=spec.skeleton.skeleton_id,
@@ -2470,6 +2678,14 @@ def _rank_skeleton_plans_beam(
                 )
             )
             continue
+        # Keep the theoretical space honest, but order each full pool by the
+        # same semantic/role signal used by the bounded search.  Passing raw
+        # catalog order here made the first expansion slots miss a strongly
+        # matching dessert/quiet candidate even when retrieval had scored it.
+        role_pools = [
+            _order_beam_role_pool(pool, role, constraints, semantic_scores)
+            for role, pool in zip(spec.roles, full_role_pools, strict=True)
+        ]
         prepared_specs.append((spec, role_pools, theoretical_combinations))
 
     remaining_specs = len(prepared_specs)
@@ -2554,8 +2770,11 @@ def _rank_skeleton_plans_beam(
         seen_compositions.add(composition)
         unique_plans.append(plan)
     # This is the global hand-off pool for route verification.  It is applied
-    # only after every skeleton had a local scheduling opportunity.
-    unique_plans = unique_plans[: config.max_finalists]
+    # only after every skeleton had a local scheduling opportunity.  Preserve
+    # at least one finalist per skeleton before filling the remaining slots by
+    # score; otherwise a high-scoring two-stop shape can starve every richer
+    # structure even though those structures were searched fairly.
+    unique_plans = _fair_top_k_by_skeleton(unique_plans, config.max_finalists)
     return _LocalPlanningResult(
         plans=unique_plans,
         rejected_fields=rejected_fields,
@@ -2572,6 +2791,19 @@ def _rank_skeleton_plans_beam(
             pruned_by=tuple(sorted(pruned.items())),
         ),
         search_traces=tuple(search_traces),
+        primary_search_mode="beam",
+        beam_stats=BeamSearchStats(
+            mode="beam",
+            beam_width=config.beam_width,
+            max_expansions=config.max_expansions,
+            max_finalists=config.max_finalists,
+            theoretical_combinations=sum(
+                trace.theoretical_combinations for trace in search_traces
+            ),
+            expansions=expansions,
+            finalists=len(unique_plans),
+            pruned_by=tuple(sorted(pruned.items())),
+        ),
     )
 
 
@@ -2607,6 +2839,29 @@ def _candidates_for_role(
             *_candidate_role_rank(candidate, role, constraints),
         ),
     )[:limit]
+
+
+def _fair_top_k_by_skeleton(plans: list[Plan], limit: int) -> list[Plan]:
+    """Take a score-ordered pool without starving a searched skeleton."""
+
+    if len(plans) <= limit:
+        return plans
+    by_skeleton: dict[str, deque[Plan]] = {}
+    for plan in plans:
+        by_skeleton.setdefault(plan.skeleton_id or "legacy-unknown", deque()).append(plan)
+    selected: list[Plan] = []
+    while len(selected) < limit:
+        added = False
+        for queue in by_skeleton.values():
+            if not queue:
+                continue
+            selected.append(queue.popleft())
+            added = True
+            if len(selected) == limit:
+                break
+        if not added:
+            break
+    return selected
 
 
 def _candidate_role_rank(
@@ -2652,6 +2907,54 @@ def _candidate_role_rank(
     )
     distance = _haversine_km(origin, candidate.location)
     return (-local_score, distance, candidate.resource_id)
+
+
+def _order_beam_role_pool(
+    pool: list[StopCandidate],
+    role: StopRole,
+    constraints: NormalizedConstraints,
+    semantic_scores: dict[str, float] | None,
+) -> list[StopCandidate]:
+    """Order a full role pool before Beam's per-state bounded prefix.
+
+    The Beam search still owns the expansion budget.  This helper only makes
+    the bounded prefix evidence-aware; it never removes candidates or turns a
+    heuristic score into a hard fact.
+    """
+
+    return sorted(
+        pool,
+        key=lambda candidate: _beam_candidate_rank(
+            candidate,
+            role,
+            constraints,
+            semantic_scores,
+        ),
+    )
+
+
+def _beam_candidate_rank(
+    candidate: StopCandidate,
+    role: StopRole,
+    constraints: NormalizedConstraints,
+    semantic_scores: dict[str, float] | None,
+) -> tuple[float, float, str]:
+    """Combine grounded tag evidence with the retriever score for the prefix.
+
+    A pure dense/lexical score can surface a loosely related name before a
+    catalog candidate carrying the exact requested preference tag.  Giving
+    the deterministic role evidence a small bounded contribution keeps the
+    user-visible preference contract intact without making it a hard filter.
+    """
+
+    role_rank = _candidate_role_rank(candidate, role, constraints)
+    role_signal = max(0.0, -role_rank[0])
+    semantic_signal = (semantic_scores or {}).get(candidate.resource_id, 0.0)
+    return (
+        -(semantic_signal + 0.25 * role_signal),
+        role_rank[1],
+        candidate.resource_id,
+    )
 
 
 def _build_local_plan(

@@ -684,6 +684,27 @@ def create_app(
                     if candidate_set
                     else []
                 ),
+                primary_search_mode=(
+                    candidate_set.primary_search_mode if candidate_set else None
+                ),
+                legacy_fallback_used=(
+                    candidate_set.legacy_fallback_used if candidate_set else False
+                ),
+                legacy_fallback_reason=(
+                    candidate_set.legacy_fallback_reason if candidate_set else None
+                ),
+                beam_expansions=(
+                    candidate_set.beam_expansions if candidate_set else None
+                ),
+                beam_finalist_count=(
+                    candidate_set.beam_finalist_count if candidate_set else None
+                ),
+                legacy_expansions=(
+                    candidate_set.legacy_expansions if candidate_set else None
+                ),
+                accepted_plan_spec_ids=(
+                    candidate_set.accepted_plan_spec_ids if candidate_set else []
+                ),
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")
                     if interpretation

@@ -97,6 +97,13 @@ class AgentResponse(BaseModel):
     search_finalist_count: int | None = Field(default=None, ge=0)
     search_pruned_by: dict[str, int] = Field(default_factory=dict)
     search_traces: list[dict[str, Any]] = Field(default_factory=list)
+    primary_search_mode: str | None = None
+    legacy_fallback_used: bool = False
+    legacy_fallback_reason: str | None = None
+    beam_expansions: int | None = Field(default=None, ge=0)
+    beam_finalist_count: int | None = Field(default=None, ge=0)
+    legacy_expansions: int | None = Field(default=None, ge=0)
+    accepted_plan_spec_ids: list[str] = Field(default_factory=list)
     conversation_command: dict[str, Any] | None = None
     plan_diff: dict[str, Any] | None = None
     plan_diffs: list[dict[str, Any]] = Field(default_factory=list)

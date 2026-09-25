@@ -18,6 +18,7 @@ import re
 import subprocess
 import tempfile
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from functools import lru_cache
@@ -1188,6 +1189,13 @@ def _transcript_row(
         "search_finalist_count": data.get("search_finalist_count"),
         "search_pruned_by": data.get("search_pruned_by", {}),
         "search_traces": data.get("search_traces", []),
+        "primary_search_mode": data.get("primary_search_mode"),
+        "legacy_fallback_used": data.get("legacy_fallback_used", False),
+        "legacy_fallback_reason": data.get("legacy_fallback_reason"),
+        "beam_expansions": data.get("beam_expansions"),
+        "beam_finalist_count": data.get("beam_finalist_count"),
+        "legacy_expansions": data.get("legacy_expansions"),
+        "accepted_plan_spec_ids": data.get("accepted_plan_spec_ids", []),
         "conversation_command": data.get("conversation_command"),
         "runtime_decisions": data.get("runtime_decisions", []),
         "question": data.get("question"),
@@ -3180,6 +3188,8 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
     stage_latency = _aggregate_stage_latency(executed_results)
     fallback_categories = _aggregate_fallback_categories(executed_results)
     advisor_metrics = _advisor_metrics(executed_results)
+    search_metrics = _search_metrics(executed_results)
+    plan_spec_metrics = _plan_spec_metrics(executed_results)
     modification_metrics = {
         metric: _aggregate_case_metric(executed_results, metric)
         for metric in (
@@ -3256,6 +3266,8 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
         "skipped_case_count": total - len(executed_results),
         "fallback_rate": _metric(fallback_calls, model_decisions),
         "fallback_categories": fallback_categories,
+        **search_metrics,
+        **plan_spec_metrics,
         "model_decision_count": model_decisions,
         "provider_attempt_count": provider_attempts,
         "postcondition_metrics": postcondition_metrics,
@@ -3351,6 +3363,68 @@ def _aggregate_results(results: Sequence[EvaluationCaseResult]) -> dict[str, Any
             "advisor_fact_grounding_rate": "Advisor decisions whose supporting fact ids are allowed",
             "advisor_numeric_fact_violation_rate": "Advisor decisions rejected for dynamic numeric facts / Advisor model decisions",
         },
+    }
+
+
+def _search_metrics(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
+    """Aggregate primary-search and bounded fallback telemetry per run."""
+
+    rows = [
+        row
+        for result in results
+        for row in result.transcript
+        if row.get("primary_search_mode")
+    ]
+    beam_rows = [row for row in rows if row.get("primary_search_mode") == "beam"]
+    fallback_rows = [row for row in beam_rows if row.get("legacy_fallback_used")]
+    return {
+        "primary_search_beam_run_count": len(beam_rows),
+        "primary_search_legacy_run_count": sum(
+            row.get("primary_search_mode") == "legacy" for row in rows
+        ),
+        "legacy_fallback_count": len(fallback_rows),
+        "legacy_fallback_rate": _metric(len(fallback_rows), len(beam_rows)),
+        "legacy_fallback_reasons": dict(
+            Counter(
+                str(row.get("legacy_fallback_reason"))
+                for row in fallback_rows
+                if row.get("legacy_fallback_reason")
+            )
+        ),
+        "beam_expansions": sum(int(row.get("beam_expansions") or 0) for row in rows),
+        "legacy_expansions": sum(
+            int(row.get("legacy_expansions") or 0) for row in rows
+        ),
+        "accepted_plan_spec_count": sum(
+            len(row.get("accepted_plan_spec_ids") or []) for row in rows
+        ),
+    }
+
+
+def _plan_spec_metrics(results: Sequence[EvaluationCaseResult]) -> dict[str, Any]:
+    """Aggregate safe PlanningIntent structural-proposal telemetry."""
+
+    decisions = [
+        row.get("planning_intent_decision") or {}
+        for result in results
+        for row in result.transcript
+        if row.get("planning_intent_decision")
+    ]
+    proposal_rows = [item for item in decisions if item.get("proposal_present")]
+    accepted = [item for item in proposal_rows if item.get("proposal_accepted")]
+    return {
+        "planning_intent_structure_proposal_count": len(proposal_rows),
+        "planning_intent_structure_accept_count": len(accepted),
+        "planning_intent_structure_acceptance_rate": _metric(
+            len(accepted), len(proposal_rows)
+        ),
+        "planning_intent_structure_rejection_reasons": dict(
+            Counter(
+                str(item.get("proposal_rejection_reason"))
+                for item in proposal_rows
+                if item.get("proposal_rejection_reason")
+            )
+        ),
     }
 
 

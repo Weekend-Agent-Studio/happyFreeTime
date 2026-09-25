@@ -16,6 +16,7 @@ from app.domain.catalog import StopCandidate
 from app.domain.constraints import NormalizedConstraints, StopRole
 from app.domain.providers import GeoPoint
 from app.services.itinerary_scheduler import TimelineScheduler
+from app.services.opening_hours import visit_fits_opening_hours
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class SearchState:
     accumulated_cost: float
     semantic_score: float
     estimated_distance: float
+    opening_penalties: int = 0
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,7 @@ def bounded_beam_search(
             accumulated_cost=0.0,
             semantic_score=0.0,
             estimated_distance=0.0,
+            opening_penalties=0,
         )
     ]
     complete: list[SearchState] = []
@@ -179,6 +182,11 @@ def bounded_beam_search(
                 )
                 accumulated_distance = state.estimated_distance + leg_distance
                 accumulated_cost = state.accumulated_cost + float(candidate.avg_price or 0)
+                opening_penalties = state.opening_penalties + _opening_penalty(
+                    candidate,
+                    constraints,
+                    estimated_schedule.stops[-1],
+                )
 
                 if lower_bound_schedule.elapsed_minutes > maximum_minutes:
                     _count(rejected, "duration_minutes")
@@ -207,6 +215,7 @@ def bounded_beam_search(
                         accumulated_cost=accumulated_cost,
                         semantic_score=semantic_score,
                         estimated_distance=accumulated_distance,
+                        opening_penalties=opening_penalties,
                     )
                 )
             if expansions >= config.max_expansions:
@@ -215,14 +224,35 @@ def bounded_beam_search(
         if not expanded:
             beam = []
             break
-        expanded.sort(key=_state_rank)
+        # A route estimate is not authoritative enough to reject a state, but
+        # a prefix whose estimated end already exceeds the planning horizon is
+        # much less useful than an otherwise similar prefix that still fits.
+        # Put that soft feasibility signal before semantic score so the bounded
+        # beam does not spend all of its finalists on attractive-but-too-long
+        # combinations and miss a shorter, verifiable itinerary.  The state is
+        # still retained when the estimate overflows; the real Route Provider
+        # and Verifier remain the only hard truth.
+        expanded.sort(
+            key=lambda state: _state_rank(
+                state,
+                maximum_minutes,
+                start_minutes=start_minutes,
+            )
+        )
         beam = expanded[: config.beam_width]
         if slot_index == len(roles) - 1:
             complete = beam[: config.max_finalists]
 
     sequences = tuple(
         state.selected_candidates
-        for state in sorted(complete, key=_state_rank)
+        for state in sorted(
+            complete,
+            key=lambda item: _state_rank(
+                item,
+                maximum_minutes,
+                start_minutes=start_minutes,
+            ),
+        )
     )
     return BeamSearchResult(
         sequences=sequences,
@@ -240,14 +270,70 @@ def bounded_beam_search(
     )
 
 
-def _state_rank(state: SearchState) -> tuple[float, float, float, float, tuple[str, ...]]:
+def _state_rank(
+    state: SearchState,
+    maximum_minutes: int | None = None,
+    *,
+    start_minutes: int = 0,
+) -> tuple[int, int, int, float, float, int, float, tuple[str, ...]]:
+    """Rank prefixes using elapsed time, not the wall-clock end time.
+
+    ``SearchState.estimated_time`` is an absolute clock minute (for example
+    ``17:00`` is ``1020``), while ``maximum_minutes`` is a duration budget.
+    Comparing those values directly marks every afternoon/evening prefix as an
+    overflow and systematically favors unrealistically short combinations.
+    Convert the state back to elapsed time before applying the soft overflow
+    ordering.  The verifier remains the authority for actual route timing.
+    """
+
+    elapsed_minutes = max(0, state.estimated_time - start_minutes)
+    estimated_overflow = (
+        max(0, elapsed_minutes - maximum_minutes)
+        if maximum_minutes is not None
+        else 0
+    )
     return (
+        state.opening_penalties,
+        int(estimated_overflow > 0),
+        estimated_overflow,
         -state.semantic_score,
         state.estimated_distance,
         state.estimated_time,
         state.accumulated_cost,
         tuple(item.resource_id for item in state.selected_candidates),
     )
+
+
+def _opening_penalty(
+    candidate: StopCandidate,
+    constraints: NormalizedConstraints,
+    scheduled_stop: object,
+) -> int:
+    """Return a soft penalty for an estimated visit outside known hours.
+
+    Catalog opening hours are useful for ordering but remain deliberately
+    non-authoritative here: unsupported hours and route-estimate inaccuracies
+    do not prune a candidate.  The normal Catalog/Verifier path still decides
+    the actual hard result.
+    """
+
+    if not constraints.date or not candidate.open_hours:
+        return 0
+    weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
+        constraints.date.value.weekday()
+    ]
+    hours = candidate.open_hours.get(weekday)
+    if not hours:
+        return 0
+    start = _minutes_to_clock(scheduled_stop.start_minutes)
+    end = _minutes_to_clock(scheduled_stop.end_minutes)
+    fits = visit_fits_opening_hours(hours, start, end)
+    return int(fits is False)
+
+
+def _minutes_to_clock(value: int) -> str:
+    hour, minute = divmod(value, 60)
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _count(values: dict[str, int], key: str) -> None:

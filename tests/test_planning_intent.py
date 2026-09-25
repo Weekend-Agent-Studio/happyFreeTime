@@ -152,6 +152,9 @@ class PlanningIntentProviderTest(unittest.TestCase):
         )
 
         self.assertEqual(decision.source, "llm")
+        self.assertTrue(decision.proposal_present)
+        self.assertTrue(decision.proposal_accepted)
+        self.assertIsNone(decision.proposal_rejection_reason)
         self.assertEqual(
             decision.intent.required_roles,
             (StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER),
@@ -198,6 +201,12 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(decision.source, "fallback")
         self.assertEqual(
             decision.fallback_reason,
+            "invalid_proposal_contract:proposal_out_of_bounds",
+        )
+        self.assertFalse(decision.proposal_present)
+        self.assertFalse(decision.proposal_accepted)
+        self.assertEqual(
+            decision.proposal_rejection_reason,
             "invalid_proposal_contract:proposal_out_of_bounds",
         )
 

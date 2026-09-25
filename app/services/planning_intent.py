@@ -117,6 +117,8 @@ class RuleBasedPlanningIntentProvider:
             fallback_reason=None,
             prompt_version="rule-based.v1",
             model_name=None,
+            proposal_present=False,
+            proposal_accepted=False,
         )
 
 
@@ -152,7 +154,10 @@ class LlmPlanningIntentProvider:
         except Exception as error:
             token_usage.record_unknown()
             return self._fallback_decision(
-                baseline, 1, _model_failure_reason(error), token_usage.total
+                baseline,
+                1,
+                _model_failure_reason(error),
+                token_usage.total,
             )
         try:
             proposal = _validate_proposal(raw_result)
@@ -175,13 +180,19 @@ class LlmPlanningIntentProvider:
             except Exception as error:
                 token_usage.record_unknown()
                 return self._fallback_decision(
-                    baseline, 2, _model_failure_reason(error), token_usage.total
+                    baseline,
+                    2,
+                    _model_failure_reason(error),
+                    token_usage.total,
                 )
             try:
                 proposal = _validate_proposal(raw_retry)
             except Exception:
                 return self._fallback_decision(
-                    baseline, 2, "invalid_proposal_parse", token_usage.total
+                    baseline,
+                    2,
+                    "invalid_proposal_parse",
+                    token_usage.total,
                 )
             attempts = 2
         else:
@@ -189,7 +200,11 @@ class LlmPlanningIntentProvider:
 
         if proposal.confidence < MIN_LLM_CONFIDENCE:
             return self._fallback_decision(
-                baseline, attempts, "low_confidence", token_usage.total
+                baseline,
+                attempts,
+                "low_confidence",
+                token_usage.total,
+                proposal_present=bool(proposal.slots),
             )
         try:
             intent = _accept_proposal(proposal, constraints, baseline.intent)
@@ -199,6 +214,7 @@ class LlmPlanningIntentProvider:
                 attempts,
                 f"invalid_proposal_contract:{_safe_contract_code(error, 'proposal_out_of_bounds')}",
                 token_usage.total,
+                proposal_present=bool(proposal.slots),
             )
         usage = token_usage.total
         return PlanningIntentDecision(
@@ -211,6 +227,8 @@ class LlmPlanningIntentProvider:
             model_name=self._model_name,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
+            proposal_present=bool(proposal.slots),
+            proposal_accepted=True,
         )
 
     def _fallback_decision(
@@ -219,6 +237,8 @@ class LlmPlanningIntentProvider:
         attempts: int,
         reason: str,
         token_usage: ModelTokenUsage,
+        *,
+        proposal_present: bool = False,
     ) -> PlanningIntentDecision:
         return PlanningIntentDecision(
             intent=baseline.intent,
@@ -230,6 +250,9 @@ class LlmPlanningIntentProvider:
             model_name=self._model_name,
             input_tokens=token_usage.input_tokens,
             output_tokens=token_usage.output_tokens,
+            proposal_present=proposal_present,
+            proposal_accepted=False,
+            proposal_rejection_reason=reason,
         )
 
 

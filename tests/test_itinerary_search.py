@@ -3,12 +3,34 @@ import unittest
 from app.domain.catalog import ResourceType
 from app.domain.constraints import StopRole
 from app.domain.providers import GeoPoint
-from app.services.itinerary_search import BeamSearchConfig, bounded_beam_search
+from app.services.itinerary_search import (
+    BeamSearchConfig,
+    SearchState,
+    _state_rank,
+    bounded_beam_search,
+)
 from tests.test_native_planning import candidate
 from tests.test_planning import planning_constraints
 
 
 class BoundedItinerarySearchTest(unittest.TestCase):
+    def test_time_overflow_rank_uses_elapsed_duration(self) -> None:
+        """An afternoon wall-clock value must not be compared to a duration budget."""
+
+        state = SearchState(
+            selected_candidates=(),
+            next_slot=1,
+            current_location=GeoPoint(latitude=39.9219, longitude=116.4436),
+            estimated_time=17 * 60,
+            accumulated_cost=0,
+            semantic_score=0,
+            estimated_distance=0,
+        )
+
+        rank = _state_rank(state, maximum_minutes=7 * 60, start_minutes=14 * 60)
+
+        self.assertEqual(rank[1:3], (0, 0))
+
     def test_search_is_bounded_without_materializing_cartesian_product(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"max_distance_km": None}
@@ -135,6 +157,44 @@ class BoundedItinerarySearchTest(unittest.TestCase):
         )
 
         self.assertEqual(result.sequences[0][0].resource_id, "near-activity")
+
+    def test_known_opening_mismatch_is_softly_ranked_after_open_candidate(self) -> None:
+        constraints = planning_constraints(time_end="18:00")
+        opens_late = candidate(
+            "opens-late",
+            ResourceType.ACTIVITY,
+            "晚开的活动",
+            ["activity"],
+            open_hours={"sat": "15:00-18:00"},
+        )
+        opens_on_time = candidate(
+            "opens-on-time",
+            ResourceType.ACTIVITY,
+            "按时开放的活动",
+            ["activity"],
+            open_hours={"sat": "14:00-18:00"},
+        )
+        dinner = candidate(
+            "dinner",
+            ResourceType.RESTAURANT,
+            "晚餐",
+            ["restaurant"],
+            open_hours={"sat": "17:00-22:00"},
+        )
+
+        result = bounded_beam_search(
+            role_pools=((opens_late, opens_on_time), (dinner,)),
+            roles=(StopRole.ACTIVITY, StopRole.DINNER),
+            constraints=constraints,
+            origin=GeoPoint(latitude=39.9219, longitude=116.4436),
+            semantic_scores={
+                "opens-late": 1.0,
+                "opens-on-time": 0.1,
+                "dinner": 1.0,
+            },
+        )
+
+        self.assertEqual(result.sequences[0][0].resource_id, "opens-on-time")
 
     def test_search_prunes_duplicate_and_distance_candidates(self) -> None:
         constraints = planning_constraints(max_distance_km=1.0, time_end="22:00")

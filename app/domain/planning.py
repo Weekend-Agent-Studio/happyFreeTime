@@ -152,6 +152,12 @@ class PlanningIntentDecision(BaseModel):
     model_name: str | None = None
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    # Safe structural-proposal telemetry.  These fields describe whether the
+    # model actually supplied an optional PlanSpec proposal; they are not
+    # consumed by the planner as business facts.
+    proposal_present: bool = False
+    proposal_accepted: bool = False
+    proposal_rejection_reason: str | None = None
 
 
 class SkeletonSearchTrace(BaseModel):
@@ -358,6 +364,16 @@ class CandidateSet(BaseModel):
     search_finalist_count: int | None = Field(default=None, ge=0)
     search_pruned_by: dict[str, int] = Field(default_factory=dict)
     search_traces: list[SkeletonSearchTrace] = Field(default_factory=list)
+    # Search-mode provenance.  ``search_mode`` remains the public effective
+    # mode for backward compatibility; these fields make a Beam-primary run
+    # auditable when it used Legacy as an explicit, bounded fallback.
+    primary_search_mode: str | None = None
+    legacy_fallback_used: bool = False
+    legacy_fallback_reason: str | None = None
+    beam_expansions: int | None = Field(default=None, ge=0)
+    beam_finalist_count: int | None = Field(default=None, ge=0)
+    legacy_expansions: int | None = Field(default=None, ge=0)
+    accepted_plan_spec_ids: list[str] = Field(default_factory=list)
     # The exact semantic request and profile citations used by the Retriever
     # travel with the verified value so downstream recommendation advice does
     # not need to reconstruct or silently broaden retrieval evidence.

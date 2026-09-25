@@ -94,6 +94,18 @@ def planning_constraints(
 
 
 class PlanningServiceTest(unittest.TestCase):
+    def test_default_search_mode_is_beam_and_legacy_is_explicit(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            result = PlanningService(
+                route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
+            ).plan(planning_constraints(max_distance_km=30, time_end="22:00"))
+
+        self.assertEqual(result.search_mode, "beam")
+        self.assertEqual(result.primary_search_mode, "beam")
+        self.assertFalse(result.legacy_fallback_used)
+        self.assertIsNone(result.legacy_fallback_reason)
+        self.assertIsNotNone(result.beam_expansions)
+
     def test_beam_search_is_opt_in_and_exposes_bounded_metrics(self) -> None:
         with patch.dict("os.environ", {"HFT_PLANNER_SEARCH_MODE": "beam"}):
             result = PlanningService(
