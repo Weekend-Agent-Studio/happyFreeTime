@@ -325,4 +325,3 @@ def _available_minutes(constraints: NormalizedConstraints) -> int:
 def _safe_code(error: Exception) -> str:
     value = str(error).strip()
     return value if value.replace("_", "").isalnum() else "proposal_rejected"
-
