@@ -17,7 +17,7 @@ from app.domain.catalog import (
     ImageRef,
     PriceKind,
 )
-from app.domain.constraints import QuestionDecision, StopRole
+from app.domain.constraints import QuestionDecision, StopRole, TimeScope
 from app.domain.semantics import EvidenceRef, SemanticRequest
 from app.domain.providers import (
     AvailabilityFact,
@@ -85,6 +85,10 @@ class PlanningIntent(BaseModel):
     minimum_stops: int = Field(default=2, ge=1, le=4)
     maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
+    # Deprecated internal field kept solely so checkpoints written before
+    # S-P4 can still be restored.  The live wire proposal no longer asks the
+    # model to emit coverage; Harness derives it from NormalizedConstraints.
+    coverage: TimeScope | None = None
     slots: tuple["PlanningSlot", ...] = Field(default_factory=tuple, max_length=4)
     evidence: dict[str, str] = Field(default_factory=dict)
     semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
@@ -148,6 +152,28 @@ class PlanningIntentDecision(BaseModel):
     model_name: str | None = None
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+
+
+class SkeletonSearchTrace(BaseModel):
+    """Comparable search-work telemetry for one compiled skeleton.
+
+    The fields deliberately describe search and verification work, not model
+    reasoning.  A trace is optional for early exits, but when present it uses
+    the same vocabulary for Legacy and Beam search.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    skeleton_id: str = Field(min_length=1)
+    theoretical_combinations: int = Field(default=0, ge=0)
+    expansions: int = Field(default=0, ge=0)
+    finalists: int = Field(default=0, ge=0)
+    local_schedule_passes: int = Field(default=0, ge=0)
+    rejected_by: dict[str, int] = Field(default_factory=dict)
+    route_candidates: int = Field(default=0, ge=0)
+    route_provider_requests: int = Field(default=0, ge=0)
+    route_leg_count: int = Field(default=0, ge=0)
+    final_selected: int = Field(default=0, ge=0)
 
 
 class PlanPriceStatus(str, Enum):
@@ -327,9 +353,11 @@ class CandidateSet(BaseModel):
     search_mode: str | None = None
     search_beam_width: int | None = Field(default=None, ge=0)
     search_max_expansions: int | None = Field(default=None, ge=0)
+    search_theoretical_combinations: int | None = Field(default=None, ge=0)
     search_expansions: int | None = Field(default=None, ge=0)
     search_finalist_count: int | None = Field(default=None, ge=0)
     search_pruned_by: dict[str, int] = Field(default_factory=dict)
+    search_traces: list[SkeletonSearchTrace] = Field(default_factory=list)
     # The exact semantic request and profile citations used by the Retriever
     # travel with the verified value so downstream recommendation advice does
     # not need to reconstruct or silently broaden retrieval evidence.

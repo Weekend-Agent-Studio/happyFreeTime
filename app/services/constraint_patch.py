@@ -76,6 +76,12 @@ class ConstraintPatchCompiler:
                 return self._ask("date")
             updates["date"] = date_value
 
+        if proposal.departure_period is not None and not proposal.departure_at_text:
+            # “早上/下午出发” constrains only the departure action.  Do not
+            # compile it as the itinerary's overall time window; ask for the
+            # exact clock through the same field-scoped resume path as CREATE.
+            return self._ask("departure_at")
+
         if proposal.time_window_text:
             time_value = self._compile_time_window(proposal.time_window_text)
             if time_value is None:
@@ -197,6 +203,7 @@ class ConstraintPatchCompiler:
             return None
         date_text, _, _, _, _ = TemporalCompiler.extract_date(value)
         time_text, scope, explicit_window = TemporalCompiler.extract_time(value)
+        departure_period = TemporalCompiler.extract_departure_period(value)
         departure = None
         clock_like = re.search(
             r"(?:\d{1,2}[:：]\d{1,2}|[零〇一二两三四五六七八九十]+点(?:半|[零〇一二两三四五六七八九十]+分?)?)",
@@ -220,13 +227,21 @@ class ConstraintPatchCompiler:
         diet_tags = tuple(label for keyword, label in (("少辣", "少辣"), ("清淡", "清淡")) if keyword in value)
         avoid = ("博物馆",) if "不要博物馆" in value else ()
         has_patch_marker = any(marker in value for marker in ("补充", "忘了说", "对了", "另外", "再加", "重新规划", "改到", "改成", "改为"))
-        if not (has_patch_marker or date_text or departure or return_by or budget or strict_budget is not None or location or preferences or diet_tags or avoid or max_distance or scope is not None or explicit_window is not None):
+        if not (has_patch_marker or date_text or departure or departure_period or return_by or budget or strict_budget is not None or location or preferences or diet_tags or avoid or max_distance or scope is not None or explicit_window is not None):
             return None
         return ConstraintPatch(
             date_text=date_text,
             return_by_text=return_by,
             departure_at_text=departure,
-            time_window_text=value if time_text and departure is None and return_by is None else None,
+            departure_period=departure_period,
+            time_window_text=(
+                value
+                if time_text
+                and departure is None
+                and departure_period is None
+                and return_by is None
+                else None
+            ),
             location_text=location,
             budget_text=budget,
             max_distance_text=max_distance,

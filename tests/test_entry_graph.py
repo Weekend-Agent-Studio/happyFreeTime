@@ -16,15 +16,18 @@ from app.domain.constraints import (
     Interpretation,
     RawConstraints,
     StopRole,
+    TimeScope,
 )
 from app.orchestration.entry_graph import (
     build_entry_graph,
+    checkpoint_serializer,
 )
 from app.services.demo_router import DemoRouter
 from app.services.enrichment import EnvironmentContext
 from app.providers.geocoding import MockGeocodingProvider
 from app.services.catalog import InMemoryCatalog
 from app.services.router_extractor import RouterContext
+from app.domain.planning import PlanningIntent
 from tests.test_planning import planning_constraints
 
 
@@ -70,6 +73,22 @@ class ExplicitLocationRouter:
 
 
 class EntryGraphTest(unittest.TestCase):
+    def test_legacy_planning_intent_checkpoint_with_coverage_is_restorable(self) -> None:
+        legacy_payload = {
+            "required_roles": ["activity"],
+            "optional_roles": ["meal"],
+            "minimum_stops": 2,
+            "maximum_stops": 4,
+            "pace": "balanced",
+            "coverage": "all_day",
+        }
+        legacy_intent = PlanningIntent.model_validate(legacy_payload)
+        serializer = checkpoint_serializer()
+        encoded = serializer.dumps_typed(legacy_intent)
+        restored = serializer.loads_typed(encoded)
+
+        self.assertEqual(restored.coverage, TimeScope.ALL_DAY)
+
     def test_active_plan_time_supplement_is_not_misclassified_as_replacement(self) -> None:
         interpretation = DemoRouter().interpret(
             "补充一下，想玩一整天",
@@ -159,6 +178,54 @@ class EntryGraphTest(unittest.TestCase):
             ),
             config=config,
         )
+        self.assertNotIn("__interrupt__", resumed)
+        self.assertEqual(resumed["planning_constraints"].departure_at.value, "09:00")
+
+    def test_demo_departure_period_patch_uses_the_shared_resume_contract(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市",
+                district="朝阳区",
+                address="北京市朝阳区",
+                latitude=39.9219,
+                longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-demo-departure-period",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DemoRouter(),
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog([]),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {
+                "user_input": "补充一下，早上出发",
+                "actor": actor,
+                "has_plans": True,
+                "active_constraints": planning_constraints(),
+            },
+            config=config,
+        )
+        question = first["__interrupt__"][0].value
+        self.assertEqual(question["field"], "departure_at")
+
+        resumed = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": "answer",
+                    "value": "早上九点",
+                }
+            ),
+            config=config,
+        )
+
         self.assertNotIn("__interrupt__", resumed)
         self.assertEqual(resumed["planning_constraints"].departure_at.value, "09:00")
 

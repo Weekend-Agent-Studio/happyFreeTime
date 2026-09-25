@@ -17,6 +17,7 @@ from app.domain.constraints import (
     SemanticCriterion,
     StopRole,
     TargetReference,
+    TimeScope,
     TimeWindow,
 )
 from app.domain.planning import LockedStop
@@ -160,7 +161,8 @@ class PlanModificationTest(unittest.TestCase):
         deadline = ConstraintPatchCompiler.proposal_from_text("对了，晚上七点前回家", has_plans=True)
 
         self.assertIsNotNone(period)
-        self.assertEqual(period.time_window_text, "补充一下，下午才出发")
+        self.assertIsNone(period.time_window_text)
+        self.assertEqual(period.departure_period.value, "afternoon")
         self.assertIsNotNone(exact)
         self.assertEqual(exact.departure_at_text, "改成下午两点出发")
         self.assertIsNotNone(deadline)
@@ -184,6 +186,39 @@ class PlanModificationTest(unittest.TestCase):
         self.assertIsNotNone(result.updated_constraints)
         self.assertEqual(result.updated_constraints.time_window.value.start, "14:00")
         self.assertEqual(result.updated_constraints.time_window.value.end, "18:00")
+
+    def test_departure_period_patch_asks_for_a_clock(self) -> None:
+        proposal = ConstraintPatchCompiler.proposal_from_text(
+            "补充一下，早上出发",
+            has_plans=True,
+        )
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.departure_period.value, "morning")
+        self.assertIsNone(proposal.time_window_text)
+
+        result = self._patch_compiler().compile(
+            base=planning_constraints(),
+            proposal=proposal,
+            actor=self._patch_actor(),
+            environment=self._patch_environment(),
+        )
+
+        self.assertIsNotNone(result.question)
+        self.assertEqual(result.question.field, "departure_at")
+
+    def test_departure_period_patch_with_exact_answer_compiles_to_clock(self) -> None:
+        result = self._patch_compiler().compile(
+            base=planning_constraints(),
+            proposal=ConstraintPatch(
+                departure_period=TimeScope.MORNING,
+                departure_at_text="早上九点出发",
+            ),
+            actor=self._patch_actor(),
+            environment=self._patch_environment(),
+        )
+
+        self.assertIsNone(result.question)
+        self.assertEqual(result.updated_constraints.departure_at.value, "09:00")
 
     def test_replace_activity_keeps_restaurant_and_shortens_verified_route(self) -> None:
         restaurant = candidate(

@@ -104,7 +104,44 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertEqual(result.search_beam_width, 16)
         self.assertLessEqual(result.search_expansions or 0, 200)
         self.assertLessEqual(result.search_finalist_count or 0, 12)
+        self.assertGreater(result.search_theoretical_combinations or 0, 0)
+        self.assertTrue(result.search_traces)
+        self.assertTrue(
+            all(
+                trace.route_provider_requests == trace.route_leg_count
+                for trace in result.search_traces
+            )
+        )
         self.assertTrue(result.plans or result.conflict is not None)
+
+    def test_legacy_exposes_same_search_metric_vocabulary(self) -> None:
+        with patch.dict("os.environ", {"HFT_PLANNER_SEARCH_MODE": "legacy"}):
+            result = PlanningService(
+                route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2)
+            ).plan(planning_constraints(max_distance_km=30, time_end="22:00"))
+
+        self.assertEqual(result.search_mode, "legacy")
+        self.assertGreater(result.search_expansions or 0, 0)
+        self.assertGreater(result.search_theoretical_combinations or 0, 0)
+        self.assertTrue(result.search_traces)
+        self.assertEqual(
+            result.search_expansions,
+            sum(trace.expansions for trace in result.search_traces),
+        )
+
+    def test_legacy_and_beam_preserve_route_safety_outcome(self) -> None:
+        outcomes = {}
+        for mode in ("legacy", "beam"):
+            with patch.dict("os.environ", {"HFT_PLANNER_SEARCH_MODE": mode}):
+                result = PlanningService(
+                    catalog=LocalFixtureCatalog(),
+                    route_provider=FixedReplayRouteProvider(duration_minutes=60),
+                ).plan(planning_constraints())
+            outcomes[mode] = (result.plans, result.conflict.code if result.conflict else None)
+
+        self.assertEqual(outcomes["legacy"][0], [])
+        self.assertEqual(outcomes["beam"][0], [])
+        self.assertEqual(outcomes["legacy"][1], outcomes["beam"][1])
 
     def test_default_catalog_uses_generated_snapshot_records(self) -> None:
         result = PlanningService(

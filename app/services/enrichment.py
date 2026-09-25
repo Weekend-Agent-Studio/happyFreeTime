@@ -189,6 +189,37 @@ class TemporalCompiler:
         return None, None, None
 
     @classmethod
+    def extract_departure_period(cls, text: str | None) -> TimeScope | None:
+        """Extract a finite period attached to the departure action.
+
+        This is intentionally separate from :meth:`extract_time`: ``早上出去
+        玩`` scopes the whole outing, while ``早上出发`` scopes only the
+        departure and must be completed with a clock by the Gate.  The method
+        does not infer a clock or a full itinerary window.
+        """
+
+        if not text:
+            return None
+        value = text.strip()
+        periods = (
+            ("上午", TimeScope.MORNING),
+            ("早上", TimeScope.MORNING),
+            ("下午", TimeScope.AFTERNOON),
+            ("晚上", TimeScope.EVENING),
+            ("夜里", TimeScope.EVENING),
+            ("夜间", TimeScope.EVENING),
+        )
+        for phrase, scope in periods:
+            escaped = re.escape(phrase)
+            if re.search(
+                rf"{escaped}.{{0,8}}(?:出发|出门|离开)|"
+                rf"(?:出发|出门|离开).{{0,8}}{escaped}",
+                value,
+            ):
+                return scope
+        return None
+
+    @classmethod
     def resolve_date(
         cls,
         reference: DateReference | None,
@@ -447,9 +478,22 @@ class EnrichmentService:
         # Prefer the bounded structured temporal contract.  Old checkpoints
         # still fall back to their *_text fields below.
         structured_time_window = raw.explicit_time_window
+        departure_period = (
+            raw.departure_period
+            or TemporalCompiler.extract_departure_period(raw.departure_at_text)
+            or TemporalCompiler.extract_departure_period(raw.time_text)
+        )
+        departure_period_only = departure_period is not None and departure_at is None
         if structured_time_window is not None:
             time_scope = TimeScope.EXPLICIT_RANGE
             normalized_time = structured_time_window
+        elif departure_period_only:
+            # A period attached to the departure action is not the outing's
+            # overall window.  Leave the window unresolved so Question Gate
+            # can ask for the exact departure clock instead of silently
+            # turning “早上出发” into a morning itinerary.
+            time_scope = None
+            normalized_time = None
         elif raw.time_scope is not None:
             time_scope = raw.time_scope
             normalized_time = (
@@ -644,6 +688,7 @@ class EnrichmentService:
         elif (
             raw.time_text is None
             and departure_at is None
+            and not departure_period_only
             and raw.required_stop_roles == (StopRole.DINNER,)
         ):
             dinner_window = TimeWindow(start="18:00", end="22:00")
@@ -656,6 +701,7 @@ class EnrichmentService:
         elif (
             raw.time_text is None
             and departure_at is None
+            and not departure_period_only
             and raw.required_stop_roles == (StopRole.LUNCH,)
         ):
             lunch_window = TimeWindow(start="11:30", end="14:00")
@@ -665,7 +711,11 @@ class EnrichmentService:
                 raw_text=interpretation.evidence_map.get("required_stop_roles"),
                 rule_id="time.lunch_role.zh_cn.v1",
             )
-        elif raw.time_text is None and departure_at is not None and return_by is not None:
+        elif (
+            raw.time_text is None
+            and departure_at is not None
+            and return_by is not None
+        ):
             if return_by > departure_at:
                 time_value = ConstraintValue[TimeWindow](
                     value=TimeWindow(start=departure_at, end=return_by),
@@ -720,7 +770,7 @@ class EnrichmentService:
                     rule_id="time.departure_only.planning_horizon.v1",
                 )
             )
-        elif raw.time_text is None:
+        elif raw.time_text is None and not departure_period_only:
             default_time = TimeWindow(start="14:00", end="18:00")
             time_value = ConstraintValue[TimeWindow](
                 value=default_time,
@@ -1047,14 +1097,14 @@ class EnrichmentService:
         if any(marker in text for marker in ("左右", "大约", "约")):
             return None
         numeric = re.fullmatch(
-            r"(?:(上午|下午|晚上)\s*)?(\d{1,2})[:：](\d{2})\s*(?:准时\s*)?(?:出发|离开)",
+            r"(?:(上午|早上|下午|晚上)\s*)?(\d{1,2})[:：](\d{2})\s*(?:准时\s*)?(?:出发|离开)",
             text,
         )
         if numeric:
             period, hour_text, minute_text = numeric.groups()
             return cls._normalize_clock_with_period(period, int(hour_text), int(minute_text))
         chinese = re.fullmatch(
-            r"(?:(上午|下午|晚上)\s*)?([一二三四五六七八九十两]+)点"
+            r"(?:(上午|早上|下午|晚上)\s*)?([一二三四五六七八九十两]+)点"
             r"(?:(半)|([零〇一二三四五六七八九十两]+)分?)?"
             r"\s*(?:准时\s*)?(?:出发|离开)",
             text,
@@ -1094,7 +1144,7 @@ class EnrichmentService:
     ) -> str | None:
         if period in {"下午", "晚上"} and 1 <= hour <= 11:
             hour += 12
-        elif period == "上午" and hour == 12:
+        elif period in {"上午", "早上"} and hour == 12:
             hour = 0
         return cls._normalize_clock(f"{hour:02d}:{minute:02d}")
 

@@ -210,6 +210,22 @@ class DemoRouterTest(unittest.TestCase):
         self.assertEqual(result.raw_constraints.time_text, "一整天")
         self.assertEqual(result.raw_constraints.time_scope.value, "all_day")
 
+    def test_departure_period_does_not_become_the_trip_time_scope(self) -> None:
+        result = self.router.interpret("周六早上出发出去玩", self.context)
+
+        raw = result.raw_constraints
+        self.assertIsNone(raw.time_scope)
+        self.assertEqual(raw.departure_period, TimeScope.MORNING)
+        self.assertEqual(result.evidence_map["departure_period"], "早上")
+
+    def test_exact_departure_keeps_a_departure_period_and_clock_evidence(self) -> None:
+        result = self.router.interpret("周六早上九点出发", self.context)
+
+        raw = result.raw_constraints
+        self.assertEqual(raw.departure_period, TimeScope.MORNING)
+        self.assertEqual(raw.departure_at_text, "早上九点出发")
+        self.assertEqual(raw.time_scope, TimeScope.MORNING)
+
     def test_extracts_bounded_temporal_contract_for_compound_phrases(self) -> None:
         result = self.router.interpret("今晚只安排一家晚饭", self.context)
 

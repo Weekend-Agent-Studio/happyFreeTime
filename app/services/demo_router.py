@@ -211,10 +211,18 @@ class DemoRouter:
             date_text = TemporalCompiler.extract_unresolved_date_text(text)
         time_text, time_scope, explicit_time_window = TemporalCompiler.extract_time(text)
         departure_match = re.search(
-            r"(?:(?:上午|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
+            r"(?:(?:上午|早上|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
             r"\s*(?:准时\s*)?(?:出发|离开)",
             text,
         )
+        departure_period = TemporalCompiler.extract_departure_period(text)
+        # ``time_scope`` describes the whole outing.  A period attached only
+        # to “出发/出门” must remain a departure hint; it is not a 09:00–12:00
+        # trip window.  Keep the historical fuzzy scope when an exact clock is
+        # present so old callers can still inspect the broad evidence, while
+        # Enrichment gives the exact departure precedence.
+        if departure_period is not None and departure_match is None:
+            time_scope = None
         dinner_only_match = re.search(
             r"(?P<exclusive>(?:只|仅|就)(?:安排|去|吃))"
             r"(?:一(?:家|顿)|个)?(?:餐厅)?(?:吃)?(?P<dinner>晚饭|晚餐)",
@@ -458,6 +466,7 @@ class DemoRouter:
             time_text=time_text,
             time_scope=time_scope,
             explicit_time_window=explicit_time_window,
+            departure_period=departure_period,
             departure_at_text=(departure_match.group(0) if departure_match else None),
             exact_stop_count=(
                 1
@@ -506,6 +515,7 @@ class DemoRouter:
                 "time_text": time_text,
                 "time_scope": time_text if time_scope is not None else None,
                 "explicit_time_window": time_text if explicit_time_window is not None else None,
+                "departure_period": time_text if departure_period is not None else None,
                 "departure_at_text": departure_match.group(0) if departure_match else None,
                 "exact_stop_count": (
                     single_stop_match.group("exclusive")

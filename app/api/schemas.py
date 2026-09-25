@@ -92,9 +92,11 @@ class AgentResponse(BaseModel):
     search_mode: str | None = None
     search_beam_width: int | None = Field(default=None, ge=0)
     search_max_expansions: int | None = Field(default=None, ge=0)
+    search_theoretical_combinations: int | None = Field(default=None, ge=0)
     search_expansions: int | None = Field(default=None, ge=0)
     search_finalist_count: int | None = Field(default=None, ge=0)
     search_pruned_by: dict[str, int] = Field(default_factory=dict)
+    search_traces: list[dict[str, Any]] = Field(default_factory=list)
     conversation_command: dict[str, Any] | None = None
     plan_diff: dict[str, Any] | None = None
     plan_diffs: list[dict[str, Any]] = Field(default_factory=list)

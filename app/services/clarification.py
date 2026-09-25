@@ -137,7 +137,12 @@ class ClarificationResolver:
                 )
             elif pending_question.field == "time_window":
                 updates.update(
-                    {"time_text": None, "time_scope": None, "explicit_time_window": None}
+                    {
+                        "time_text": None,
+                        "time_scope": None,
+                        "explicit_time_window": None,
+                        "departure_period": None,
+                    }
                 )
             else:
                 # Clearing a field lets Enrichment apply its visible product

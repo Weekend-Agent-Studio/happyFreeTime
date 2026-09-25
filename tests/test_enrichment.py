@@ -308,6 +308,52 @@ class EnrichmentServiceTest(unittest.TestCase):
         )
         self.assertIn("time_window", {item.field for item in result.assumptions})
 
+    def test_departure_period_does_not_create_an_overall_morning_window(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="早上",
+                departure_period=TimeScope.MORNING,
+            ),
+            evidence_map={"departure_period": "早上"},
+        )
+        actor = ActorContext(user_id="demo", session_id="departure-period", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertIsNone(result.constraints.time_scope)
+        self.assertIsNone(result.constraints.time_window)
+
+    def test_exact_departure_resolves_after_a_departure_period(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                time_text="早上",
+                departure_period=TimeScope.MORNING,
+                departure_at_text="早上九点出发",
+            ),
+            evidence_map={
+                "departure_period": "早上",
+                "departure_at_text": "早上九点出发",
+            },
+        )
+        actor = ActorContext(user_id="demo", session_id="departure-period-exact", identity_type=IdentityType.DEMO)
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(city="北京市", address="北京市朝阳区", latitude=39.9219, longitude=116.4436),
+        )
+
+        result = EnrichmentService().enrich(interpretation, actor, environment)
+
+        self.assertEqual(result.constraints.departure_at.value, "09:00")
+        self.assertEqual(result.constraints.time_window.value.start, "09:00")
+
     def test_all_day_compiles_to_visible_policy_window_instead_of_afternoon(self) -> None:
         interpretation = Interpretation(
             primary_intent=Intent.PLAN_OUTING,

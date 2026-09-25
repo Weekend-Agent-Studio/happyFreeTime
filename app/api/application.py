@@ -662,6 +662,11 @@ def create_app(
                 search_max_expansions=(
                     candidate_set.search_max_expansions if candidate_set else None
                 ),
+                search_theoretical_combinations=(
+                    candidate_set.search_theoretical_combinations
+                    if candidate_set
+                    else None
+                ),
                 search_expansions=(
                     candidate_set.search_expansions if candidate_set else None
                 ),
@@ -670,6 +675,14 @@ def create_app(
                 ),
                 search_pruned_by=(
                     candidate_set.search_pruned_by if candidate_set else {}
+                ),
+                search_traces=(
+                    [
+                        item.model_dump(mode="json")
+                        for item in candidate_set.search_traces
+                    ]
+                    if candidate_set
+                    else []
                 ),
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")

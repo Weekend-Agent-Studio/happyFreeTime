@@ -18,6 +18,11 @@ class ItinerarySchedulerTest(unittest.TestCase):
         self.assertEqual(schedule.stops[2].start_minutes, 17 * 60)
         self.assertEqual(schedule.stops[2].wait_minutes, 45)
         self.assertEqual(schedule.total_wait_minutes, 45)
+        self.assertEqual(len(schedule.stops), 3)
+        self.assertEqual(
+            [item.wait_minutes for item in schedule.stops],
+            [0, 0, 45],
+        )
 
     def test_return_travel_is_part_of_elapsed_timeline(self) -> None:
         schedule = TimelineScheduler().schedule(

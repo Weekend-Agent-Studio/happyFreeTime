@@ -252,6 +252,7 @@ def build_rule_based_planning_intent(
             minimum_stops=1,
             maximum_stops=1,
             pace=PlanPace.RELAXED,
+            coverage=(constraints.time_scope.value if constraints.time_scope else None),
             slots=(PlanningSlot(role=single_role, required=True),),
             evidence={
                 "exact_stop_count": constraints.exact_stop_count.raw_text or "1",
@@ -308,6 +309,7 @@ def build_rule_based_planning_intent(
         minimum_stops=2,
         maximum_stops=maximum_stops,
         pace=pace,
+        coverage=(constraints.time_scope.value if constraints.time_scope else None),
         slots=(PlanningSlot(role=StopRole.ACTIVITY, required=True),),
         evidence={
             "time_window": f"{window.start}-{window.end}",
@@ -514,6 +516,7 @@ def _accept_proposal(
         minimum_stops=proposal.minimum_stops,
         maximum_stops=proposal.maximum_stops,
         pace=proposal.pace,
+        coverage=baseline.coverage,
         slots=accepted_slots,
         evidence=_sanitize_evidence(proposal.evidence, constraints, baseline),
         semantic_request=semantic_request,

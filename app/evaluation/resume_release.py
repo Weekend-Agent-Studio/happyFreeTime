@@ -1178,6 +1178,16 @@ def _transcript_row(
         "retrieval_evidence": data.get("retrieval_evidence", []),
         "retrieval_mode": data.get("retrieval_mode"),
         "retrieval_index_version": data.get("retrieval_index_version"),
+        "search_mode": data.get("search_mode"),
+        "search_beam_width": data.get("search_beam_width"),
+        "search_max_expansions": data.get("search_max_expansions"),
+        "search_theoretical_combinations": data.get(
+            "search_theoretical_combinations"
+        ),
+        "search_expansions": data.get("search_expansions"),
+        "search_finalist_count": data.get("search_finalist_count"),
+        "search_pruned_by": data.get("search_pruned_by", {}),
+        "search_traces": data.get("search_traces", []),
         "conversation_command": data.get("conversation_command"),
         "runtime_decisions": data.get("runtime_decisions", []),
         "question": data.get("question"),
@@ -1953,6 +1963,26 @@ def _score_modification(case: ResumeReleaseCase, row: dict[str, Any] | None, tra
         expected="one diff per candidate",
         actual={"plans": len(plans), "diffs": len(diffs), "diff_ids": sorted(diff_ids)},
     )
+    shorter_requested = any(
+        step.action == "replace_stop" and step.preset == "shorter_travel"
+        for step in case.steps
+    )
+    if shorter_requested:
+        route_deltas = [
+            float(delta)
+            for diff in diffs
+            for delta in (diff.get("route_distance_delta_km"),)
+            if delta is not None
+        ]
+        add(
+            "replacement_route_distance_decreased",
+            "passed"
+            if route_deltas and all(delta < 0 for delta in route_deltas)
+            else "failed",
+            expected="every returned candidate has route_distance_delta_km < 0",
+            actual=route_deltas,
+            details="shorter_travel replacement must be verified by the route-aware PlanDiff",
+        )
     replacement_indexes = [
         (item.get("replacements") or [{}])[0].get("stop_index")
         for item in diffs

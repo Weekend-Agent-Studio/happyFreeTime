@@ -53,6 +53,89 @@ class BoundedItinerarySearchTest(unittest.TestCase):
             )
         )
 
+    def test_four_slot_trace_reports_theoretical_product_and_bound(self) -> None:
+        constraints = planning_constraints(time_end="23:00").model_copy(
+            update={"max_distance_km": None}
+        )
+        activities = [
+            candidate(
+                f"activity-{index}",
+                ResourceType.ACTIVITY,
+                f"活动 {index}",
+                ["activity"],
+            )
+            for index in range(10)
+        ]
+        breaks = [
+            candidate(
+                f"break-{index}",
+                ResourceType.CAFE,
+                f"休息 {index}",
+                ["cafe"],
+            )
+            for index in range(10)
+        ]
+        dinners = [
+            candidate(
+                f"dinner-{index}",
+                ResourceType.RESTAURANT,
+                f"晚餐 {index}",
+                ["restaurant"],
+            )
+            for index in range(10)
+        ]
+
+        result = bounded_beam_search(
+            role_pools=(activities, breaks, activities, dinners),
+            roles=(StopRole.ACTIVITY, StopRole.BREAK, StopRole.ACTIVITY, StopRole.DINNER),
+            constraints=constraints,
+            origin=GeoPoint(latitude=39.9219, longitude=116.4436),
+            config=BeamSearchConfig(beam_width=8, max_expansions=80, max_finalists=6),
+        )
+
+        self.assertEqual(result.stats.theoretical_combinations, 10_000)
+        self.assertLessEqual(result.stats.expansions, 80)
+        self.assertLessEqual(result.stats.finalists, 6)
+
+    def test_route_estimate_breaks_equal_semantic_ties(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={"max_distance_km": None}
+        )
+        near = candidate(
+            "near-activity",
+            ResourceType.ACTIVITY,
+            "活动 A",
+            ["activity"],
+        )
+        far = candidate(
+            "far-activity",
+            ResourceType.ACTIVITY,
+            "活动 B",
+            ["activity"],
+        ).model_copy(
+            update={"location": GeoPoint(latitude=40.2, longitude=116.9)}
+        )
+        dinner = candidate(
+            "dinner",
+            ResourceType.RESTAURANT,
+            "晚餐",
+            ["restaurant"],
+        )
+
+        result = bounded_beam_search(
+            role_pools=((near, far), (dinner,)),
+            roles=(StopRole.ACTIVITY, StopRole.DINNER),
+            constraints=constraints,
+            origin=GeoPoint(latitude=39.9219, longitude=116.4436),
+            semantic_scores={
+                "near-activity": 1.0,
+                "far-activity": 1.0,
+                "dinner": 1.0,
+            },
+        )
+
+        self.assertEqual(result.sequences[0][0].resource_id, "near-activity")
+
     def test_search_prunes_duplicate_and_distance_candidates(self) -> None:
         constraints = planning_constraints(max_distance_km=1.0, time_end="22:00")
         near = candidate(

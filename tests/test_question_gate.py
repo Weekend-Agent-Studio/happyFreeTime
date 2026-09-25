@@ -193,6 +193,27 @@ class NeedQuestionGateTest(unittest.TestCase):
         self.assertEqual(decision.field, "return_by")
         self.assertEqual(decision.rule_id, "question.return_by.unresolved.v1")
 
+    def test_departure_period_asks_for_a_clock_not_a_trip_window(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 0.95},
+            raw_constraints=RawConstraints(
+                time_text="早上",
+                departure_period=TimeScope.MORNING,
+            ),
+            evidence_map={"departure_period": "早上"},
+        )
+
+        decision = self.gate.decide(
+            interpretation,
+            EnrichmentResult(constraints=NormalizedConstraints()),
+            GateContext(),
+        )
+
+        self.assertTrue(decision.need_question)
+        self.assertEqual(decision.field, "departure_at")
+        self.assertEqual(decision.rule_id, "question.departure_period.unresolved.v1")
+
     def test_invalid_structured_return_deadline_also_blocks_planning(self) -> None:
         interpretation = Interpretation(
             primary_intent=Intent.PLAN_OUTING,

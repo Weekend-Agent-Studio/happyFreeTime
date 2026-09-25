@@ -166,6 +166,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertTrue(
             any(plan.skeleton_id == "valid-later" for plan in result.plans)
         )
+        traces = {item.skeleton_id: item for item in result.search_traces}
+        self.assertIn("too-long-first", traces)
+        self.assertIn("valid-later", traces)
+        self.assertEqual(traces["too-long-first"].local_schedule_passes, 0)
+        self.assertGreater(traces["valid-later"].local_schedule_passes, 0)
 
     @staticmethod
     def _dinner_only_constraints(*, return_by: bool = False, strict_budget: bool = False) -> NormalizedConstraints:
@@ -1073,6 +1078,8 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             [stop.role.value for stop in three_stop.stops],
             ["lunch", "activity", "dinner"],
         )
+        self.assertEqual(len(three_stop.stops), 3)
+        self.assertGreaterEqual(three_stop.stops[-1].start, "17:00")
         self.assertEqual(len(three_stop.route_legs), 3)
 
     def test_activity_meal_skeleton_accepts_a_cafe_for_the_meal_role(self) -> None:

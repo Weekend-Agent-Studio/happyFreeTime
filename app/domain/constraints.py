@@ -33,6 +33,7 @@ STRUCTURED_OUTPUT_RULE_CODES = (
     "absolute_date_reference_mismatch",
     "absolute_date_missing",
     "explicit_time_window_order_invalid",
+    "departure_period_invalid",
     "replace_target_missing",
     "target_reference_missing",
 )
@@ -170,6 +171,10 @@ class ConstraintPatch(BaseModel):
     date_text: str | None = None
     return_by_text: str | None = None
     departure_at_text: str | None = None
+    # A finite departure-period hint is distinct from the itinerary's overall
+    # time scope.  It is used only when a user says “早上出发” without naming
+    # a clock; the compiler then asks for the exact departure time.
+    departure_period: TimeScope | None = None
     time_window_text: str | None = None
     location_text: str | None = None
     budget_text: str | None = None
@@ -350,6 +355,10 @@ class RawConstraints(BaseModel):
     time_text: str | None = None
     time_scope: TimeScope | None = None
     explicit_time_window: TimeWindow | None = None
+    # ``time_scope`` describes the whole outing.  ``departure_period`` only
+    # qualifies the departure action, so “早上出发” must not become a
+    # 09:00–12:00 itinerary window.
+    departure_period: TimeScope | None = None
     departure_at_text: str | None = None
     departure_at: str | None = None
     exact_stop_count: int | None = Field(default=None, ge=1, le=4)
@@ -421,6 +430,11 @@ class RawConstraints(BaseModel):
             raise PydanticCustomError(
                 "explicit_time_window_order_invalid",
                 "explicit time window start must be before end",
+            )
+        if self.departure_period in {TimeScope.ALL_DAY, TimeScope.EXPLICIT_RANGE}:
+            raise PydanticCustomError(
+                "departure_period_invalid",
+                "departure_period must be morning, afternoon, or evening",
             )
         return self
 
@@ -510,6 +524,10 @@ class Interpretation(BaseModel):
         require_trace("absolute_date", ("absolute_date", "date_reference", "date_text"))
         require_trace("time_scope", ("time_scope", "time_text"))
         require_trace("explicit_time_window", ("explicit_time_window", "time_text"))
+        require_trace(
+            "departure_period",
+            ("departure_period", "departure_at_text", "time_text"),
+        )
         return self
 
 

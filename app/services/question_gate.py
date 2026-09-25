@@ -8,6 +8,7 @@ from app.domain.constraints import (
     Interpretation,
     QuestionDecision,
 )
+from app.services.enrichment import TemporalCompiler
 
 
 class GateContext(BaseModel):
@@ -76,6 +77,20 @@ class NeedQuestionGate:
                 question="你具体想安排在哪一天？可以直接告诉我日期或说今天、明天。",
                 severity="blocking",
                 rule_id="question.date.unresolved.v1",
+            )
+
+        departure_period = (
+            raw.departure_period
+            or TemporalCompiler.extract_departure_period(raw.departure_at_text)
+            or TemporalCompiler.extract_departure_period(raw.time_text)
+        )
+        if departure_period is not None and constraints.departure_at is None:
+            return QuestionDecision(
+                need_question=True,
+                field="departure_at",
+                question="你希望早上/下午/晚上大概几点出发？请给一个具体时间。",
+                severity="blocking",
+                rule_id="question.departure_period.unresolved.v1",
             )
 
         if (

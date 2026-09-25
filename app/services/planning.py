@@ -46,6 +46,7 @@ from app.domain.planning import (
     PlanStrategy,
     PlanSkeleton,
     PlanningIntent,
+    SkeletonSearchTrace,
     RouteLeg,
     RouteMode,
     RouteSource,
@@ -493,6 +494,41 @@ class PlanningService:
             _MAX_ROUTE_LEG_VERIFICATIONS,
             has_return_leg=constraints.return_by is not None,
         )
+        search_trace_by_id = {
+            trace.skeleton_id: trace for trace in local_result.search_traces
+        }
+        search_trace_order = [trace.skeleton_id for trace in local_result.search_traces]
+
+        def increment_search_trace(
+            skeleton_id: str | None,
+            **increments: int,
+        ) -> None:
+            key = skeleton_id or "legacy-unknown"
+            trace = search_trace_by_id.get(
+                key,
+                SkeletonSearchTrace(skeleton_id=key),
+            )
+            if key not in search_trace_by_id:
+                search_trace_order.append(key)
+            updates = {
+                field: getattr(trace, field) + amount
+                for field, amount in increments.items()
+            }
+            search_trace_by_id[key] = trace.model_copy(update=updates)
+
+        def commit_search_traces() -> _LocalPlanningResult:
+            return replace(
+                local_result,
+                search_traces=tuple(
+                    search_trace_by_id[key] for key in search_trace_order
+                ),
+            )
+
+        for route_candidate in route_candidates:
+            increment_search_trace(
+                route_candidate.skeleton_id,
+                route_candidates=1,
+            )
         plans = []
         availability_facts_by_plan: dict[str, tuple[AvailabilityFact, ...]] = {}
         verification_warnings_by_plan: dict[str, tuple[VerificationFinding, ...]] = {}
@@ -521,7 +557,13 @@ class PlanningService:
                 constraints,
                 candidate_by_id,
             )
-            route_leg_verifications += len(verified.route_legs)
+            route_request_count = len(verified.route_legs)
+            route_leg_verifications += route_request_count
+            increment_search_trace(
+                plan.skeleton_id,
+                route_provider_requests=route_request_count,
+                route_leg_count=len(verified.route_legs),
+            )
             verified = _refresh_verified_score(verified, constraints)
             availability_facts: tuple[AvailabilityFact, ...] = ()
             availability_budget_exhausted = availability_batches >= _MAX_AVAILABILITY_BATCHES
@@ -590,6 +632,7 @@ class PlanningService:
             if len(plans) == _MAX_FEASIBLE_PLANS:
                 break
 
+        local_result = commit_search_traces()
         if plans:
             plans = _apply_dynamic_strategies(
                 plans,
@@ -605,6 +648,12 @@ class PlanningService:
                 )
             )
             plans = _diversify_plans(plans, _MAX_RETURNED_PLANS)
+            for selected_plan in plans:
+                increment_search_trace(
+                    selected_plan.skeleton_id,
+                    final_selected=1,
+                )
+            local_result = commit_search_traces()
             selected_ids = {
                 stop.resource_id
                 for plan in plans
@@ -640,7 +689,7 @@ class PlanningService:
                 retrieval_index_version=retrieved.index_version,
                 semantic_request=planning_intent.semantic_request,
                 retrieval_evidence=_retrieval_evidence_for_plans(retrieved, plans),
-                **_search_metadata(local_result.search_stats),
+                **_search_metadata(local_result),
             )
 
         # Diagnose a strict-budget exhaustion before returning a generic route
@@ -678,7 +727,7 @@ class PlanningService:
                 retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
-                **_search_metadata(local_result.search_stats),
+                **_search_metadata(local_result),
             )
 
         if route_candidates:
@@ -736,7 +785,7 @@ class PlanningService:
                 retrieval_runtime_decision=retrieval_runtime_decision,
                 retrieval_mode=retrieved.mode,
                 retrieval_index_version=retrieved.index_version,
-                **_search_metadata(local_result.search_stats),
+                **_search_metadata(local_result),
             )
 
         conflict_fields = [
@@ -820,7 +869,7 @@ class PlanningService:
             retrieval_runtime_decision=retrieval_runtime_decision,
             retrieval_mode=retrieved.mode,
             retrieval_index_version=retrieved.index_version,
-            **_search_metadata(local_result.search_stats),
+            **_search_metadata(local_result),
         )
 
     def modify_selected_plan(
@@ -1420,20 +1469,24 @@ class _LocalPlanningResult:
     plans: list[Plan]
     rejected_fields: set[str]
     search_stats: BeamSearchStats | None = None
+    search_traces: tuple[SkeletonSearchTrace, ...] = ()
 
 
-def _search_metadata(stats: BeamSearchStats | None) -> dict[str, object]:
+def _search_metadata(result: _LocalPlanningResult | None) -> dict[str, object]:
     """Expose bounded composition metrics without coupling API to the searcher."""
 
-    if stats is None:
+    if result is None or result.search_stats is None:
         return {}
+    stats = result.search_stats
     return {
         "search_mode": stats.mode,
         "search_beam_width": stats.beam_width,
         "search_max_expansions": stats.max_expansions,
+        "search_theoretical_combinations": stats.theoretical_combinations,
         "search_expansions": stats.expansions,
         "search_finalist_count": stats.finalists,
         "search_pruned_by": dict(stats.pruned_by),
+        "search_traces": list(result.search_traces),
     }
 
 
@@ -2263,6 +2316,7 @@ def _rank_skeleton_plans_legacy(
 ) -> _LocalPlanningResult:
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
+    search_traces: list[SkeletonSearchTrace] = []
     for raw_spec in plan_specs:
         spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
         skeleton = spec.skeleton
@@ -2281,10 +2335,26 @@ def _rank_skeleton_plans_legacy(
             )
             for role in skeleton.roles
         ]
+        theoretical_combinations = math.prod(len(pool) for pool in role_pools)
+        expansions = 0
+        local_schedule_passes = 0
+        rejected_by: dict[str, int] = {}
         if any(not pool for pool in role_pools):
+            rejected_by["empty_role_pool"] = 1
+            search_traces.append(
+                SkeletonSearchTrace(
+                    skeleton_id=skeleton.skeleton_id,
+                    theoretical_combinations=theoretical_combinations,
+                    rejected_by=rejected_by,
+                )
+            )
             continue
         for sequence in product(*role_pools):
+            expansions += 1
             if len({item.resource_id for item in sequence}) != len(sequence):
+                rejected_by["duplicate_resource"] = rejected_by.get(
+                    "duplicate_resource", 0
+                ) + 1
                 continue
             plan, rejected_field = _build_local_plan(
                 sequence,
@@ -2295,8 +2365,22 @@ def _rank_skeleton_plans_legacy(
             )
             if plan is not None:
                 plans.append(plan)
+                local_schedule_passes += 1
             elif rejected_field:
                 rejected_fields.add(rejected_field)
+                rejected_by[rejected_field] = rejected_by.get(rejected_field, 0) + 1
+            else:
+                rejected_by["local_plan"] = rejected_by.get("local_plan", 0) + 1
+        search_traces.append(
+            SkeletonSearchTrace(
+                skeleton_id=skeleton.skeleton_id,
+                theoretical_combinations=theoretical_combinations,
+                expansions=expansions,
+                finalists=local_schedule_passes,
+                local_schedule_passes=local_schedule_passes,
+                rejected_by=rejected_by,
+            )
+        )
     ranked = sorted(
         plans,
         key=lambda plan: (
@@ -2313,6 +2397,10 @@ def _rank_skeleton_plans_legacy(
             continue
         seen_compositions.add(composition)
         unique_plans.append(plan)
+    legacy_rejected: dict[str, int] = {}
+    for trace in search_traces:
+        for field, count in trace.rejected_by.items():
+            legacy_rejected[field] = legacy_rejected.get(field, 0) + count
     return _LocalPlanningResult(
         plans=unique_plans,
         rejected_fields=rejected_fields,
@@ -2321,9 +2409,14 @@ def _rank_skeleton_plans_legacy(
             beam_width=0,
             max_expansions=0,
             max_finalists=0,
-            expansions=0,
+            theoretical_combinations=sum(
+                trace.theoretical_combinations for trace in search_traces
+            ),
+            expansions=sum(trace.expansions for trace in search_traces),
             finalists=len(unique_plans),
+            pruned_by=tuple(sorted(legacy_rejected.items())),
         ),
+        search_traces=tuple(search_traces),
     )
 
 
@@ -2343,6 +2436,7 @@ def _rank_skeleton_plans_beam(
 
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
+    search_traces: list[SkeletonSearchTrace] = []
     expansions = 0
     pruned: dict[str, int] = {}
     config = BeamSearchConfig()
@@ -2351,7 +2445,9 @@ def _rank_skeleton_plans_beam(
         longitude=constraints.location.value.longitude,
     )
 
-    prepared_specs: list[tuple[CompiledPlanSpec, list[list[StopCandidate]]]] = []
+    prepared_specs: list[
+        tuple[CompiledPlanSpec, list[list[StopCandidate]], int]
+    ] = []
     for raw_spec in plan_specs:
         spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
         role_pools = [
@@ -2364,12 +2460,20 @@ def _rank_skeleton_plans_beam(
             )
             for role in spec.roles
         ]
+        theoretical_combinations = math.prod(len(pool) for pool in role_pools)
         if any(not pool for pool in role_pools):
+            search_traces.append(
+                SkeletonSearchTrace(
+                    skeleton_id=spec.skeleton.skeleton_id,
+                    theoretical_combinations=theoretical_combinations,
+                    rejected_by={"empty_role_pool": 1},
+                )
+            )
             continue
-        prepared_specs.append((spec, role_pools))
+        prepared_specs.append((spec, role_pools, theoretical_combinations))
 
     remaining_specs = len(prepared_specs)
-    for spec, role_pools in prepared_specs:
+    for spec, role_pools, theoretical_combinations in prepared_specs:
         if remaining_specs <= 0:
             break
         remaining_expansions = config.max_expansions - expansions
@@ -2400,6 +2504,8 @@ def _rank_skeleton_plans_beam(
         for field, count in result.stats.pruned_by:
             pruned[field] = pruned.get(field, 0) + count
         rejected_fields.update(result.rejected_fields)
+        local_schedule_passes = 0
+        local_rejected_by = dict(result.stats.pruned_by)
         for sequence in result.sequences:
             plan, rejected_field = _build_local_plan(
                 sequence,
@@ -2410,8 +2516,26 @@ def _rank_skeleton_plans_beam(
             )
             if plan is not None:
                 plans.append(plan)
+                local_schedule_passes += 1
             elif rejected_field:
                 rejected_fields.add(rejected_field)
+                local_rejected_by[rejected_field] = (
+                    local_rejected_by.get(rejected_field, 0) + 1
+                )
+            else:
+                local_rejected_by["local_plan"] = (
+                    local_rejected_by.get("local_plan", 0) + 1
+                )
+        search_traces.append(
+            SkeletonSearchTrace(
+                skeleton_id=spec.skeleton.skeleton_id,
+                theoretical_combinations=theoretical_combinations,
+                expansions=result.stats.expansions,
+                finalists=result.stats.finalists,
+                local_schedule_passes=local_schedule_passes,
+                rejected_by=local_rejected_by,
+            )
+        )
         remaining_specs -= 1
 
     plans.sort(
@@ -2440,10 +2564,14 @@ def _rank_skeleton_plans_beam(
             beam_width=config.beam_width,
             max_expansions=config.max_expansions,
             max_finalists=config.max_finalists,
+            theoretical_combinations=sum(
+                trace.theoretical_combinations for trace in search_traces
+            ),
             expansions=expansions,
             finalists=len(unique_plans),
             pruned_by=tuple(sorted(pruned.items())),
         ),
+        search_traces=tuple(search_traces),
     )
 
 

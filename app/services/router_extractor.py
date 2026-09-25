@@ -180,6 +180,11 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
  - “一整天”“全天”“从早到晚”填写 time_scope="all_day"，同时保留 time_text 作为证据。
  - 明确的数字范围（例如“10:00–16:00”）填写 time_scope="explicit_range" 和
    explicit_time_window={"start":"10:00","end":"16:00"}，并保留 time_text。
+ - 区分整段行程时间和出发时段： “早上/上午/下午/晚上出发”但没有具体钟点时，
+   只填写 departure_period="morning|afternoon|evening"，保留 departure_at_text 或
+   time_text 作为证据，不要把 time_scope 填成同名整段行程窗口；系统会就
+   departure_at 进行字段级反问。 “早上九点出发”同时保留 departure_at_text，能可靠
+   规范化时填写 departure_at，departure_period 只能表示出发语义，不能代替精确时刻。
  - 任何 date_reference、weekday、week_offset、absolute_date 或
    explicit_time_window 只在能从用户原话确认时填写；对应 evidence_map 必须提供。
    模糊的“晚饭前后”“有空时”不能编译成精确时钟。

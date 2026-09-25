@@ -46,6 +46,7 @@ class BeamSearchStats:
     beam_width: int
     max_expansions: int
     max_finalists: int
+    theoretical_combinations: int
     expansions: int
     finalists: int
     pruned_by: tuple[tuple[str, int], ...] = ()
@@ -89,6 +90,7 @@ def bounded_beam_search(
                 beam_width=config.beam_width,
                 max_expansions=config.max_expansions,
                 max_finalists=config.max_finalists,
+                theoretical_combinations=0,
                 expansions=0,
                 finalists=0,
             ),
@@ -96,6 +98,7 @@ def bounded_beam_search(
 
     start_minutes = _planning_start_minutes(constraints)
     maximum_minutes = _maximum_planning_minutes(constraints, start_minutes)
+    theoretical_combinations = math.prod(len(pool) for pool in role_pools)
     budget = (
         constraints.budget_per_person.value
         if constraints.budget_per_person is not None
@@ -229,6 +232,7 @@ def bounded_beam_search(
             beam_width=config.beam_width,
             max_expansions=config.max_expansions,
             max_finalists=config.max_finalists,
+            theoretical_combinations=theoretical_combinations,
             expansions=expansions,
             finalists=len(sequences),
             pruned_by=tuple(sorted(rejected.items())),
