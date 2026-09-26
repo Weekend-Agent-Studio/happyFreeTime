@@ -1,0 +1,56 @@
+[
+  {
+    "id": "prod_001",
+    "name": "莓果低糖蛋糕",
+    "type": "product",
+    "category": "蛋糕",
+    "vendor_name": "幸福西饼",
+    "district": "朝阳区",
+    "address": "北京市朝阳区建外大街18号",
+    "lat": 39.9080,
+    "lng": 116.4650,
+    "avg_price": 168,
+    "rating": 4.6,
+    "review_count": 520,
+    "tags": ["低糖", "可配送", "适合家庭", "儿童友好"],
+    "delivery_available": true,
+    "pickup_available": true,
+    "stock": 8,
+    "delivery_slots": [
+      {"date": "2026-05-23", "time": "16:00-17:00", "status": "available"},
+      {"date": "2026-05-23", "time": "17:00-18:00", "status": "available"},
+      {"date": "2026-05-23", "time": "18:00-19:00", "status": "few_left", "remaining": 2}
+    ],
+    "review_summary": {
+      "pros": ["甜度低", "适合孩子", "配送稳定"],
+      "cons": ["热门时段需要提前2小时下单"]
+    }
+  },
+  {
+    "id": "prod_002",
+    "name": "花点时间·鲜花束（国贸店）",
+    "type": "product",
+    "category": "鲜花",
+    "vendor_name": "花点时间",
+    "district": "朝阳区",
+    "address": "北京市朝阳区国贸商城B1",
+    "lat": 39.9090,
+    "lng": 116.4660,
+    "avg_price": 150,
+    "rating": 4.8,
+    "review_count": 980,
+    "tags": ["鲜花", "可配送", "约会", "伴手礼"],
+    "delivery_available": true,
+    "pickup_available": true,
+    "stock": 15,
+    "delivery_slots": [
+      {"date": "2026-05-23", "time": "14:00-15:00", "status": "available"},
+      {"date": "2026-05-23", "time": "15:00-16:00", "status": "available"},
+      {"date": "2026-05-24", "time": "10:00-11:00", "status": "available"}
+    ],
+    "review_summary": {
+      "pros": ["花束新鲜", "包装精美", "配送准时"],
+      "cons": ["周末下午配送紧张"]
+    }
+  }
+]

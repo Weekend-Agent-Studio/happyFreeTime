@@ -1,0 +1,790 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import App from "./App";
+import type { AgentResponse, Plan } from "./types";
+
+const api = vi.hoisted(() => ({
+  createSession: vi.fn(),
+  getSession: vi.fn(),
+  listSessions: vi.fn(),
+  sendMessage: vi.fn(),
+  selectPlan: vi.fn(),
+}));
+
+vi.mock("./api", () => ({
+  ...api,
+  getMapConfig: vi.fn(),
+}));
+
+vi.mock("./AmapPlanMap", () => ({
+  AmapPlanMap: ({ activeLegIndex, onSelectRoute }: { activeLegIndex: number | null; onSelectRoute: (index: number) => void }) => (
+    <button type="button" onClick={() => onSelectRoute(1)}>测试地图，当前路线 {activeLegIndex ?? "none"}</button>
+  ),
+}));
+
+const source = {
+  source_name: "测试目录",
+  source_uri: "https://example.test/catalog",
+  source_license: "test",
+  collected_at: "2026-08-29T00:00:00Z",
+  last_verified_at: "2026-08-29T00:00:00Z",
+  verification_status: "verified" as const,
+};
+
+function plan(planId: string, title: string): Plan {
+  return {
+    plan_id: planId,
+    composition_fingerprint: planId,
+    skeleton_id: "test",
+    title,
+    strategy: "balanced",
+    total_score: 10,
+    total_price: 88,
+    price_status: "known",
+    total_duration_minutes: 180,
+    stops: [
+      {
+        resource_id: `${planId}-activity`, type: "activity", role: "activity", name: "展览", start: "14:10", end: "15:10", duration_minutes: 60, price: 30, price_kind: "known", category_tags: ["展览"], image: null, source,
+      },
+      {
+        resource_id: `${planId}-meal`, type: "restaurant", role: "meal", name: "晚餐", start: "15:20", end: "16:20", duration_minutes: 60, price: 58, price_kind: "known", category_tags: ["餐厅"], image: null, source,
+      },
+    ],
+    route_legs: [
+      { origin_name: "出发地", destination_name: "展览", start: "14:00", end: "14:10", mode: "taxi", distance_km: 1, duration_minutes: 10, source: "local_estimate", provider_mode: "mock", verified_at: null, cache_age_seconds: null, geometry: [], degraded: true, degraded_reason: "test" },
+      { origin_name: "展览", destination_name: "晚餐", start: "15:10", end: "15:20", mode: "taxi", distance_km: 2, duration_minutes: 10, source: "local_estimate", provider_mode: "mock", verified_at: null, cache_age_seconds: null, geometry: [], degraded: true, degraded_reason: "test" },
+      { origin_name: "晚餐", destination_name: "出发地", start: "16:20", end: "16:35", mode: "taxi", distance_km: 2, duration_minutes: 15, source: "local_estimate", provider_mode: "mock", verified_at: null, cache_age_seconds: null, geometry: [], degraded: true, degraded_reason: "test" },
+    ],
+    score_breakdown: [], highlights: [], tradeoffs: [],
+  };
+}
+
+const response: AgentResponse = {
+  status: "completed", reply: "已生成方案", question: null, assumptions: [], constraint_summary: [],
+  plans: [plan("plan-one", "方案一"), plan("plan-two", "方案二")], conflict: null,
+  provider_facts: [], catalog_violations: [], catalog_warnings: [],
+  poi_presentations: [],
+};
+
+function presentation(resourceId: string, name: string) {
+  return {
+    resource_id: resourceId, name, category_label: "展览", business_area: "朝阳区", address: "测试路 1 号", description: "一段可展开的 POI 详情说明。",
+    scene_tags: ["慢慢逛"], facility_tags: ["休息区"], indoor: true, weather_suitability: "室内为主，阴雨天也适合", child_suitability: "适合亲子同行（演示规则）",
+    reference_avg_price: 30, demo_rating: 4.6, demo_review_count: 1280, opening_hours_display: "周一至周日 09:30–17:30", opening_status: "已纳入本次营业时间校验",
+    suggested_duration_minutes: 60, reservation_requirement: "无需预约", queue_profile: "周末下午可能有客流", risk_tips: ["闭馆前请预留入场时间"], booking_mode: "现场入场",
+    gallery: [{ url: "/demo-illustrations/outing.svg", alt: "展览场景示意图（非门店实拍）", kind: "illustrative" as const, attribution: "test", license: "test" }],
+    data_notice: "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。",
+  };
+}
+
+describe("planning workspace", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+    api.listSessions.mockReset();
+    api.createSession.mockReset();
+    api.sendMessage.mockReset();
+    api.selectPlan.mockReset();
+    api.listSessions.mockResolvedValue([]);
+    api.createSession.mockResolvedValue("session-test");
+    api.sendMessage.mockResolvedValue(response);
+    api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
+  });
+
+  it("switches plans and keeps timeline, map rows, and RouteLeg indices aligned", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "查看方案二" }));
+    expect(screen.getByRole("button", { name: "查看方案二" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }));
+    expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("测试地图，当前路线 0")).toBeInTheDocument();
+    expect(screen.getByText("本地估算")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /展览 → 晚餐/ }));
+    expect(screen.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows total party place fees without transport and preserves price uncertainty", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      plans: [
+        { ...plan("known-price", "已知费用"), total_price: 300, price_status: "known" },
+        { ...plan("estimated-price", "估算费用"), total_price: 260, price_status: "estimated" },
+        { ...plan("incomplete-price", "待确认费用"), total_price: 180, price_status: "incomplete" },
+      ],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByLabelText("地点费用，不含交通：全员合计 ¥300")).toBeInTheDocument();
+    expect(screen.getByLabelText("地点费用，不含交通：全员约 ¥260")).toBeInTheDocument();
+    expect(screen.getByLabelText("地点费用，不含交通：全员已知费用 ¥180 + 未知价格")).toBeInTheDocument();
+    expect(screen.queryByText(/\/ 人/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("快速调整方案")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/餐厅保留|换近一点/)).not.toBeInTheDocument();
+  });
+
+  it("renders grounded recommendation advice and marks the recommended plan", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      recommendation_advice: {
+        recommended_plan_id: "plan-two",
+        understood_needs: [{ need_id: "need.user.preferences.1", text: "轻松约会", user_evidence_ids: ["user.preferences.1"] }],
+        overall_reason: "方案二更直接回应了轻松约会需求。",
+        plans: [
+          { plan_id: "plan-one", reason: "方案一回应了你的需求。", matched_need_ids: ["need.user.preferences.1"], supporting_evidence_ids: ["user.preferences.1"], tradeoffs: ["路线更长"] },
+          { plan_id: "plan-two", reason: "方案二更适合轻松约会。", matched_need_ids: ["need.user.preferences.1"], supporting_evidence_ids: ["user.preferences.1"], tradeoffs: ["可选活动较少"] },
+        ],
+        adapter: "rule_based",
+        fallback_reason: null,
+        prompt_version: "rule-based.v1",
+        model_name: null,
+        model_invoked: false,
+        attempts: 0,
+        latency_ms: 0,
+      },
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排一个轻松的约会");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("本轮理解");
+    expect(screen.getByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("最推荐：方案二");
+    expect(screen.getByText("方案二更适合轻松约会。")).toBeInTheDocument();
+    expect(screen.getAllByText("主要取舍").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "方案二", level: 3 }).closest(".plan-card")).toHaveClass("recommended");
+  });
+
+  it("shows the locked stop and replacement evidence for a modified plan", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      reply: "已保留餐厅并替换活动。",
+      plans: [plan("modified-plan", "修改后方案")],
+      plan_version_id: "version-2",
+      plan_diff: {
+        from_plan_version_id: "version-1",
+        to_plan_version_id: "version-2",
+        base_plan_id: "old-plan",
+        new_plan_id: "modified-plan",
+        locked_stops: [{ source_plan_id: "old-plan", stop_index: 1, resource_id: "restaurant-kept", role: "meal" }],
+        replacements: [{ stop_index: 0, role: "activity", before_resource_id: "activity-old", before_name: "旧展览", after_resource_id: "activity-new", after_name: "新展览" }],
+        route_distance_delta_km: -2.4,
+        duration_delta_minutes: -15,
+        price_delta: 0,
+      },
+    });
+    render(<App />);
+
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "餐厅保留，只把活动换近一点");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByText("方案已定向更新")).toBeInTheDocument();
+    expect(screen.getByText("旧展览 → 新展览")).toBeInTheDocument();
+    expect(screen.getByText("餐厅保持不变 · 通勤缩短 2.4 km")).toBeInTheDocument();
+  });
+
+  it("does not render a return node when route legs contain only inbound legs", async () => {
+    const user = userEvent.setup();
+    const noReturnPlan = plan("no-return", "无返程方案");
+    noReturnPlan.route_legs = noReturnPlan.route_legs.slice(0, noReturnPlan.stops.length);
+    api.sendMessage.mockResolvedValue({ ...response, plans: [noReturnPlan] });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    await screen.findByRole("heading", { name: "无返程方案", level: 3 });
+    expect(screen.queryByText("返")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /查看返程/ })).not.toBeInTheDocument();
+  });
+
+  it("shows an exact departure constraint in the shared plan context", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      constraint_summary: [{
+        field: "departure_at", value: "14:30", source: "user_explicit", evidence: "下午两点半准时出发", confidence: 1, rule_id: "departure_at.clock.zh_cn.v1", user_editable: true,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "明天下午两点半准时出发");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByText("准时出发")).toBeInTheDocument();
+    expect(screen.getAllByText("14:30").length).toBeGreaterThan(0);
+  });
+
+  it("renders a dinner-only plan with one place, inbound route, and return route", async () => {
+    const user = userEvent.setup();
+    const dinnerOnly = plan("dinner-only", "晚餐 A");
+    dinnerOnly.skeleton_id = "dinner-only-v1";
+    dinnerOnly.stops = [{
+      resource_id: "dinner-only-dinner", type: "restaurant", role: "dinner", name: "晚餐 A", start: "18:20", end: "19:20", duration_minutes: 60, price: 120, price_kind: "known", category_tags: ["餐厅"], image: null, source,
+    }];
+    dinnerOnly.route_legs = [
+      { origin_name: "出发地", destination_name: "晚餐 A", start: "18:00", end: "18:20", mode: "taxi", distance_km: 2, duration_minutes: 20, source: "replay", provider_mode: "replay", verified_at: null, cache_age_seconds: null, geometry: [], degraded: false, degraded_reason: null },
+      { origin_name: "晚餐 A", destination_name: "出发地", start: "19:20", end: "19:40", mode: "taxi", distance_km: 2, duration_minutes: 20, source: "replay", provider_mode: "replay", verified_at: null, cache_age_seconds: null, geometry: [], degraded: false, degraded_reason: null },
+    ];
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      plans: [dinnerOnly],
+      constraint_summary: [
+        { field: "exact_stop_count", value: 1, source: "user_explicit", evidence: "只安排一家", confidence: 1, rule_id: "plan_structure.exact_stop_count.v1", user_editable: true },
+        { field: "required_stop_roles", value: ["dinner"], source: "user_explicit", evidence: "晚饭", confidence: 1, rule_id: "plan_structure.required_roles.v1", user_editable: true },
+      ],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "只安排一家晚饭");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("heading", { name: "晚餐 A", level: 3 })).toBeInTheDocument();
+    expect(screen.getByText("只安排 1 站")).toBeInTheDocument();
+    expect(screen.getByText("晚餐")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /查看下一程/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("展览")).not.toBeInTheDocument();
+  });
+
+  it("shows a recoverable error when a provider request fails", async () => {
+    const user = userEvent.setup();
+    api.listSessions.mockRejectedValue(new Error("历史接口失败"));
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("历史接口失败"));
+    await user.click(screen.getByRole("button", { name: "新建规划" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("renders only the returned dynamic warning in the existing plan workspace", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      warnings: [{
+        code: "availability_unconfirmed",
+        message: "晚餐的动态可用性尚未得到完整确认。",
+        plan_id: "plan-one",
+        resource_id: "plan-one-meal",
+        route_leg_index: null,
+        source: "mock",
+        degraded: false,
+        stale: false,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByLabelText("方案待确认信息")).toHaveTextContent("动态可用性尚未得到完整确认");
+  });
+
+  it("renders presentation details from the separate resource-id keyed payload", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      poi_presentations: response.plans.flatMap((item) => item.stops.map((stop) => presentation(stop.resource_id, stop.name))),
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect((await screen.findAllByText("演示评分")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/测试路 1 号/).length).toBeGreaterThan(0);
+    expect(screen.getByText("POI 商业信息为模拟数据；路线来源和降级状态见各路线段。")).toBeInTheDocument();
+  });
+
+  it("keeps every rich planning reply inside its original assistant turn", async () => {
+    const user = userEvent.setup();
+    const firstResponse = {
+      ...response,
+      reply: "第一轮方案已经整理好。",
+      plans: [plan("first-plan", "第一轮方案")],
+    };
+    const secondResponse = {
+      ...response,
+      reply: "第二轮方案已经整理好。",
+      plans: [plan("second-plan", "第二轮方案")],
+    };
+    api.sendMessage
+      .mockResolvedValueOnce(firstResponse)
+      .mockResolvedValueOnce(secondResponse);
+
+    const { container } = render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "第一轮方案", level: 3 });
+
+    await user.type(input, "预算再低一点");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "第二轮方案", level: 3 });
+
+    const assistantTurns = [...container.querySelectorAll(".message.assistant")];
+    expect(assistantTurns).toHaveLength(2);
+    expect(assistantTurns[0]).toHaveTextContent("第一轮方案已经整理好");
+    expect(assistantTurns[0].querySelector(".rich-planning-reply")).not.toBeNull();
+    expect(assistantTurns[1]).toHaveTextContent("第二轮方案已经整理好");
+    expect(assistantTurns[1].querySelector(".rich-planning-reply")).not.toBeNull();
+    expect(container.querySelectorAll(".message.assistant > .butler-avatar")).toHaveLength(2);
+  });
+
+  it("restores all persisted rich replies instead of only the latest one", async () => {
+    const firstResponse = {
+      ...response,
+      reply: "第一轮方案已经整理好。",
+      plans: [plan("restored-first", "恢复的第一轮方案")],
+    };
+    const secondResponse = {
+      ...response,
+      reply: "第二轮方案已经整理好。",
+      plans: [plan("restored-second", "恢复的第二轮方案")],
+    };
+    api.listSessions.mockResolvedValue([{
+      session_id: "history-session",
+      title: "多轮历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T02:00:00Z",
+      last_message_preview: "第二轮方案已经整理好。",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "history-session",
+      title: "多轮历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T02:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "今天下午出去玩" },
+        { id: "assistant-1", role: "assistant", content: firstResponse.reply },
+        { id: "user-2", role: "user", content: "预算再低一点" },
+        { id: "assistant-2", role: "assistant", content: secondResponse.reply },
+      ],
+      plans: secondResponse.plans,
+      latest_response: secondResponse,
+      response_history: [firstResponse, secondResponse],
+    });
+
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: /多轮历史会话/ }));
+
+    expect(await screen.findByRole("heading", { name: "恢复的第一轮方案", level: 3 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "恢复的第二轮方案", level: 3 })).toBeVisible();
+  });
+
+  it("restores a legacy session response that predates POI presentations", async () => {
+    const user = userEvent.setup();
+    const legacyResponse = { ...response } as Partial<AgentResponse>;
+    delete legacyResponse.poi_presentations;
+    api.listSessions.mockResolvedValue([{
+      session_id: "legacy-session",
+      title: "旧版历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T01:00:00Z",
+      last_message_preview: "已生成方案",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "legacy-session",
+      title: "旧版历史会话",
+      status: "completed",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T01:00:00Z",
+      messages: [{ id: "legacy-message", role: "user", content: "今天下午出去玩" }],
+      plans: response.plans,
+      latest_response: legacyResponse as AgentResponse,
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /旧版历史会话/ }));
+
+    expect(await screen.findByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+    expect(screen.getByText("今天下午出去玩")).toBeInTheDocument();
+  });
+
+  it("defaults to viewing the first plan without marking it selected", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    expect(screen.getByRole("button", { name: "查看方案一" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("正在查看")).toBeInTheDocument();
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+  });
+
+  it("marks a plan selected only after the backend confirms", async () => {
+    const user = userEvent.setup();
+    api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-two" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "选择方案二" }));
+
+    expect(await screen.findByText("已选择这个方案")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+    expect(api.selectPlan).toHaveBeenCalledWith("session-test", "plan-two");
+  });
+
+  it("exposes POI essentials in the collapsed timeline summary", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
+    expect(detailDisclosure).not.toBeNull();
+    expect(detailDisclosure?.open).toBe(false);
+    expect(detailDisclosure?.querySelector(".stop-image.thumb")).not.toBeNull();
+    expect(detailDisclosure?.querySelector(".poi-summary-time")).toHaveTextContent("本次安排 14:10–15:10");
+    expect(within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" })).toBeDisabled();
+  });
+
+  it("sends an anchored structured command for one selected stop", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, plan_version_id: "v1" }).mockResolvedValueOnce({
+      ...response,
+      plan_version_id: "v2",
+      plans: [plan("replacement-plan", "替换后方案")],
+      plan_diffs: [{
+        from_plan_version_id: "v1",
+        to_plan_version_id: "v2",
+        base_plan_id: "plan-one",
+        new_plan_id: "replacement-plan",
+        locked_stops: [{ source_plan_id: "plan-one", stop_index: 1, resource_id: "plan-one-meal", role: "meal" }],
+        replacements: [{ stop_index: 0, role: "activity", before_resource_id: "plan-one-activity", before_name: "展览", after_resource_id: "new-activity", after_name: "新展览" }],
+        route_distance_delta_km: -1,
+        duration_delta_minutes: 0,
+        price_delta: 0,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
+    expect(detailDisclosure).not.toBeNull();
+    fireEvent.click(detailDisclosure?.querySelector("summary") as HTMLElement);
+    const replaceButton = within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" });
+    expect(replaceButton).not.toBeDisabled();
+    await user.click(replaceButton);
+    expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("第 1 站");
+    expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("快捷条件会立即提交");
+    expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("下方输入自定义偏好后点击发送");
+    expect(screen.getByPlaceholderText("例如：想吃少辣的，环境安静一点（可选）")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("描述替换偏好（可选）"), "安静");
+    await user.click(screen.getByRole("button", { name: "全程更近" }));
+
+    const command = api.sendMessage.mock.calls.at(-1)?.[3];
+    expect(command).toMatchObject({
+      operation: "replace",
+      base_plan_version_id: "v1",
+      base_plan_id: "plan-one",
+      target: { stop_index: 0, resource_id: "plan-one-activity" },
+      replacement_criteria: [
+        { kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" },
+        { kind: "semantic", text: "安静", strength: "preferred" },
+      ],
+    });
+  });
+
+  it("submits a replacement immediately when a preset is chosen", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, plan_version_id: "v1" }).mockResolvedValueOnce({
+      ...response,
+      plan_version_id: "v2",
+      plans: [plan("replacement-plan", "替换后方案")],
+      plan_diffs: [{
+        from_plan_version_id: "v1",
+        to_plan_version_id: "v2",
+        base_plan_id: "plan-one",
+        new_plan_id: "replacement-plan",
+        locked_stops: [{ source_plan_id: "plan-one", stop_index: 1, resource_id: "plan-one-meal", role: "meal" }],
+        replacements: [{ stop_index: 0, role: "activity", before_resource_id: "plan-one-activity", before_name: "展览", after_resource_id: "new-activity", after_name: "新展览" }],
+        route_distance_delta_km: -1,
+        duration_delta_minutes: 0,
+        price_delta: 0,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
+    expect(detailDisclosure).not.toBeNull();
+    fireEvent.click(detailDisclosure?.querySelector("summary") as HTMLElement);
+    await user.click(within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" }));
+
+    await user.click(screen.getByRole("button", { name: "全程更近" }));
+
+    await waitFor(() => expect(api.sendMessage.mock.calls.length).toBe(2));
+    const command = api.sendMessage.mock.calls.at(-1)?.[3];
+    expect(command).toMatchObject({
+      operation: "replace",
+      base_plan_version_id: "v1",
+      base_plan_id: "plan-one",
+      target: { stop_index: 0, resource_id: "plan-one-activity" },
+      replacement_criteria: [
+        { kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" },
+      ],
+    });
+  });
+
+  it("does not show a fake selection when the backend rejects it", async () => {
+    const user = userEvent.setup();
+    api.selectPlan.mockRejectedValue(new Error("该方案不属于当前版本"));
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("该方案不属于当前版本");
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+  });
+
+  it("restores the persisted selected plan from the session snapshot", async () => {
+    const user = userEvent.setup();
+    api.listSessions.mockResolvedValue([{
+      session_id: "selected-session", title: "已选方案会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      last_message_preview: "已生成方案",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "selected-session", title: "已选方案会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "今天下午出去玩" },
+        { id: "assistant-1", role: "assistant", content: "已生成方案" },
+      ],
+      plans: response.plans,
+      latest_response: response,
+      response_history: [response],
+      selected_plan_id: "plan-two",
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /已选方案会话/ }));
+
+    expect(await screen.findByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps the active plan visible when the latest restored turn is a question", async () => {
+    const user = userEvent.setup();
+    const firstResponse = { ...response, plan_version_id: "v1", reply: "第一轮方案已经整理好。" };
+    const questionResponse: Partial<AgentResponse> = {
+      status: "needs_input",
+      reply: "",
+      question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+      plans: [],
+      conflict: null,
+      plan_version_id: null,
+    };
+    api.listSessions.mockResolvedValue([{
+      session_id: "question-session", title: "反问后的会话", status: "needs_input",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      last_message_preview: "预算是多少？",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "question-session", title: "反问后的会话", status: "needs_input",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "今天下午出去玩" },
+        { id: "assistant-1", role: "assistant", content: firstResponse.reply },
+        { id: "user-2", role: "user", content: "预算是多少" },
+        { id: "assistant-2", role: "assistant", content: "预算是多少？" },
+      ],
+      plans: firstResponse.plans,
+      latest_response: questionResponse,
+      response_history: [firstResponse, questionResponse],
+      active_plan_version_id: "v1",
+      selected_plan_id: "plan-two",
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /反问后的会话/ }));
+
+    const detailPanel = document.querySelector(".detail-panel");
+    expect(detailPanel).not.toBeNull();
+    expect(within(detailPanel as HTMLElement).getByRole("heading", { name: "方案二", level: 2 })).toBeVisible();
+  });
+
+  it("uses the selected plan id returned by the backend", async () => {
+    const user = userEvent.setup();
+    api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "选择方案二" }));
+
+    expect(await screen.findByRole("button", { name: "选择方案一" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("ignores a stale selection response after a newer plan version arrives", async () => {
+    const user = userEvent.setup();
+    let resolveSelection: ((value: { active_plan_version_id: string; selected_plan_id: string }) => void) | undefined;
+    api.sendMessage
+      .mockResolvedValueOnce({ ...response, plan_version_id: "v1" })
+      .mockResolvedValueOnce({
+        ...response,
+        reply: "新一轮方案已整理。",
+        plans: [plan("plan-new", "新一轮方案")],
+        plan_version_id: "v2",
+      });
+    api.selectPlan.mockImplementation(() => new Promise((resolve) => {
+      resolveSelection = resolve;
+    }));
+    render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+
+    await user.type(input, "重新生成一轮");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "新一轮方案", level: 3 });
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+
+    resolveSelection?.({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
+    await waitFor(() => expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument());
+  });
+
+  it("keeps the active plan details visible when a live turn asks a question", async () => {
+    const user = userEvent.setup();
+    api.sendMessage
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({
+        status: "needs_input",
+        reply: "",
+        question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+        assumptions: [], constraint_summary: [], plans: [], conflict: null,
+        provider_facts: [], catalog_violations: [], catalog_warnings: [], warnings: [], poi_presentations: [],
+      });
+    render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await screen.findByText("已选择这个方案");
+
+    await user.type(input, "预算是多少");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByText("预算是多少？");
+
+    const detailPanel = document.querySelector(".detail-panel");
+    expect(detailPanel).not.toBeNull();
+    expect(within(detailPanel as HTMLElement).getByRole("heading", { name: "方案一", level: 2 })).toBeVisible();
+    expect(screen.getByText("已选择这个方案")).toBeInTheDocument();
+  });
+
+  it("renders backend clarification options and sends a scoped default action", async () => {
+    const user = userEvent.setup();
+    const questionResponse: AgentResponse = {
+      ...response,
+      status: "needs_input",
+      reply: "",
+      plans: [],
+      question: {
+        field: "location",
+        question: "我还不能确定这个位置，能提供更具体的地点或地标吗？",
+        severity: "blocking",
+        clarification_id: "clarification-location-1",
+        attempt: 0,
+        max_attempts: 2,
+        allow_free_text: true,
+        options: [
+          { id: "use-default-location", label: "使用默认出发地", action: "use_default" },
+          { id: "cancel", label: "取消本轮", action: "cancel" },
+          { id: "new-request", label: "开始新需求", action: "new_request" },
+        ],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(questionResponse).mockResolvedValueOnce(response);
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "去一个不确定的地方");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("group", { name: "补充信息选项" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "使用默认出发地" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
+      clarification_id: "clarification-location-1",
+      action: "use_default",
+      value: null,
+    });
+  });
+
+  it("lets a pending clarification switch into an explicit new request", async () => {
+    const user = userEvent.setup();
+    const questionResponse: AgentResponse = {
+      ...response,
+      status: "needs_input",
+      reply: "",
+      plans: [],
+      question: {
+        field: "location",
+        question: "请补充地点",
+        severity: "blocking",
+        clarification_id: "clarification-location-2",
+        options: [{ id: "new-request", label: "开始新需求", action: "new_request" }],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(questionResponse).mockResolvedValueOnce(response);
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "原始需求");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("button", { name: "开始新需求" });
+    await user.click(screen.getByRole("button", { name: "开始新需求" }));
+    await user.type(screen.getByPlaceholderText("描述新的规划需求……"), "今天下午去看展");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
+      clarification_id: "clarification-location-2",
+      action: "new_request",
+      value: "今天下午去看展",
+    });
+  });
+
+  it("clears the selection when a new plan version is generated", async () => {
+    const user = userEvent.setup();
+    api.sendMessage
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({ ...response, reply: "新一轮方案已整理。", plans: [plan("plan-new", "新一轮方案")], plan_version_id: "v2" });
+    render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    await user.type(input, "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await screen.findByText("已选择这个方案");
+
+    await user.type(input, "再来一轮");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "新一轮方案", level: 3 });
+
+    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+  });
+});

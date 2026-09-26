@@ -1,0 +1,606 @@
+{
+  "schema_version": "frozen-interpretations.v1",
+  "fixture_set_id": "pilot-v1",
+  "fixtures": [
+    {
+      "case_id": "plan_exact_departure_1520",
+      "step_index": 0,
+      "input_sha256": "47ea53295de082f41a762cc3a1021b20e55dca7690997a48d733b202277fd44d",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": "明天",
+          "date_reference": "tomorrow",
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": "下午三点二十",
+          "time_scope": "afternoon",
+          "explicit_time_window": null,
+          "departure_at_text": "下午三点二十准时出发",
+          "departure_at": "15:20",
+          "exact_stop_count": null,
+          "required_stop_roles": [],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [],
+          "diet_tags": [],
+          "scene_tags": [],
+          "avoid": [],
+          "return_by_text": "晚上八点前回来",
+          "return_by": "20:00",
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "date_reference": "明天",
+          "time_scope": "下午三点二十",
+          "departure_at": "下午三点二十准时出发",
+          "return_by": "晚上八点前回来"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "plan_all_day_date_relaxed",
+      "step_index": 0,
+      "input_sha256": "372add0069b32f7d0470d0a45ebc1f6507b1ab8f62eca6dfa0383d314465d69b",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": "明天",
+          "date_reference": "tomorrow",
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": "一整天",
+          "time_scope": "all_day",
+          "explicit_time_window": null,
+          "departure_at_text": null,
+          "departure_at": null,
+          "exact_stop_count": null,
+          "required_stop_roles": [],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [
+            "女朋友"
+          ],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [
+            "不要排得太累"
+          ],
+          "diet_tags": [],
+          "scene_tags": [
+            "约会"
+          ],
+          "avoid": [],
+          "return_by_text": null,
+          "return_by": null,
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "date_reference": "明天",
+          "time_scope": "一整天",
+          "members": "跟女朋友",
+          "preferences": "不要排得太累",
+          "scene_tags": "约会"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "plan_dinner_only_light",
+      "step_index": 0,
+      "input_sha256": "e034033f803c3c1de639fcdab350ce8b2771a1d4d21a55a4a40c4a0d22feba96",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": "今晚",
+          "date_reference": "today",
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": null,
+          "time_scope": "evening",
+          "explicit_time_window": null,
+          "departure_at_text": null,
+          "departure_at": null,
+          "exact_stop_count": 1,
+          "required_stop_roles": [
+            "dinner"
+          ],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [],
+          "diet_tags": [
+            "清淡"
+          ],
+          "scene_tags": [],
+          "avoid": [],
+          "return_by_text": null,
+          "return_by": null,
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "date_reference": "今晚",
+          "time_scope": "今晚",
+          "exact_stop_count": "只安排一家晚饭",
+          "required_stop_roles": "只安排一家晚饭",
+          "diet_tags": "想吃清淡些"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "plan_parents_novel_not_tiring",
+      "step_index": 0,
+      "input_sha256": "29d956e1b4c1f8eb6a9390e2cfb5d1e257c7d870861bb9fce3072604d240114c",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": "周六",
+          "date_reference": "weekday",
+          "weekday": "saturday",
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": null,
+          "time_scope": null,
+          "explicit_time_window": null,
+          "departure_at_text": null,
+          "departure_at": null,
+          "exact_stop_count": null,
+          "required_stop_roles": [],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [
+            "父母"
+          ],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [
+            "有点新鲜感"
+          ],
+          "diet_tags": [],
+          "scene_tags": [],
+          "avoid": [
+            "走路别太多"
+          ],
+          "return_by_text": null,
+          "return_by": null,
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "date_reference": "周六",
+          "weekday": "周六",
+          "members": "带父母",
+          "preferences": "想有点新鲜感",
+          "avoid": "走路别太多"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "plan_quiet_date_chat",
+      "step_index": 0,
+      "input_sha256": "f34078a6c388b7a7442e9ec8063430dddbb885ba1dbaf6d14c758fcce7984fbf",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": null,
+          "date_reference": null,
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": null,
+          "time_scope": null,
+          "explicit_time_window": null,
+          "departure_at_text": null,
+          "departure_at": null,
+          "exact_stop_count": null,
+          "required_stop_roles": [],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [
+            "对象"
+          ],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [
+            "安静",
+            "能慢慢聊天"
+          ],
+          "diet_tags": [],
+          "scene_tags": [
+            "约会"
+          ],
+          "avoid": [],
+          "return_by_text": null,
+          "return_by": null,
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "members": "和对象",
+          "preferences": "安静约会，最好能慢慢聊天",
+          "scene_tags": "约会"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "clarify_strict_budget_without_amount",
+      "step_index": 0,
+      "input_sha256": "ff11407a6c04d572593ef0bee34b31161db341526e5bab453f4df96fbe93abe5",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": null,
+          "date_reference": null,
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": "一天",
+          "time_scope": "all_day",
+          "explicit_time_window": null,
+          "departure_at_text": null,
+          "departure_at": null,
+          "exact_stop_count": null,
+          "required_stop_roles": [],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": true,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [],
+          "diet_tags": [],
+          "scene_tags": [],
+          "avoid": [],
+          "return_by_text": null,
+          "return_by": null,
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "strict_budget": "预算千万不能超",
+          "time_scope": "一天"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "conflict_departure_after_return",
+      "step_index": 0,
+      "input_sha256": "a53eafe748320af97af5c26b720962b35376727f6dcf189d37f7d614767a119d",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": null,
+          "date_reference": null,
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": null,
+          "time_scope": null,
+          "explicit_time_window": null,
+          "departure_at_text": "下午五点半准时出发",
+          "departure_at": "17:30",
+          "exact_stop_count": null,
+          "required_stop_roles": [],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [],
+          "diet_tags": [],
+          "scene_tags": [],
+          "avoid": [],
+          "return_by_text": "最晚17:00回家",
+          "return_by": "17:00",
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "departure_at_text": "下午五点半准时出发",
+          "departure_at": "下午五点半准时出发",
+          "return_by_text": "最晚17:00回家",
+          "return_by": "最晚17:00回家"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "modify_activity_shorter",
+      "step_index": 0,
+      "input_sha256": "a95bd222bc7bc6935ae26786231c0ecf6907474633112b79a5c7ec930049accc",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": "明天下午",
+          "date_reference": "tomorrow",
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": "下午",
+          "time_scope": "afternoon",
+          "explicit_time_window": null,
+          "departure_at_text": null,
+          "departure_at": null,
+          "exact_stop_count": null,
+          "required_stop_roles": [
+            "activity",
+            "dinner"
+          ],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [],
+          "diet_tags": [],
+          "scene_tags": [
+            "约会"
+          ],
+          "avoid": [],
+          "return_by_text": null,
+          "return_by": null,
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "date_reference": "明天下午",
+          "time_scope": "下午",
+          "required_stop_roles": "安排一个活动和晚饭",
+          "scene_tags": "约会"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "human-reviewed against case input and expected evaluation labels"
+    },
+    {
+      "case_id": "modify_dinner_shorter",
+      "step_index": 0,
+      "input_sha256": "a95bd222bc7bc6935ae26786231c0ecf6907474633112b79a5c7ec930049accc",
+      "interpretation_schema_version": "interpretation.v1",
+      "interpretation": {
+        "primary_intent": "plan_outing",
+        "intent_scores": {
+          "plan_outing": 1.0
+        },
+        "raw_constraints": {
+          "date_text": "明天下午",
+          "date_reference": "tomorrow",
+          "weekday": null,
+          "week_offset": null,
+          "absolute_date": null,
+          "time_text": "下午",
+          "time_scope": "afternoon",
+          "explicit_time_window": null,
+          "departure_at_text": null,
+          "departure_at": null,
+          "exact_stop_count": null,
+          "required_stop_roles": [
+            "activity",
+            "dinner"
+          ],
+          "duration_minutes": null,
+          "location_text": null,
+          "adults": null,
+          "children": null,
+          "child_age": null,
+          "members": [],
+          "budget_text": null,
+          "budget_per_person": null,
+          "strict_budget": false,
+          "require_availability_confirmation": false,
+          "max_distance_text": null,
+          "max_distance_km": null,
+          "preferences": [],
+          "diet_tags": [],
+          "scene_tags": [
+            "约会"
+          ],
+          "avoid": [],
+          "return_by_text": null,
+          "return_by": null,
+          "total_distance_text": null,
+          "total_distance_km": null
+        },
+        "selected_plan_index": null,
+        "target_reference": null,
+        "conversation_command": null,
+        "extraction_confidence": {},
+        "evidence_map": {
+          "date_reference": "明天下午",
+          "time_scope": "下午",
+          "required_stop_roles": "安排一个活动和晚饭",
+          "scene_tags": "约会"
+        },
+        "inferred_fields": [],
+        "reply": "",
+        "requires_clarification": false
+      },
+      "generated_by_model": "deepseek-flash",
+      "generated_at": "2026-09-20T08:05:14.234370Z",
+      "review_status": "reviewed",
+      "review_note": "reviewed reuse of identical initial message and RouterContext; downstream replacement target differs"
+    }
+  ]
+}

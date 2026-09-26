@@ -1,0 +1,116 @@
+[
+  {
+    "case_id": "family_weekend_001",
+    "scene": "家庭亲子半日",
+    "user_input": "今天下午想带老婆孩子出去玩4小时，别太远，老婆最近减肥，孩子5岁",
+    "constraints": {
+      "location": {"lat": 39.9087, "lng": 116.4713, "address": "北京市朝阳区建国路88号"},
+      "time_window": {"date": "2026-05-23", "start": "14:00", "end": "18:00"},
+      "party_profile": {"adults": 2, "children": 1, "child_age": 5},
+      "max_distance_km": 8,
+      "budget_per_person": 120,
+      "preferences": ["亲子", "室内"],
+      "diet_tags": ["低卡", "儿童餐"],
+      "scene_tags": ["家庭"]
+    },
+    "expected_constraints": ["亲子", "健康饮食", "4小时", "距离近"],
+    "expected_tools": ["search_activities", "search_restaurants", "estimate_route", "check_availability"],
+    "success_criteria": [
+      "包含适合5岁儿童的活动",
+      "包含健康或低卡餐厅",
+      "总时长不超过4小时",
+      "下单或预约前请求用户确认"
+    ]
+  },
+  {
+    "case_id": "friends_sat_night_002",
+    "scene": "朋友周六聚会",
+    "user_input": "周六晚上4个朋友想聚一下，预算人均150左右，最好能吃饭再玩点轻松的",
+    "constraints": {
+      "location": {"lat": 39.9087, "lng": 116.4713, "address": "北京市朝阳区建国路88号"},
+      "time_window": {"date": "2026-05-23", "start": "17:00", "end": "23:00"},
+      "party_profile": {"adults": 4, "children": 0},
+      "max_distance_km": 8,
+      "budget_per_person": 150,
+      "preferences": ["室内", "团队", "娱乐"],
+      "diet_tags": ["火锅", "聚餐"],
+      "scene_tags": ["朋友聚餐", "热闹"]
+    },
+    "expected_constraints": ["聚会", "4人", "人均150", "吃饭+娱乐"],
+    "expected_tools": ["search_activities", "search_restaurants", "check_availability"],
+    "success_criteria": [
+      "包含适合4人聚会的活动",
+      "包含聚餐类餐厅",
+      "人均预算不超过150",
+      "给出至少2个方案"
+    ]
+  },
+  {
+    "case_id": "couple_date_sun_003",
+    "scene": "情侣周日约会",
+    "user_input": "这周日想安排一个轻松点的约会，不想太累，吃饭环境好一点，最好有甜品",
+    "constraints": {
+      "location": {"lat": 39.9087, "lng": 116.4713, "address": "北京市朝阳区建国路88号"},
+      "time_window": {"date": "2026-05-24", "start": "10:00", "end": "15:00"},
+      "party_profile": {"adults": 2, "children": 0},
+      "max_distance_km": 8,
+      "budget_per_person": 200,
+      "preferences": ["安静", "文艺", "室内"],
+      "diet_tags": ["精致", "甜点"],
+      "scene_tags": ["约会", "安静"]
+    },
+    "expected_constraints": ["约会", "轻松", "环境好", "甜品"],
+    "expected_tools": ["search_activities", "search_restaurants", "search_products"],
+    "success_criteria": [
+      "包含适合约会的安静活动",
+      "包含环境好的餐厅",
+      "包含甜品或鲜花",
+      "排除不适合约会的选项并解释原因"
+    ]
+  },
+  {
+    "case_id": "rainy_outdoor_to_indoor_004",
+    "scene": "雨天户外需求改室内",
+    "user_input": "明天下午想去公园骑自行车，放松一下",
+    "constraints": {
+      "location": {"lat": 39.9087, "lng": 116.4713, "address": "北京市朝阳区建国路88号"},
+      "time_window": {"date": "2026-05-23", "start": "14:00", "end": "17:00"},
+      "party_profile": {"adults": 1, "children": 0},
+      "max_distance_km": 8,
+      "budget_per_person": 100,
+      "preferences": ["户外", "运动"],
+      "diet_tags": [],
+      "scene_tags": [],
+      "weather": {"weather": "中雨", "temperature": "18摄氏度"}
+    },
+    "expected_constraints": ["户外", "运动", "骑行"],
+    "expected_tools": ["search_activities", "check_weather_suitability"],
+    "success_criteria": [
+      "识别到骑行是户外活动且天气预报有雨",
+      "推荐室内替代活动",
+      "解释为什么不选户外活动"
+    ]
+  },
+  {
+    "case_id": "sold_out_activity_005",
+    "scene": "指定活动时段售罄",
+    "user_input": "周六下午想去密室逃脱，4个人",
+    "constraints": {
+      "location": {"lat": 39.9087, "lng": 116.4713, "address": "北京市朝阳区建国路88号"},
+      "time_window": {"date": "2026-05-23", "start": "16:00", "end": "19:00"},
+      "party_profile": {"adults": 4, "children": 0},
+      "max_distance_km": 8,
+      "budget_per_person": 150,
+      "preferences": ["密室", "团队"],
+      "diet_tags": [],
+      "scene_tags": ["朋友聚餐"]
+    },
+    "expected_constraints": ["密室逃脱", "4人"],
+    "expected_tools": ["search_activities", "check_availability", "check_open_hours"],
+    "success_criteria": [
+      "找到密室逃脱活动",
+      "检查库存发现目标时段售罄",
+      "给出替代时段建议"
+    ]
+  }
+]
