@@ -5,6 +5,10 @@
 > 日期：2026-09-05  
 > 关系：本文只收敛近期交付顺序；长期能力仍以 `v2_roadmap.md` 为目标，不代表其中 M3-M5 已实现。
 
+> 2026-09-15 进展补充：S0-S4 的核心产品链路、轻量 Hybrid RAG、单站修改和受约束推荐解释已经实现，当前处于离线评测收口阶段。真实 Structured Output 差分诊断中，`deepseek-flash`（DeepSeek Provider）在 Full `Interpretation` 上取得 8/9 最终成功、P50/P95 约 1.69s/1.84s；样本仍小，只作为选择 Pilot 配置的工程证据，不作为简历效果指标。最终消融前不放宽 Harness 校验。
+
+> **历史说明：** Resume V1 路线图已经由 planner-v2-eval-baseline 和 Resume V2 发布评测 supersede。本文保留 S0–S5、S4-E4–E8 和 Gate A/B 的演进过程，不作为当前施工清单。
+
 ## 1. 发布目标
 
 Resume Release V1 只证明一条可演示、可回放、可评测的纵向链路：
@@ -141,6 +145,71 @@ Resume Release V1 只证明一条可演示、可回放、可评测的纵向链�
 - LLM 对模糊语义的提升可复现；若没有提升，默认关闭该调用点并继续使用规则路径。
 - 每种模型失败都能降级完成或返回诚实的结构化失败。
 
+### S4-E4：时间真值与评测前收口（P0，阻塞正式消融）
+
+目标：修正“用户时间硬约束”和“系统排程假设”混用导致的错误冲突；只收口当前评测反例，不在本切片重构完整时间领域模型。
+
+- `departure_at` 和用户明确给出的 `return_by` 均为硬约束；先检查 `departure_at < return_by`，失败时返回 `DEPARTURE_NOT_BEFORE_RETURN_BY`。
+- `DEPARTURE_OUTSIDE_TIME_WINDOW` 只保护用户明确给出的数值可用窗口，例如“只能 14:00–18:00”；不得由“上午/下午/晚上”或系统默认窗口触发。
+- 用户只给出精确出发时间时，不推断其要求四小时后返程；默认时长只能作为内部 `planning_horizon`/搜索预算或可见假设，不能伪装成 `return_by`。
+- 精确出发时间优先于模糊 `time_scope`；例如“下午出去玩，13:00 出发”以 13:00 开始，不产生窗口冲突。
+- Resume V1 首先利用现有 `ConstraintValue.source/rule_id` 区分显式窗口与派生窗口；是否正式拆分 `availability_window` 和 `planning_horizon` 留给 S4.5 决定。
+- 修正 `conflict_departure_after_return` 的代码/标签一致性，并增加经过 `TurnInterpreter fixture -> Enrichment -> Planning` 的回归测试，不能只测试手工构造的 `NormalizedConstraints`。
+- 本切片不实现会话约束 Patch、顶部条件栏、新骨架或 Graph 新节点。
+
+退出案例：
+
+- “下午五点半准时出发，最晚 17:00 回家”稳定返回 `DEPARTURE_NOT_BEFORE_RETURN_BY`，字段为 `departure_at + return_by`，且不调用路线 Provider。
+- “下午出去玩，13:00 准时出发”可以进入规划，不把 17:00/18:00 表述成用户返程要求。
+- “只能 14:00–18:00，13:00 准时出发”返回显式窗口冲突。
+- “13:00 准时出发”生成的方案可以自然延续到晚饭/晚上；若系统采用内部上限，Trace/UI 必须标识为假设而非用户约束。
+
+### S4-E5：跨字段 Validator 稳定诊断码（P0，阻塞正式消融）
+
+目标：把笼统的 `cross_field_contract_failed` 定位到固定业务不变量，同时保持原始响应、用户文本和异常正文不落盘。
+
+- 为 `RawConstraints`、`Interpretation` 和 `ConversationCommand` 的跨字段校验定义有限错误类型；Runtime 继续使用安全诊断码、字段路径和错误类型。
+- 真实模型格式修复只接收固定错误类型和字段路径，不接收原始 Provider 内容。
+- 对 `all_day`、`quiet_date` 和 `modify_activity` 进行最多两轮小样本复测；同一规则稳定失败时才允许单点修复 Prompt 或 Wire Adapter。
+- 不放宽 Pydantic 合同，不增加重试预算，不为通过评测吞掉非法字段。
+
+退出条件：后续报告不再只出现无法定位的 `$ + value_error`；每个跨字段失败都能归入固定、可统计的业务规则码。
+
+### S4-E6：“清淡”语义标签真值（P0，阻塞受控消融）
+
+目标：区分“少辣”这一有限可执行目标与“清淡/清爽”这一开放语义查询，避免用错误标签夸大 PlanningIntent 能力。
+
+- “少辣/不辣/微辣”可以要求 `low_spice`；“清淡/清爽/不重口”默认要求 SemanticQuery 保真，不自动等价为 `low_spice`。
+- E2E 评测同时区分：语义是否进入查询、最终方案是否存在 POI/Profile 证据；只有用户证据而没有资源证据时不得算作偏好已满足。
+- Rule 与 Hybrid 可以共享同一 Query，但允许在最终资源证据命中率上产生真实差异。
+- 修改相同原则应用于“晚餐换成不那么辣的”：该表达仍可要求 `low_spice`。
+
+退出条件：`plan_dinner_only_light` 不再因缺少错误的 `low_spice` 标签失败；报告能单独显示 Query 保真和方案证据命中，不能用推荐文案替代资源证据。
+
+### S4-E7：冻结上游的受控 B0/B1 消融（P0）
+
+目标：在相同、人工复核的 `Interpretation` 输入上只切换 PlanningIntent Adapter，隔离实时 Router 波动。
+
+- 保留现有 B0/B1 作为 live E2E 可靠性 Variant；新增明确命名的 controlled Variant，不静默改变历史 Variant 语义。
+- 增加评测专用 FrozenTurnInterpreter Adapter 和版本化 fixture set；每条 fixture 绑定 case/step、输入 hash、Schema 版本、生成模型和人工 review 状态。
+- 只允许 reviewed fixture 进入正式受控报告；缺失或 hash 不匹配必须失败，不得退回 Live Router。
+- C0/C1 的 Provider、Catalog、Retriever、Advisor、时钟和 fixture 完全相同，只允许 PlanningIntent `rule/llm` 不同。
+- 报告分别统计 live E2E 可靠性与 controlled component uplift，不把两者合并成一个成功率。
+
+退出条件：同一输入 fixture 可复现地运行 C0/C1；Router 调用数为 0；报告可以把 PlanningIntent 的收益、fallback、token 和延迟从上游抽取波动中分离出来。
+
+### S4-E8：B2/B3 Pilot、完整消融与简历指标（P0，Gate A 最终门）
+
+目标：在 S4-E4～E7 收口后证明 Hybrid Retrieval 与 Grounded Advice 的增量价值，并生成可引用的最终报告。
+
+- 先在 8 条代表性案例上运行 controlled C0/C1/C2/C3 Pilot；通过门槛后再运行 35 条 reviewed 数据集。
+- C1→C2 只切换 Rule/Hybrid Retriever；C2→C3 只切换 Rule/LLM Advisor。
+- 检索继续单独报告 Recall@K、nDCG、MRR 和冷/热延迟；端到端报告资源证据命中、任务成功、硬约束、修改不变量和降级。
+- Advisor 自动指标只声明结构化 grounded validity、拒绝/fallback 和 token/延迟；解释是否有帮助使用盲评小样本，不能由模型自评。
+- 最终报告必须来自干净提交，记录代码、数据集、fixture set、Prompt、索引和模型版本；`dirty=True`、draft label 或 Provider fallback 不得被隐藏。
+
+退出条件：形成一份受控消融报告、一份 live E2E 稳定性报告和简历指标表；任何未证明提升的模型调用点保持默认关闭或明确降级。
+
 ### S5：薄模拟执行闭环（P1 加分，2-3 天）
 
 目标：形成 Gate B，但不复制完整 M4。
@@ -153,6 +222,46 @@ Resume Release V1 只证明一条可演示、可回放、可评测的纵向链�
 - UI 明确标识模拟下单；不接真实支付、库存、商户履约或写 MCP。
 
 退出条件：一个成功 E2E、一个部分失败与补偿 E2E、一个重复确认幂等测试、一个旧快照拒绝测试。
+
+### S4.5：可确认约束栏与 LLM Wire Contract 瘦身（P2，不阻塞 Gate A）
+
+目标：让用户直接看到并纠正规划所依据的信息，同时降低模型一次输出完整 `Interpretation` 的复杂度。只有真实 Pilot 继续证明 Full Schema 不稳定，或演示可理解性不足时才实施。
+
+已知缺陷与后续设计边界（2026-09-20 记录，本切片实施前需重新评审）：
+
+- 平行 provenance 结构脆弱：同一语义值目前可能同时分散在 `raw_constraints`、`evidence_map`、`extraction_confidence` 和 `inferred_fields`，依赖动态字段名维持引用一致性；Provider Schema 无法完整表达这种跨字段不变量，容易出现字段级合法但整体合同失败。证据可追溯原则必须保留，但载体是否继续平行维护需要重新设计。
+- `Interpretation` 承担了过多角色：它同时作为模型 Wire Contract、Graph 语义状态、checkpoint 对象、Enrichment 输入、Command 容器、部分诊断和回复载体。后续应区分模型提案、稳定领域语义表示和运行 Trace，但不默认增加模型调用、Graph 节点或第二套业务链路。
+- 部分字段业务价值偏低：`intent_scores`、模型自报的 `extraction_confidence`、`requires_clarification`、`reply`、顶层 `target_reference` 等字段需按真实消费者和决策作用逐项审计；未经校准、未参与 Gate/Planner/Verifier 决策的值不得仅因“看起来完整”而继续增加 Wire 负担。
+- 模型提案与应用状态必须分开：模型只表达用户语言中的目标、引用和修改条件；active/selected Plan、Plan Version、授权后的资源 ID、锁定结果及其他系统已知状态由 Harness/Resolver 绑定，不能要求模型重新预测。
+- `UserAct` 与系统 `NextAction` 必须分开：模型可以解释用户在创建、修改、查询或执行什么，也可以指出歧义；是否反问、使用默认值、继续规划、调用 Provider 或终止，应由 Enrichment、Gate 和 Harness 结合上下文决定。
+- 兼容旧 checkpoint 不得通过对实时模型合同全局设置 `extra="ignore"` 实现；未来若拆分 Wire DTO 或升级领域合同，应使用显式版本、Adapter 或迁移路径，同时保持实时输出严格校验。
+- 本记录只确认问题，不预先选定 `TurnSemanticFrame`、通用 Constraint AST、动态多阶段 Schema 或多 Agent 作为答案。最终方案必须以诊断集上的首次成功率、repair/fallback、token、延迟、迁移成本和下游接口稳定性为依据。
+
+- 在工作台顶部提供 `Departure`、`Return by`、`Time scope`、`Who`、`Where`、`Preferences`、`Plan Shape`、`Budget` 等可编辑条件项；不再用一个含义模糊的 `time_window` 按钮混合出发、返程和系统排程范围。
+- 区分 `user_confirmed`、`model_inferred`、`system_defaulted` 和 `missing`；用户确认后的结构化值优先于模型推断。
+- 顶部条件栏表示当前可编辑约束；每个 Plan Version 继续保存不可变的实际约束快照，两者不得混为一份可变状态。
+- UI 产生的结构化 Patch 直接进入 Harness，不再经过自由文本重解析；自然语言入口仍可负责首次填充和长尾偏好理解。
+- 增加有限 `UPDATE_CONSTRAINTS/REPLAN` 命令：方案完成后，用户补充“我想七点前回家”等约束时，以 active Plan Version 为基线生成 Patch；Harness 合并并展示变化，用户确认后完整重规划、复验并生成新的不可变 Plan Version。
+- 约束变化不得原地覆盖旧方案；旧版本保留，新版本清空旧选择，并通过结构化 diff 说明新增、删除或改变的约束。
+- 顶部条件栏修改与自然语言补充必须汇合到同一个 Patch/StateMerger Interface，不能维护两套合并语义。
+- 保持严格领域 `Interpretation`/`ConversationCommand`，但为模型定义更小的 Wire DTO；Adapter 负责将模型提案编译为领域对象。
+- 优先从模型输出中移除可由系统确定的字段：session/plan anchors、非目标站点 locks 和其他派生状态。
+- 评审 `intent_scores`、`requires_clarification`、`reply`、`target_reference` 与 `conversation_command.target` 的实际消费者；无决策作用的字段不继续要求模型生成。
+- 将 `inferred_fields + evidence_map + extraction_confidence` 的三方同步，逐步收敛为字段级来源/证据状态。未经校准且不影响 Gate 决策的浮点 confidence 不作为产品真值展示。
+
+退出条件：关键规划条件在生成前可见、可确认、可修改；UI Patch 不经过 LLM；相同诊断集上的 Structured Output 稳定性不下降，并减少平均输入 token 或合同错误率。不得为此新增 Graph 层级。
+
+### S4.6：有限骨架扩展 `activity -> dinner -> activity`（P2，不阻塞 Gate A）
+
+目标：支持“先活动、吃晚饭、再参加夜间活动”的真实晚间行程，但继续使用封闭、可验证的骨架语法。
+
+- 新增一个明确的 `activity-dinner-activity-v1` 骨架，不开放任意角色数组或通用重排。
+- 两个活动站点必须使用不同资源；晚饭继续遵守餐时锚点，第二个活动必须经过营业、路线、返程与 Availability 复验。
+- 用户只说“换活动”时，因为存在两个活动目标必须反问；“换第一个/晚饭后的活动”可以唯一解析。
+- 单站修改继续锁定其余站点，不为该骨架新增独立修改链路。
+- 增加显式结构编译、候选去重、夜间营业、目标歧义和 HTTP 恢复测试。
+
+退出条件：“展览 -> 晚餐 -> 夜间演出”能够由现有 Planner/Provider/Verifier 产出；重复活动、晚饭后关闭、返程超限和含糊修改均得到可解释结果。
 
 ## 5. 当前长期路线图内容如何重排
 
