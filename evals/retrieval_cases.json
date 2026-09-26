@@ -1,0 +1,20 @@
+[
+  {"case_id": "novelty_low_fatigue", "query": "有新鲜感但不累", "target_role": "activity", "objectives": ["novelty", "low_fatigue"], "relevance": {"osm-way-161298694": 3, "osm-way-48915008": 2, "osm-way-24476204": 1}},
+  {"case_id": "date_chat", "query": "适合约会，能慢慢聊天", "target_role": "activity", "objectives": ["romantic", "conversation_friendly"], "relevance": {"osm-node-5894004587": 3, "osm-way-24476204": 2, "osm-relation-19108749": 2}},
+  {"case_id": "parents_gentle", "query": "带父母去有内容但不要太累的地方", "target_role": "activity", "objectives": ["family_friendly", "low_fatigue"], "relevance": {"osm-way-136998797": 3, "osm-relation-963097": 2, "osm-way-29228773": 2}},
+  {"case_id": "parent_culture", "query": "父母同行，想看点文化内容", "target_role": "activity", "objectives": ["family_friendly"], "relevance": {"osm-way-136998797": 3, "osm-relation-8607825": 3, "osm-way-26514871": 2}},
+  {"case_id": "family_explore", "query": "适合亲子一起探索", "target_role": "activity", "objectives": ["family_friendly", "novelty"], "relevance": {"osm-way-161298694": 3, "osm-way-256653719": 3, "osm-way-1016302761": 2}},
+  {"case_id": "rain_indoor", "query": "下雨天也能去的室内活动", "target_role": "activity", "objectives": ["low_fatigue"], "relevance": {"osm-way-474337112": 3, "osm-way-1016302761": 2, "osm-way-48915008": 2}},
+  {"case_id": "similar_quieter", "query": "换个类似但更安静的活动", "target_role": "activity", "objectives": ["quiet"], "relevance": {"osm-node-5894004587": 3, "osm-way-136998797": 2, "osm-way-24476204": 1}},
+  {"case_id": "restaurant_light", "query": "晚餐想吃清淡一点", "target_role": "dinner", "objectives": ["low_spice"], "relevance": {"osm-node-3955072857": 3}},
+  {"case_id": "restaurant_chat", "query": "找一家可以坐下来聊天的餐厅", "target_role": "dinner", "objectives": ["conversation_friendly"], "relevance": {"osm-node-3955072857": 3, "osm-node-2753132903": 2}},
+  {"case_id": "local_food", "query": "想尝试有地方特色的吃的", "target_role": "meal", "objectives": ["novelty"], "relevance": {"osm-node-4143120689": 3, "osm-node-2753132903": 2, "osm-node-10289813030": 2}},
+  {"case_id": "indoor_novelty", "query": "不想去普通公园，想换一种室内体验", "target_role": "activity", "objectives": ["novelty", "low_fatigue"], "relevance": {"osm-way-107011057": 3, "osm-node-1248471844": 2, "osm-way-48915008": 2}},
+  {"case_id": "slow_walk", "query": "可以慢慢走，随时休息", "target_role": "activity", "objectives": ["low_fatigue"], "relevance": {"osm-way-29228773": 3, "osm-way-24476204": 2, "osm-way-33607759": 2}},
+  {"case_id": "museum_alias", "query": "想去科技馆看看", "target_role": "activity", "objectives": [], "relevance": {"osm-way-161298694": 3}},
+  {"case_id": "quiet_bookish", "query": "找个安静的地方看看展", "target_role": "activity", "objectives": ["quiet"], "relevance": {"osm-node-5894004587": 3, "osm-way-136998797": 2}},
+  {"case_id": "romantic_walk", "query": "和对象轻松散步约会", "target_role": "activity", "objectives": ["romantic", "low_fatigue"], "relevance": {"osm-way-24476204": 3, "osm-relation-19108749": 2}},
+  {"case_id": "parent_garden", "query": "带父母看看园林，不要安排太满", "target_role": "activity", "objectives": ["family_friendly", "low_fatigue"], "relevance": {"osm-way-29228773": 3, "osm-way-26514871": 2}},
+  {"case_id": "interactive_counterexample", "query": "想要可以动手参与的互动内容", "target_role": "activity", "objectives": ["novelty"], "relevance": {"osm-way-161298694": 3}},
+  {"case_id": "unsupported_claim", "query": "想找有真实评价证明特别适合看演出的地方", "target_role": "activity", "objectives": [], "relevance": {}}
+]

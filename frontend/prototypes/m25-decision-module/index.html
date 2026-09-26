@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HappyFreeTime · M2.5 决策区原型</title>
+    <link rel="stylesheet" href="./prototype.css" />
+  </head>
+  <body>
+    <div class="prototype-app">
+      <aside class="prototype-rail" aria-label="原型上下文：最近会话">
+        <div class="prototype-brand">
+          <span class="prototype-brand-mark" aria-hidden="true">H</span>
+          <span><strong>HappyFreeTime</strong><small>北京周末规划</small></span>
+        </div>
+        <div class="prototype-new-plan">新建规划</div>
+        <p class="prototype-rail-label">最近会话</p>
+        <div class="prototype-session is-active">
+          <strong>今天下午别太远</strong>
+          <small>已生成 3 个方案</small>
+        </div>
+        <div class="prototype-session">
+          <strong>雨天亲子半日</strong>
+          <small>昨天 · 已完成</small>
+        </div>
+        <div class="prototype-memory-slot">
+          <strong>家庭偏好</strong>
+          <small>记忆功能将在 M3.5 接入</small>
+        </div>
+      </aside>
+
+      <main class="prototype-workspace">
+        <header class="prototype-header">
+          <div>
+            <h1>今天下午的安排</h1>
+            <p>你说：今天下午出去玩，别太远。</p>
+          </div>
+          <span class="prototype-location">北京 · 朝阳区</span>
+        </header>
+        <p class="prototype-disclaimer">交互原型 · 示例数据用于比较信息层级，不代表一次真实规划结果</p>
+        <div id="stage" aria-live="polite"></div>
+        <div class="prototype-composer" aria-hidden="true">
+          <span>继续告诉管家你想调整什么，例如“换一家更安静的餐厅”</span>
+          <i>发送</i>
+        </div>
+      </main>
+
+      <aside class="prototype-detail" aria-label="原型上下文：当前方案详情">
+        <div class="prototype-detail-tabs"><strong>行程</strong><span>地图</span><span>订单</span></div>
+        <div class="prototype-detail-body">
+          <p class="prototype-detail-label">当前查看</p>
+          <h2 data-detail-title>雨天也从容</h2>
+          <p data-detail-summary>3 小时 30 分 · 12.4 km · 约 ¥168/人</p>
+          <div class="prototype-route-preview" data-detail-route></div>
+          <div class="prototype-detail-notice">
+            <strong>需要留意</strong>
+            <p data-detail-warning>晚餐动态可用性待出发前确认。</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <nav class="proto-picker" aria-label="Prototype variants">
+      <span class="proto-picker-highlight" aria-hidden="true"></span>
+      <button class="proto-picker-item" data-active aria-current="true">管家首选</button>
+      <button class="proto-picker-item">平行对照</button>
+      <button class="proto-picker-item">路线账本</button>
+      <span class="proto-picker-divider" aria-hidden="true"></span>
+      <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+    </nav>
+
+    <script type="module" src="./harness.js"></script>
+  </body>
+</html>

@@ -1,0 +1,481 @@
+import unittest
+import json
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from app.domain.planning import (
+    Plan,
+    PlanDiff,
+    PlanPriceStatus,
+    PlanStrategy,
+    StopReplacement,
+)
+from app.domain.recommendation import (
+    PlanRationaleProposal,
+    RecommendationAdviceProposal,
+    RecommendationAdviceRequest,
+)
+from app.domain.semantics import EvidenceRef, SemanticQuery, SemanticRequest
+from app.services.recommendation_advisor import (
+    LlmRecommendationAdvisor,
+    RuleBasedRecommendationAdvisor,
+    build_default_recommendation_advisor,
+)
+from app.services import recommendation_advisor as recommendation_advisor_module
+from tests.test_planning import planning_constraints
+
+
+class SequenceModel:
+    def __init__(self, *results: object) -> None:
+        self.results = list(results)
+        self.calls: list[list[object]] = []
+
+    def invoke(self, messages: list[object]) -> object:
+        self.calls.append(messages)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def make_plan(
+    plan_id: str,
+    *,
+    score: float,
+    title: str | None = None,
+    highlights: list[str] | None = None,
+    tradeoffs: list[str] | None = None,
+) -> Plan:
+    return Plan(
+        plan_id=plan_id,
+        composition_fingerprint=plan_id,
+        skeleton_id="activity-meal-v1",
+        title=title or plan_id,
+        strategy=PlanStrategy.BALANCED,
+        total_score=score,
+        total_price=120,
+        price_status=PlanPriceStatus.KNOWN,
+        total_duration_minutes=180,
+        stops=[],
+        route_legs=[],
+        score_breakdown=[],
+        highlights=highlights or [],
+        tradeoffs=tradeoffs or [],
+    )
+
+
+def semantic_request() -> SemanticRequest:
+    evidence = EvidenceRef(
+        evidence_id="user.preferences.1",
+        source_type="user_message",
+        source_field="preferences",
+        summary="轻松约会",
+        confidence=1.0,
+    )
+    return SemanticRequest(
+        evidence=(evidence,),
+        queries=(
+            SemanticQuery(
+                query_id="query.1",
+                text="轻松约会",
+                evidence_refs=(evidence.evidence_id,),
+            ),
+        ),
+    )
+
+
+def make_request(*, plans: tuple[Plan, ...] | None = None, diffs=()) -> RecommendationAdviceRequest:
+    return RecommendationAdviceRequest(
+        constraints=planning_constraints(),
+        semantic_request=semantic_request(),
+        verified_plans=plans
+        or (
+            make_plan(
+                "plan-one",
+                score=8,
+                title="轻松方案",
+                highlights=["轻松约会"],
+                tradeoffs=["路线略长"],
+            ),
+            make_plan(
+                "plan-two",
+                score=12,
+                title="高分方案",
+                highlights=["轻松约会"],
+                tradeoffs=["可选活动较少"],
+            ),
+        ),
+        plan_diffs=tuple(diffs),
+    )
+
+
+def valid_proposal(request: RecommendationAdviceRequest) -> RecommendationAdviceProposal:
+    baseline = RuleBasedRecommendationAdvisor().advise(request)
+    facts = recommendation_advisor_module._build_advice_facts(request, baseline)
+    recommended = baseline.recommended_plan_id
+    return RecommendationAdviceProposal(
+        recommended_plan_id=recommended,
+        plans=tuple(
+            PlanRationaleProposal(
+                plan_id=item.plan_id,
+                matched_need_ids=item.matched_need_ids,
+                supporting_evidence_ids=item.supporting_evidence_ids,
+                supporting_fact_ids=(
+                    f"fact.{item.plan_id}.verified",
+                    *tuple(
+                        fact_id
+                        for fact_id in facts[item.plan_id]
+                        if fact_id != f"fact.{item.plan_id}.verified"
+                    )[:1]
+                ),
+                qualitative_reason="回应了你的轻松约会需求，并且安排更从容。",
+            )
+            for item in baseline.plans
+        ),
+    )
+
+
+class RecommendationAdvisorTest(unittest.TestCase):
+    def test_production_builder_uses_schema_aware_function_calling(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "HFT_RECOMMENDATION_ADVISOR_MODE": "llm",
+                "LLM_API": "test-key",
+                "MODEL_NAME": "deepseek-v4-flash",
+                "BASE_URL": "https://api.deepseek.com",
+            },
+            clear=True,
+        ), patch.object(recommendation_advisor_module, "ChatOpenAI") as chat_openai:
+            build_default_recommendation_advisor()
+
+        kwargs = chat_openai.call_args.kwargs
+        self.assertEqual(kwargs["max_tokens"], 2048)
+        self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "disabled"}})
+        chat_openai.return_value.with_structured_output.assert_called_once_with(
+            RecommendationAdviceProposal,
+            method="function_calling",
+            include_raw=True,
+        )
+
+    def test_llm_advice_reports_provider_token_usage(self) -> None:
+        request = make_request()
+        model = SequenceModel(
+            {
+                "raw": SimpleNamespace(
+                    usage_metadata={"input_tokens": 44, "output_tokens": 17}
+                ),
+                "parsed": valid_proposal(request),
+                "parsing_error": None,
+            }
+        )
+
+        advice = LlmRecommendationAdvisor(model, model_name="fake-model").advise(request)
+
+        self.assertEqual(advice.adapter, "llm")
+        self.assertEqual(advice.input_tokens, 44)
+        self.assertEqual(advice.output_tokens, 17)
+
+    def test_llm_context_lists_per_plan_evidence_allowlist(self) -> None:
+        request = make_request()
+        baseline = RuleBasedRecommendationAdvisor().advise(request)
+
+        context = recommendation_advisor_module._build_context(request, baseline)
+        payload = json.loads(context.split("\n", 1)[1])
+
+        plans = payload["verified_plans"]
+        self.assertEqual(len(plans), len(request.verified_plans))
+        for plan in plans:
+            self.assertIn("allowed_matched_need_ids", plan)
+            self.assertIn("allowed_supporting_evidence_ids", plan)
+            self.assertIn("allowed_supporting_evidence", plan)
+            self.assertIn("allowed_supporting_fact_ids", plan)
+            self.assertEqual(
+                plan["allowed_supporting_evidence_ids"],
+                ["user.preferences.1"],
+            )
+            self.assertEqual(
+                [item["evidence_id"] for item in plan["allowed_supporting_evidence"]],
+                ["user.preferences.1"],
+            )
+            self.assertNotIn("total_price", plan)
+            self.assertNotIn("total_duration_minutes", plan)
+            self.assertNotIn("route_legs", plan)
+            self.assertNotIn("start", plan["stops"][0] if plan["stops"] else {})
+
+
+    def test_rule_adapter_recommends_highest_scoring_verified_plan(self) -> None:
+        advice = RuleBasedRecommendationAdvisor().advise(make_request())
+
+        self.assertEqual(advice.recommended_plan_id, "plan-two")
+        self.assertFalse(advice.model_invoked)
+        self.assertEqual(
+            advice.plans[0].supporting_evidence_ids,
+            ("user.preferences.1",),
+        )
+
+    def test_llm_accepts_grounded_structured_proposal(self) -> None:
+        request = make_request()
+        model = SequenceModel(valid_proposal(request))
+
+        advice = LlmRecommendationAdvisor(model, model_name="fake-model").advise(request)
+
+        self.assertEqual(advice.adapter, "llm")
+        self.assertTrue(advice.model_invoked)
+        self.assertEqual(advice.attempts, 1)
+        self.assertEqual(len(model.calls), 1)
+
+    def test_model_may_explain_only_recommended_plan_and_rule_fills_others(self) -> None:
+        request = make_request()
+        baseline = RuleBasedRecommendationAdvisor().advise(request)
+        facts = recommendation_advisor_module._build_advice_facts(request, baseline)
+        proposal = RecommendationAdviceProposal(
+            recommended_plan_id=baseline.recommended_plan_id,
+            plans=(
+                PlanRationaleProposal(
+                    plan_id=baseline.recommended_plan_id,
+                    matched_need_ids=baseline.plans[1].matched_need_ids,
+                    supporting_evidence_ids=baseline.plans[1].supporting_evidence_ids,
+                    supporting_fact_ids=(
+                        f"fact.{baseline.recommended_plan_id}.verified",
+                    ),
+                    qualitative_reason="更适合轻松聊天。",
+                ),
+            ),
+        )
+        advice = LlmRecommendationAdvisor(SequenceModel(proposal)).advise(request)
+
+        self.assertEqual(advice.adapter, "llm")
+        self.assertEqual(
+            {item.plan_id for item in advice.plans},
+            {item.plan_id for item in baseline.plans},
+        )
+        fallback_plan = next(
+            item for item in advice.plans if item.plan_id != baseline.recommended_plan_id
+        )
+        baseline_fallback = next(
+            item for item in baseline.plans if item.plan_id == fallback_plan.plan_id
+        )
+        self.assertEqual(fallback_plan.reason, baseline_fallback.reason)
+
+    def test_unknown_fact_or_plan_is_rejected(self) -> None:
+        request = make_request()
+        proposal = valid_proposal(request)
+        recommended_index = next(
+            index
+            for index, item in enumerate(proposal.plans)
+            if item.plan_id == proposal.recommended_plan_id
+        )
+        bad = list(proposal.plans)
+        bad[recommended_index] = bad[recommended_index].model_copy(
+            update={"supporting_fact_ids": ("fact.unknown",)}
+        )
+        advice = LlmRecommendationAdvisor(
+            SequenceModel(proposal.model_copy(update={"plans": tuple(bad)}))
+        ).advise(request)
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:invalid_fact_id",
+        )
+
+        unknown_plan = PlanRationaleProposal(
+            plan_id="not-verified",
+            qualitative_reason="更适合聊天。",
+        )
+        bad_plans = list(proposal.plans)
+        bad_plans.append(unknown_plan)
+        advice = LlmRecommendationAdvisor(
+            SequenceModel(proposal.model_copy(update={"plans": tuple(bad_plans)}))
+        ).advise(request)
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:invalid_plan_id",
+        )
+
+    def test_invalid_plan_or_evidence_falls_back_without_leaking_model_text(self) -> None:
+        request = make_request()
+        baseline = RuleBasedRecommendationAdvisor().advise(request)
+        invalid = valid_proposal(request).model_copy(
+            update={
+                "recommended_plan_id": "not-verified",
+                "plans": tuple(
+                    item.model_copy(
+                        update={"supporting_evidence_ids": ("not-known",)}
+                    )
+                    for item in valid_proposal(request).plans
+                ),
+            }
+        )
+        model = SequenceModel(invalid, invalid)
+
+        advice = LlmRecommendationAdvisor(model).advise(request)
+
+        self.assertEqual(advice.adapter, "fallback")
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:invalid_plan_id",
+        )
+        self.assertEqual(advice.overall_reason, baseline.overall_reason)
+        self.assertEqual(advice.attempts, 1)
+
+    def test_numeric_or_quoted_unknown_claim_falls_back(self) -> None:
+        request = make_request()
+        base = valid_proposal(request)
+        recommended_index = next(
+            index
+            for index, item in enumerate(base.plans)
+            if item.plan_id == base.recommended_plan_id
+        )
+        bad_plans = list(base.plans)
+        bad_plans[recommended_index] = bad_plans[recommended_index].model_copy(
+            update={"qualitative_reason": "路线约 2 公里，更适合聊天。"}
+        )
+        proposal = valid_proposal(request).model_copy(
+            update={"plans": tuple(bad_plans)}
+        )
+        model = SequenceModel(proposal)
+
+        advice = LlmRecommendationAdvisor(model).advise(request)
+
+        self.assertEqual(advice.adapter, "fallback")
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_contract:numeric_fact_violation",
+        )
+
+    def test_generic_ordinal_prose_is_allowed_but_unknown_quoted_name_is_not(self) -> None:
+        request = make_request()
+        base = valid_proposal(request)
+        recommended_index = next(
+            index
+            for index, item in enumerate(base.plans)
+            if item.plan_id == base.recommended_plan_id
+        )
+        ordinal = base.plans[recommended_index].model_copy(
+            update={"qualitative_reason": "第一站更适合聊天，两种方案都保留可行性。"}
+        )
+        ordinal_plans = list(base.plans)
+        ordinal_plans[recommended_index] = ordinal
+        advice = LlmRecommendationAdvisor(
+            SequenceModel(base.model_copy(update={"plans": tuple(ordinal_plans)}))
+        ).advise(request)
+        self.assertEqual(advice.adapter, "llm")
+
+        quoted = base.plans[recommended_index].model_copy(
+            update={"qualitative_reason": "“虚构景点”更适合聊天。"}
+        )
+        quoted_plans = list(base.plans)
+        quoted_plans[recommended_index] = quoted
+        rejected = LlmRecommendationAdvisor(
+            SequenceModel(base.model_copy(update={"plans": tuple(quoted_plans)}))
+        ).advise(request)
+        self.assertEqual(rejected.adapter, "fallback")
+        self.assertEqual(
+            rejected.fallback_reason,
+            "invalid_proposal_contract:unsupported_claim",
+        )
+
+    def test_format_repair_is_bounded_to_one_retry(self) -> None:
+        request = make_request()
+        model = SequenceModel({"bad": True}, valid_proposal(request))
+
+        advice = LlmRecommendationAdvisor(model).advise(request)
+
+        self.assertEqual(advice.adapter, "llm")
+        self.assertEqual(advice.attempts, 2)
+        self.assertEqual(len(model.calls), 2)
+
+    def test_two_parse_failures_are_distinguished_from_contract_failure(self) -> None:
+        request = make_request()
+        model = SequenceModel({"bad": True}, {"still_bad": True})
+
+        advice = LlmRecommendationAdvisor(model).advise(request)
+
+        self.assertEqual(advice.adapter, "fallback")
+        self.assertEqual(
+            advice.fallback_reason,
+            "invalid_proposal_parse:advisor_missing_field",
+        )
+        self.assertEqual(advice.attempts, 2)
+
+    def test_timeout_falls_back_and_no_semantic_request_skips_model(self) -> None:
+        request = make_request()
+        timeout_model = SequenceModel(TimeoutError("request timeout"))
+        timeout_advice = LlmRecommendationAdvisor(timeout_model).advise(request)
+        self.assertEqual(timeout_advice.adapter, "fallback")
+        self.assertEqual(timeout_advice.fallback_reason, "timeout")
+
+        error_model = SequenceModel(RuntimeError("provider unavailable"))
+        error_advice = LlmRecommendationAdvisor(error_model).advise(request)
+        self.assertEqual(error_advice.adapter, "fallback")
+        self.assertEqual(error_advice.fallback_reason, "provider_error")
+
+        plain_request = RecommendationAdviceRequest(
+            constraints=planning_constraints(),
+            verified_plans=request.verified_plans,
+        )
+        skipped_model = SequenceModel(valid_proposal(request))
+        skipped_advice = LlmRecommendationAdvisor(skipped_model).advise(plain_request)
+        self.assertEqual(skipped_advice.adapter, "rule_based")
+        self.assertEqual(skipped_model.calls, [])
+
+    def test_modification_advice_includes_verified_diff_facts(self) -> None:
+        request = make_request(
+            plans=(make_plan("replacement", score=10, title="替换后方案"),),
+            diffs=(
+                PlanDiff(
+                    base_plan_id="base",
+                    new_plan_id="replacement",
+                    locked_stops=(),
+                    replacements=(
+                        StopReplacement(
+                            stop_index=0,
+                            before_resource_id="old",
+                            before_name="旧活动",
+                            after_resource_id="new",
+                            after_name="新活动",
+                        ),
+                    ),
+                    route_distance_delta_km=-1.2,
+                    duration_delta_minutes=-10,
+                    price_delta=0,
+                ),
+            ),
+        )
+
+        advice = RuleBasedRecommendationAdvisor().advise(request)
+
+        self.assertIn("旧活动", advice.plans[0].reason)
+        self.assertIn("新活动", advice.plans[0].reason)
+        self.assertIn("缩短 1.2 km", advice.plans[0].reason)
+
+    def test_request_rejects_duplicate_plan_or_diff_identity(self) -> None:
+        plan = make_plan("duplicate", score=1)
+        with self.assertRaises(ValueError):
+            RecommendationAdviceRequest(
+                constraints=planning_constraints(),
+                verified_plans=(plan, plan),
+            )
+
+        diff = PlanDiff(
+            base_plan_id="base",
+            new_plan_id="duplicate",
+            replacements=(
+                StopReplacement(
+                    stop_index=0,
+                    before_resource_id="old",
+                    before_name="旧",
+                    after_resource_id="new",
+                    after_name="新",
+                ),
+            ),
+            route_distance_delta_km=0,
+            duration_delta_minutes=0,
+            price_delta=0,
+        )
+        with self.assertRaises(ValueError):
+            RecommendationAdviceRequest(
+                constraints=planning_constraints(),
+                verified_plans=(plan,),
+                plan_diffs=(diff, diff),
+            )

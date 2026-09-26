@@ -1,1 +1,33 @@
-# 存放不用推至远程仓库的文件夹、文件白名单
+.env
+.env.local
+.env.*.local
+!.env.example
+!frontend/.env.example
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+test/
+.claude/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/.playwright-browsers/
+frontend/playwright-report/
+frontend/test-results/
+frontend/prototypes/**/screenshots/
+.pnpm-store/
+.impeccable/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/models/
+data/retrieval/cache/
+artifacts/evals/
+
+# Personal and temporary documentation kept for local learning/workflow only.
+# Curated public documentation lives under docs/current, docs/releases,
+# docs/status, docs/interview, docs/learning, docs/canonical and docs/adr.
+/docs/local/
