@@ -26,6 +26,7 @@ _把 Resume V2 的代码证据、架构取舍和评测结果转化为可复述�
 | [05_三阶段架构演进_从ReAct原型到受约束规划Agent.md](05_三阶段架构演进_从ReAct原型到受约束规划Agent.md) | V1 Multi-Agent → V2 可信内核 → 受约束语义决策 | **主讲稿** |
 | [06_从关键词匹配到可验证语义规划与轻量RAG.md](06_从关键词匹配到可验证语义规划与轻量RAG.md) | 语义中间层、Hybrid Retrieval、Grounding、消融 | 语义与检索专题 |
 | [07_从万能Interpretation到受约束WireProposal与CommandCompiler.md](07_从万能Interpretation到受约束WireProposal与CommandCompiler.md) | Wire Contract、Proposal/领域对象分离、CommandCompiler | Structured Output 专题 |
+| [../status/s_ab1_4_legacy_v1_vs_resume_v2.md](../status/s_ab1_4_legacy_v1_vs_resume_v2.md) | Legacy V1 Completed 与 Resume V2 的共同任务对比、指标和结论边界 | 跨版本评测证据 |
 | [当前 Planner 全流程](v2版本的方案生成的全流程.md) | 规划输入、召回、Beam、路线、Verifier 和 Top 3 | 需先确认版本标记 |
 
 ## 🧭 推荐学习路径

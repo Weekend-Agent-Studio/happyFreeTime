@@ -1,0 +1,48 @@
+{
+  "schema_version": "s-ab1-common-cases.v1",
+  "frozen_systems": {
+    "legacy_v1_original": "legacy-v1-original-baseline",
+    "legacy_v1_completed": "legacy-v1-completed-baseline",
+    "resume_v2": "planner-v2-eval-baseline"
+  },
+  "evaluation_clock": "2026-09-28T10:00:00+08:00",
+  "default_location": "北京市朝阳区",
+  "labeling_status": "reviewed",
+  "selection_note": "Sixteen reviewed natural-language tasks: five complete single-turn plans, five clarification tasks, three hard conflicts, and three compound semantic/persona tasks. Modification and PlanDiff capabilities are excluded from the common denominator.",
+  "case_ids": [
+    "complete_exact_time",
+    "complete_morning_range",
+    "complete_dinner",
+    "complete_parents",
+    "complete_indoor",
+    "clarify_missing_date",
+    "clarify_missing_location",
+    "clarify_missing_time",
+    "clarify_missing_budget",
+    "clarify_missing_date_location",
+    "conflict_departure_after_return",
+    "conflict_departure_outside_window",
+    "conflict_strict_budget",
+    "compound_parents_novel_relaxed",
+    "compound_quiet_date_chat",
+    "compound_child_indoor_explore"
+  ],
+  "cases": [
+    {"case_id":"complete_exact_time","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"明天从国贸出发，下午三点二十准时出发，晚上八点前回来，人均预算二百元，和朋友出去玩。"}],"expected":{"outcome":"plan"},"tags":["complete","time"]},
+    {"case_id":"complete_morning_range","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"这周六从国贸出发，上午十点到下午四点安排一个活动，人均预算二百元。"}],"expected":{"outcome":"plan"},"tags":["complete","time"]},
+    {"case_id":"complete_dinner","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"今晚从国贸出发，六点出发，八点前回来，人均预算一百元，只安排晚饭。"}],"expected":{"outcome":"plan"},"tags":["complete","single_stop"]},
+    {"case_id":"complete_parents","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"明天从国贸出发，下午两点到晚上八点，带父母出去，人均预算二百元。"}],"expected":{"outcome":"plan"},"tags":["complete","companions"]},
+    {"case_id":"complete_indoor","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"周日从国贸出发，下午两点到六点，人均预算二百元，想找新鲜的室内体验。"}],"expected":{"outcome":"plan"},"tags":["complete","semantic"]},
+    {"case_id":"clarify_missing_date","split":"holdout","label_status":"reviewed","category":"clarification","steps":[{"action":"message","user_input":"从国贸出发，下午两点到六点，人均预算二百元，和朋友出去玩。"}],"expected":{"outcome":"plan"},"tags":["clarification","date"]},
+    {"case_id":"clarify_missing_location","split":"holdout","label_status":"reviewed","category":"clarification","steps":[{"action":"message","user_input":"这周六下午两点到六点，人均预算二百元，和朋友出去玩。"}],"expected":{"outcome":"plan"},"tags":["clarification","location"]},
+    {"case_id":"clarify_missing_time","split":"holdout","label_status":"reviewed","category":"clarification","steps":[{"action":"message","user_input":"这周六从国贸出发，人均预算二百元，和朋友出去玩。"}],"expected":{"outcome":"plan"},"tags":["clarification","time"]},
+    {"case_id":"clarify_missing_budget","split":"holdout","label_status":"reviewed","category":"clarification","steps":[{"action":"message","user_input":"这周六从国贸出发，下午两点到六点，和朋友出去玩。"}],"expected":{"outcome":"plan"},"tags":["clarification","budget"]},
+    {"case_id":"clarify_missing_date_location","split":"holdout","label_status":"reviewed","category":"clarification","steps":[{"action":"message","user_input":"想带父母出去玩，下午两点到六点。"}],"expected":{"outcome":"plan"},"tags":["clarification","multi_field"]},
+    {"case_id":"conflict_departure_after_return","split":"holdout","label_status":"reviewed","category":"conflict","steps":[{"action":"message","user_input":"这周六从国贸出发，下午五点半出发，下午五点前回家，人均预算二百元。"}],"expected":{"outcome":"conflict","expected_conflict_code":"DEPARTURE_NOT_BEFORE_RETURN_BY","expected_conflict_fields":["departure_at","return_by"]},"tags":["conflict","time"]},
+    {"case_id":"conflict_departure_outside_window","split":"holdout","label_status":"reviewed","category":"conflict","steps":[{"action":"message","user_input":"这周六从国贸出发，下午五点出发，下午两点到四点之间安排，人均预算二百元。"}],"expected":{"outcome":"conflict","expected_conflict_code":"DEPARTURE_OUTSIDE_TIME_WINDOW","expected_conflict_fields":["departure_at","time_window"]},"tags":["conflict","time"]},
+    {"case_id":"conflict_strict_budget","split":"holdout","label_status":"reviewed","category":"conflict","steps":[{"action":"message","user_input":"这周六从国贸出发，下午两点到六点，严格人均二十元，安排活动和晚饭。"}],"expected":{"outcome":"conflict","expected_conflict_code":"NO_PLAN_WITHIN_STRICT_BUDGET","expected_conflict_fields":["budget_per_person"]},"tags":["conflict","budget"]},
+    {"case_id":"compound_parents_novel_relaxed","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"这周六从国贸出发，下午两点到晚上八点，带父母出去，想有点新鲜感但走路别太多，人均预算二百元。"}],"expected":{"outcome":"plan","expected_objectives":["family_friendly","novelty","low_fatigue"]},"tags":["compound","companions","semantic"]},
+    {"case_id":"compound_quiet_date_chat","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"明天从国贸出发，下午两点到晚上八点，和对象安静约会，最好能慢慢聊天，人均预算二百元。"}],"expected":{"outcome":"plan","expected_objectives":["quiet","romantic","conversation_friendly"]},"tags":["compound","semantic"]},
+    {"case_id":"compound_child_indoor_explore","split":"holdout","label_status":"reviewed","category":"planning","steps":[{"action":"message","user_input":"周日从国贸出发，下午两点到六点，带六岁孩子找室内能互动探索的地方，人均预算二百元。"}],"expected":{"outcome":"plan","expected_objectives":["family_friendly"],"expected_semantic_queries":["能互动探索"],"expected_grounded_semantics":["能互动探索"]},"tags":["compound","children","semantic"]}
+  ]
+}

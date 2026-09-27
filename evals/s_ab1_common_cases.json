@@ -1,0 +1,134 @@
+{
+  "schema_version": "s-ab1-common-cases.v1",
+  "v2_baseline": "planner-v2-eval-baseline",
+  "legacy_baseline": "develop@90639f3",
+  "selection_note": "Reviewed Resume V2 cases selected for capabilities both systems can attempt through a natural-language entry. Structured UI-only replacement cases are tracked separately and are not included in the common success denominator.",
+  "case_ids": [
+    "plan_exact_departure_1520",
+    "plan_parents_novel_not_tiring",
+    "plan_quiet_date_chat",
+    "plan_strict_budget_200",
+    "plan_total_distance_limit",
+    "plan_explicit_range",
+    "plan_local_food_novelty",
+    "plan_evening_short_trip",
+    "clarify_unknown_date",
+    "clarify_strict_budget_without_amount",
+    "clarify_ambiguous_location",
+    "clarify_vague_return_deadline",
+    "conflict_departure_after_return",
+    "conflict_impossible_budget"
+  ],
+  "excluded_capability_cases": [
+    {
+      "case_id": "modify_dinner_shorter",
+      "reason": "The reviewed case uses a structured replace_stop UI action that the legacy CLI graph does not expose. Track as V2-only capability coverage, not as a common failure."
+    },
+    {
+      "case_id": "modify_activity_shorter",
+      "reason": "The reviewed case uses a structured replace_stop UI action that the legacy CLI graph does not expose. Track as V2-only capability coverage, not as a common failure."
+    }
+  ],
+  "pilot_case_ids": [
+    "plan_exact_departure_1520",
+    "plan_parents_novel_not_tiring",
+    "plan_quiet_date_chat",
+    "plan_explicit_range",
+    "clarify_unknown_date",
+    "conflict_departure_after_return"
+  ],
+  "clarification_contracts": {
+    "plan_exact_departure_1520": {
+      "clarification_answers": {
+        "budget_per_person": "人均二百元",
+        "location": "从国贸出发",
+        "date": "明天",
+        "departure_at": "早上九点",
+        "return_by": "晚上八点前回家",
+        "companions": "就我自己",
+        "preferences": "没有特殊偏好",
+        "time_hint": "下午两点到晚上八点"
+      },
+      "max_clarification_turns": 3,
+      "expected_final_outcome": "plan",
+      "allowed_question_fields": ["budget_per_person", "location", "date", "departure_at", "return_by", "companions", "preferences", "time_hint"]
+    },
+    "plan_parents_novel_not_tiring": {
+      "clarification_answers": {
+        "budget_per_person": "人均二百元",
+        "location": "从国贸出发",
+        "date": "这周六",
+        "departure_at": "早上九点",
+        "return_by": "晚上八点前回家",
+        "companions": "和父母一起",
+        "preferences": "想要有点新鲜感但别太累",
+        "time_hint": "下午两点到晚上八点"
+      },
+      "max_clarification_turns": 3,
+      "expected_final_outcome": "plan",
+      "allowed_question_fields": ["budget_per_person", "location", "date", "departure_at", "return_by", "companions", "preferences", "time_hint"]
+    },
+    "plan_quiet_date_chat": {
+      "clarification_answers": {
+        "date": "这周六",
+        "budget_per_person": "人均二百元",
+        "location": "从国贸出发",
+        "departure_at": "早上九点",
+        "return_by": "晚上八点前回家",
+        "companions": "和对象一起",
+        "preferences": "安静一点，适合聊天",
+        "time_hint": "下午两点到晚上八点"
+      },
+      "max_clarification_turns": 3,
+      "expected_final_outcome": "plan",
+      "allowed_question_fields": ["date", "budget_per_person", "location", "departure_at", "return_by", "companions", "preferences", "time_hint"]
+    },
+    "plan_explicit_range": {
+      "clarification_answers": {
+        "budget_per_person": "人均二百元",
+        "location": "从国贸出发",
+        "date": "这周六",
+        "departure_at": "早上九点",
+        "return_by": "晚上八点前回家",
+        "companions": "就我自己",
+        "preferences": "没有特殊偏好",
+        "time_hint": "上午十点到下午四点"
+      },
+      "max_clarification_turns": 3,
+      "expected_final_outcome": "plan",
+      "allowed_question_fields": ["budget_per_person", "location", "date", "departure_at", "return_by", "companions", "preferences", "time_hint"]
+    },
+    "clarify_unknown_date": {
+      "clarification_answers": {
+        "date": "这周六",
+        "budget_per_person": "人均二百元",
+        "location": "从国贸出发",
+        "companions": "和家里人一起",
+        "preferences": "没有特殊偏好",
+        "time_hint": "下午两点到晚上八点",
+        "departure_at": "早上九点",
+        "return_by": "晚上八点前回家"
+      },
+      "max_clarification_turns": 3,
+      "expected_final_outcome": "plan",
+      "expected_initial_outcome": "question",
+      "expected_initial_question_field": "date",
+      "allowed_question_fields": ["date", "budget_per_person", "location", "departure_at", "return_by", "companions", "preferences", "time_hint"]
+    },
+    "conflict_departure_after_return": {
+      "clarification_answers": {
+        "budget_per_person": "人均二百元",
+        "location": "从国贸出发",
+        "date": "这周六",
+        "return_by": "17:00前回家",
+        "departure_at": "下午五点半",
+        "companions": "就我自己",
+        "preferences": "没有特殊偏好",
+        "time_hint": "下午五点半出发"
+      },
+      "max_clarification_turns": 3,
+      "expected_final_outcome": "conflict",
+      "allowed_question_fields": ["budget_per_person", "location", "date", "departure_at", "return_by", "companions", "preferences", "time_hint"]
+    }
+  }
+}
