@@ -1,0 +1,22 @@
+{
+  "schema_version": "s-ab1-oracle.v1",
+  "reviewed": true,
+  "cases": {
+    "complete_exact_time":{"class":"complete_single_turn","expected":"plan","hard_constraints":["departure_at","return_by","budget_per_person"]},
+    "complete_morning_range":{"class":"complete_single_turn","expected":"plan","hard_constraints":["time_window","budget_per_person"]},
+    "complete_dinner":{"class":"complete_single_turn","expected":"plan","hard_constraints":["departure_at","return_by","budget_per_person"],"roles":["dinner"]},
+    "complete_parents":{"class":"complete_single_turn","expected":"plan","hard_constraints":["time_window","budget_per_person"],"semantic_targets":["family_friendly"]},
+    "complete_indoor":{"class":"complete_single_turn","expected":"plan","hard_constraints":["time_window","budget_per_person"],"semantic_targets":["novelty","indoor"]},
+    "clarify_missing_date":{"class":"clarification","expected":"plan","missing_field":"date"},
+    "clarify_missing_location":{"class":"clarification","expected":"plan","missing_field":"location"},
+    "clarify_missing_time":{"class":"clarification","expected":"plan","missing_field":"time"},
+    "clarify_missing_budget":{"class":"clarification","expected":"plan","missing_field":"budget"},
+    "clarify_missing_date_location":{"class":"clarification","expected":"plan","missing_fields":["date","location","budget"]},
+    "conflict_departure_after_return":{"class":"hard_conflict","expected":"conflict","conflict_code":"DEPARTURE_NOT_BEFORE_RETURN_BY","fields":["departure_at","return_by"]},
+    "conflict_departure_outside_window":{"class":"hard_conflict","expected":"conflict","conflict_code":"DEPARTURE_OUTSIDE_TIME_WINDOW","fields":["departure_at","time_window"]},
+    "conflict_strict_budget":{"class":"hard_conflict","expected":"conflict","conflict_code":"NO_PLAN_WITHIN_STRICT_BUDGET","fields":["budget_per_person"]},
+    "compound_parents_novel_relaxed":{"class":"compound_semantics","expected":"plan","semantic_targets":["family_friendly","novelty","low_fatigue"]},
+    "compound_quiet_date_chat":{"class":"compound_semantics","expected":"plan","semantic_targets":["quiet","romantic","conversation_friendly"]},
+    "compound_child_indoor_explore":{"class":"compound_semantics","expected":"plan","semantic_targets":["family_friendly","能互动探索"]}
+  }
+}

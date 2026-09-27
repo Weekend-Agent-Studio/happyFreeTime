@@ -1,0 +1,281 @@
+{
+  "schema_version": "s-ab1.4-report.v1",
+  "manifest": {
+    "schema_version": "s-ab1.4-manifest.v1",
+    "status": "completed_with_scope_limits",
+    "systems": {
+      "legacy_v1_original": {
+        "tag": "legacy-v1-original-baseline",
+        "commit": "90639f30dbeb09c7a65e60f0fe8af7336ccee544"
+      },
+      "legacy_v1_completed": {
+        "tag": "legacy-v1-completed-baseline",
+        "commit": "5662a945c8b5767050901034af7534cb674173b1"
+      },
+      "resume_v2": {
+        "tag": "planner-v2-eval-baseline",
+        "commit": "bef5fa3ded41a6c4f9d5a70be53d4d1cf32147e1"
+      }
+    },
+    "dataset": {
+      "path": "evals\\s_ab1_dataset_v1.json",
+      "sha256": "4108030641c3b681d867b1add2cc1750cb675a216dac4d67063b9ec16e453970",
+      "case_count": 16,
+      "reviewed": 16
+    },
+    "answer_contract": {
+      "path": "evals\\s_ab1_answer_contract_v2.json",
+      "sha256": "7d6666b9539b0397cfcfa4f4f0f87f4e9f5eaf929781b4fc55146056c5055c23",
+      "max_clarification_turns": 3
+    },
+    "common_cases": {
+      "path": "evals\\s_ab1_common_cases_v1.json",
+      "sha256": "4de1f7b0212f39c5b86903b175f60f117d29a2a1e6043ccfb7c66b91316e1fd6"
+    },
+    "oracle": {
+      "path": "evals\\s_ab1_oracle_v1.json",
+      "sha256": "e7914cc8141569bb38cc8e13cf7e6ff0fb9e75e9a518376481bbda0d14f75e6d"
+    },
+    "retrieval": {
+      "variant": "Hybrid BGE",
+      "index_manifest": "E:\\04_Develop\\Projects\\PycharmProjects\\happyFreeTime\\data\\retrieval\\cache\\manifest.json",
+      "index_manifest_sha256": "ff523d3775c2d1e671b9312ca5a5d9d3da986fe6cd5ac015be0009da6351a7c6",
+      "model": "BAAI/bge-small-zh-v1.5",
+      "cold_start_excluded": true
+    },
+    "model": {
+      "provider": "DeepSeek-compatible OpenAI API",
+      "model": "deepseek-flash",
+      "temperature": 0.0,
+      "router_timeout_seconds": 15,
+      "format_retry": 1,
+      "business_retry": 0
+    },
+    "protocol": {
+      "runs_per_case": 2,
+      "network_retry": "one bounded preflight retry",
+      "beam": "enabled",
+      "v2_variant": "Live Router + LLM PlanningIntent + Hybrid Retrieval + Beam + Grounded Advisor"
+    },
+    "preflight": {
+      "bge_local_model": "passed",
+      "hybrid_index_validation": "passed",
+      "provider": "passed_after_one_bounded_network_retry",
+      "formal_environment_failures": 0
+    }
+  },
+  "main_comparison": {
+    "legacy_v1_completed": {
+      "case_count": 16,
+      "repeat_count": 2,
+      "eventual_task_success": {
+        "numerator": 26,
+        "denominator": 32
+      },
+      "stable_task_success": {
+        "numerator": 13,
+        "denominator": 16
+      },
+      "flaky_case_count": 0,
+      "per_repeat": [
+        {
+          "repeat": 1,
+          "task_success": {
+            "numerator": 13,
+            "denominator": 16
+          },
+          "initial_policy": {
+            "numerator": 8,
+            "denominator": 11
+          },
+          "clarification_turns": 0,
+          "elapsed_ms": {
+            "p50": 10376,
+            "p95": 24985,
+            "mean": 12432.6
+          },
+          "known_input_tokens": null,
+          "known_output_tokens": null,
+          "model_decisions": null,
+          "provider_attempts": null,
+          "legacy_stage_calls": 48,
+          "failure_case_ids": [
+            "conflict_departure_after_return",
+            "conflict_departure_outside_window",
+            "conflict_strict_budget"
+          ]
+        },
+        {
+          "repeat": 2,
+          "task_success": {
+            "numerator": 13,
+            "denominator": 16
+          },
+          "initial_policy": {
+            "numerator": 8,
+            "denominator": 11
+          },
+          "clarification_turns": 0,
+          "elapsed_ms": {
+            "p50": 9977,
+            "p95": 23907,
+            "mean": 11706.8
+          },
+          "known_input_tokens": null,
+          "known_output_tokens": null,
+          "model_decisions": null,
+          "provider_attempts": null,
+          "legacy_stage_calls": 48,
+          "failure_case_ids": [
+            "conflict_departure_after_return",
+            "conflict_departure_outside_window",
+            "conflict_strict_budget"
+          ]
+        }
+      ]
+    },
+    "resume_v2": {
+      "case_count": 16,
+      "repeat_count": 2,
+      "eventual_task_success": {
+        "numerator": 32,
+        "denominator": 32
+      },
+      "stable_task_success": {
+        "numerator": 16,
+        "denominator": 16
+      },
+      "flaky_case_count": 0,
+      "per_repeat": [
+        {
+          "repeat": 1,
+          "task_success": {
+            "numerator": 16,
+            "denominator": 16
+          },
+          "initial_policy": {
+            "numerator": 11,
+            "denominator": 11
+          },
+          "clarification_turns": 0,
+          "elapsed_ms": {
+            "p50": 5521,
+            "p95": 7331,
+            "mean": 4683.6
+          },
+          "known_input_tokens": 137642,
+          "known_output_tokens": 16152,
+          "model_decisions": 38,
+          "provider_attempts": 38,
+          "legacy_stage_calls": null,
+          "failure_case_ids": []
+        },
+        {
+          "repeat": 2,
+          "task_success": {
+            "numerator": 16,
+            "denominator": 16
+          },
+          "initial_policy": {
+            "numerator": 11,
+            "denominator": 11
+          },
+          "clarification_turns": 0,
+          "elapsed_ms": {
+            "p50": 5617,
+            "p95": 7092,
+            "mean": 4600.8
+          },
+          "known_input_tokens": 138465,
+          "known_output_tokens": 16178,
+          "model_decisions": 38,
+          "provider_attempts": 38,
+          "legacy_stage_calls": null,
+          "failure_case_ids": []
+        }
+      ]
+    }
+  },
+  "historical_appendix": {
+    "legacy_v1_original": {
+      "case_count": 16,
+      "repeat_count": 1,
+      "eventual_task_success": {
+        "numerator": 4,
+        "denominator": 16
+      },
+      "stable_task_success": {
+        "numerator": 4,
+        "denominator": 16
+      },
+      "flaky_case_count": 0,
+      "per_repeat": [
+        {
+          "repeat": 1,
+          "task_success": {
+            "numerator": 4,
+            "denominator": 16
+          },
+          "initial_policy": {
+            "numerator": 1,
+            "denominator": 11
+          },
+          "clarification_turns": 7,
+          "elapsed_ms": {
+            "p50": 5513,
+            "p95": 13400,
+            "mean": 6734.8
+          },
+          "known_input_tokens": null,
+          "known_output_tokens": null,
+          "model_decisions": null,
+          "provider_attempts": null,
+          "legacy_stage_calls": 50,
+          "failure_case_ids": [
+            "complete_parents",
+            "clarify_missing_date",
+            "clarify_missing_location",
+            "clarify_missing_time",
+            "clarify_missing_budget",
+            "clarify_missing_date_location",
+            "conflict_departure_after_return",
+            "conflict_departure_outside_window",
+            "conflict_strict_budget",
+            "compound_parents_novel_relaxed",
+            "compound_quiet_date_chat",
+            "compound_child_indoor_explore"
+          ]
+        }
+      ]
+    }
+  },
+  "failure_stage_distribution": {
+    "legacy_v1_completed": {
+      "conflict_classification": 6,
+      "other": 0
+    },
+    "resume_v2": {},
+    "legacy_v1_original": {
+      "clarification_or_slot": 6,
+      "conflict_classification": 3,
+      "planner_or_semantic": 3
+    }
+  },
+  "planner_core_proxy": {
+    "note": "The five complete cases had no clarification in either Completed V1 or V2; this is an observational complete-input subset, not a true SlotAgent-bypassed Planner isolation run.",
+    "completed_v1": "5/5 in each repeat",
+    "resume_v2": "5/5 in each repeat"
+  },
+  "observable_limits": [
+    "The five intentionally incomplete cases were completed by defaults in both systems, so clarification recovery is 0/0; this experiment does not establish a multi-turn recovery advantage.",
+    "The legacy adapter exposes stage-call counts but not comparable token usage or external tool-call counts.",
+    "The pilot adapter does not expose per-response V2 fallback and hard-constraint assertion traces; those must be taken from the separate Resume V2 C/B reports, not invented here.",
+    "The first V2 attempt was invalid because the reviewed fixture omitted geocoding=resolved and is retained outside the formal repeat files."
+  ],
+  "resume_usable_conclusions": [
+    "On the frozen 16-case product-level input set, Completed V1 was 13/16 in both runs and Resume V2 was 16/16 in both runs.",
+    "The three Completed V1 failures were stable hard-conflict classification failures: the legacy system returned plans for departure-after-return, departure-outside-window, and strict-budget cases.",
+    "V2 stable task success was 16/16; no flaky cases occurred in either system.",
+    "Observed end-to-end latency was lower for V2 (P50 5.5–5.6s, P95 7.1–7.3s) than Completed V1 (P50 10.0–10.4s, P95 23.9–25.0s), under this environment and model/provider configuration."
+  ]
+}

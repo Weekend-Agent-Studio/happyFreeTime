@@ -1,0 +1,491 @@
+{
+  "schema_version": "s-ab1-legacy-multiturn-pilot.v2",
+  "legacy_commit": "develop@90639f3",
+  "case_count": 16,
+  "task_success": {
+    "numerator": 4,
+    "denominator": 16
+  },
+  "eventual_task_success": {
+    "numerator": 4,
+    "denominator": 16
+  },
+  "initial_clarification_policy": {
+    "numerator": 1,
+    "denominator": 11
+  },
+  "clarification_recovery_success": {
+    "numerator": 3,
+    "denominator": 7
+  },
+  "results": [
+    {
+      "case_id": "complete_exact_time",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "companions",
+      "initial_policy_passed": false,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [
+        "companions"
+      ],
+      "question_categories": [
+        "companions"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 11777,
+      "elapsed_ms": 11777,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "complete_morning_range",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "companions",
+      "initial_policy_passed": false,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [
+        "companions"
+      ],
+      "question_categories": [
+        "companions"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 13400,
+      "elapsed_ms": 13400,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "complete_dinner",
+      "expected_outcome": "plan",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 5123,
+      "elapsed_ms": 5123,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "complete_parents",
+      "expected_outcome": "plan",
+      "initial_outcome": "unknown",
+      "initial_question_field": null,
+      "initial_policy_passed": false,
+      "actual_outcome": "error",
+      "task_passed": false,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "error",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 5361,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": "OpenAIInvalidRequestError",
+      "error_module": null
+    },
+    {
+      "case_id": "complete_indoor",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "companions",
+      "initial_policy_passed": false,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [
+        "companions"
+      ],
+      "question_categories": [
+        "companions"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 12645,
+      "elapsed_ms": 12645,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "clarify_missing_date",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "companions",
+      "initial_policy_passed": true,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "companions",
+      "question_present": true,
+      "question_fields": [
+        "companions"
+      ],
+      "question_categories": [
+        "companions"
+      ],
+      "clarification_turns": 0,
+      "clarification_failure": "question_field_not_in_contract",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 4052,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "clarify_missing_location",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "companions",
+      "initial_policy_passed": true,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "companions",
+      "question_present": true,
+      "question_fields": [
+        "companions"
+      ],
+      "question_categories": [
+        "companions"
+      ],
+      "clarification_turns": 0,
+      "clarification_failure": "question_field_not_in_contract",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 3671,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "clarify_missing_time",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "preferences",
+      "initial_policy_passed": true,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "preferences",
+      "question_present": true,
+      "question_fields": [
+        "preferences"
+      ],
+      "question_categories": [
+        "preferences"
+      ],
+      "clarification_turns": 0,
+      "clarification_failure": "question_field_not_in_contract",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 3977,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "clarify_missing_budget",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "budget_per_person",
+      "initial_policy_passed": true,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "companions",
+      "question_present": true,
+      "question_fields": [
+        "budget_per_person",
+        "companions"
+      ],
+      "question_categories": [
+        "budget_per_person",
+        "companions"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": "question_field_not_in_contract",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 6968,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "clarify_missing_date_location",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "budget_per_person",
+      "initial_policy_passed": true,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "companions",
+      "question_present": true,
+      "question_fields": [
+        "budget_per_person",
+        "companions"
+      ],
+      "question_categories": [
+        "budget_per_person",
+        "companions"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": "question_field_not_in_contract",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 7271,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "conflict_departure_after_return",
+      "expected_outcome": "conflict",
+      "initial_outcome": "question",
+      "initial_question_field": "return_by",
+      "initial_policy_passed": false,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "return_by",
+      "question_present": true,
+      "question_fields": [
+        "return_by",
+        "return_by"
+      ],
+      "question_categories": [
+        "return_by",
+        "return_by"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": "repeated_question_field",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 6835,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "conflict_departure_outside_window",
+      "expected_outcome": "conflict",
+      "initial_outcome": "question",
+      "initial_question_field": "companions",
+      "initial_policy_passed": false,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "companions",
+      "question_present": true,
+      "question_fields": [
+        "companions"
+      ],
+      "question_categories": [
+        "companions"
+      ],
+      "clarification_turns": 0,
+      "clarification_failure": "question_field_not_in_contract",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 3657,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "conflict_strict_budget",
+      "expected_outcome": "conflict",
+      "initial_outcome": "question",
+      "initial_question_field": "budget_per_person",
+      "initial_policy_passed": false,
+      "actual_outcome": "question",
+      "task_passed": false,
+      "question_field": "companions",
+      "question_present": true,
+      "question_fields": [
+        "budget_per_person",
+        "companions"
+      ],
+      "question_categories": [
+        "budget_per_person",
+        "companions"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": "question_field_not_in_contract",
+      "eventual_outcome": "question",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 6616,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "compound_parents_novel_relaxed",
+      "expected_outcome": "plan",
+      "initial_outcome": "unknown",
+      "initial_question_field": null,
+      "initial_policy_passed": false,
+      "actual_outcome": "error",
+      "task_passed": false,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "error",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 5513,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": "OpenAIInvalidRequestError",
+      "error_module": null
+    },
+    {
+      "case_id": "compound_quiet_date_chat",
+      "expected_outcome": "plan",
+      "initial_outcome": "unknown",
+      "initial_question_field": null,
+      "initial_policy_passed": false,
+      "actual_outcome": "error",
+      "task_passed": false,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "error",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 4982,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": "OpenAIInvalidRequestError",
+      "error_module": null
+    },
+    {
+      "case_id": "compound_child_indoor_explore",
+      "expected_outcome": "plan",
+      "initial_outcome": "unknown",
+      "initial_question_field": null,
+      "initial_policy_passed": false,
+      "actual_outcome": "error",
+      "task_passed": false,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "error",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 5909,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 0,
+        "executor": 0
+      },
+      "error_type": "OpenAIInvalidRequestError",
+      "error_module": null
+    }
+  ]
+}

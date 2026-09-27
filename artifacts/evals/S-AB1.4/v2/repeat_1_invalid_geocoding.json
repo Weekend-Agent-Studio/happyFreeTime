@@ -1,0 +1,359 @@
+{
+  "schema_version": "s-ab1-v2-multiturn-pilot.v1",
+  "variant": "B3_GROUNDED_ADVICE",
+  "case_count": 16,
+  "eventual_task_success": {
+    "numerator": 2,
+    "denominator": 16
+  },
+  "initial_clarification_policy": {
+    "numerator": 0,
+    "denominator": 0
+  },
+  "clarification_recovery_success": {
+    "numerator": 0,
+    "denominator": 3
+  },
+  "average_clarification_turns": 0.188,
+  "model_decisions": 23,
+  "provider_attempts": 23,
+  "known_input_tokens": 106572,
+  "known_output_tokens": 6946,
+  "results": [
+    {
+      "case_id": "complete_exact_time",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1608,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5146,
+      "output_tokens": 294
+    },
+    {
+      "case_id": "complete_morning_range",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1708,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5141,
+      "output_tokens": 293
+    },
+    {
+      "case_id": "complete_dinner",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1689,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5144,
+      "output_tokens": 308
+    },
+    {
+      "case_id": "complete_parents",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1428,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5142,
+      "output_tokens": 245
+    },
+    {
+      "case_id": "complete_indoor",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1324,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5143,
+      "output_tokens": 300
+    },
+    {
+      "case_id": "clarify_missing_date",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 1,
+      "question_fields": [
+        "location",
+        "location"
+      ],
+      "recovery_failure": "repeated_question_field",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1450,
+      "model_decisions": 2,
+      "provider_attempts": 2,
+      "input_tokens": 10278,
+      "output_tokens": 446
+    },
+    {
+      "case_id": "clarify_missing_location",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "final_outcome": "plan",
+      "task_passed": true,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [],
+      "recovery_failure": null,
+      "time_to_first_plan_ms": 5864,
+      "elapsed_ms": 5864,
+      "model_decisions": 3,
+      "provider_attempts": 3,
+      "input_tokens": 9813,
+      "output_tokens": 1312
+    },
+    {
+      "case_id": "clarify_missing_time",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 1,
+      "question_fields": [
+        "location",
+        "location"
+      ],
+      "recovery_failure": "repeated_question_field",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1338,
+      "model_decisions": 2,
+      "provider_attempts": 2,
+      "input_tokens": 10270,
+      "output_tokens": 412
+    },
+    {
+      "case_id": "clarify_missing_budget",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 1,
+      "question_fields": [
+        "location",
+        "location"
+      ],
+      "recovery_failure": "repeated_question_field",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1130,
+      "model_decisions": 2,
+      "provider_attempts": 2,
+      "input_tokens": 10272,
+      "output_tokens": 456
+    },
+    {
+      "case_id": "clarify_missing_date_location",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "final_outcome": "plan",
+      "task_passed": true,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [],
+      "recovery_failure": null,
+      "time_to_first_plan_ms": 4546,
+      "elapsed_ms": 4546,
+      "model_decisions": 3,
+      "provider_attempts": 3,
+      "input_tokens": 9348,
+      "output_tokens": 1038
+    },
+    {
+      "case_id": "conflict_departure_after_return",
+      "expected_final_outcome": "conflict",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1473,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5142,
+      "output_tokens": 306
+    },
+    {
+      "case_id": "conflict_departure_outside_window",
+      "expected_final_outcome": "conflict",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1542,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5143,
+      "output_tokens": 329
+    },
+    {
+      "case_id": "conflict_strict_budget",
+      "expected_final_outcome": "conflict",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1509,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5142,
+      "output_tokens": 305
+    },
+    {
+      "case_id": "compound_parents_novel_relaxed",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1702,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5152,
+      "output_tokens": 306
+    },
+    {
+      "case_id": "compound_quiet_date_chat",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1388,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5148,
+      "output_tokens": 291
+    },
+    {
+      "case_id": "compound_child_indoor_explore",
+      "expected_final_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "location",
+      "initial_policy_passed": true,
+      "final_outcome": "question",
+      "task_passed": false,
+      "clarification_recovered": false,
+      "clarification_turns": 0,
+      "question_fields": [
+        "location"
+      ],
+      "recovery_failure": "question_field_not_in_contract",
+      "time_to_first_plan_ms": null,
+      "elapsed_ms": 1832,
+      "model_decisions": 1,
+      "provider_attempts": 1,
+      "input_tokens": 5148,
+      "output_tokens": 305
+    }
+  ]
+}

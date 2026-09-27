@@ -1,0 +1,64 @@
+{
+  "schema_version": "s-ab1.4-manifest.v1",
+  "status": "completed_with_scope_limits",
+  "systems": {
+    "legacy_v1_original": {
+      "tag": "legacy-v1-original-baseline",
+      "commit": "90639f30dbeb09c7a65e60f0fe8af7336ccee544"
+    },
+    "legacy_v1_completed": {
+      "tag": "legacy-v1-completed-baseline",
+      "commit": "5662a945c8b5767050901034af7534cb674173b1"
+    },
+    "resume_v2": {
+      "tag": "planner-v2-eval-baseline",
+      "commit": "bef5fa3ded41a6c4f9d5a70be53d4d1cf32147e1"
+    }
+  },
+  "dataset": {
+    "path": "evals\\s_ab1_dataset_v1.json",
+    "sha256": "4108030641c3b681d867b1add2cc1750cb675a216dac4d67063b9ec16e453970",
+    "case_count": 16,
+    "reviewed": 16
+  },
+  "answer_contract": {
+    "path": "evals\\s_ab1_answer_contract_v2.json",
+    "sha256": "7d6666b9539b0397cfcfa4f4f0f87f4e9f5eaf929781b4fc55146056c5055c23",
+    "max_clarification_turns": 3
+  },
+  "common_cases": {
+    "path": "evals\\s_ab1_common_cases_v1.json",
+    "sha256": "4de1f7b0212f39c5b86903b175f60f117d29a2a1e6043ccfb7c66b91316e1fd6"
+  },
+  "oracle": {
+    "path": "evals\\s_ab1_oracle_v1.json",
+    "sha256": "e7914cc8141569bb38cc8e13cf7e6ff0fb9e75e9a518376481bbda0d14f75e6d"
+  },
+  "retrieval": {
+    "variant": "Hybrid BGE",
+    "index_manifest": "E:\\04_Develop\\Projects\\PycharmProjects\\happyFreeTime\\data\\retrieval\\cache\\manifest.json",
+    "index_manifest_sha256": "ff523d3775c2d1e671b9312ca5a5d9d3da986fe6cd5ac015be0009da6351a7c6",
+    "model": "BAAI/bge-small-zh-v1.5",
+    "cold_start_excluded": true
+  },
+  "model": {
+    "provider": "DeepSeek-compatible OpenAI API",
+    "model": "deepseek-flash",
+    "temperature": 0.0,
+    "router_timeout_seconds": 15,
+    "format_retry": 1,
+    "business_retry": 0
+  },
+  "protocol": {
+    "runs_per_case": 2,
+    "network_retry": "one bounded preflight retry",
+    "beam": "enabled",
+    "v2_variant": "Live Router + LLM PlanningIntent + Hybrid Retrieval + Beam + Grounded Advisor"
+  },
+  "preflight": {
+    "bge_local_model": "passed",
+    "hybrid_index_validation": "passed",
+    "provider": "passed_after_one_bounded_network_retry",
+    "formal_environment_failures": 0
+  }
+}
