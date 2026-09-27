@@ -12,7 +12,7 @@ _保留 V1、旧 Router 方案和原始讨论，用于理解设计演进_
 | --- | --- | --- |
 | [`v1/`](v1/) | Hackathon 阶段 Mock 设计和迁移说明 | [`../canonical/architecture_v2.md`](../canonical/architecture_v2.md) |
 | [`router/`](router/) | 多版 RouterExtractor 设计和旧问答 | 当前 `app/services/router_extractor.py` 与 M1 学习复盘 |
-| [`transcripts/`](transcripts/) | 未提炼的原始协作讨论 | [`../collaboration/playbook.md`](../collaboration/playbook.md) |
+| 原始协作讨论 | 未提炼的个人工作材料，已移入本地 `docs/local/`，不随公开版本发布 | [`../collaboration/playbook.md`](../collaboration/playbook.md) |
 
 ## 🛡️ 归档规则
 

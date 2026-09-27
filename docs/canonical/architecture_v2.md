@@ -1,4 +1,4 @@
-# HappyFreeTime V2 总体架构设计
+# HappyFreeTime V2 总体架构设计（目标）
 
 > 状态：已确认的 V2 目标设计 | 更新日期：2026-09-04 | 适用范围：后续架构、接口、数据模型和实施决策 | 当前实现进展以根目录 `README.md` 和自动测试为准
 
@@ -6,7 +6,20 @@
 
 ## 1. 文档定位
 
-本文档定义 HappyFreeTime V2 的目标架构。它用于统一后续开发，不是对当前代码的描述。
+本文档定义 HappyFreeTime V2 的目标架构。它用于统一后续开发，不是对当前代码的完整描述。当前已实现链路请先阅读 [Resume V2 当前架构](../current/resume_v2_architecture.md)，当前发布证据请阅读 [Resume V2 发布评测](../releases/resume_v2_release_report.md)。
+
+### 当前状态判读
+
+| 内容 | Resume V2 当前状态 |
+| --- | --- |
+| Graph、反问恢复、Enrichment、Provider、Planner、Verifier | 已实现 |
+| Wire Proposal、PlanSpecCompiler、Beam、Hybrid Retrieval、Grounded Advisor | 已实现并纳入发布评测 |
+| 真实订单、预订、叫车、Saga | 目标设计，未实现 |
+| 长期记忆、Memory Influence、可删除画像 | 目标设计，未实现 |
+| ToolBroker、MCP Client/Server Adapter | 目标设计，未接入主链 |
+| 任意城市、实时 POI/库存/价格 | 超出当前发布范围 |
+
+本文后续章节描述目标边界、接口演进和取舍；出现“应支持”“目标形态”“后续”时，不得当作当前能力。
 
 当本文档与早期的 [`mock_design.md`](../archive/v1/mock_design.md)、[`router_extractor_design_v2_draft.md`](../archive/router/router_extractor_design_v2_draft.md) 或实验代码冲突时，以本文档为准。早期文档保留为设计演进记录，不再作为实现契约。
 
@@ -104,11 +117,10 @@ V2 的目标形态是 **由状态图编排的受约束规划 Agent**：LLM 负�
 
 ## 4. 系统全景
 
->     accTitle: HappyFreeTime 受约束规划 Agent 总体架构
->     accDescr: 用户请求进入对话控制图，按能力路由到查询、规划、解释或执行子图；模型只在语义决策点工作，确定性服务负责事实、验证和副作用。
-
 ```mermaid
 flowchart TB
+    accTitle: HappyFreeTime 受约束规划 Agent 总体架构
+    accDescr: 用户请求进入对话控制图，按能力路由到查询、规划、解释或执行子图；模型只在语义决策点工作，确定性服务负责事实、验证和副作用。
 
     user([用户输入或界面操作]) --> api[会话 API]
 
@@ -250,11 +262,10 @@ MainGraph 负责产品级控制流，建议节点如下：
 
 ### 5.3 PlanningSubgraph
 
->    accTitle: 受约束语义规划子图
->     accDescr: 规划先获取会影响召回的前置事实，再由模型形成语义意图；代码编译合法结构并构造候选，昂贵动态事实只验证 finalist，最终由 Verifier 和有界修复保证可行性。
-
 ```mermaid
 flowchart LR
+    accTitle: 受约束语义规划子图
+    accDescr: 规划先获取会影响召回的前置事实，再由模型形成语义意图；代码编译合法结构并构造候选，昂贵动态事实只验证 finalist，最终由 Verifier 和有界修复保证可行性。
 
     command([Resolved Command]) --> prefetch[前置事实并行获取]
     prefetch --> intent[PlanningIntent]
@@ -416,11 +427,12 @@ build(purpose, command, session_snapshot, decision_budget) -> DecisionContext
 
 ```mermaid
 sequenceDiagram
-
     accTitle: 单次模型决策的上下文装配与受限观察循环
     accDescr: MainGraph 加载结构化会话状态，由 ContextAssembler 按用途生成有限上下文；模型只能请求白名单能力，ToolBroker 返回结构化观察，Harness 校验最终决策和停止条件。
 
     actor user as 用户
+
+
 
     participant graph as MainGraph
     participant store as Session Store
@@ -688,11 +700,10 @@ Provider 支持：
 
 ### 10.2 状态机
 
->     accTitle: 执行订单状态机
->     accDescr: 执行预览经用户确认后进入处理，成功成为已确认订单；失败、取消、退款失败和人工处理均有明确状态与恢复路径。
-
 ```mermaid
 flowchart TB
+    accTitle: 执行订单状态机
+    accDescr: 执行预览经用户确认后进入处理，成功成为已确认订单；失败、取消、退款失败和人工处理均有明确状态与恢复路径。
 
     start([开始]) -->|创建执行预览| draft[DRAFT]
     draft -->|生成确认快照| pending[PENDING_CONFIRMATION]

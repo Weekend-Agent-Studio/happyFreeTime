@@ -73,4 +73,4 @@ Codex 的价值是加速代码检索、实现、测试和审查；用户的核�
 
 ## 🔗 原始材料
 
-本手册提炼自 [`../archive/transcripts/temp_original.md`](../archive/transcripts/temp_original.md)。原文件只保留讨论上下文和设计演进，不再作为日常协作入口。
+本手册提炼自早期原始讨论。原始对话记录属于本地工作材料，不随公开版本发布，也不再作为日常协作入口。

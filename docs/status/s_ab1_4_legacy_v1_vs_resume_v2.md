@@ -57,4 +57,4 @@ V2 每次运行包含 38 次模型决策和 38 次 Provider attempt；两次输�
 
 - [`S-AB1.4 report.md`](../../artifacts/evals/S-AB1.4/report.md)
 - [`S-AB1.4 manifest.json`](../../artifacts/evals/S-AB1.4/manifest.json)
-- [`Resume V2 release report`](resume_v2_release_report.md)
+- [`Resume V2 release report`](../releases/resume_v2_release_report.md)

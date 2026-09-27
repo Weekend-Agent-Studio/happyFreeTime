@@ -26,3 +26,8 @@ data/*.db-wal
 data/models/
 data/retrieval/cache/
 artifacts/evals/
+
+# Personal and temporary documentation kept for local learning/workflow only.
+# Curated public documentation lives under docs/current, docs/releases,
+# docs/status, docs/interview, docs/learning, docs/canonical and docs/adr.
+/docs/local/

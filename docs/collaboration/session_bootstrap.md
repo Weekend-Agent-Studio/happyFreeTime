@@ -15,7 +15,7 @@ _用于让新会话快速理解项目状态、用户学习进度和协作边界_
 5. [`../../CONTEXT.md`](../../CONTEXT.md)：领域词汇与概念边界
 6. [`../learning/progress.md`](../learning/progress.md)：用户已经学到哪里
 7. 当前里程碑的计划与复盘；继续 M2 时读取 [`../status/m2_trustworthy_planning_plan_2026-08-20.md`](../status/m2_trustworthy_planning_plan_2026-08-20.md) 和 [`../learning/milestones/m2_trustworthy_planning.md`](../learning/milestones/m2_trustworthy_planning.md)
-8. [`../product/product_idea_inbox.md`](../product/product_idea_inbox.md)：只识别未决想法，不自动实现
+8. 本地未提交的产品想法收集箱不属于公开文档；如需查看，使用本地 `docs/local/product/`，不要把其中内容当作当前实现要求
 
 除非要追溯设计演进，否则不要先读 `archive/`。除非当前任务是面试复习，否则不要先加载全部 `interview/`。
 
