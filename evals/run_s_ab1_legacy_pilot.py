@@ -63,19 +63,22 @@ def _load_cases(
 def _question_field(question: str) -> str | None:
     text = question or ""
     patterns = {
-        "date": r"日期|哪天|什么时候",
-        "location": r"地点|位置|地标|附近",
-        "budget_per_person": r"预算|人均|花费",
+        "date": r"日期|哪天|哪一日|周几|星期几|哪一天",
+        "location": r"地点|位置|地标|附近|从哪里|从哪儿|出发地",
+        "budget_per_person": r"预算|人均|花费|多少钱|费用|预算范围",
         "return_by": r"回家|返程|回来|几点前",
-        "departure_at": r"出发|几点",
-        "companions": r"谁同行|同行人|和谁|家人|朋友|父母",
-        "preferences": r"偏好|喜欢|风格|想要|要求",
-        "time_hint": r"时间|时段|什么时候|几点",
+        "companions": r"谁同行|同行人|和谁|几个人|几位|多少人|家人|朋友|父母|同伴",
+        "preferences": r"偏好|喜欢|风格|想要|要求|特殊|其他要求|其他限制|倾向|希望怎么|想去什么|希望安排",
+        "time_hint": r"出发时间|时间段|时段|什么时候方便|何时|几点|大概多久|多长时间|时间安排|出发",
     }
     for field, pattern in patterns.items():
         if re.search(pattern, text):
             return field
     return None
+
+
+def _question_category(question: str) -> str:
+    return _question_field(question) or "unclassified_question"
 
 
 def _run_case(app: Any, case: dict[str, Any]) -> dict[str, Any]:
@@ -95,6 +98,7 @@ def _run_case(app: Any, case: dict[str, Any]) -> dict[str, Any]:
     initial_outcome = "unknown"
     initial_question_field: str | None = None
     question_fields: list[str | None] = []
+    question_categories: list[str] = []
     clarification_turns = 0
     clarification_failure: str | None = None
     contract = case.get("clarification_contract") or {}
@@ -125,6 +129,7 @@ def _run_case(app: Any, case: dict[str, Any]) -> dict[str, Any]:
                 question = str(payload.get("question", ""))
                 field = _question_field(question)
                 question_fields.append(field)
+                question_categories.append(_question_category(question))
                 if clarification_turns >= max_turns:
                     clarification_failure = "max_clarification_turns"
                     break
@@ -196,6 +201,7 @@ def _run_case(app: Any, case: dict[str, Any]) -> dict[str, Any]:
         "question_field": _question_field(question or ""),
         "question_present": bool(question),
         "question_fields": question_fields,
+        "question_categories": question_categories,
         "clarification_turns": clarification_turns,
         "clarification_failure": clarification_failure,
         "eventual_outcome": actual_outcome,
