@@ -1,0 +1,183 @@
+{
+  "schema_version": "s-ab1-legacy-multiturn-pilot.v2",
+  "legacy_commit": "develop@90639f3",
+  "case_count": 6,
+  "task_success": {
+    "numerator": 5,
+    "denominator": 6
+  },
+  "eventual_task_success": {
+    "numerator": 5,
+    "denominator": 6
+  },
+  "initial_clarification_policy": {
+    "numerator": 1,
+    "denominator": 1
+  },
+  "clarification_recovery_success": {
+    "numerator": 1,
+    "denominator": 1
+  },
+  "results": [
+    {
+      "case_id": "plan_exact_departure_1520",
+      "expected_outcome": "plan",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 13445,
+      "elapsed_ms": 13445,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "plan_parents_novel_not_tiring",
+      "expected_outcome": "plan",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 19095,
+      "elapsed_ms": 19095,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "plan_quiet_date_chat",
+      "expected_outcome": "plan",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 9430,
+      "elapsed_ms": 9430,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "plan_explicit_range",
+      "expected_outcome": "plan",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 13765,
+      "elapsed_ms": 13765,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "clarify_unknown_date",
+      "expected_outcome": "plan",
+      "initial_outcome": "question",
+      "initial_question_field": "date",
+      "initial_policy_passed": true,
+      "actual_outcome": "plan",
+      "task_passed": true,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [
+        "date"
+      ],
+      "question_categories": [
+        "date"
+      ],
+      "clarification_turns": 1,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 15520,
+      "elapsed_ms": 15520,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 3,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    },
+    {
+      "case_id": "conflict_departure_after_return",
+      "expected_outcome": "conflict",
+      "initial_outcome": "plan",
+      "initial_question_field": null,
+      "initial_policy_passed": true,
+      "actual_outcome": "plan",
+      "task_passed": false,
+      "question_field": null,
+      "question_present": false,
+      "question_fields": [],
+      "question_categories": [],
+      "clarification_turns": 0,
+      "clarification_failure": null,
+      "eventual_outcome": "plan",
+      "time_to_first_plan_ms": 9072,
+      "elapsed_ms": 9072,
+      "legacy_log_stage_counts": {
+        "intent": 1,
+        "slot": 1,
+        "planner": 1,
+        "executor": 0
+      },
+      "error_type": null,
+      "error_module": null
+    }
+  ]
+}

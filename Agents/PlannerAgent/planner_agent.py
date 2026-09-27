@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from Tools import search_activities, search_restaurants, search_products, estimate_route
+from Agents.PlannerAgent.provider_adapter import LegacyProviderAdapter
 
 load_dotenv()
 
@@ -55,14 +56,16 @@ PLANNER_SYSTEM_PROMPT = """你是短时活动规划助手的规划编排模块�
 重要：最终回复必须且仅包含上述 JSON 对象，不要加任何解释。"""
 
 
-def _get_llm() -> ChatOpenAI:
-    return ChatOpenAI(
-        model=os.getenv("MODEL_NAME", "deepseek-v4-flash"),
-        api_key=os.getenv("LLM_API"),
-        base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
-        temperature=0.0,
-        extra_body={"thinking": {"type": "disabled"}},
-    )
+def _get_llm(include_thinking: bool = True) -> ChatOpenAI:
+    kwargs = {
+        "model": os.getenv("MODEL_NAME", "deepseek-v4-flash"),
+        "api_key": os.getenv("LLM_API"),
+        "base_url": os.getenv("BASE_URL", "https://api.deepseek.com"),
+        "temperature": 0.0,
+    }
+    if include_thinking:
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    return ChatOpenAI(**kwargs)
 
 
 def _repair_json(raw: str) -> dict:
@@ -96,20 +99,7 @@ def _parse_result(raw: str) -> dict:
         try:
             return _repair_json(raw)
         except (json.JSONDecodeError, Exception):
-            return {
-                "plans": [
-                    {
-                        "title": "方案A标题", "style": "风格",
-                        "timeline": [
-                            {"time": "14:00-16:30", "step": "活动", "name": "xx", "address": "xx", "price": 120, "note": ""},
-                            {"time": "17:00-18:30", "step": "餐厅", "name": "xx", "address": "xx", "price": 90, "note": ""},
-                            {"time": "18:30-19:00", "step": "增量", "name": "xx", "address": "xx", "price": 40, "note": ""}
-                        ],
-                        "total_price": 250, "highlights": ["亮点1", "亮点2"]
-                    }
-                ],
-                "reasoning": "简短理由"
-            }
+            return {"plans": [], "reasoning": "", "error_code": "planner_output_parse_failed"}
 
 
 def _execute_tool_calls(tool_calls: list) -> list:
@@ -151,6 +141,10 @@ def run_planner(user_input, intent: str, intents: dict, slots: dict,
 
     llm = _get_llm()
     llm_with_tools = llm.bind_tools(list(TOOL_MAP.values()))
+    # If the endpoint rejects a second tool-role request, retry once with the
+    # same planning prompt and flattened local tool facts, without tools.
+    retry_llm = _get_llm(include_thinking=False)
+    provider = LegacyProviderAdapter(llm_with_tools, retry_client=retry_llm)
 
     messages = [
         SystemMessage(content=PLANNER_SYSTEM_PROMPT),
@@ -161,7 +155,10 @@ def run_planner(user_input, intent: str, intents: dict, slots: dict,
     max_rounds = 3
 
     for round_num in range(max_rounds):
-        response = llm_with_tools.invoke(messages)
+        response = provider.invoke(messages)
+        if isinstance(response, dict) and response.get("ok") is False:
+            print(f"[planner_agent] provider failure: {response['error_code']}")
+            return {"plans": [], "reasoning": "", "error_code": response["error_code"]}
         tool_calls = response.tool_calls
 
         if not tool_calls:
@@ -177,9 +174,9 @@ def run_planner(user_input, intent: str, intents: dict, slots: dict,
         messages.append(response)
         for tr in tool_results:
             content = json.dumps(tr.get("result") or tr.get("error"), ensure_ascii=False)
-            messages.append(ToolMessage(content=content, tool_call_id=tr["id"]))
+            messages.append(ToolMessage(content=content, name=tr["name"], tool_call_id=tr["id"]))
 
     # 兜底：达到最大轮次，强制最后一次输出
     elapsed = time.perf_counter() - t0
     print(f"[planner_agent] {elapsed:.2f}s (max rounds reached, {total_tool_calls} tool calls)")
-    return _parse_result(messages[-1].content)
+    return {"plans": [], "reasoning": "", "error_code": "planner_max_rounds_exceeded"}

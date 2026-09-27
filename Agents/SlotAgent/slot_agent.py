@@ -6,7 +6,7 @@
 
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -16,6 +16,7 @@ from typing_extensions import TypedDict
 
 from Tools import get_cur_loc, get_cur_time, get_weather
 from langgraph.prebuilt import create_react_agent
+from Agents.SlotAgent.slot_state import merge_slot_state, question_field
 
 load_dotenv()
 
@@ -39,16 +40,17 @@ SYSTEM_PROMPT = """你是短时活动规划助手的事项补全模块。接收�
 
 根据主要意图决定需要收集哪些维度：
 - check_weather: 只需 location + date + weather，companions/budget/preferences/time_hint 不需要
-- find_activity: 需全部字段
-- plan_outing: 需全部字段
-- refine_plan: 需全部字段（修改已有计划需要完整信息）
+- find_activity: 需日期、地点、时间范围和预算；companions/preferences 可以为空
+- plan_outing: 需日期、地点、时间范围和预算；companions/preferences 可以为空
+- refine_plan: 需日期、地点、时间范围和预算；companions/preferences 可以为空
 
 工作步骤：
 1. 先并行调用 get_cur_loc 和 get_cur_time
 2. 调用 get_weather 时，从 get_cur_loc 返回的对象中取 lat 作为 latitude、lng 作为 longitude
 3. 从用户原话提取意图类型对应维度需要的信息
-4. 工具无法补充时生成一次性的反问
-5. 不需要的维度直接填入默认值（companions 为空对象、budget 为空字符串等），不要反问
+4. 工具无法补充时只针对一个缺失的必需维度生成一次反问
+5. companions/preferences 不是必需维度，缺失时填默认值，不要反问
+6. 如果输入中提供了“上一轮已确认槽位”，这些值必须原样保留；用户补充只用于当前待补维度
 
 严格按以下 JSON 格式输出，不要输出 markdown 代码块，只输出纯 JSON：
 {"date":"活动日期","location":{位置工具返回的对象},"weather":{天气工具返回的对象},"companions":{"count":1,"members":[{"role":"本人"}]},"budget":"中等","preferences":{},"time_hint":"14:00-18:00","ask_question":"一次性反问（无需反问时为空字符串）","is_complete":true或false（true=所有信息齐全可出方案，false=还需反问用户）}
@@ -119,17 +121,94 @@ slot_agent = create_react_agent(
 )
 
 
-def run_slot(user_input: str, intent: str, intents: dict):
+_QUESTION_TEMPLATES = {
+    "date": "请问准备哪一天出行？",
+    "location": "请问从哪里出发，或活动地点在哪里？",
+    "time_hint": "请问大概几点出发、几点结束？",
+    "budget": "请问人均预算大概是多少？",
+}
+
+
+def _required_fields(intent: str):
+    if intent == "check_weather":
+        return ("date", "location")
+    if intent in {"find_activity", "plan_outing", "refine_plan"}:
+        return ("date", "location", "time_hint", "budget")
+    return ()
+
+
+def _is_present(value):
+    return value not in (None, "", [], {})
+
+
+def _normalise_slot(slot: dict, previous_slot: Optional[dict] = None, target_field: Optional[str] = None):
+    merged = merge_slot_state(previous_slot or {}, slot or {}, target_field=target_field)
+    for key in ("companions", "preferences", "weather"):
+        merged.setdefault(key, {})
+    merged.setdefault("budget", "")
+    merged.setdefault("time_hint", "")
+    merged.setdefault("date", "")
+    merged.setdefault("location", {})
+    return merged
+
+
+def run_slot(
+    user_input: str,
+    intent: str,
+    intents: dict,
+    previous_slot: Optional[dict] = None,
+    pending_field: Optional[str] = None,
+    answered_fields: Optional[list] = None,
+    merge_target_field: Optional[str] = None,
+):
     import time
     t0 = time.perf_counter()
     intents_str = ", ".join(f"{k}({v:.0%})" for k, v in intents.items())
+    prior = previous_slot or {}
+    pending_hint = pending_field or "无"
+    prior_hint = json.dumps(prior, ensure_ascii=False)
     result = slot_agent.invoke({
         "messages": [
-            HumanMessage(content=f"用户原话：{user_input}\n主要意图：{intent}\n所有意图：{intents_str}")
+            HumanMessage(content=(
+                f"用户原话：{user_input}\n主要意图：{intent}\n所有意图：{intents_str}\n"
+                f"上一轮已确认槽位（必须保留）：{prior_hint}\n"
+                f"当前待补字段：{pending_hint}\n"
+                f"已回答字段：{json.dumps(answered_fields or [], ensure_ascii=False)}"
+            ))
         ],
     }, config={"recursion_limit": 30})
     llm_calls = sum(1 for m in result["messages"] if m.__class__.__name__ == "AIMessage")
     print(f"[slot_agent] {time.perf_counter() - t0:.2f}s ({llm_calls} LLM calls)")
     last_msg = result["messages"][-1]
-    return _parse_result(last_msg.content)
+    parsed = _parse_result(last_msg.content)
+    slot = _normalise_slot(
+        parsed,
+        prior,
+        target_field=merge_target_field if merge_target_field is not None else pending_field,
+    )
+
+    required = _required_fields(intent)
+    missing = [field for field in required if not _is_present(slot.get(field))]
+    parsed_question = parsed.get("ask_question", "")
+    next_field = question_field(parsed_question) if parsed_question else None
+    if not missing:
+        slot["ask_question"] = ""
+        slot["is_complete"] = True
+        slot["missing_required_fields"] = []
+        return slot
+
+    # Never allow the model to ask a confirmed field again.  The graph will
+    # surface this as a safe state-machine diagnostic instead of looping.
+    if next_field in (answered_fields or []):
+        slot["ask_question"] = ""
+        slot["is_complete"] = False
+        slot["error_code"] = "repeated_clarification"
+        slot["missing_required_fields"] = missing
+        return slot
+
+    field = next_field if next_field in missing else missing[0]
+    slot["ask_question"] = parsed_question or _QUESTION_TEMPLATES[field]
+    slot["is_complete"] = False
+    slot["missing_required_fields"] = missing
+    return slot
 
