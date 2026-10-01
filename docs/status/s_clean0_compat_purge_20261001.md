@@ -1,6 +1,6 @@
 # S-CLEAN0：历史兼容与旧原型清理
 
-日期：2026-10-01  
+日期：2026-10-01
 分支：`codex/s-clean0-compat-purge`
 
 ## 基线确认
@@ -32,9 +32,10 @@ MCP 只作为历史教学 Demo 保留在 V1 标签中；当前主链没有 MCP �
 - `PlanningIntent.coverage` 及旧 `PlanningIntentProposal`；
 - `PlanningSlotProposal` 兼容别名；
 - `Command(resume="text")` 和旧 checkpoint 反序列化兼容；
-- `TraceEventRecord` 等数据库模型（删除需要独立迁移审计）。
+- 其他仍被正式路径读取的旧 checkpoint 转换逻辑。
 
-这些项目延期到 S-CORE1/S-CORE2，不新增替代 Adapter。
+这些项目延期到 S-CORE1/S-CORE2，不新增替代 Adapter。原先未使用的
+`TraceEventRecord` 预留表已在本次删除；当前数据库使用 `create_all`，且没有该表的生产写入路径。
 
 ## 正式入口
 
@@ -67,5 +68,6 @@ C2 结果目录：`artifacts/evals/S-CLEAN0_C2_20261001/`。该报告的 dirty �
 - `dea56c0 refactor: move local route estimate into provider layer`
 - `c0c5763 chore: remove archived v1 and mcp prototype`
 - `a94abb0 docs: point legacy references to frozen tags`
+- `d7735a0 docs: finalize clean0 report metadata`
 
 本分支只完成历史清理，不改变 PlanSpec、ConstraintEngine、Beam、Verifier、Advisor 或持久化架构。

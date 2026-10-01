@@ -745,7 +745,7 @@ flowchart TB
 - 业务事务先提交，再推进 checkpoint；幂等机制防止恢复时重复执行。
 - `orders` 和 `order_events` 是交易事实来源，checkpoint 不能替代业务审计。
 
-核心表：`users`、`sessions`、`messages`、`planning_runs`、`plans`、`orders`、`order_events`、`user_profiles`、`memories`、`trace_events`、`provider_cache`。Plan Version、约束快照、锁定项和对话摘要必须可从业务记录恢复；Graph checkpoint 不是这些产品概念的唯一存储。
+核心表：`users`、`sessions`、`messages`、`planning_runs`、`plans`、`orders`、`order_events`、`user_profiles`、`memories`、`provider_cache`。运行时 Trace 目前通过响应与评测报告记录，不单独写入业务表。Plan Version、约束快照、锁定项和对话摘要必须可从业务记录恢复；Graph checkpoint 不是这些产品概念的唯一存储。
 
 除公共 Provider 缓存外，业务表从第一天包含 `user_id`。
 
