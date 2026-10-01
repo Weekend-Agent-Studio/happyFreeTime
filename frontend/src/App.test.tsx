@@ -160,9 +160,12 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排一个轻松的约会");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
+    expect(screen.queryByText("已生成方案")).not.toBeInTheDocument();
     expect(await screen.findByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("本轮理解");
     expect(screen.getByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("最推荐：方案二");
-    expect(screen.getByText("方案二更适合轻松约会。")).toBeInTheDocument();
+    expect(screen.queryByText("方案二更适合轻松约会。")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看方案二" }));
+    expect(await screen.findByText("方案二更适合轻松约会。")).toBeInTheDocument();
     expect(screen.getAllByText("主要取舍").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "方案二", level: 3 }).closest(".plan-card")).toHaveClass("recommended");
   });
@@ -332,9 +335,13 @@ describe("planning workspace", () => {
 
     const assistantTurns = [...container.querySelectorAll(".message.assistant")];
     expect(assistantTurns).toHaveLength(2);
-    expect(assistantTurns[0]).toHaveTextContent("第一轮方案已经整理好");
+    expect(assistantTurns[0]).toHaveTextContent("第一轮方案");
+    expect(assistantTurns[0].querySelector(".message-content > p")).toBeNull();
+    expect(assistantTurns[0]).not.toHaveTextContent("第二轮方案");
     expect(assistantTurns[0].querySelector(".rich-planning-reply")).not.toBeNull();
-    expect(assistantTurns[1]).toHaveTextContent("第二轮方案已经整理好");
+    expect(assistantTurns[1]).toHaveTextContent("第二轮方案");
+    expect(assistantTurns[1].querySelector(".message-content > p")).toBeNull();
+    expect(assistantTurns[1]).not.toHaveTextContent("第一轮方案");
     expect(assistantTurns[1].querySelector(".rich-planning-reply")).not.toBeNull();
     expect(container.querySelectorAll(".message.assistant > .butler-avatar")).toHaveLength(2);
   });
@@ -727,7 +734,9 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "去一个不确定的地方");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
-    expect(await screen.findByRole("group", { name: "补充信息选项" })).toBeInTheDocument();
+    const clarificationCard = await screen.findByRole("group", { name: "补充信息选项" });
+    expect(screen.getAllByText("我还不能确定这个位置，能提供更具体的地点或地标吗？")).toHaveLength(1);
+    expect(clarificationCard.closest(".message")).toHaveClass("structured-turn");
     await user.click(screen.getByRole("button", { name: "使用默认出发地" }));
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
@@ -735,6 +744,28 @@ describe("planning workspace", () => {
       action: "use_default",
       value: null,
     });
+  });
+
+  it("renders a structured conflict once instead of echoing it in a chat bubble", async () => {
+    const user = userEvent.setup();
+    const conflictMessage = "出发时间晚于返程时间，无法生成方案。";
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      reply: conflictMessage,
+      plans: [],
+      conflict: {
+        code: "departure_after_return",
+        message: conflictMessage,
+        relaxation_options: ["调整返程时间"],
+      },
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排今天出行");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(conflictMessage);
+    expect(screen.getAllByText(conflictMessage)).toHaveLength(1);
+    expect(screen.getByRole("status").closest(".message")).toHaveClass("structured-turn");
   });
 
   it("lets a pending clarification switch into an explicit new request", async () => {
