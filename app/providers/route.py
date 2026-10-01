@@ -19,7 +19,39 @@ from app.domain.providers import (
     RouteFact,
     RouteRequest,
 )
-from services.feasibility_service import estimate_route
+
+
+_SPEED_KMH = {
+    "walk": 5.0,
+    "bike": 12.0,
+    "taxi": 25.0,
+    "transit": 18.0,
+}
+
+
+def _estimate_local_route(
+    origin: GeoPoint,
+    destination: GeoPoint,
+    mode: str,
+) -> dict[str, object]:
+    """Return the deterministic local route estimate used by the mock provider."""
+    earth_radius_km = 6371.0
+    dlat = math.radians(destination.latitude - origin.latitude)
+    dlng = math.radians(destination.longitude - origin.longitude)
+    haversine = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(origin.latitude))
+        * math.cos(math.radians(destination.latitude))
+        * math.sin(dlng / 2) ** 2
+    )
+    distance_km = earth_radius_km * 2 * math.atan2(
+        math.sqrt(haversine), math.sqrt(1 - haversine)
+    )
+    speed_kmh = _SPEED_KMH.get(mode, 25.0)
+    return {
+        "distance_km": round(distance_km, 1),
+        "duration_minutes": max(5, round(distance_km / speed_kmh * 60)),
+    }
 
 
 class RouteProvider(Protocol):
@@ -40,18 +72,10 @@ class LocalEstimateRouteProvider:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def route(self, request: RouteRequest) -> RouteFact:
-        estimate = estimate_route(
-            {
-                "lat": request.origin.latitude,
-                "lng": request.origin.longitude,
-                "address": "",
-            },
-            {
-                "lat": request.destination.latitude,
-                "lng": request.destination.longitude,
-                "address": "",
-            },
-            mode=request.mode.value,
+        estimate = _estimate_local_route(
+            request.origin,
+            request.destination,
+            request.mode.value,
         )
         return RouteFact(
             origin=request.origin,
