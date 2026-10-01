@@ -66,6 +66,6 @@ C2 结果目录：`artifacts/evals/S-CLEAN0_C2_20261001/`。该报告的 dirty �
 
 - `dea56c0 refactor: move local route estimate into provider layer`
 - `c0c5763 chore: remove archived v1 and mcp prototype`
-- 文档提交将在清理报告完成后单独提交。
+- `a94abb0 docs: point legacy references to frozen tags`
 
 本分支只完成历史清理，不改变 PlanSpec、ConstraintEngine、Beam、Verifier、Advisor 或持久化架构。
