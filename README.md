@@ -104,16 +104,11 @@ happyFreeTime/
 ├── tests/                  # Resume V2 后端单元、集成和 Graph 测试
 ├── scripts/                # 启动、数据构建、诊断和校验脚本
 ├── docs/                   # 当前架构、发布报告、学习材料、面试材料和历史记录
-├── Agents/                 # V1 多 Agent 原型，保留作历史和 AB 对照
-├── services/               # V1 旧服务模块；部分旧 Adapter 仍被兼容入口引用
-├── MCP/                    # 早期 MCP 实验，不属于 Resume V2 主运行链
-├── main_v2.py              # Resume V2 CLI 入口
-├── main.py                 # V1 CLI 入口
 ├── PRODUCT.md              # 产品定位、原则与数据真实性边界
 └── CONTEXT.md              # 统一领域术语和概念边界
 ```
 
-`Agents/`、`services/` 和 `main.py` 不是 Resume V2 的默认运行入口，但暂时保留用于版本演进和后续 V1/V2 对照实验。不要把 V1 的多 Agent 结构误称为当前主架构。
+早期 Multi-Agent V1 源码已从当前主线移除，仍可通过 `legacy-v1-original-baseline` 和 `legacy-v1-completed-baseline` 标签访问；它们不属于 Resume V2 的正式运行入口。
 
 ## 🚀 快速开始
 
@@ -185,7 +180,7 @@ pnpm run build
 - 在线演示地址；
 - 演示视频或 GIF；
 - 当前系统架构图和一次请求 Trace 截图；
-- V1 Multi-Agent 与 V2 Constrained Harness 的受控对照报告；
+- 部署文档与公开 Demo 地址；
 - Temporal Semantic IR、长期记忆和执行闭环。
 
 这些内容应进入对应的 `docs/current`、`docs/releases`、`docs/status` 或 `docs/canonical` 文档，不要把未来计划直接写成当前能力。
