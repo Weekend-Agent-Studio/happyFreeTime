@@ -48,7 +48,7 @@ timeline
 
 ### V1：先验证 Agent 形态
 
-V1 的 [Graph](../../Agents/graph.py) 串联 Intent、Slot、Planner 和 Executor。其 [SlotAgent](../../Agents/SlotAgent/slot_agent.py) 是一个 ReAct Agent，提示词要求先调用当前位置和当前时间，再调用天气；其 [PlannerAgent](../../Agents/PlannerAgent/planner_agent.py) 允许模型在最多三轮中选择搜索活动、餐厅、商品和路线工具，再直接输出方案 JSON。
+V1 的 [Graph](https://github.com/Weekend-Agent-Studio/happyFreeTime/blob/legacy-v1-original-baseline/Agents/graph.py) 串联 Intent、Slot、Planner 和 Executor。其 [SlotAgent](https://github.com/Weekend-Agent-Studio/happyFreeTime/blob/legacy-v1-original-baseline/Agents/SlotAgent/slot_agent.py) 是一个 ReAct Agent，提示词要求先调用当前位置和当前时间，再调用天气；其 [PlannerAgent](https://github.com/Weekend-Agent-Studio/happyFreeTime/blob/legacy-v1-original-baseline/Agents/PlannerAgent/planner_agent.py) 允许模型在最多三轮中选择搜索活动、餐厅、商品和路线工具，再直接输出方案 JSON。
 
 这对黑客松原型是合理的：功能边界尚未稳定时，模型能够快速把多个 Tool 组合起来，团队也能验证 LangGraph、interrupt、工具封装和结构化输出是否跑通。V1 不是“错误架构”，而是探索阶段为了尽快获得反馈而采用的 Implementation。
 
@@ -309,9 +309,9 @@ MCP 解决 Capability 的发现与调用协议，不解决领域建模。内部�
 
 | 证据 | 用途 |
 | --- | --- |
-| [V1 Graph](../../Agents/graph.py) | 证明早期 Intent / Slot / Planner / Executor 控制流 |
-| [V1 SlotAgent](../../Agents/SlotAgent/slot_agent.py) | 证明 ReAct 与时间、位置、天气 Tool 调用设计 |
-| [V1 PlannerAgent](../../Agents/PlannerAgent/planner_agent.py) | 证明早期模型选工具并直接生成方案的设计 |
+| [V1 Graph](https://github.com/Weekend-Agent-Studio/happyFreeTime/blob/legacy-v1-original-baseline/Agents/graph.py) | 证明早期 Intent / Slot / Planner / Executor 控制流 |
+| [V1 SlotAgent](https://github.com/Weekend-Agent-Studio/happyFreeTime/blob/legacy-v1-original-baseline/Agents/SlotAgent/slot_agent.py) | 证明 ReAct 与时间、位置、天气 Tool 调用设计 |
+| [V1 PlannerAgent](https://github.com/Weekend-Agent-Studio/happyFreeTime/blob/legacy-v1-original-baseline/Agents/PlannerAgent/planner_agent.py) | 证明早期模型选工具并直接生成方案的设计 |
 | [当前 Entry Graph](../../app/orchestration/entry_graph.py) | 证明 Router / Enrichment / Gate / Planning 与 interrupt |
 | [当前约束契约](../../app/domain/constraints.py) | 证明现有时间、上下文和修改表达边界 |
 | [当前 PlanningService](../../app/services/planning.py) | 证明显式骨架、规则 Intent、Provider、Verifier 与 Repair |

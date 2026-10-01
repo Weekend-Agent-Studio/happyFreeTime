@@ -91,5 +91,5 @@ README → 当前架构 → 00 → 05 → 当前 Planner 全流程。
 - [当前架构](../current/resume_v2_architecture.md)
 - [发布评测](../releases/resume_v2_release_report.md)
 - [Resume V2 tag 说明](../README.md)
-- [V1 代码](../../Agents/)
+- [V1 Original 代码（冻结 Tag）](https://github.com/Weekend-Agent-Studio/happyFreeTime/tree/legacy-v1-original-baseline/Agents/)
 - [V2 主实现](../../app/)

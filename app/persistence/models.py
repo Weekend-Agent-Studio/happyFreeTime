@@ -46,7 +46,6 @@ class SessionRecord(Base):
         onupdate=utc_now,
     )
 
-
 class MessageRecord(Base):
     """前后端可读取的用户/助手消息历史。"""
     __tablename__ = "messages"
@@ -177,15 +176,3 @@ class SessionSnapshotRecord(Base):
         default=utc_now,
         onupdate=utc_now,
     )
-
-
-class TraceEventRecord(Base):
-    """为后续可观测性预留的节点事件表；M1 尚未写入事件。"""
-    __tablename__ = "trace_events"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    stage: Mapped[str] = mapped_column(String(48), nullable=False)
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
