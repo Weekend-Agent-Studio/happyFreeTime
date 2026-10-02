@@ -16,12 +16,16 @@ from app.domain.planning import (
     PlanStructureProposal,
     PlanningIntent,
     PlanningIntentDecision,
-    PlanningIntentProposal,
     RoleQueryProposal,
 )
 from app.domain.semantics import SoftObjective
-from app.services.planning import PlanningService, _build_planning_intent
+from app.services.planning import (
+    PlanningService,
+    _build_planning_intent,
+    _select_plan_specs,
+)
 from app.services.catalog import InMemoryCatalog
+from app.services.plan_spec_compiler import PlanSpecCompiler
 from app.services.planning_intent import (
     LlmPlanningIntentProvider,
     RuleBasedPlanningIntentProvider,
@@ -50,14 +54,15 @@ class SequencePlanningModel:
 
 def relaxed_proposal(**overrides: object) -> dict[str, object]:
     proposal: dict[str, object] = {
-        "required_roles": ["activity"],
-        "optional_roles": ["meal"],
-        "precedence": [],
-        "minimum_stops": 2,
-        "maximum_stops": 2,
+        "schema_version": "plan-structure-proposal.v3",
+        "slots": [
+            {"role": "activity", "inclusion": "core"},
+            {"role": "meal", "inclusion": "optional"},
+        ],
         "pace": "relaxed",
-        "evidence": {"pace": "慢慢走"},
-        "confidence": 0.95,
+        "objectives": [],
+        "role_queries": {},
+        "evidence_refs": [],
     }
     proposal.update(overrides)
     return proposal
@@ -110,14 +115,14 @@ def single_role_constraints(role: StopRole):
 
 
 class PlanningIntentProviderTest(unittest.TestCase):
-    def test_v2_objectives_are_merged_into_semantic_request(self) -> None:
+    def test_v3_objectives_are_merged_into_semantic_request(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"preferences": ["带父母", "新鲜感", "不希望太累"]}
         )
         baseline = RuleBasedPlanningIntentProvider().decide(constraints).intent
         evidence = [item.evidence_id for item in baseline.semantic_request.evidence]
         proposal = PlanStructureProposal(
-            schema_version="plan-structure-proposal.v2",
+            schema_version="plan-structure-proposal.v3",
             slots=[
                 {"role": "activity", "inclusion": "core"},
                 {"role": "dinner", "inclusion": "core"},
@@ -146,7 +151,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
             all(objective.evidence_refs for objective in decision.intent.semantic_request.objectives)
         )
 
-    def test_llm_bounded_slots_and_role_queries_are_compiled_to_grounded_intent(self) -> None:
+    def test_llm_structure_and_role_queries_project_to_separate_contracts(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={
                 "preferences": ["纪念日", "适合聊天"],
@@ -159,15 +164,11 @@ class PlanningIntentProviderTest(unittest.TestCase):
         baseline = RuleBasedPlanningIntentProvider().decide(constraints).intent
         evidence = [item.evidence_id for item in baseline.semantic_request.evidence]
         proposal = relaxed_proposal(
-            required_roles=[],
-            optional_roles=[],
-            minimum_stops=4,
-            maximum_stops=4,
             slots=[
-                {"role": "activity", "required": True},
-                {"role": "lunch", "required": True},
-                {"role": "activity", "required": True},
-                {"role": "dinner", "required": True},
+                {"role": "activity", "inclusion": "core"},
+                {"role": "lunch", "inclusion": "core"},
+                {"role": "activity", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "core"},
             ],
             role_queries={
                 "lunch": {
@@ -194,17 +195,17 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertTrue(decision.proposal_accepted)
         self.assertIsNone(decision.proposal_rejection_reason)
         self.assertEqual(
-            decision.intent.required_roles,
-            (StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER),
-        )
-        self.assertEqual(
-            tuple(slot.role for slot in decision.intent.slots),
+            tuple(slot.role for slot in decision.structure_proposal.slots),
             (
                 StopRole.ACTIVITY,
                 StopRole.LUNCH,
                 StopRole.ACTIVITY,
                 StopRole.DINNER,
             ),
+        )
+        self.assertEqual(
+            set(PlanningIntent.model_fields),
+            {"pace", "semantic_request"},
         )
         self.assertEqual(
             {
@@ -236,23 +237,21 @@ class PlanningIntentProviderTest(unittest.TestCase):
             constraints
         )
 
-        self.assertEqual(decision.source, "fallback")
-        self.assertEqual(
-            decision.fallback_reason,
-            "invalid_proposal_contract:proposal_out_of_bounds",
+        self.assertEqual(decision.source, "llm")
+        self.assertTrue(decision.proposal_accepted)
+        choices = PlanSpecCompiler().compile(
+            constraints,
+            RuleBasedPlanningIntentProvider().decide(constraints).intent,
+            decision.structure_proposal,
         )
-        self.assertFalse(decision.proposal_present)
-        self.assertFalse(decision.proposal_accepted)
-        self.assertEqual(
-            decision.proposal_rejection_reason,
-            "invalid_proposal_contract:proposal_out_of_bounds",
-        )
+        self.assertEqual(choices.proposal_status, "rejected")
+        self.assertEqual(choices.diagnostic_code, "role_query_ungrounded")
 
     def test_llm_decision_aggregates_token_usage_across_format_repair(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"preferences": ["慢慢走"]}
         )
-        parsed = PlanningIntentProposal.model_validate(relaxed_proposal())
+        parsed = PlanStructureProposal.model_validate(relaxed_proposal())
         model = SequencePlanningModel(
             {
                 "raw": SimpleNamespace(
@@ -297,7 +296,16 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(model.calls, 1)
         self.assertEqual(decision.source, "llm")
         self.assertEqual(decision.intent.pace, PlanPace.RELAXED)
-        self.assertEqual(decision.intent.maximum_stops, 2)
+        choices = PlanSpecCompiler().compile(
+            constraints,
+            RuleBasedPlanningIntentProvider().decide(constraints).intent,
+            decision.structure_proposal,
+        )
+        self.assertEqual(choices.proposal_status, "compiled")
+        self.assertIn(
+            (StopRole.ACTIVITY, StopRole.MEAL),
+            {spec.roles for spec in choices.preferred_specs},
+        )
         self.assertEqual(decision.attempts, 1)
 
     def test_grounded_evidence_without_model_queries_keeps_baseline_dense_queries(self) -> None:
@@ -305,13 +313,8 @@ class PlanningIntentProviderTest(unittest.TestCase):
             update={"preferences": ["能互动探索"], "scene_tags": ["室内"]}
         )
         baseline = RuleBasedPlanningIntentProvider().decide(constraints).intent
-        baseline_evidence = [item.model_dump() for item in baseline.semantic_request.evidence]
         proposal = relaxed_proposal(
-            semantic_request={
-                "evidence": baseline_evidence,
-                "objectives": [],
-                "queries": [],
-            }
+            role_queries={}
         )
 
         decision = LlmPlanningIntentProvider(
@@ -342,7 +345,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"preferences": ["慢慢走"]}
         )
-        parsed = PlanningIntentProposal.model_validate(relaxed_proposal())
+        parsed = PlanStructureProposal.model_validate(relaxed_proposal())
         model = SequencePlanningModel(
             {
                 "raw": object(),
@@ -413,86 +416,57 @@ class PlanningIntentProviderTest(unittest.TestCase):
             ("user.members.1",),
         )
 
-    def test_low_confidence_falls_back(self) -> None:
-        constraints = planning_constraints(time_end="22:00").model_copy(
-            update={"preferences": ["慢慢走"]}
-        )
-        model = SequencePlanningModel(relaxed_proposal(confidence=0.2))
-        decision = LlmPlanningIntentProvider(model).decide(constraints)
+    def test_live_wire_contract_rejects_legacy_schema_and_self_reported_confidence(self) -> None:
+        from pydantic import ValidationError
 
-        self.assertEqual(decision.source, "fallback")
-        self.assertEqual(decision.fallback_reason, "low_confidence")
-        self.assertEqual(decision.attempts, 1)
-
-    def test_model_evidence_is_filtered_to_normalized_soft_input(self) -> None:
-        constraints = planning_constraints(time_end="22:00").model_copy(
-            update={"preferences": ["慢慢走"]}
-        )
-        model = SequencePlanningModel(
-            relaxed_proposal(
-                evidence={
-                    "hallucinated": "用户明确要求去月球",
-                    "preference": "慢慢走",
+        with self.assertRaises(ValidationError):
+            PlanStructureProposal.model_validate(
+                {
+                    "schema_version": "plan-structure-proposal.v2",
+                    "slots": [{"role": "activity", "inclusion": "core"}],
                 }
             )
-        )
-        decision = LlmPlanningIntentProvider(model).decide(constraints)
-
-        self.assertEqual(decision.source, "llm")
-        self.assertNotIn("hallucinated", decision.intent.evidence)
-        self.assertEqual(decision.intent.evidence["soft_preference"], "慢慢走")
-
-    def test_llm_evidence_drops_stale_baseline_pace(self) -> None:
-        constraints = planning_constraints(time_end="22:00").model_copy(
-            update={"preferences": ["慢慢走"]}
-        )
-        # “慢慢走” isn't one of the deterministic pace aliases, so the
-        # baseline is balanced while the accepted proposal is relaxed.
-        model = SequencePlanningModel(
-            relaxed_proposal(
-                evidence={
-                    "pace": "relaxed",
-                    "preference": "慢慢走",
-                    "hallucinated": "用户明确要求去月球",
-                }
+        with self.assertRaises(ValidationError):
+            PlanStructureProposal.model_validate(
+                relaxed_proposal(confidence=0.2)
             )
-        )
-        decision = LlmPlanningIntentProvider(model).decide(constraints)
+        with self.assertRaises(ValidationError):
+            PlanStructureProposal.model_validate(
+                relaxed_proposal(required_roles=["activity"])
+            )
 
-        self.assertEqual(decision.source, "llm")
-        self.assertEqual(decision.intent.pace, PlanPace.RELAXED)
-        self.assertNotIn("pace", decision.intent.evidence)
-        self.assertEqual(decision.intent.evidence["soft_preference"], "慢慢走")
-        self.assertNotIn("hallucinated", decision.intent.evidence)
-
-    def test_hard_structure_and_allowed_roles_cannot_be_overridden(self) -> None:
+    def test_compiler_preserves_explicit_structure_over_model_proposal(self) -> None:
         normal = planning_constraints(time_end="22:00").model_copy(
-            update={"preferences": ["慢慢走"]}
-        )
-        cases = [
-            (normal, relaxed_proposal(required_roles=[])),
-            (normal, relaxed_proposal(optional_roles=["dinner"])),
-            (normal, relaxed_proposal(precedence=[["meal", "activity"]])),
-            (
-                normal.model_copy(
-                    update={
-                        "exact_stop_count": ConstraintValue[int](
-                            value=1, source=ConstraintSource.USER_EXPLICIT
-                        )
-                    }
+            update={
+                "preferences": ["慢慢走"],
+                "exact_stop_count": ConstraintValue[int](
+                    value=1, source=ConstraintSource.USER_EXPLICIT
                 ),
-                relaxed_proposal(minimum_stops=2, maximum_stops=2),
-            ),
-        ]
-        for constraints, proposal in cases:
-            with self.subTest(proposal=proposal):
-                model = SequencePlanningModel(proposal)
-                decision = LlmPlanningIntentProvider(model).decide(constraints)
-                self.assertEqual(decision.source, "fallback")
-                self.assertEqual(
-                    decision.fallback_reason,
-                    "invalid_proposal_contract:proposal_out_of_bounds",
-                )
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+            }
+        )
+        proposal = PlanStructureProposal.model_validate(
+            relaxed_proposal(
+                slots=[
+                    {"role": "activity", "inclusion": "core"},
+                    {"role": "dinner", "inclusion": "optional"},
+                ]
+            )
+        )
+        choices = PlanSpecCompiler().compile(
+            normal,
+            RuleBasedPlanningIntentProvider().decide(normal).intent,
+            proposal,
+        )
+
+        self.assertEqual(choices.proposal_status, "compiled")
+        self.assertEqual(
+            {spec.roles for spec in choices.preferred_specs},
+            {(StopRole.ACTIVITY,)},
+        )
 
     def test_explicit_single_dinner_and_clear_default_skip_model(self) -> None:
         dinner = dinner_only_constraints()
@@ -508,7 +482,7 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(normal_model.calls, 0)
         self.assertEqual(normal_decision.source, "rule_based")
 
-    def test_explicit_single_activity_and_lunch_use_role_specific_rule_intents(self) -> None:
+    def test_explicit_single_activity_and_lunch_compile_to_role_specific_specs(self) -> None:
         for role in (StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER):
             with self.subTest(role=role):
                 constraints = (
@@ -518,11 +492,12 @@ class PlanningIntentProviderTest(unittest.TestCase):
                 )
                 decision = RuleBasedPlanningIntentProvider().decide(constraints)
 
-                self.assertEqual(decision.intent.required_roles, (role,))
-                self.assertEqual(decision.intent.optional_roles, ())
                 self.assertEqual(
-                    (decision.intent.minimum_stops, decision.intent.maximum_stops),
-                    (1, 1),
+                    {
+                        spec.roles
+                        for spec in _select_plan_specs(constraints, decision.intent)
+                    },
+                    {(role,)},
                 )
 
     def test_single_activity_llm_proposal_stays_inside_activity_only_skeleton(self) -> None:
@@ -531,19 +506,25 @@ class PlanningIntentProviderTest(unittest.TestCase):
         )
         model = SequencePlanningModel(
             relaxed_proposal(
-                required_roles=["activity"],
-                optional_roles=[],
-                minimum_stops=1,
-                maximum_stops=1,
-                evidence={"preference": "有新鲜感"},
+                slots=[
+                    {"role": "activity", "inclusion": "core"},
+                    {"role": "dinner", "inclusion": "optional"},
+                ],
             )
         )
 
         decision = LlmPlanningIntentProvider(model).decide(constraints)
 
         self.assertEqual(decision.source, "llm")
-        self.assertEqual(decision.intent.required_roles, (StopRole.ACTIVITY,))
-        self.assertEqual((decision.intent.minimum_stops, decision.intent.maximum_stops), (1, 1))
+        choices = PlanSpecCompiler().compile(
+            constraints,
+            RuleBasedPlanningIntentProvider().decide(constraints).intent,
+            decision.structure_proposal,
+        )
+        self.assertEqual(
+            {spec.roles for spec in choices.preferred_specs},
+            {(StopRole.ACTIVITY,)},
+        )
         self.assertEqual(model.calls, 1)
 
     def test_diet_tags_and_avoid_do_not_trigger_structure_model(self) -> None:
@@ -652,19 +633,23 @@ class PlanningIntentProviderTest(unittest.TestCase):
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"preferences": ["慢慢走"]}
         )
-        intent = PlanningIntent(
-            required_roles=(StopRole.ACTIVITY,),
-            optional_roles=(StopRole.MEAL,),
-            minimum_stops=2,
-            maximum_stops=2,
-            pace=PlanPace.RELAXED,
-            evidence={"pace": "慢慢走"},
+        baseline = RuleBasedPlanningIntentProvider().decide(constraints)
+        proposal = PlanStructureProposal.model_validate(
+            relaxed_proposal(
+                slots=[
+                    {"role": "activity", "inclusion": "core"},
+                    {"role": "dinner", "inclusion": "core"},
+                ]
+            )
         )
 
         class FixedProvider:
             def decide(self, _: object) -> PlanningIntentDecision:
                 return PlanningIntentDecision(
-                    intent=intent,
+                    intent=PlanningIntent(
+                        pace=PlanPace.RELAXED,
+                        semantic_request=baseline.intent.semantic_request,
+                    ),
                     source="llm",
                     confidence=0.9,
                     attempts=1,
@@ -672,6 +657,9 @@ class PlanningIntentProviderTest(unittest.TestCase):
                     model_name="fake",
                     input_tokens=12,
                     output_tokens=5,
+                    proposal_present=True,
+                    proposal_accepted=True,
+                    structure_proposal=proposal,
                 )
 
         result = PlanningService(
@@ -685,7 +673,13 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertEqual(result.runtime_decision.output_tokens, 5)
         self.assertTrue(result.plans)
         self.assertTrue(all(len(plan.stops) == 2 for plan in result.plans))
-        self.assertTrue(all(plan.skeleton_id == "activity-meal-v1" for plan in result.plans))
+        self.assertTrue(
+            all(
+                tuple(stop.role for stop in plan.stops)
+                == (StopRole.ACTIVITY, StopRole.DINNER)
+                for plan in result.plans
+            )
+        )
 
     def test_rule_and_llm_same_input_have_explainable_structure_difference(self) -> None:
         catalog = InMemoryCatalog(
@@ -750,39 +744,28 @@ class PlanningIntentProviderTest(unittest.TestCase):
             ),
         ).plan(constraints)
 
-        self.assertEqual(
-            rule_result.planning_intent_decision.intent.maximum_stops,
-            4,
-        )
-        self.assertEqual(
-            llm_result.planning_intent_decision.intent.maximum_stops,
-            2,
-        )
         self.assertTrue(rule_result.plans)
         self.assertTrue(llm_result.plans)
-        self.assertLess(
-            llm_result.planning_intent_decision.intent.maximum_stops,
-            rule_result.planning_intent_decision.intent.maximum_stops,
+        self.assertEqual(
+            set(PlanningIntent.model_fields),
+            {"pace", "semantic_request"},
         )
+        llm_choices = PlanSpecCompiler().compile(
+            constraints,
+            RuleBasedPlanningIntentProvider().decide(constraints).intent,
+            llm_result.planning_intent_decision.structure_proposal,
+        )
+        self.assertEqual(llm_choices.proposal_status, "compiled")
         self.assertTrue(
-            all(
-                len(plan.stops)
-                <= llm_result.planning_intent_decision.intent.maximum_stops
-                for plan in llm_result.plans
-            )
+            all(1 <= len(spec.roles) <= 4 for spec in llm_choices.preferred_specs)
         )
-        self.assertTrue(
-            all(
-                len(plan.stops)
-                <= rule_result.planning_intent_decision.intent.maximum_stops
-                for plan in rule_result.plans
-            )
+        rule_specs = _select_plan_specs(
+            constraints,
+            RuleBasedPlanningIntentProvider().decide(constraints).intent,
         )
-        self.assertTrue(any(len(plan.stops) == 4 for plan in rule_result.plans))
-        self.assertTrue(all(len(plan.stops) == 2 for plan in llm_result.plans))
-        self.assertNotEqual(
-            {plan.skeleton_id for plan in rule_result.plans},
-            {plan.skeleton_id for plan in llm_result.plans},
+        self.assertGreater(
+            max(len(spec.roles) for spec in rule_specs),
+            max(len(spec.roles) for spec in llm_choices.preferred_specs),
         )
         self.assertIsNone(rule_result.conflict)
         self.assertIsNone(llm_result.conflict)

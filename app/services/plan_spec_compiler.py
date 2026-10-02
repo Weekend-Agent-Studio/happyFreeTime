@@ -9,9 +9,10 @@ from typing import Literal
 from app.domain.constraints import NormalizedConstraints, StopRole
 from app.domain.planning import (
     PlanStructureProposal,
+    PlanPace,
     PlanningIntent,
 )
-from app.services.plan_spec import PlanSlot, PlanSpec, RolePrecedence
+from app.services.plan_spec import PlanSpec
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,8 @@ class PlanSpecChoices:
 def build_rule_plan_specs(
     constraints: NormalizedConstraints,
     semantics: PlanningIntent,
+    *,
+    include_all_shapes: bool = False,
 ) -> tuple[PlanSpec, ...]:
     """Build the Rule search space directly as PlanSpecs.
 
@@ -36,14 +39,37 @@ def build_rule_plan_specs(
     """
 
     available_minutes = _available_minutes(constraints)
-    allowed_roles = set(semantics.required_roles) | set(semantics.optional_roles)
-    required_slots = tuple(slot.role for slot in semantics.slots if slot.required)
-    precedence = tuple(
-        RolePrecedence(before=before, after=after)
-        for before, after in semantics.precedence
+    exact_count = (
+        constraints.exact_stop_count.value
+        if constraints.exact_stop_count is not None
+        else None
     )
-    coverage = constraints.time_scope.value if constraints.time_scope else semantics.coverage
-    pace = semantics.pace
+    window = constraints.time_window.value
+    start_minutes = _clock_minutes(window.start)
+    end_minutes = _clock_minutes(window.end)
+    includes_lunch = start_minutes <= 13 * 60 and end_minutes >= 12 * 60
+    includes_dinner = start_minutes <= 19 * 60 and end_minutes >= 18 * 60
+    includes_break = start_minutes <= 16 * 60 and end_minutes >= 18 * 60
+    allowed_roles = {StopRole.ACTIVITY, StopRole.MEAL}
+    if includes_lunch:
+        allowed_roles.add(StopRole.LUNCH)
+    if includes_break:
+        allowed_roles.add(StopRole.BREAK)
+    if includes_dinner:
+        allowed_roles.add(StopRole.DINNER)
+
+    explicit_roles = (
+        constraints.required_stop_roles.value
+        if constraints.required_stop_roles is not None
+        else ()
+    )
+    required_roles = explicit_roles or (StopRole.ACTIVITY,)
+    minimum_stops = 1 if exact_count == 1 and explicit_roles else 2
+    maximum_stops = (
+        exact_count
+        if exact_count is not None
+        else 2 if semantics.pace == PlanPace.RELAXED else 4
+    )
 
     shapes = (
         ("activity-meal-v1", (StopRole.ACTIVITY, StopRole.MEAL)),
@@ -77,31 +103,20 @@ def build_rule_plan_specs(
     output: list[PlanSpec] = []
     for spec_id, roles in shapes:
         role_set = set(roles)
-        if not semantics.minimum_stops <= len(roles) <= semantics.maximum_stops:
+        if exact_count is not None and len(roles) != exact_count:
             continue
-        if constraints.exact_stop_count is not None and len(roles) != constraints.exact_stop_count.value:
-            continue
-        if not set(semantics.required_roles).issubset(role_set):
-            continue
-        if not role_set.issubset(allowed_roles):
-            continue
-        if required_slots and not _contains_compatible_subsequence(roles, required_slots):
-            continue
-        if not _precedence_holds(roles, semantics.precedence):
-            continue
+        if not include_all_shapes:
+            if not minimum_stops <= len(roles) <= maximum_stops:
+                continue
+            if not set(required_roles).issubset(role_set):
+                continue
+            if not role_set.issubset(allowed_roles):
+                continue
+            if not _contains_compatible_subsequence(roles, required_roles):
+                continue
         if minimum_capacity_by_id.get(spec_id, len(roles) * 30) > available_minutes:
             continue
-        output.append(
-            PlanSpec(
-                spec_id=spec_id,
-                slots=tuple(PlanSlot(role=role) for role in roles),
-                precedence=precedence,
-                min_stops=len(roles),
-                max_stops=len(roles),
-                pace=pace,
-                coverage=coverage,
-            )
-        )
+        output.append(PlanSpec(spec_id=spec_id, roles=roles))
     return tuple(output)
 
 
@@ -225,29 +240,19 @@ class PlanSpecCompiler:
         for optional_count in range(len(optional_indexes) + 1):
             for selected in combinations(optional_indexes, optional_count):
                 selected_set = set(selected)
-                concrete_slots = tuple(
-                    PlanSlot(role=slot.role, required=True)
+                concrete_roles = tuple(
+                    slot.role
                     for index, slot in enumerate(slots)
                     if slot.inclusion == "core" or index in selected_set
                 )
-                if not concrete_slots:
+                if not concrete_roles:
                     continue
-                if exact_count is not None and len(concrete_slots) != exact_count:
+                if exact_count is not None and len(concrete_roles) != exact_count:
                     continue
-                roles = tuple(slot.role for slot in concrete_slots)
                 variants.append(
                     PlanSpec(
-                        spec_id=_stable_plan_spec_id(roles),
-                        slots=concrete_slots,
-                        precedence=_adjacent_precedence(roles),
-                        min_stops=len(concrete_slots),
-                        max_stops=len(concrete_slots),
-                        pace=proposal.pace,
-                        coverage=(
-                            constraints.time_scope.value
-                            if constraints.time_scope is not None
-                            else None
-                        ),
+                        spec_id=_stable_plan_spec_id(concrete_roles),
+                        roles=concrete_roles,
                     )
                 )
         deduped: dict[tuple[str, tuple[StopRole, ...]], PlanSpec] = {}
@@ -295,24 +300,6 @@ def roles_compatible(required: StopRole, actual: StopRole) -> bool:
     )
 
 
-def _precedence_holds(
-    roles: tuple[StopRole, ...],
-    precedence: tuple[tuple[StopRole, StopRole], ...],
-) -> bool:
-    for before, after in precedence:
-        if before in roles and after in roles and roles.index(before) >= roles.index(after):
-            return False
-    return True
-
-
-def _adjacent_precedence(roles: tuple[StopRole, ...]) -> tuple[RolePrecedence, ...]:
-    return tuple(
-        RolePrecedence(before=left, after=right)
-        for left, right in zip(roles, roles[1:])
-        if left != right
-    )
-
-
 def _stable_plan_spec_id(roles: tuple[StopRole, ...]) -> str:
     known = {
         (StopRole.ACTIVITY, StopRole.MEAL): "activity-meal-v1",
@@ -340,6 +327,11 @@ def _available_minutes(constraints: NormalizedConstraints) -> int:
     start_hour, start_minute = (int(part) for part in window.start.split(":"))
     end_hour, end_minute = (int(part) for part in window.end.split(":"))
     return max(0, (end_hour * 60 + end_minute) - (start_hour * 60 + start_minute))
+
+
+def _clock_minutes(value: str) -> int:
+    hour, minute = (int(part) for part in value.split(":"))
+    return hour * 60 + minute
 
 
 def _safe_code(error: Exception) -> str:

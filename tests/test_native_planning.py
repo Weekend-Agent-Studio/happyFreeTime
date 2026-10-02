@@ -44,7 +44,7 @@ from app.services.planning import (
     _rank_plan_specs,
     _select_plan_specs,
 )
-from app.services.plan_spec import PlanSlot, PlanSpec
+from app.services.plan_spec import PlanSpec
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
 from app.services.plan_verifier import PlanVerifier
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
@@ -124,7 +124,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             }
         )
         proposal = PlanStructureProposal(
-            schema_version="plan-structure-proposal.v2",
+            schema_version="plan-structure-proposal.v3",
             slots=[
                 {"role": "activity", "inclusion": "core"},
                 {"role": "break", "inclusion": "core"},
@@ -179,24 +179,14 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         specs = (
             PlanSpec(
                 spec_id="too-long-first",
-                slots=(PlanSlot(StopRole.ACTIVITY), PlanSlot(StopRole.ACTIVITY)),
-                min_stops=2,
-                max_stops=2,
+                roles=(StopRole.ACTIVITY, StopRole.ACTIVITY),
             ),
             PlanSpec(
                 spec_id="valid-later",
-                slots=(PlanSlot(StopRole.DINNER),),
-                min_stops=1,
-                max_stops=1,
+                roles=(StopRole.DINNER,),
             ),
         )
-        intent = PlanningIntent(
-            required_roles=(),
-            optional_roles=(StopRole.ACTIVITY, StopRole.DINNER),
-            minimum_stops=1,
-            maximum_stops=4,
-            pace=PlanPace.BALANCED,
-        )
+        intent = PlanningIntent(pace=PlanPace.BALANCED)
         candidates = [
             candidate(
                 "long-activity-a",
@@ -300,15 +290,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         dinner_intent = _build_planning_intent(dinner_constraints)
         default_intent = _build_planning_intent(planning_constraints(time_end="22:00"))
 
-        self.assertEqual(dinner_intent.required_roles, (StopRole.DINNER,))
-        self.assertEqual(dinner_intent.optional_roles, ())
-        self.assertEqual((dinner_intent.minimum_stops, dinner_intent.maximum_stops), (1, 1))
         self.assertEqual(
             [item.spec_id for item in _select_plan_specs(dinner_constraints, dinner_intent)],
             ["dinner-only-v1"],
         )
-        self.assertIn(StopRole.ACTIVITY, default_intent.required_roles)
-        self.assertGreaterEqual(default_intent.minimum_stops, 2)
+        self.assertEqual(set(PlanningIntent.model_fields), {"pace", "semantic_request"})
         self.assertNotIn(
             "dinner-only-v1",
             {item.spec_id for item in _select_plan_specs(planning_constraints(time_end="22:00"), default_intent)},
@@ -480,13 +466,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         class ConflictingIntentProvider:
             def decide(self, _: object) -> PlanningIntentDecision:
                 return PlanningIntentDecision(
-                    intent=PlanningIntent(
-                        required_roles=(StopRole.LUNCH,),
-                        optional_roles=(),
-                        minimum_stops=1,
-                        maximum_stops=1,
-                        pace=PlanPace.FULL,
-                    ),
+                    intent=PlanningIntent(pace=PlanPace.FULL),
                     source="llm",
                     confidence=0.9,
                     attempts=1,

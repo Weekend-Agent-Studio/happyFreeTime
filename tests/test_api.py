@@ -289,10 +289,8 @@ class ApiTest(unittest.TestCase):
             response_data["planning_intent_decision"]["source"],
             "rule_based",
         )
-        self.assertEqual(
-            response_data["planning_intent_decision"]["intent"]["maximum_stops"],
-            4,
-        )
+        intent_payload = response_data["planning_intent_decision"]["intent"]
+        self.assertEqual(set(intent_payload), {"pace", "semantic_request"})
         second_plan_id = plans[1]["plan_id"]
 
         view = self._session_view(session_id)

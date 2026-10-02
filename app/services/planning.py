@@ -75,7 +75,6 @@ from app.services.catalog import Catalog, SnapshotCatalog
 from app.services.planning_intent import (
     PlanningIntentProvider,
     RuleBasedPlanningIntentProvider,
-    SINGLE_STOP_ROLES as _SINGLE_STOP_ROLES,
     build_rule_based_planning_intent,
 )
 from app.services.plan_verifier import (
@@ -86,11 +85,7 @@ from app.services.itinerary_scheduler import (
     DEFAULT_TEMPORAL_POLICY,
     TimelineScheduler,
 )
-from app.services.plan_spec import (
-    PlanSlot,
-    PlanSpec,
-    RolePrecedence,
-)
+from app.services.plan_spec import PlanSpec
 from app.services.plan_spec_compiler import (
     PlanSpecChoices,
     PlanSpecCompiler,
@@ -1196,13 +1191,11 @@ class PlanningService:
 
         selected_spec = PlanSpec(
             spec_id=selected_plan.skeleton_id,
-            slots=tuple(
-                PlanSlot(role=stop.role)
+            roles=tuple(
+                stop.role
                 for stop in selected_plan.stops
                 if stop.role is not None
             ),
-            min_stops=len(selected_plan.stops),
-            max_stops=len(selected_plan.stops),
         )
         recalled = self._catalog.recall(constraints)
         candidate_by_id = {
@@ -1336,13 +1329,7 @@ class PlanningService:
         )
         replacement_candidates = replacement_candidates[:max_candidates]
 
-        base_intent = build_rule_based_planning_intent(constraints)
-        modification_intent = base_intent.model_copy(
-            update={
-                "minimum_stops": len(selected_spec.roles),
-                "maximum_stops": len(selected_spec.roles),
-            }
-        )
+        modification_intent = build_rule_based_planning_intent(constraints)
         base_distance = _total_route_distance(selected_plan)
         verified_plans: list[tuple[Plan, tuple[VerificationFinding, ...], tuple[AvailabilityFact, ...], int]] = []
         route_leg_verifications = 0
@@ -2322,41 +2309,22 @@ class StructureCompiler:
         if exact_stop_count is None and not required_roles:
             return _StructureCompilation()
 
-        baseline = build_rule_based_planning_intent(constraints)
-        # Explicit user structure is authoritative.  Build candidate specs
-        # from the private Rule factory with a neutral role policy, then bind
-        # the user's ordered roles directly into the selected PlanSpecs.
-        explicit_role_policy = baseline.model_copy(
-            update={
-                "required_roles": (),
-                "optional_roles": tuple(StopRole),
-                "minimum_stops": 1,
-                "maximum_stops": 4,
-                "precedence": (),
-                "slots": (),
-            }
+        rule_semantics = build_rule_based_planning_intent(constraints)
+        # Explicit user structure is authoritative. Match it against the
+        # complete deterministic shape pool, without mutating semantic intent.
+        candidates = build_rule_plan_specs(
+            constraints,
+            rule_semantics,
+            include_all_shapes=True,
         )
-        candidates = build_rule_plan_specs(constraints, explicit_role_policy)
         matches = self._explicit_matches(
             exact_stop_count=exact_stop_count,
             required_roles=required_roles,
             candidates=candidates,
         )
         if matches:
-            precedence = tuple(
-                RolePrecedence(before=before, after=after)
-                for before, after in zip(required_roles, required_roles[1:])
-            )
             return _StructureCompilation(
-                specs=tuple(
-                    replace(
-                        spec,
-                        precedence=precedence,
-                        min_stops=len(spec.roles),
-                        max_stops=len(spec.roles),
-                    )
-                    for spec in matches
-                )
+                specs=matches
             )
 
         fields: list[str] = []
@@ -2494,10 +2462,7 @@ class StructureCompiler:
                 roles[index] = required
         return replace(
             spec,
-            slots=tuple(
-                replace(slot, role=role)
-                for slot, role in zip(spec.slots, roles, strict=True)
-            ),
+            roles=tuple(roles),
         )
 
     @staticmethod
@@ -2523,38 +2488,6 @@ def _unsupported_plan_structure_conflict(
     """Backward-compatible helper for callers that used the old gate."""
 
     return StructureCompiler().compile(constraints).conflict
-
-
-def _structure_conflict_fields(
-    intent: PlanningIntent,
-    constraints: NormalizedConstraints | None = None,
-) -> list[str]:
-    if constraints is not None:
-        # Keep the established single-stop diagnostics stable; the exact
-        # quantity is already implied by that contract and older clients only
-        # surfaced the role/structure fields.
-        if (
-            constraints.exact_stop_count is not None
-            and constraints.exact_stop_count.value == 1
-            and constraints.required_stop_roles is not None
-            and len(constraints.required_stop_roles.value) == 1
-            and constraints.required_stop_roles.value[0] in _SINGLE_STOP_ROLES
-        ):
-            return ["required_stop_roles", "plan_structure"]
-        explicit_fields: list[str] = []
-        if constraints.exact_stop_count is not None:
-            explicit_fields.append("exact_stop_count")
-        if constraints.required_stop_roles is not None:
-            explicit_fields.append("required_stop_roles")
-        if explicit_fields:
-            return [*explicit_fields, "plan_structure"]
-    if (
-        intent.minimum_stops == intent.maximum_stops == 1
-        and len(intent.required_roles) == 1
-        and intent.required_roles[0] in _SINGLE_STOP_ROLES
-    ):
-        return ["required_stop_roles", "plan_structure"]
-    return []
 
 
 def _rank_plan_specs(
@@ -3354,9 +3287,6 @@ def _build_local_plan(
             "activity-break-dinner-v1",
             "activity-lunch-activity-dinner-v1",
         }
-        and {StopRole.LUNCH, StopRole.DINNER}.issubset(
-            planning_intent.optional_roles
-        )
     ):
         structure_score = 10.0
     elif planning_intent.pace == PlanPace.RELAXED and len(sequence) == 2:

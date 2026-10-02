@@ -22,7 +22,7 @@ from app.domain.planning import PlanningIntent
 from app.services.catalog import InMemoryCatalog
 from app.services.planning import PlanningService
 from app.services.planning import _rank_plan_specs
-from app.services.plan_spec import PlanSlot, PlanSpec
+from app.services.plan_spec import PlanSpec
 
 
 class CandidateRetrieverTest(unittest.TestCase):
@@ -148,19 +148,9 @@ class CandidateRetrieverTest(unittest.TestCase):
         constraints = planning_constraints(max_distance_km=30, time_end="22:00")
         spec = PlanSpec(
             spec_id="three-stop-regression",
-            slots=(
-                PlanSlot(StopRole.LUNCH),
-                PlanSlot(StopRole.ACTIVITY),
-                PlanSlot(StopRole.DINNER),
-            ),
-            min_stops=3,
-            max_stops=3,
+            roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
         )
-        intent = PlanningIntent(
-            optional_roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
-            minimum_stops=3,
-            maximum_stops=3,
-        )
+        intent = PlanningIntent()
 
         result = _rank_plan_specs(
             [*distractors, semantic_target, *restaurants],

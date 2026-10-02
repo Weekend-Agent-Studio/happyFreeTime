@@ -50,6 +50,7 @@ from app.orchestration.entry_graph import (
     EnvironmentProvider,
     Router,
     build_entry_graph,
+    checkpoint_config,
     checkpoint_serializer,
 )
 from app.persistence.database import Database
@@ -256,7 +257,7 @@ def create_app(
         if repository.get_session(x_user_id, session_id) is None:
             raise HTTPException(status_code=404, detail="session not found")
 
-        config = {"configurable": {"thread_id": session_id}}
+        config = checkpoint_config(session_id)
         pending_snapshot = graph.get_state(config)
         pending_interrupt = (
             pending_snapshot.interrupts[0].value

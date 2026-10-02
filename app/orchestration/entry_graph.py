@@ -49,16 +49,29 @@ from app.domain.planning import (
     Plan,
     PlanDiff,
     PlanPace,
+    PlanSlotProposal,
+    PlanStructureProposal,
     PlanningIntent,
     PlanningIntentDecision,
-    PlanningIntentProposal,
-    PlanningSlot,
     PlanPriceStatus,
     PlanWarning,
     PlanStrategy,
     StopReplacement,
     StopType,
 )
+
+
+CHECKPOINT_SCHEMA_VERSION = "planner-core1b-v3"
+
+
+def checkpoint_config(session_id: str) -> dict[str, dict[str, str]]:
+    """Use a versioned thread key after the intentional checkpoint schema break."""
+
+    return {
+        "configurable": {
+            "thread_id": f"{CHECKPOINT_SCHEMA_VERSION}:{session_id}",
+        }
+    }
 from app.domain.providers import (
     AvailabilityFact,
     AvailabilityStatus,
@@ -868,10 +881,10 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             Plan,
             PlanDiff,
             PlanPace,
+            PlanSlotProposal,
+            PlanStructureProposal,
             PlanningIntent,
             PlanningIntentDecision,
-            PlanningIntentProposal,
-            PlanningSlot,
             PlanPriceStatus,
             PlanStrategy,
             PriceKind,

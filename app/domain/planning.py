@@ -56,39 +56,13 @@ class PlanStrategy(str, Enum):
     WEATHER_SAFE = "weather_safe"
 
 
-class PlanningSlot(BaseModel):
-    """One ordered, bounded role slot retained after Harness validation."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    role: StopRole
-    required: bool = True
-
-
 class PlanningIntent(BaseModel):
-    """Evidence-linked structural guidance; it is not feasibility proof."""
+    """Soft semantic guidance; it is neither structure nor feasibility proof."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    required_roles: tuple[StopRole, ...] = ()
-    optional_roles: tuple[StopRole, ...] = ()
-    precedence: tuple[tuple[StopRole, StopRole], ...] = ()
-    minimum_stops: int = Field(default=2, ge=1, le=4)
-    maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
-    # Deprecated internal field kept solely so checkpoints written before
-    # S-P4 can still be restored.  The live wire proposal no longer asks the
-    # model to emit coverage; Harness derives it from NormalizedConstraints.
-    coverage: TimeScope | None = None
-    slots: tuple["PlanningSlot", ...] = Field(default_factory=tuple, max_length=4)
-    evidence: dict[str, str] = Field(default_factory=dict)
     semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
-
-    @model_validator(mode="after")
-    def validate_stop_range(self) -> "PlanningIntent":
-        if self.minimum_stops > self.maximum_stops:
-            raise ValueError("minimum_stops cannot exceed maximum_stops")
-        return self
 
 
 class RoleQueryProposal(BaseModel):
@@ -100,10 +74,6 @@ class RoleQueryProposal(BaseModel):
     evidence_refs: tuple[str, ...] = Field(min_length=1)
 
 
-# ``PlanningIntentProposal`` is kept below as a compatibility DTO for old
-# checkpoints and test fixtures.  New live model calls use this smaller,
-# ordered structure proposal instead of asking the model to repeat derived
-# role sets, precedence and stop bounds.
 class PlanSlotProposal(BaseModel):
     """One model-proposed ordered slot before deterministic compilation."""
 
@@ -118,8 +88,8 @@ class PlanStructureProposal(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["plan-structure-proposal.v2"] = (
-        "plan-structure-proposal.v2"
+    schema_version: Literal["plan-structure-proposal.v3"] = (
+        "plan-structure-proposal.v3"
     )
     slots: tuple[PlanSlotProposal, ...] = Field(min_length=1, max_length=4)
     pace: PlanPace = PlanPace.BALANCED
@@ -130,35 +100,6 @@ class PlanStructureProposal(BaseModel):
     objectives: tuple[SoftObjective, ...] = ()
     role_queries: dict[str, RoleQueryProposal] = Field(default_factory=dict)
     evidence_refs: tuple[str, ...] = ()
-
-
-PlanningSlotProposal = PlanningSlot
-
-
-class PlanningIntentProposal(BaseModel):
-    """模型对规划结构的原始提议；不承载任何外部事实或硬约束值。"""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    required_roles: tuple[StopRole, ...] = ()
-    optional_roles: tuple[StopRole, ...] = ()
-    precedence: tuple[tuple[StopRole, StopRole], ...] = ()
-    minimum_stops: int = Field(default=2, ge=1, le=4)
-    maximum_stops: int = Field(default=4, ge=1, le=4)
-    pace: PlanPace = PlanPace.BALANCED
-    # S-P4 fields are optional for checkpoint and provider compatibility. When
-    # present, the Harness compiles them into bounded executable PlanSpecs.
-    slots: tuple[PlanningSlotProposal, ...] = Field(default_factory=tuple, max_length=4)
-    role_queries: dict[str, RoleQueryProposal] = Field(default_factory=dict)
-    evidence: dict[str, str] = Field(default_factory=dict)
-    semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
-    confidence: float = Field(default=0.0, ge=0, le=1)
-
-    @model_validator(mode="after")
-    def validate_stop_range(self) -> "PlanningIntentProposal":
-        if self.minimum_stops > self.maximum_stops:
-            raise ValueError("minimum_stops cannot exceed maximum_stops")
-        return self
 
 
 class PlanningIntentDecision(BaseModel):
@@ -181,8 +122,8 @@ class PlanningIntentDecision(BaseModel):
     proposal_present: bool = False
     proposal_accepted: bool = False
     proposal_rejection_reason: str | None = None
-    # New V2 wire proposal, retained alongside the compiled legacy-shaped
-    # PlanningIntent so old checkpoints and API consumers remain readable.
+    # Wire proposal remains separate from semantic intent and is compiled into
+    # executable PlanSpecs by the Harness.
     structure_proposal: PlanStructureProposal | None = None
 
 
