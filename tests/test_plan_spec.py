@@ -3,7 +3,8 @@ import unittest
 from app.domain.constraints import ConstraintSource, ConstraintValue, StopRole
 from app.domain.planning import PlanPace, PlanningIntent
 from app.services.plan_spec import PlanSpec
-from app.services.planning import StructureCompiler, _select_plan_specs
+from app.services.planning import _build_planning_intent
+from app.services.plan_spec_compiler import PlanSpecCompiler
 from tests.test_planning import planning_constraints
 
 
@@ -35,11 +36,15 @@ class PlanSpecTest(unittest.TestCase):
                 ),
             }
         )
-        compilation = StructureCompiler().compile(constraints)
+        compilation = PlanSpecCompiler().compile_explicit_structure(
+            constraints,
+            _build_planning_intent(constraints),
+        )
 
+        self.assertIsNotNone(compilation)
         self.assertIsNone(compilation.conflict)
-        self.assertEqual(len(compilation.specs or ()), 1)
-        spec = compilation.specs[0]
+        self.assertEqual(len(compilation.preferred_specs), 1)
+        spec = compilation.preferred_specs[0]
         self.assertIsInstance(spec, PlanSpec)
         self.assertEqual(spec.roles, (StopRole.ACTIVITY, StopRole.DINNER))
 
@@ -47,7 +52,7 @@ class PlanSpecTest(unittest.TestCase):
         constraints = planning_constraints(time_end="21:00")
         intent = PlanningIntent(pace=PlanPace.RELAXED)
 
-        specs = _select_plan_specs(constraints, intent)
+        specs = PlanSpecCompiler().compile(constraints, intent, None).preferred_specs
 
         self.assertTrue(specs)
         self.assertTrue(all(isinstance(spec, PlanSpec) for spec in specs))

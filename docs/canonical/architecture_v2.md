@@ -10,7 +10,7 @@
 
 ### 当前状态判读
 
-| 内容 | Resume V2 当前状态 |
+| 内容 | Resume V2 当前状态（冻结发布 tag） |
 | --- | --- |
 | Graph、反问恢复、Enrichment、Provider、Planner、Verifier | 已实现 |
 | Wire Proposal、PlanSpecCompiler、Beam、Hybrid Retrieval、Grounded Advisor | 已实现并纳入发布评测 |
@@ -20,6 +20,8 @@
 | 任意城市、实时 POI/库存/价格 | 超出当前发布范围 |
 
 本文后续章节描述目标边界、接口演进和取舍；出现“应支持”“目标形态”“后续”时，不得当作当前能力。
+
+> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。详见 [current/resume_v2_architecture.md](../current/resume_v2_architecture.md) 与 [面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
 
 当本文档与早期的 [`mock_design.md`](../archive/v1/mock_design.md)、[`router_extractor_design_v2_draft.md`](../archive/router/router_extractor_design_v2_draft.md) 或实验代码冲突时，以本文档为准。早期文档保留为设计演进记录，不再作为实现契约。
 
@@ -88,7 +90,7 @@ V2 的目标形态是 **由状态图编排的受约束规划 Agent**：LLM 负�
 | --- | --- | --- |
 | 对话控制 | 解释操作、对象、引用、Patch 和自然语言偏好 | 校验命令、解析权限与会话归属、选择合法能力 |
 | 信息获取 | 在可选语义信息不足时提出 `InformationNeed`，选择白名单只读能力 | 必需事实调度、工具参数校验、超时、缓存、预算和结果验证 |
-| 方案语义 | 形成 `PlanningIntent`，影响语义查询、角色覆盖、站数范围、节奏和软排序 | 编译合法结构、构造候选、计算路线时间和预算、执行 Verifier |
+| 方案语义（目标边界） | 有证据的软语义与结构提案 | 将 proposal 编译为 concrete `PlanSpec`；搜索、Scheduler、Provider 和 Verifier 负责候选及可行性 |
 | 迭代与停止 | 在观察结构化结果后提议继续检索、询问用户或 `FINISH` | 最大轮数、无进展检测、阻塞缺口、可行结果和副作用确认决定实际终止 |
 | 解释与记忆 | 比较已验证方案、提出解释和 `MemoryCandidate` | 不允许创造事实；长期记忆的 scope、确认、冲突和删除规则由代码执行 |
 
@@ -299,11 +301,13 @@ flowchart LR
 | finalist 验证 | 相邻路线、营业、Availability、返程 | 代码按预算获取；重建真实时间线并进入 Verifier |
 | 执行前 | 最新价格、库存、取消政策 | ExecutionGraph 再次核验；旧确认快照失效时必须重确认 |
 
-规划不是由模型临场编写自由文本日程。`PlanningIntent` 可以提出带证据的角色覆盖、先后偏好、站数范围、节奏、主题和语义查询；`StructureCompiler` 把这些约束编译为合法结构候选。模型不能直接创造任意骨架，也不决定 Constraint Strength。第一版不再增加单独的 LLM `StructureRanker`：抽象结构偏好由 `PlanningIntent` 一次表达、代码评分，避免两次模型调用重复判断。
+**当前实现（S-CORE1A/B/C）：** 模型只输出一个版本化 `PlanStructureProposal v3`，同时承载受约束的角色序列、optional slots、pace、grounded objectives 和 role queries。Harness 投影出仅包含 `pace + semantic_request` 的内部 `PlanningIntent`；PlanSpecCompiler 把 Proposal、用户显式结构或 Rule baseline 编译为 concrete `PlanSpec[]`。模型不输出 PlanSpec，也不决定 Constraint Strength。Compiler 判断结构是否合法、能否编译；候选召回、时间轴/路线/营业可行性由后续搜索和 Verifier 判断。模型首选路径没有可行方案时，至多一次完整 Rule 恢复会重新使用 Rule 语义检索和 Rule PlanSpec，沿用同一验证路径，不再次调用 LLM。
 
-`PlanCritic` 只在少量已通过 Verifier 的具体方案上评价语义匹配和体验连贯性。它与 `PlanningIntent` 的职责不同：前者评价完整可行方案，后者在构造前描述用户想要的结构和检索方向。若 deterministic 分数已明显区分候选或请求没有模糊体验语义，可以跳过 Critic。
+**早期目标草案（非当前契约）：** 本文后续有些段落仍描述 `PlanningIntent` 直接携带角色覆盖/站数范围和 `StructureCompiler`。这些名称与字段保留作演进记录，不应被当作现行实现；当前结构模型是 `PlanStructureProposal` 和 `PlanSpec`。
 
-M2 已用显式 `PlanSkeleton`、确定性搜索和模板 Presenter 建立可复现基线。后续把骨架内部演进为有限规划语法、接入 LLM Adapter 或替换组合算法时，继续保持 `PlanningService.plan(...) -> CandidateSet` 的外部 Interface；若修改场景需要更多输入，应引入版本化 `PlanningRequest`，而不是不断给方法增加位置参数。
+目标设计中的 `PlanCritic` 只在少量已通过 Verifier 的具体方案上评价语义匹配和体验连贯性。它尚非当前 S-CORE1 Planner 的必经节点；当前构造前软语义来自 Proposal 投影出的 `PlanningIntent`，结构来自独立编译出的 `PlanSpec`。
+
+M2 的历史实现曾用显式 `PlanSkeleton`、确定性搜索和模板 Presenter 建立可复现基线。该结构已由 S-CORE1 的 `PlanSpec` 取代；`PlanningService.plan(...) -> CandidateSet` 的外部服务边界保持不变。
 
 ### 5.4 ExecutionSubgraph
 
@@ -349,8 +353,9 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | `ToolObservation` | ToolBroker 返回的结构化观察 | data、source、freshness、confidence、errors |
 | `AgentDecision` | 模型对下一步的结构化提议 | continue、ask user、request capability、finish；由 Harness 校验 |
 | `PlanningRequest` | PlanningService 的版本化输入包 | normalized constraints、PlanningIntent、前置事实、可用记忆影响、previous plan/locks、budgets |
-| `PlanningIntent` | 规划语义输入 | required/optional roles、precedence、count range、pace、themes、evidence |
-| `PlanSkeleton` | 不含具体 POI 的结构候选 | ordered/partial roles、required/optional、count range、eligibility、structure score |
+| `PlanningIntent` | 规划语义输入 | `pace`、`semantic_request`（软目标、检索 query 与 evidence） |
+| `PlanStructureProposal` | 模型 Wire 结构提案 | 有序 slots、core/optional、pace、grounded objectives、role queries、evidence refs |
+| `PlanSpec` | 可执行结构 | concrete 有序 StopRole 序列、稳定 spec ID；不含 optional slot |
 | `Stop` | 通用停靠点 | resource、arrival、start、end、cost、evidence |
 | `RouteLeg` | 停靠点间路线 | mode、distance、duration、geometry、source、degraded |
 | `Plan` | 完整方案 | stops、route legs、score breakdown、tradeoffs、execution actions |
@@ -518,11 +523,11 @@ Enrichment 是确定性 Module，按顺序执行：
 
 ## 8. 规划引擎
 
-### 8.1 行程骨架
+### 8.1 行程结构（目标文档中的历史方案已被替代）
 
-`Stop Role` 表示一站在行程中的语义作用，例如 `ACTIVITY`、`LUNCH`、`DINNER` 或 `BREAK`；它不等于资源类别，同一家餐厅可以承担午餐或晚餐。`PlanSkeleton` 只定义有序或部分有序的角色、必选/可选角色和站数范围，不预先锁定具体 POI，也不等于 `PlanStrategy`。
+`Stop Role` 表示一站在行程中的语义作用，例如 `ACTIVITY`、`LUNCH`、`DINNER` 或 `BREAK`；它不等于资源类别，同一家餐厅可以承担午餐或晚餐。当前实现以 `PlanStructureProposal` 表达模型的有序结构提议，以 `PlanSpec` 表达已编译的 concrete 有序角色序列；不存在 `PlanSkeleton` 领域模型或转换 Adapter。详见 current/ 架构文档。
 
-第一版使用少量版本化的显式骨架，示例包括：
+以下内容是早期 M2 的历史方案快照，而非当前 Planner 契约：
 
 | 站数 | 示例骨架 | 典型适用条件 |
 | --- | --- | --- |
@@ -567,7 +572,7 @@ Enrichment 是确定性 Module，按顺序执行：
 
 首期不因算法名提前引入 Beam Search。若评测证明完整枚举出现组合或延迟瓶颈，内部组合器可按角色逐层扩展，每层只保留宽度 `K` 的部分行程。部分状态必须包含当前位置、当前时间、已覆盖角色、剩余必选角色、预算、缓冲和 `FINISH` 动作；不能以“时间未满就继续加站”作为停止规则。
 
-目标形态把显式骨架推广为有限的角色状态机或规划语法：`PlanningIntent` 提供必选/可选角色、先后关系和站数范围，确定性代码将其编译为合法路径。该演进改变内部实现，不改变 `PlanningService.plan(...)` 外部接口。Beam Search 是组合规模扩大后的可替换实现，不是该目标形态成立的前提。
+早期目标草案设想把显式骨架推广为有限角色状态机；后续 S-CORE1 已采用更直接的 Proposal→Compiler→PlanSpec 结构链，Beam Search 也已成为默认搜索器。此处保留的是演进记录，不是待实现要求。
 
 ### 8.3 CandidateRetriever 与 RAG
 
@@ -601,9 +606,9 @@ retrieve(planning_query, structured_filters, retrieval_budget) -> RetrievedCandi
 
 ### 8.5 LLM 在规划中的职责
 
-LLM 可以实质影响规划，但只通过结构化、有证据、可降级的接口：
+当前 LLM 规划入口是一个 `PlanStructureProposal v3`，Harness 将它投影为语义 `PlanningIntent` 并编译为 `PlanSpec`。本节剩余内容中的 Critic、自动语义修复等仍属目标能力，不应误读为当前实现：
 
-- `PlanningIntent`：从模糊表达中提出角色覆盖、先后关系、站数范围、节奏和主题；确定性规则负责 Constraint Strength、合法骨架和可行性。
+- `PlanStructureProposal`：从用户语义提出受限结构、soft objectives 与 grounded role queries；确定性规则负责硬约束、结构合法性和可行性。
 - 语义候选分：评价“有设计感”“适合聊天”“松弛”等难以规则化的偏好，可用于召回、部分行程启发或已验证候选的有界加分。
 - `PlanCritic`：只对少量已通过 Verifier 的候选评价偏好匹配与体验连贯性，输出结构化分数、理由和证据引用；它可以改变可行候选之间的顺序，但不能复活违规候选。
 - Presenter：根据 Plan、Score Breakdown、Source Facts、Warnings、Tradeoffs 和 Assumptions 解释为何选择该站数、顺序和地点，并比较方案差异。
@@ -611,7 +616,7 @@ LLM 可以实质影响规划，但只通过结构化、有证据、可降级的�
 
 LLM 不计算或裁决路线、时间、预算、营业、库存和 Hard Constraint，不发明 POI 或来源事实，不静默放宽约束，也不运行无界规划循环。所有可选 LLM 步骤必须有确定性回退，记录模型、Prompt、规则和输出版本，并通过离线评测证明相对规则基线的收益。
 
-一个只要求“帮我安排一家晚饭”的命令应由 `PlanningIntent.minimum_stops=1` 与单角色规划语法自然表达，而不是被迫进入双站模板。对于没有模糊语义、只有一个明确目标的请求，允许直接使用确定性 Adapter，避免为了 Agent 形式增加无收益调用。
+早期目标草案曾要求支持“只安排一家晚饭”的单角色结构。当前 `PlanSpec` 已可表达单个 `DINNER` slot；不要再用 `PlanningIntent.minimum_stops` 描述这一结构要求。对于没有模糊语义、只有一个明确目标的请求，允许使用确定性 Rule 路径，避免为了 Agent 形式增加无收益调用。
 
 ## 9. Provider、模型工具与 MCP
 

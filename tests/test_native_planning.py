@@ -33,18 +33,22 @@ from app.domain.providers import (
     WeatherFact,
     WeatherRequest,
 )
+from app.domain.semantics import SemanticRequest
 from app.providers.availability import MockAvailabilityProvider
 from app.services.catalog import InMemoryCatalog
+from app.services.candidate_retriever import (
+    RetrievalRequest,
+    RuleBasedCandidateRetriever,
+)
 from app.services.planning import (
     PlanningService,
-    StructureCompiler,
     _apply_dynamic_strategies,
     _build_planning_intent,
     _diversify_plans,
     _rank_plan_specs,
-    _select_plan_specs,
 )
 from app.services.plan_spec import PlanSpec
+from app.services.plan_spec_compiler import PlanSpecCompiler
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
 from app.services.plan_verifier import PlanVerifier
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
@@ -134,10 +138,24 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         )
         baseline = RuleBasedPlanningIntentProvider().decide(constraints)
 
+        class RecordingRetriever:
+            def __init__(self) -> None:
+                self.requests: list[RetrievalRequest] = []
+                self.delegate = RuleBasedCandidateRetriever()
+
+            def retrieve(self, request: RetrievalRequest, **kwargs: object):
+                self.requests.append(request)
+                return self.delegate.retrieve(request, **kwargs)
+
+        retriever = RecordingRetriever()
+
         class FixedStructureProvider:
             def decide(self, _: object) -> PlanningIntentDecision:
                 return baseline.model_copy(
                     update={
+                        "intent": baseline.intent.model_copy(
+                            update={"semantic_request": SemanticRequest()}
+                        ),
                         "source": "llm",
                         "model_name": "fake",
                         "attempts": 1,
@@ -161,17 +179,143 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 statuses={"break": AvailabilityStatus.UNAVAILABLE}
             ),
             planning_intent_provider=FixedStructureProvider(),
+            candidate_retriever=retriever,
         ).plan(constraints)
 
         self.assertTrue(result.plans)
+        self.assertTrue(result.planning_intent_structure_fallback_attempted)
         self.assertTrue(result.planning_intent_structure_fallback_used)
         self.assertEqual(result.planning_intent_structure_fallback_stage, "route")
-        self.assertIn("availability", result.planning_intent_fallback_failure_fields)
+        self.assertEqual(
+            result.planning_intent_structure_fallback_reason,
+            "preferred_route_verification_failed",
+        )
+        self.assertIn("availability", result.planning_intent_preferred_failure_fields)
+        self.assertEqual(result.semantic_request, baseline.intent.semantic_request)
+        self.assertGreater(len(retriever.requests), 3)
+        self.assertTrue(
+            all(
+                request.semantic_request == SemanticRequest()
+                for request in retriever.requests[:3]
+            )
+        )
+        self.assertTrue(
+            all(
+                request.semantic_request == baseline.intent.semantic_request
+                for request in retriever.requests[3:]
+            )
+        )
         self.assertTrue(
             all(
                 StopRole.BREAK not in {stop.role for stop in plan.stops}
                 for plan in result.plans
             )
+        )
+
+    def test_preferred_route_budget_leaves_capacity_for_rule_fallback(self) -> None:
+        constraints = planning_constraints(budget=1_000, time_end="22:00").model_copy(
+            update={
+                "time_window": ConstraintValue[TimeWindow](
+                    value=TimeWindow(start="11:00", end="22:00"),
+                    source=ConstraintSource.USER_INFERRED,
+                ),
+                "preferences": ["浪漫"],
+            }
+        )
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v3",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "break", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "core"},
+            ],
+            pace="relaxed",
+        )
+        baseline = RuleBasedPlanningIntentProvider().decide(constraints)
+
+        class FixedStructureProvider:
+            def decide(self, _: object) -> PlanningIntentDecision:
+                return baseline.model_copy(
+                    update={
+                        "source": "llm",
+                        "model_name": "fake",
+                        "attempts": 1,
+                        "proposal_present": True,
+                        "proposal_accepted": True,
+                        "structure_proposal": proposal,
+                    }
+                )
+
+        class SlowPreferredThenFastRouteProvider(FixedReplayRouteProvider):
+            def route(self, request: object):
+                # Preferred three-stop candidates consume the first bounded
+                # route calls and fail the time window; Rule fallback gets the
+                # reserved calls with realistic route durations.
+                self.duration_minutes = 300 if len(self.requests) < 15 else 5
+                return super().route(request)
+
+        catalog = InMemoryCatalog(
+            [
+                *[
+                    candidate(
+                        f"activity-{index}",
+                        ResourceType.ACTIVITY,
+                        f"活动 {index}",
+                        ["activity"],
+                    )
+                    for index in range(6)
+                ],
+                candidate("break", ResourceType.CAFE, "咖啡馆", ["咖啡"]),
+                *[
+                    candidate(
+                        f"dinner-{index}",
+                        ResourceType.RESTAURANT,
+                        f"晚餐 {index}",
+                        ["餐厅"],
+                    )
+                    for index in range(4)
+                ],
+            ]
+        )
+        route_provider = SlowPreferredThenFastRouteProvider(distance_km=1)
+        result = PlanningService(
+            catalog=catalog,
+            route_provider=route_provider,
+            availability_provider=MockAvailabilityProvider(
+                statuses={"break": AvailabilityStatus.UNAVAILABLE}
+            ),
+            planning_intent_provider=FixedStructureProvider(),
+        ).plan(constraints)
+
+        traces = {trace.skeleton_id: trace for trace in result.search_traces}
+        self.assertTrue(result.plans)
+        self.assertTrue(
+            result.planning_intent_structure_fallback_used,
+            msg=(
+                f"stage={result.planning_intent_structure_fallback_stage}; "
+                f"requests={len(route_provider.requests)}; "
+                f"traces={[(key, value.route_provider_requests) for key, value in traces.items()]}"
+            ),
+        )
+        self.assertEqual(result.planning_intent_structure_fallback_stage, "route")
+        self.assertGreater(
+            sum(
+                trace.route_provider_requests
+                for spec_id, trace in traces.items()
+                if spec_id != "activity-meal-v1"
+            ),
+            0,
+            msg=repr(
+                [
+                    (spec_id, trace.route_provider_requests)
+                    for spec_id, trace in traces.items()
+                ]
+            ),
+        )
+        self.assertGreater(traces["activity-meal-v1"].route_provider_requests, 0)
+        self.assertLessEqual(
+            sum(trace.route_provider_requests for trace in result.search_traces),
+            24,
         )
 
     def test_beam_gives_later_skeleton_a_budget_after_earlier_failure(self) -> None:
@@ -291,13 +435,27 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         default_intent = _build_planning_intent(planning_constraints(time_end="22:00"))
 
         self.assertEqual(
-            [item.spec_id for item in _select_plan_specs(dinner_constraints, dinner_intent)],
+            [
+                item.spec_id
+                for item in PlanSpecCompiler()
+                .compile(dinner_constraints, dinner_intent, None)
+                .preferred_specs
+            ],
             ["dinner-only-v1"],
         )
         self.assertEqual(set(PlanningIntent.model_fields), {"pace", "semantic_request"})
         self.assertNotIn(
             "dinner-only-v1",
-            {item.spec_id for item in _select_plan_specs(planning_constraints(time_end="22:00"), default_intent)},
+            {
+                item.spec_id
+                for item in PlanSpecCompiler()
+                .compile(
+                    planning_constraints(time_end="22:00"),
+                    default_intent,
+                    None,
+                )
+                .preferred_specs
+            },
         )
 
     def test_unsupported_explicit_structure_is_rejected_instead_of_using_default_plan(self) -> None:
@@ -340,11 +498,15 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             }
         )
 
-        compilation = StructureCompiler().compile(constraints)
+        compilation = PlanSpecCompiler().compile_explicit_structure(
+            constraints,
+            _build_planning_intent(constraints),
+        )
 
+        self.assertIsNotNone(compilation)
         self.assertIsNone(compilation.conflict)
         self.assertEqual(
-            [item.spec_id for item in compilation.specs or ()],
+            [item.spec_id for item in compilation.preferred_specs],
             ["activity-meal-v1"],
         )
 
@@ -384,11 +546,15 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             }
         )
 
-        compilation = StructureCompiler().compile(constraints)
+        compilation = PlanSpecCompiler().compile_explicit_structure(
+            constraints,
+            _build_planning_intent(constraints),
+        )
 
+        self.assertIsNotNone(compilation)
         self.assertIsNone(compilation.conflict)
         self.assertEqual(
-            [item.spec_id for item in compilation.specs or ()],
+            [item.spec_id for item in compilation.preferred_specs],
             ["activity-meal-v1"],
         )
 

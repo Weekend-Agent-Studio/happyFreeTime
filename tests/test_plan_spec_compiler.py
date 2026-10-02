@@ -83,7 +83,7 @@ class PlanSpecCompilerTest(unittest.TestCase):
             all(not hasattr(spec, "optional_roles") for spec in choices.preferred_specs)
         )
 
-    def test_explicit_roles_and_count_are_not_silently_removed(self) -> None:
+    def test_explicit_roles_and_count_override_model_structure(self) -> None:
         constraints = self.constraints.model_copy(
             update={
                 "exact_stop_count": ConstraintValue[int](
@@ -107,9 +107,14 @@ class PlanSpecCompilerTest(unittest.TestCase):
             RuleBasedPlanningIntentProvider().decide(constraints).intent,
             proposal,
         )
-        self.assertEqual(choices.proposal_status, "rejected")
-        self.assertEqual(choices.diagnostic_code, "explicit_roles_not_preserved")
-        self.assertFalse(choices.preferred_specs)
+        self.assertTrue(choices.explicit_structure)
+        self.assertEqual(choices.proposal_status, "not_used")
+        self.assertIsNone(choices.conflict)
+        self.assertEqual(
+            [spec.roles for spec in choices.preferred_specs],
+            [(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER)],
+        )
+        self.assertFalse(choices.fallback_specs)
 
     def test_invalid_meal_order_is_rejected_with_rule_fallback(self) -> None:
         proposal = PlanStructureProposal(

@@ -741,6 +741,11 @@ def create_app(
                     if candidate_set
                     else False
                 ),
+                planning_intent_structure_fallback_attempted=(
+                    candidate_set.planning_intent_structure_fallback_attempted
+                    if candidate_set
+                    else False
+                ),
                 planning_intent_structure_fallback_reason=(
                     candidate_set.planning_intent_structure_fallback_reason
                     if candidate_set

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
 from typing import Literal
 
 from app.domain.constraints import NormalizedConstraints, StopRole
 from app.domain.planning import (
+    ConstraintConflict,
     PlanStructureProposal,
     PlanPace,
     PlanningIntent,
@@ -23,9 +24,11 @@ class PlanSpecChoices:
     fallback_specs: tuple[PlanSpec, ...] = ()
     proposal_status: Literal["not_used", "compiled", "rejected"] = "not_used"
     diagnostic_code: str | None = None
+    conflict: ConstraintConflict | None = None
+    explicit_structure: bool = False
 
 
-def build_rule_plan_specs(
+def _build_rule_plan_specs(
     constraints: NormalizedConstraints,
     semantics: PlanningIntent,
     *,
@@ -123,13 +126,67 @@ def build_rule_plan_specs(
 class PlanSpecCompiler:
     """Validate proposal semantics and compile a bounded set of PlanSpecs."""
 
+    def compile_explicit_structure(
+        self,
+        constraints: NormalizedConstraints,
+        rule_baseline: PlanningIntent,
+    ) -> PlanSpecChoices | None:
+        """Preflight an explicit role/count request before a model decision."""
+
+        exact_stop_count = (
+            constraints.exact_stop_count.value
+            if constraints.exact_stop_count is not None
+            else None
+        )
+        required_roles = _explicit_roles(constraints)
+        if exact_stop_count is None and not required_roles:
+            return None
+
+        candidates = _build_rule_plan_specs(
+            constraints,
+            rule_baseline,
+            include_all_shapes=True,
+        )
+        matches = _explicit_matches(
+            exact_stop_count=exact_stop_count,
+            required_roles=required_roles,
+            candidates=candidates,
+        )
+        if matches:
+            return PlanSpecChoices(
+                preferred_specs=matches,
+                explicit_structure=True,
+            )
+
+        fields = []
+        if exact_stop_count is not None:
+            fields.append("exact_stop_count")
+        if required_roles:
+            fields.append("required_stop_roles")
+        fields.append("plan_structure")
+        return PlanSpecChoices(
+            conflict=ConstraintConflict(
+                code="UNSUPPORTED_PLAN_STRUCTURE",
+                message="当前请求指定的站点数量或角色组合无法编译为可执行结构。",
+                fields=fields,
+                relaxation_options=[
+                    "调整站点数量或角色组合",
+                    "移除明确的结构限制，交给系统选择默认骨架",
+                ],
+            ),
+            explicit_structure=True,
+        )
+
     def compile(
         self,
         constraints: NormalizedConstraints,
         rule_baseline: PlanningIntent,
         proposal: PlanStructureProposal | None,
     ) -> PlanSpecChoices:
-        fallback = build_rule_plan_specs(constraints, rule_baseline)
+        explicit = self.compile_explicit_structure(constraints, rule_baseline)
+        if explicit is not None:
+            return explicit
+        fallback = _build_rule_plan_specs(constraints, rule_baseline)
         if proposal is None:
             return PlanSpecChoices(
                 preferred_specs=fallback,
@@ -298,6 +355,110 @@ def roles_compatible(required: StopRole, actual: StopRole) -> bool:
     ) or (
         required == StopRole.MEAL and actual in {StopRole.LUNCH, StopRole.DINNER}
     )
+
+
+def _explicit_matches(
+    *,
+    exact_stop_count: int | None,
+    required_roles: tuple[StopRole, ...],
+    candidates: tuple[PlanSpec, ...],
+) -> tuple[PlanSpec, ...]:
+    # A single unspecified stop is ambiguous: do not choose a role for the user.
+    if exact_stop_count == 1 and not required_roles:
+        return ()
+
+    ranked: list[tuple[int, int, int, PlanSpec, tuple[int, ...]]] = []
+    for candidate_index, spec in enumerate(candidates):
+        if exact_stop_count is not None and len(spec.roles) != exact_stop_count:
+            continue
+        # A lone meal is a meal requirement, not an instruction to collapse the
+        # whole outing into a single-stop plan.
+        if (
+            exact_stop_count is None
+            and len(required_roles) == 1
+            and required_roles[0] in {StopRole.LUNCH, StopRole.DINNER}
+            and len(spec.roles) == 1
+        ):
+            continue
+        if not required_roles:
+            ranked.append((0, 0, candidate_index, spec, ()))
+            continue
+        assignment = _required_role_assignment(required_roles, spec.roles)
+        if assignment is None:
+            continue
+        penalty, matched_indices = assignment
+        # Prefer the smallest structure preserving the user's ordered roles;
+        # an exact meal role beats mapping a generic MEAL slot when tied.
+        ranked.append(
+            (
+                len(spec.roles) - len(required_roles),
+                penalty,
+                candidate_index,
+                spec,
+                matched_indices,
+            )
+        )
+    ranked.sort(key=lambda item: item[:3])
+    if required_roles and ranked:
+        best_key = ranked[0][:2]
+        return tuple(
+            _bind_explicit_roles(item[3], required_roles, item[4])
+            for item in ranked
+            if item[:2] == best_key
+        )
+    return tuple(item[3] for item in ranked)
+
+
+def _required_role_assignment(
+    required_roles: tuple[StopRole, ...],
+    actual_roles: tuple[StopRole, ...],
+) -> tuple[int, tuple[int, ...]] | None:
+    """Find the cheapest ordered subsequence assignment."""
+
+    if len(required_roles) > len(actual_roles):
+        return None
+
+    def search(
+        required_index: int,
+        slot_index: int,
+    ) -> tuple[int, tuple[int, ...]] | None:
+        if required_index == len(required_roles):
+            return 0, ()
+        if slot_index == len(actual_roles):
+            return None
+        required = required_roles[required_index]
+        options: list[tuple[int, tuple[int, ...]]] = []
+        skipped = search(required_index, slot_index + 1)
+        if skipped is not None:
+            options.append(skipped)
+        actual = actual_roles[slot_index]
+        if roles_compatible(required, actual):
+            remainder = search(required_index + 1, slot_index + 1)
+            if remainder is not None:
+                options.append(
+                    (
+                        remainder[0] + (0 if required == actual else 1),
+                        (slot_index, *remainder[1]),
+                    )
+                )
+        return min(options, key=lambda item: (item[0], item[1])) if options else None
+
+    return search(0, 0)
+
+
+def _bind_explicit_roles(
+    spec: PlanSpec,
+    required_roles: tuple[StopRole, ...],
+    matched_indices: tuple[int, ...],
+) -> PlanSpec:
+    roles = list(spec.roles)
+    for required, index in zip(required_roles, matched_indices, strict=True):
+        if roles[index] == StopRole.MEAL and required in {
+            StopRole.LUNCH,
+            StopRole.DINNER,
+        }:
+            roles[index] = required
+    return replace(spec, roles=tuple(roles))
 
 
 def _stable_plan_spec_id(roles: tuple[StopRole, ...]) -> str:

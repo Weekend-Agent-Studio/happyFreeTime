@@ -22,7 +22,6 @@ from app.domain.semantics import SoftObjective
 from app.services.planning import (
     PlanningService,
     _build_planning_intent,
-    _select_plan_specs,
 )
 from app.services.catalog import InMemoryCatalog
 from app.services.plan_spec_compiler import PlanSpecCompiler
@@ -462,7 +461,8 @@ class PlanningIntentProviderTest(unittest.TestCase):
             proposal,
         )
 
-        self.assertEqual(choices.proposal_status, "compiled")
+        self.assertEqual(choices.proposal_status, "not_used")
+        self.assertTrue(choices.explicit_structure)
         self.assertEqual(
             {spec.roles for spec in choices.preferred_specs},
             {(StopRole.ACTIVITY,)},
@@ -495,7 +495,9 @@ class PlanningIntentProviderTest(unittest.TestCase):
                 self.assertEqual(
                     {
                         spec.roles
-                        for spec in _select_plan_specs(constraints, decision.intent)
+                        for spec in PlanSpecCompiler()
+                        .compile(constraints, decision.intent, None)
+                        .preferred_specs
                     },
                     {(role,)},
                 )
@@ -759,10 +761,11 @@ class PlanningIntentProviderTest(unittest.TestCase):
         self.assertTrue(
             all(1 <= len(spec.roles) <= 4 for spec in llm_choices.preferred_specs)
         )
-        rule_specs = _select_plan_specs(
+        rule_specs = PlanSpecCompiler().compile(
             constraints,
             RuleBasedPlanningIntentProvider().decide(constraints).intent,
-        )
+            None,
+        ).preferred_specs
         self.assertGreater(
             max(len(spec.roles) for spec in rule_specs),
             max(len(spec.roles) for spec in llm_choices.preferred_specs),

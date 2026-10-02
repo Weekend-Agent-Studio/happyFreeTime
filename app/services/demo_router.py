@@ -258,8 +258,9 @@ class DemoRouter:
         # Explicit multi-role requests are still a closed, deterministic
         # extraction. They describe required slots; an explicitly exclusive
         # “只/仅/就安排 A 和 B” also fixes the total count. A specific
-        # DINNER/LUNCH role is retained so the compiler can bind it to the
-        # generic MEAL template without inventing a new skeleton.
+        # DINNER/LUNCH role is retained so PlanSpecCompiler can bind it to a
+        # generic MEAL role where appropriate, without hard-coding another
+        # shape here.
         role_mentions: list[tuple[int, StopRole, str]] = []
         for role, patterns in (
             (

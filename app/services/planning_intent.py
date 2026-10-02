@@ -34,7 +34,6 @@ from app.domain.planning import (
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 from app.services.model_errors import model_failure_reason
-from app.services.plan_spec_compiler import build_rule_plan_specs
 
 
 PROMPT_VERSION = "planning-intent.v3"

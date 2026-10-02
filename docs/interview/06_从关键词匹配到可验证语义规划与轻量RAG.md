@@ -2,6 +2,8 @@
 
 _HappyFreeTime 设计复盘与面试材料 · 基于 2026-09-09 代码审查和需求讨论 · 本文描述提案，不代表能力已经实现_
 
+> 本文是 2026-09-09 的设计推导快照，后续部分提案已落地，个别“当前问题”已过时。现行实现请以[当前架构](../current/resume_v2_architecture.md)、[规划结构收敛说明](08_PlanSpecCompiler与结构提案收敛.md)和发布评测为准；本文只用于解释设计动机，不作为当前能力清单。
+
 ---
 
 ## 📋 一页结论
@@ -58,7 +60,7 @@ HappyFreeTime 当前的问题不只是“LLM 权限太小”，而是 **LLM 理�
 
 这意味着当前“召回”并不是数据库模糊查询，而是把 JSON 候选加载到内存后进行过滤和排序。
 
-### 当前语义是如何逐层丢失的
+### 当时观察到的语义损失链路（2026-09-09 历史快照）
 
 ```mermaid
 flowchart LR
@@ -81,7 +83,7 @@ flowchart LR
     class tag_match risk_style
 ```
 
-| 环节 | 代码事实 | 造成的限制 |
+| 环节（当时） | 代码事实快照 | 当时观察到的限制 |
 | --- | --- | --- |
 | **TurnInterpreter** | 已通过结构化输出生成 `Interpretation` 和 `ConversationCommand`，但 Prompt 明确要求模糊日期、时间、距离只保留文本，中文时钟主要交给 Enrichment | 模型即使理解“一整天”“三点二十出发”，也未必有被允许的稳定字段表达全部语义 |
 | **Demo Router** | 离线 Demo 依赖有限词表和正则，适合作为可复现 Adapter | 如果运行时实际走 Demo Adapter，用户会误以为 LLM 已调用，长尾表达会直接漏掉 |
