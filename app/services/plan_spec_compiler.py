@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from itertools import combinations
 from typing import Literal
 
-from app.domain.constraints import NormalizedConstraints, StopRole
+from app.domain.constraints import PlanRequest, StopRole
 from app.domain.planning import (
     ConstraintConflict,
     PlanStructureProposal,
@@ -29,7 +29,7 @@ class PlanSpecChoices:
 
 
 def _build_rule_plan_specs(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     semantics: PlanningIntent,
     *,
     include_all_shapes: bool = False,
@@ -128,7 +128,7 @@ class PlanSpecCompiler:
 
     def compile_explicit_structure(
         self,
-        constraints: NormalizedConstraints,
+        constraints: PlanRequest,
         rule_baseline: PlanningIntent,
     ) -> PlanSpecChoices | None:
         """Preflight an explicit role/count request before a model decision."""
@@ -179,7 +179,7 @@ class PlanSpecCompiler:
 
     def compile(
         self,
-        constraints: NormalizedConstraints,
+        constraints: PlanRequest,
         rule_baseline: PlanningIntent,
         proposal: PlanStructureProposal | None,
     ) -> PlanSpecChoices:
@@ -219,7 +219,7 @@ class PlanSpecCompiler:
     def _validate_proposal(
         self,
         proposal: PlanStructureProposal,
-        constraints: NormalizedConstraints,
+        constraints: PlanRequest,
         baseline: PlanningIntent,
     ) -> None:
         slots = proposal.slots
@@ -282,7 +282,7 @@ class PlanSpecCompiler:
     def _proposal_specs(
         self,
         proposal: PlanStructureProposal,
-        constraints: NormalizedConstraints,
+        constraints: PlanRequest,
     ) -> tuple[PlanSpec, ...]:
         slots = proposal.slots
         optional_indexes = tuple(
@@ -323,7 +323,7 @@ class PlanSpecCompiler:
         )
 
 
-def _explicit_roles(constraints: NormalizedConstraints) -> tuple[StopRole, ...]:
+def _explicit_roles(constraints: PlanRequest) -> tuple[StopRole, ...]:
     if constraints.required_stop_roles is None:
         return ()
     return tuple(constraints.required_stop_roles.value)
@@ -481,7 +481,7 @@ def _stable_plan_spec_id(roles: tuple[StopRole, ...]) -> str:
     return "llm-" + "-".join(role.value for role in roles) + "-v2"
 
 
-def _available_minutes(constraints: NormalizedConstraints) -> int:
+def _available_minutes(constraints: PlanRequest) -> int:
     if constraints.time_window is None:
         return 24 * 60
     window = constraints.time_window.value

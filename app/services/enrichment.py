@@ -17,7 +17,7 @@ from app.domain.constraints import (
     EnrichmentResult,
     GeoLocation,
     Interpretation,
-    NormalizedConstraints,
+    PlanRequest,
     PartyProfile,
     StopRole,
     TimeScope,
@@ -908,7 +908,7 @@ class EnrichmentService:
                 rule_id="location.session_default.v1",
             )
 
-        constraints = NormalizedConstraints(
+        constraints = PlanRequest(
             date=date_value,
             time_scope=time_scope_value,
             time_window=time_value,

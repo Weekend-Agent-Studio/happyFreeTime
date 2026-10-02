@@ -13,7 +13,7 @@ from app.domain.catalog import (
     VerificationStatus,
 )
 from app.domain.presentation import PoiGalleryItem, PoiPresentation
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import PlanRequest
 from app.services.catalog import CatalogDataError, InMemoryCatalog, SnapshotCatalog
 
 
@@ -101,7 +101,7 @@ class DemoCatalog:
     def presentation_provider(self) -> DemoWorld:
         return self._world
 
-    def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
+    def recall(self, constraints: PlanRequest) -> CatalogResult:
         return self._delegate.recall(constraints)
 
     @staticmethod

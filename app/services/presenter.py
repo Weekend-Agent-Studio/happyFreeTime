@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import PlanRequest
 from app.domain.planning import CandidateSet, Plan
 
 
 def present_candidate_set(
     candidate_set: CandidateSet,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> str:
     """Explain only facts already carried by a verified candidate set.
 

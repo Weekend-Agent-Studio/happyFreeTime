@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from app.domain.catalog import StopCandidate
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import PlanRequest
 from app.domain.providers import AvailabilityFact, AvailabilityStatus
 from app.domain.planning import Plan, StopRole
 from app.services.itinerary_scheduler import (
@@ -49,7 +49,7 @@ class PlanVerifier:
     def verify(
         self,
         plan: Plan,
-        constraints: NormalizedConstraints,
+        constraints: PlanRequest,
         resources: Mapping[str, StopCandidate],
         *,
         availability_facts: tuple[AvailabilityFact, ...] = (),

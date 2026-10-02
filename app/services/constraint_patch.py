@@ -2,7 +2,7 @@
 
 The Router is allowed to preserve user-language values in ``ConstraintPatch``.
 This module is the single place that turns those values into the same
-``NormalizedConstraints`` contract used by the create flow.  It is deliberately
+``PlanRequest`` contract used by the create flow.  It is deliberately
 not a second conversation router: unresolved values become a field-scoped
 question and no partial constraint object is returned.
 """
@@ -20,7 +20,7 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
     GeoLocation,
-    NormalizedConstraints,
+    PlanRequest,
     QuestionDecision,
     TimeScope,
     TimeWindow,
@@ -36,7 +36,7 @@ class ConstraintPatchResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    updated_constraints: NormalizedConstraints | None = None
+    updated_constraints: PlanRequest | None = None
     question: QuestionDecision | None = None
     conflict: ConstraintConflict | None = None
 
@@ -61,7 +61,7 @@ class ConstraintPatchCompiler:
     def compile(
         self,
         *,
-        base: NormalizedConstraints,
+        base: PlanRequest,
         proposal: ConstraintPatch,
         actor: ActorContext,
         environment: EnvironmentContext,

@@ -545,9 +545,16 @@ class ConstraintValue(BaseModel, Generic[T]):
     rule_id: str | None = None
 
 
-class NormalizedConstraints(BaseModel):
-    """Enrichment 输出给 Gate 和 Planner 的统一规划约束。包含来自各个来源的约束"""
+class PlanRequest(BaseModel):
+    """当前一轮规划的唯一执行就绪请求。
+
+    ``ConstraintValue`` 保留单字段的值、来源和用户证据；``revision`` 用于
+    拒绝基于旧请求状态生成的增量更新。自然语言提案和 UI Patch 都必须先被
+    编译到这个模型，Planner 不读取原始文本。
+    """
     model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(default=0, ge=0)
 
     date: ConstraintValue[Date] | None = None
     time_scope: ConstraintValue[TimeScope] | None = None
@@ -580,6 +587,12 @@ class NormalizedConstraints(BaseModel):
         )
 
 
+# Temporary source-level alias while Graph, API and callers migrate by slice.
+# This is the same class object, not a second constraints model; remove the
+# alias after S-CORE2E has migrated all production references.
+NormalizedConstraints = PlanRequest
+
+
 def _canonical_clock(value: str | None, *, field_name: str) -> str | None:
     if value is None:
         return None
@@ -610,7 +623,7 @@ class EnrichmentResult(BaseModel):
     """规范化约束与本轮新增假设的组合结果。"""
     model_config = ConfigDict(extra="forbid")
 
-    constraints: NormalizedConstraints
+    constraints: PlanRequest
     assumptions: list[Assumption] = Field(default_factory=list)
     geocoding_fact: GeocodingFact | None = None
 
@@ -623,6 +636,51 @@ class ClarificationOption(BaseModel):
     id: str = Field(min_length=1)
     label: str = Field(min_length=1)
     action: ClarificationAction
+
+
+class ClarificationIssue(BaseModel):
+    """Machine-readable reason the current request cannot safely proceed."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str = Field(min_length=1)
+    code: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    expected_value_type: str = Field(min_length=1)
+    suggested_options: tuple[ClarificationOption, ...] = ()
+    allow_free_text: bool = True
+    request_revision: int = Field(ge=0)
+
+
+class RequestPatch(BaseModel):
+    """Atomic incremental update to one PlanRequest revision.
+
+    ``set_fields`` carries normalized domain values. A field omitted from both
+    ``set_fields`` and ``clear_fields`` is unchanged; clearing is explicit.
+    Source and evidence describe this update and are projected into existing
+    ``ConstraintValue`` fields by ConstraintEngine.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    base_revision: int = Field(ge=0)
+    set_fields: dict[str, object] = Field(default_factory=dict)
+    clear_fields: tuple[str, ...] = ()
+    source: ConstraintSource
+    evidence: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_field_operations(self) -> RequestPatch:
+        if len(self.clear_fields) != len(set(self.clear_fields)):
+            raise ValueError("clear_fields must not contain duplicates")
+        overlap = set(self.set_fields).intersection(self.clear_fields)
+        if overlap:
+            raise ValueError("a field cannot be set and cleared in one patch")
+        if not set(self.evidence).issubset(self.set_fields):
+            raise ValueError("evidence can only be supplied for fields being set")
+        if "revision" in self.set_fields or "revision" in self.clear_fields:
+            raise ValueError("request revision is managed by ConstraintEngine")
+        return self
 
 
 class ClarificationReply(BaseModel):

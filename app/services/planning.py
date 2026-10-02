@@ -25,7 +25,7 @@ from app.domain.constraints import (
     CommandOperation,
     ConversationCommand,
     effective_replacement_criteria,
-    NormalizedConstraints,
+    PlanRequest,
     QuestionDecision,
     RouteObjective,
     SemanticCriterion,
@@ -417,7 +417,7 @@ class PlanningService:
             scores_by_id,
         )
 
-    def plan(self, constraints: NormalizedConstraints) -> CandidateSet:
+    def plan(self, constraints: PlanRequest) -> CandidateSet:
         runtime_decision = self._not_run_runtime(
             "planning cannot start before normalized constraints are complete"
         )
@@ -1160,7 +1160,7 @@ class PlanningService:
         self,
         *,
         selected_plan: Plan,
-        constraints: NormalizedConstraints,
+        constraints: PlanRequest,
         command: ConversationCommand,
     ) -> PlanModificationResult:
         """Replace exactly one selected-plan slot without reopening its shape.
@@ -1620,7 +1620,7 @@ class PlanningService:
     def _rebuild_route_timeline(
         self,
         plan: Plan,
-        constraints: NormalizedConstraints,
+        constraints: PlanRequest,
         candidate_by_id: dict[str, StopCandidate],
     ) -> Plan:
         location = constraints.location.value
@@ -2069,7 +2069,7 @@ def _diversify_plans(plans: list[Plan], max_count: int) -> list[Plan]:
 
 def _apply_dynamic_strategies(
     plans: list[Plan],
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     weather: WeatherFact,
     candidates: dict[str, StopCandidate],
 ) -> list[Plan]:
@@ -2152,7 +2152,7 @@ def _apply_dynamic_strategies(
 
 
 def _active_strategies(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     weather: WeatherFact,
 ) -> tuple[PlanStrategy, ...]:
     strategies = [
@@ -2322,7 +2322,7 @@ _build_planning_intent = build_rule_based_planning_intent
 
 def _rank_plan_specs(
     candidates: list[StopCandidate],
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     plan_specs: Sequence[PlanSpec],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
@@ -2523,7 +2523,7 @@ def _merge_search_traces(
 
 def _rank_plan_specs_legacy(
     candidates: list[StopCandidate],
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     plan_specs: Sequence[PlanSpec],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
@@ -2650,7 +2650,7 @@ def _rank_plan_specs_legacy(
 
 def _rank_plan_specs_beam(
     candidates: list[StopCandidate],
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     plan_specs: Sequence[PlanSpec],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
@@ -2827,7 +2827,7 @@ def _rank_plan_specs_beam(
 def _candidates_for_role(
     candidates: list[StopCandidate],
     role: StopRole,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     *,
     limit: int | None,
     semantic_scores: dict[str, float] | None = None,
@@ -2884,7 +2884,7 @@ def _fair_top_k_by_skeleton(plans: list[Plan], limit: int) -> list[Plan]:
 def _candidate_role_rank(
     candidate: StopCandidate,
     role: StopRole,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> tuple[float, float, str]:
     """Cheap deterministic pre-rank used only to bound multi-stop enumeration."""
 
@@ -2929,7 +2929,7 @@ def _candidate_role_rank(
 def _order_beam_role_pool(
     pool: list[StopCandidate],
     role: StopRole,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     semantic_scores: dict[str, float] | None,
 ) -> list[StopCandidate]:
     """Order a full role pool before Beam's per-state bounded prefix.
@@ -2953,7 +2953,7 @@ def _order_beam_role_pool(
 def _beam_candidate_rank(
     candidate: StopCandidate,
     role: StopRole,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     semantic_scores: dict[str, float] | None,
 ) -> tuple[float, float, str]:
     """Combine grounded tag evidence with the retriever score for the prefix.
@@ -2977,7 +2977,7 @@ def _beam_candidate_rank(
 def _build_local_plan(
     sequence: tuple[StopCandidate, ...],
     plan_spec: PlanSpec,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
 ) -> tuple[Plan | None, str | None]:
@@ -3342,7 +3342,7 @@ def _to_stop(
 
 def _refresh_verified_score(
     plan: Plan,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> Plan:
     _, target_minutes = _planning_minutes(constraints)
     duration_score = round(
@@ -3399,7 +3399,7 @@ def _refresh_verified_score(
     )
 
 
-def _planning_minutes(constraints: NormalizedConstraints) -> tuple[int, int]:
+def _planning_minutes(constraints: PlanRequest) -> tuple[int, int]:
     window = constraints.time_window.value
     available_minutes = _time_to_minutes(window.end) - _planning_start_minutes(constraints)
     maximum_minutes = min(
@@ -3418,7 +3418,7 @@ def _planning_minutes(constraints: NormalizedConstraints) -> tuple[int, int]:
     return maximum_minutes, target_minutes
 
 
-def _planning_start_minutes(constraints: NormalizedConstraints) -> int:
+def _planning_start_minutes(constraints: PlanRequest) -> int:
     """The one canonical start for every local and provider-backed timeline."""
     return _time_to_minutes(
         constraints.departure_at.value
@@ -3428,7 +3428,7 @@ def _planning_start_minutes(constraints: NormalizedConstraints) -> int:
 
 
 def _planning_time_conflict(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> ConstraintConflict | None:
     """Reject incompatible explicit clocks before any provider call."""
     if constraints.departure_at is None:
@@ -3466,7 +3466,7 @@ def _planning_time_conflict(
     return None
 
 
-def _is_explicit_time_window(constraints: NormalizedConstraints) -> bool:
+def _is_explicit_time_window(constraints: PlanRequest) -> bool:
     """Return whether ``time_window`` came from a user numeric range.
 
     ``ConstraintSource.USER_INFERRED`` is also used for fuzzy language such
@@ -3485,7 +3485,7 @@ def _is_explicit_time_window(constraints: NormalizedConstraints) -> bool:
 
 
 def _meal_anchor_conflict_fields(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> list[str]:
     """Report an explicit meal role whose usable clock cannot reach its anchor.
 
