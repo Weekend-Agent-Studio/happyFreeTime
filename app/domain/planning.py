@@ -39,15 +39,6 @@ class StopType(str, Enum):
     DESSERT = "dessert"
 
 
-class PlanSkeleton(BaseModel):
-    """A bounded ordered role pattern without concrete resources."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    skeleton_id: str = Field(min_length=1)
-    roles: tuple[StopRole, ...] = Field(min_length=1, max_length=4)
-
-
 class PlanPace(str, Enum):
     RELAXED = "relaxed"
     BALANCED = "balanced"
@@ -156,7 +147,7 @@ class PlanningIntentProposal(BaseModel):
     maximum_stops: int = Field(default=4, ge=1, le=4)
     pace: PlanPace = PlanPace.BALANCED
     # S-P4 fields are optional for checkpoint and provider compatibility. When
-    # present, the Harness compiles them back to the closed PlanSkeleton set.
+    # present, the Harness compiles them into bounded executable PlanSpecs.
     slots: tuple[PlanningSlotProposal, ...] = Field(default_factory=tuple, max_length=4)
     role_queries: dict[str, RoleQueryProposal] = Field(default_factory=dict)
     evidence: dict[str, str] = Field(default_factory=dict)

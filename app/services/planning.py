@@ -44,7 +44,6 @@ from app.domain.planning import (
     PlanDiff,
     PlanWarning,
     PlanStrategy,
-    PlanSkeleton,
     PlanningIntent,
     SkeletonSearchTrace,
     RouteLeg,
@@ -74,10 +73,6 @@ from app.providers.availability import AvailabilityProvider, MockAvailabilityPro
 from app.providers.weather import WeatherProvider, clear_mock_weather
 from app.services.catalog import Catalog, SnapshotCatalog
 from app.services.planning_intent import (
-    ACTIVITY_BREAK_DINNER_SKELETON as _ACTIVITY_BREAK_DINNER_SKELETON,
-    ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON as _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON,
-    ALL_PLAN_SKELETONS as _ALL_PLAN_SKELETONS,
-    LUNCH_ACTIVITY_DINNER_SKELETON as _LUNCH_ACTIVITY_DINNER_SKELETON,
     PlanningIntentProvider,
     RuleBasedPlanningIntentProvider,
     SINGLE_STOP_ROLES as _SINGLE_STOP_ROLES,
@@ -92,13 +87,14 @@ from app.services.itinerary_scheduler import (
     TimelineScheduler,
 )
 from app.services.plan_spec import (
-    CompiledPlanSpec,
+    PlanSlot,
+    PlanSpec,
     RolePrecedence,
-    coerce_plan_spec,
 )
 from app.services.plan_spec_compiler import (
-    CompiledPlanChoices,
+    PlanSpecChoices,
     PlanSpecCompiler,
+    build_rule_plan_specs,
 )
 from app.services.candidate_retriever import (
     CandidateRetriever,
@@ -277,18 +273,17 @@ class PlanningService:
             planning_intent_provider or RuleBasedPlanningIntentProvider()
         )
         self._candidate_retriever = candidate_retriever or build_default_candidate_retriever()
-        # Explicit role/count constraints are compiled before the soft
-        # PlanningIntent decision.  Keeping this as a small internal seam makes
-        # the closed skeleton vocabulary auditable without adding another Graph
-        # node or exposing a second planning API.
+        # Explicit role/count constraints are compiled before soft intent can
+        # influence candidate ordering. This deterministic seam preserves the
+        # user's structure without adding another Graph node.
         self._structure_compiler = StructureCompiler()
         self._plan_spec_compiler = PlanSpecCompiler()
 
-    def _retrieve_for_skeleton_roles(
+    def _retrieve_for_plan_spec_roles(
         self,
         candidates: list[StopCandidate],
         planning_intent: PlanningIntent,
-        plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+        plan_specs: Sequence[PlanSpec],
     ) -> tuple[RetrievedCandidateSet, dict[str, float]]:
         """Retrieve independently for each role, then restore Catalog identity order.
 
@@ -299,10 +294,7 @@ class PlanningService:
         by more than one compatible meal role are cached in this round.
         """
 
-        specs = tuple(
-            coerce_plan_spec(spec, pace=planning_intent.pace)
-            for spec in plan_specs
-        )
+        specs = tuple(plan_specs)
         roles = tuple(dict.fromkeys(role for spec in specs for role in spec.roles))
         by_role: dict[StopRole, list[StopCandidate]] = {
             role: [
@@ -510,7 +502,7 @@ class PlanningService:
                     }
                 )
         else:
-            plan_choices = CompiledPlanChoices(
+            plan_choices = PlanSpecChoices(
                 preferred_specs=structure_compilation.specs,
                 fallback_specs=(),
                 proposal_status="not_used",
@@ -535,14 +527,14 @@ class PlanningService:
         # Retrieval is shared by preferred and fallback structures so a
         # deterministic fallback does not need another provider/model call.
         retrieval_specs = _dedupe_plan_specs((*preferred_specs, *fallback_specs))
-        retrieved, semantic_scores = self._retrieve_for_skeleton_roles(
+        retrieved, semantic_scores = self._retrieve_for_plan_spec_roles(
             candidates,
             planning_intent,
             retrieval_specs,
         )
         retrieval_runtime_decision = _retrieval_runtime(retrieved)
         candidates = [item.candidate for item in retrieved.items]
-        local_result = _rank_skeleton_plans(
+        local_result = _rank_plan_specs(
             candidates,
             constraints,
             preferred_specs or fallback_specs,
@@ -563,7 +555,7 @@ class PlanningService:
             and fallback_specs
             and not local_result.plans
         ):
-            fallback_result = _rank_skeleton_plans(
+            fallback_result = _rank_plan_specs(
                 candidates,
                 constraints,
                 fallback_specs,
@@ -788,7 +780,7 @@ class PlanningService:
             and fallback_specs
             and structure_compilation.specs is None
         ):
-            fallback_local = _rank_skeleton_plans(
+            fallback_local = _rank_plan_specs(
                 candidates,
                 constraints,
                 fallback_specs,
@@ -909,7 +901,7 @@ class PlanningService:
             local_result.rejected_fields == {"budget_per_person"}
             or (
                 not local_result.rejected_fields
-                and _catalog_budget_exhausted_for_skeletons(
+                and _catalog_budget_exhausted_for_plan_specs(
                     catalog_result,
                     plan_specs,
                 )
@@ -1202,9 +1194,15 @@ class PlanningService:
                 relaxation_options=["重新生成方案后重试"],
             )
 
-        skeleton = PlanSkeleton(
-            skeleton_id=selected_plan.skeleton_id,
-            roles=tuple(stop.role for stop in selected_plan.stops),
+        selected_spec = PlanSpec(
+            spec_id=selected_plan.skeleton_id,
+            slots=tuple(
+                PlanSlot(role=stop.role)
+                for stop in selected_plan.stops
+                if stop.role is not None
+            ),
+            min_stops=len(selected_plan.stops),
+            max_stops=len(selected_plan.stops),
         )
         recalled = self._catalog.recall(constraints)
         candidate_by_id = {
@@ -1341,8 +1339,8 @@ class PlanningService:
         base_intent = build_rule_based_planning_intent(constraints)
         modification_intent = base_intent.model_copy(
             update={
-                "minimum_stops": len(skeleton.roles),
-                "maximum_stops": len(skeleton.roles),
+                "minimum_stops": len(selected_spec.roles),
+                "maximum_stops": len(selected_spec.roles),
             }
         )
         base_distance = _total_route_distance(selected_plan)
@@ -1356,7 +1354,7 @@ class PlanningService:
                 continue
             local_plan, rejected_field = _build_local_plan(
                 tuple(item for item in sequence_candidates if item is not None),
-                skeleton,
+                selected_spec,
                 constraints,
                 modification_intent,
                 semantic_scores=(
@@ -1759,7 +1757,7 @@ def _search_metadata(result: _LocalPlanningResult | None) -> dict[str, object]:
 
 def _plan_spec_metadata(
     decision: object,
-    choices: CompiledPlanChoices,
+    choices: PlanSpecChoices,
     *,
     fallback_used: bool,
     fallback_reason: str | None,
@@ -1787,10 +1785,10 @@ def _plan_spec_metadata(
         ),
         "planning_intent_proposal_compiled": choices.proposal_status == "compiled",
         "planning_intent_preferred_spec_ids": [
-            spec.skeleton_id for spec in choices.preferred_specs
+            spec.spec_id for spec in choices.preferred_specs
         ],
         "planning_intent_fallback_spec_ids": [
-            spec.skeleton_id for spec in choices.fallback_specs
+            spec.spec_id for spec in choices.fallback_specs
         ],
         "planning_intent_structure_fallback_used": fallback_used,
         "planning_intent_structure_fallback_reason": fallback_reason,
@@ -1805,12 +1803,11 @@ def _plan_spec_metadata(
 
 
 def _dedupe_plan_specs(
-    specs: Sequence[CompiledPlanSpec | PlanSkeleton],
-) -> tuple[CompiledPlanSpec, ...]:
-    by_key: dict[tuple[str, tuple[StopRole, ...]], CompiledPlanSpec] = {}
-    for raw_spec in specs:
-        spec = coerce_plan_spec(raw_spec)
-        by_key[(spec.skeleton_id, spec.roles)] = spec
+    specs: Sequence[PlanSpec],
+) -> tuple[PlanSpec, ...]:
+    by_key: dict[tuple[str, tuple[StopRole, ...]], PlanSpec] = {}
+    for spec in specs:
+        by_key[(spec.spec_id, spec.roles)] = spec
     return tuple(by_key.values())
 
 
@@ -2273,25 +2270,11 @@ def _plan_diversity(left: Plan, right: Plan) -> float:
 _build_planning_intent = build_rule_based_planning_intent
 
 
-def _select_plan_skeletons(
-    constraints: NormalizedConstraints,
-    intent: PlanningIntent,
-) -> tuple[PlanSkeleton, ...]:
-    """Backward-compatible skeleton view of the internal PlanSpec compiler."""
-
-    return tuple(spec.skeleton for spec in _select_plan_specs(constraints, intent))
-
-
 def _select_plan_specs(
     constraints: NormalizedConstraints,
     intent: PlanningIntent,
-) -> tuple[CompiledPlanSpec, ...]:
-    """Select only closed-world specs after explicit structure compilation.
-
-    Explicit role/count constraints are compiled before this helper is called.
-    For unconstrained requests, PlanningIntent may narrow the existing template
-    set, but it still cannot create an arbitrary new structure.
-    """
+) -> tuple[PlanSpec, ...]:
+    """Build deterministic Rule PlanSpecs or compile explicit user structure."""
 
     if (
         constraints.exact_stop_count is not None
@@ -2302,61 +2285,24 @@ def _select_plan_specs(
     ):
         compiled = StructureCompiler().compile(constraints)
         return compiled.specs or ()
-    maximum_minutes, _ = _planning_minutes(constraints)
-    return tuple(
-        CompiledPlanSpec.from_skeleton(
-            skeleton,
-            precedence=tuple(
-                RolePrecedence(before=before, after=after)
-                for before, after in intent.precedence
-            ),
-            min_stops=intent.minimum_stops,
-            max_stops=intent.maximum_stops,
-            pace=intent.pace,
-            coverage=(
-                constraints.time_scope.value
-                if constraints.time_scope is not None
-                else None
-            ),
-        )
-        for skeleton in _ALL_PLAN_SKELETONS
-        if _skeleton_matches_intent(skeleton, intent, maximum_minutes)
-    )
+    return build_rule_plan_specs(constraints, intent)
 
 
 @dataclass(frozen=True)
 class _StructureCompilation:
     """The result of compiling one bounded structure request.
 
-    ``specs=None`` means that the user did not provide an explicit
-    structure and the caller still needs to use PlanningIntent.  An empty
-    tuple is reserved for an explicit request that has no compatible skeleton;
-    that distinction prevents an unsupported request from silently falling
-    back to the default outing shape.
+    ``specs=None`` means that the user did not provide an explicit structure.
+    An empty tuple means the explicit request cannot be represented safely;
+    that distinction prevents silently falling back to a default structure.
     """
 
-    specs: tuple[CompiledPlanSpec, ...] | None = None
+    specs: tuple[PlanSpec, ...] | None = None
     conflict: ConstraintConflict | None = None
-
-    @property
-    def skeletons(self) -> tuple[PlanSkeleton, ...] | None:
-        """Compatibility view for callers and older tests."""
-
-        if self.specs is None:
-            return None
-        return tuple(spec.skeleton for spec in self.specs)
 
 
 class StructureCompiler:
-    """Compile explicit role/count constraints against the closed skeleton set.
-
-    The compiler is deliberately deterministic and internal.  It does not
-    choose POIs, call providers, or infer a new structure.  A ``DINNER`` or
-    ``LUNCH`` requirement may fill the generic ``MEAL`` slot, while preserving
-    the specific role in the normalized constraints as user evidence.  This
-    keeps the short-term skeleton vocabulary small without treating every
-    meal period as a separate product skeleton.
-    """
+    """Compile explicit role/count constraints directly into PlanSpecs."""
 
     def compile(
         self,
@@ -2376,9 +2322,25 @@ class StructureCompiler:
         if exact_stop_count is None and not required_roles:
             return _StructureCompilation()
 
+        baseline = build_rule_based_planning_intent(constraints)
+        # Explicit user structure is authoritative.  Build candidate specs
+        # from the private Rule factory with a neutral role policy, then bind
+        # the user's ordered roles directly into the selected PlanSpecs.
+        explicit_role_policy = baseline.model_copy(
+            update={
+                "required_roles": (),
+                "optional_roles": tuple(StopRole),
+                "minimum_stops": 1,
+                "maximum_stops": 4,
+                "precedence": (),
+                "slots": (),
+            }
+        )
+        candidates = build_rule_plan_specs(constraints, explicit_role_policy)
         matches = self._explicit_matches(
             exact_stop_count=exact_stop_count,
             required_roles=required_roles,
+            candidates=candidates,
         )
         if matches:
             precedence = tuple(
@@ -2387,13 +2349,13 @@ class StructureCompiler:
             )
             return _StructureCompilation(
                 specs=tuple(
-                    CompiledPlanSpec.from_skeleton(
-                        skeleton,
+                    replace(
+                        spec,
                         precedence=precedence,
-                        min_stops=len(skeleton.roles),
-                        max_stops=len(skeleton.roles),
+                        min_stops=len(spec.roles),
+                        max_stops=len(spec.roles),
                     )
-                    for skeleton in matches
+                    for spec in matches
                 )
             )
 
@@ -2407,7 +2369,7 @@ class StructureCompiler:
             specs=(),
             conflict=ConstraintConflict(
                 code="UNSUPPORTED_PLAN_STRUCTURE",
-                message="当前请求指定的站点数量或角色组合与现有行程骨架不匹配。",
+                message="当前请求指定的站点数量或角色组合无法编译为可执行结构。",
                 fields=fields,
                 relaxation_options=[
                     "调整站点数量或角色组合",
@@ -2422,44 +2384,44 @@ class StructureCompiler:
         *,
         exact_stop_count: int | None,
         required_roles: tuple[StopRole, ...],
-    ) -> tuple[PlanSkeleton, ...]:
+        candidates: tuple[PlanSpec, ...],
+    ) -> tuple[PlanSpec, ...]:
         # “只安排一个”但没有角色仍然是有歧义的；保留原先的安全行为，
         # 避免在活动、午餐和晚餐之间替用户猜测。
         if exact_stop_count == 1 and not required_roles:
             return ()
 
-        ranked: list[tuple[int, int, int, PlanSkeleton, tuple[int, ...]]] = []
-        for registry_index, skeleton in enumerate(_ALL_PLAN_SKELETONS):
-            if exact_stop_count is not None and len(skeleton.roles) != exact_stop_count:
+        ranked: list[tuple[int, int, int, PlanSpec, tuple[int, ...]]] = []
+        for candidate_index, spec in enumerate(candidates):
+            if exact_stop_count is not None and len(spec.roles) != exact_stop_count:
                 continue
             # A lone dinner/lunch role without an exact one-stop request is a
             # meal requirement, not a request to collapse the outing into a
-            # meal-only plan.  The explicit single-stop skeletons remain
-            # available when the user also says “只安排一家/一顿”.
+            # meal-only plan.
             if (
                 exact_stop_count is None
                 and len(required_roles) == 1
                 and required_roles[0] in {StopRole.LUNCH, StopRole.DINNER}
-                and len(skeleton.roles) == 1
+                and len(spec.roles) == 1
             ):
                 continue
             if not required_roles:
-                ranked.append((0, 0, registry_index, skeleton, ()))
+                ranked.append((0, 0, candidate_index, spec, ()))
                 continue
-            assignment = cls._required_role_assignment(required_roles, skeleton.roles)
+            assignment = cls._required_role_assignment(required_roles, spec.roles)
             if assignment is None:
                 continue
             penalty, matched_indices = assignment
-            # Prefer the smallest skeleton that satisfies all required roles;
+            # Prefer the smallest structure that satisfies all required roles;
             # this makes “活动和晚饭” resolve to activity-meal-v1 instead of
             # unexpectedly adding lunch or a break.  Within the same shape,
             # exact role matches win over a generic MEAL substitution.
             ranked.append(
                 (
-                    len(skeleton.roles) - len(required_roles),
+                    len(spec.roles) - len(required_roles),
                     penalty,
-                    registry_index,
-                    skeleton,
+                    candidate_index,
+                    spec,
                     matched_indices,
                 )
             )
@@ -2515,13 +2477,13 @@ class StructureCompiler:
 
     @staticmethod
     def _bind_explicit_roles(
-        skeleton: PlanSkeleton,
+        spec: PlanSpec,
         required_roles: tuple[StopRole, ...],
         matched_indices: tuple[int, ...],
-    ) -> PlanSkeleton:
-        """Return a concrete view while preserving the template's identity."""
+    ) -> PlanSpec:
+        """Bind specific meal periods into generic meal slots."""
 
-        roles = list(skeleton.roles)
+        roles = list(spec.roles)
         for required, index in zip(required_roles, matched_indices, strict=True):
             # A specific meal period fills the generic MEAL slot. Generic MEAL
             # must not erase an existing specific template role.
@@ -2530,7 +2492,13 @@ class StructureCompiler:
                 StopRole.DINNER,
             }:
                 roles[index] = required
-        return skeleton.model_copy(update={"roles": tuple(roles)})
+        return replace(
+            spec,
+            slots=tuple(
+                replace(slot, role=role)
+                for slot, role in zip(spec.slots, roles, strict=True)
+            ),
+        )
 
     @staticmethod
     def _roles_compatible(required: StopRole, actual: StopRole) -> bool:
@@ -2555,57 +2523,6 @@ def _unsupported_plan_structure_conflict(
     """Backward-compatible helper for callers that used the old gate."""
 
     return StructureCompiler().compile(constraints).conflict
-
-
-def _skeleton_matches_intent(
-    skeleton: PlanSkeleton,
-    intent: PlanningIntent,
-    available_minutes: int,
-) -> bool:
-    """Keep every bounded skeleton behind one structural eligibility rule."""
-    roles = skeleton.roles
-    if not intent.minimum_stops <= len(roles) <= intent.maximum_stops:
-        return False
-    role_set = set(roles)
-    if not set(intent.required_roles).issubset(role_set):
-        return False
-    if not role_set.issubset(set(intent.required_roles) | set(intent.optional_roles)):
-        return False
-    if intent.slots:
-        required_slot_roles = tuple(
-            slot.role for slot in intent.slots if slot.required
-        )
-        if not _contains_ordered_roles(roles, required_slot_roles):
-            return False
-    for before, after in intent.precedence:
-        if before in role_set and after in role_set and roles.index(before) >= roles.index(after):
-            return False
-    # Preserve the existing capacity gates for richer skeletons. A resource visit
-    # cannot be shorter than the catalog's minimum useful slot; exact feasibility
-    # remains in _build_local_plan with real candidate durations.
-    minimum_capacity = {
-        _LUNCH_ACTIVITY_DINNER_SKELETON.skeleton_id: 6 * 60,
-        _ACTIVITY_BREAK_DINNER_SKELETON.skeleton_id: 5 * 60,
-        _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON.skeleton_id: 8 * 60,
-    }.get(skeleton.skeleton_id, len(roles) * 30)
-    return minimum_capacity <= available_minutes
-
-
-def _contains_ordered_roles(
-    actual: tuple[StopRole, ...],
-    required: tuple[StopRole, ...],
-) -> bool:
-    """Return whether required roles occur in order, including repeats."""
-
-    if not required:
-        return True
-    cursor = 0
-    for role in actual:
-        if role == required[cursor]:
-            cursor += 1
-            if cursor == len(required):
-                return True
-    return False
 
 
 def _structure_conflict_fields(
@@ -2640,10 +2557,10 @@ def _structure_conflict_fields(
     return []
 
 
-def _rank_skeleton_plans(
+def _rank_plan_specs(
     candidates: list[StopCandidate],
     constraints: NormalizedConstraints,
-    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+    plan_specs: Sequence[PlanSpec],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
     *,
@@ -2654,7 +2571,7 @@ def _rank_skeleton_plans(
     if mode not in {"legacy", "beam"}:
         raise RuntimeError("HFT_PLANNER_SEARCH_MODE must be one of: legacy, beam")
     if mode == "beam":
-        beam_result = _rank_skeleton_plans_beam(
+        beam_result = _rank_plan_specs_beam(
             candidates,
             constraints,
             plan_specs,
@@ -2666,11 +2583,7 @@ def _rank_skeleton_plans(
             primary_search_mode="beam",
             beam_stats=beam_result.search_stats,
             accepted_plan_spec_ids=tuple(
-                spec.skeleton_id
-                for spec in (
-                    coerce_plan_spec(item, pace=planning_intent.pace)
-                    for item in plan_specs
-                )
+                spec.spec_id for spec in plan_specs
             ),
         )
         fallback_reason = _beam_fallback_reason(
@@ -2685,7 +2598,7 @@ def _rank_skeleton_plans(
         # route/provider truth was observed.  This is a search recovery path,
         # not a way to hide a real budget, distance, timing, availability, or
         # provider conflict.
-        legacy_result = _rank_skeleton_plans_legacy(
+        legacy_result = _rank_plan_specs_legacy(
             candidates,
             constraints,
             plan_specs,
@@ -2723,18 +2636,14 @@ def _rank_skeleton_plans(
             legacy_stats=legacy_result.search_stats,
             accepted_plan_spec_ids=beam_result.accepted_plan_spec_ids,
         )
-    return _rank_skeleton_plans_legacy(
+    return _rank_plan_specs_legacy(
         candidates,
         constraints,
         plan_specs,
         planning_intent,
         semantic_scores=semantic_scores,
         accepted_plan_spec_ids=tuple(
-            spec.skeleton_id
-            for spec in (
-                coerce_plan_spec(item, pace=planning_intent.pace)
-                for item in plan_specs
-            )
+            spec.spec_id for spec in plan_specs
         ),
     )
 
@@ -2849,10 +2758,10 @@ def _merge_search_traces(
     return tuple(by_id[key] for key in order)
 
 
-def _rank_skeleton_plans_legacy(
+def _rank_plan_specs_legacy(
     candidates: list[StopCandidate],
     constraints: NormalizedConstraints,
-    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+    plan_specs: Sequence[PlanSpec],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
     *,
@@ -2861,12 +2770,10 @@ def _rank_skeleton_plans_legacy(
     plans: list[Plan] = []
     rejected_fields: set[str] = set()
     search_traces: list[SkeletonSearchTrace] = []
-    for raw_spec in plan_specs:
-        spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
-        skeleton = spec.skeleton
+    for spec in plan_specs:
         role_pool_limit = (
             _MAX_CANDIDATES_PER_ROLE_FOR_MULTI_STOP
-            if len(skeleton.roles) >= 3
+            if len(spec.roles) >= 3
             else None
         )
         role_pools = [
@@ -2877,7 +2784,7 @@ def _rank_skeleton_plans_legacy(
                 limit=role_pool_limit,
                 semantic_scores=semantic_scores,
             )
-            for role in skeleton.roles
+            for role in spec.roles
         ]
         theoretical_combinations = math.prod(len(pool) for pool in role_pools)
         expansions = 0
@@ -2887,7 +2794,7 @@ def _rank_skeleton_plans_legacy(
             rejected_by["empty_role_pool"] = 1
             search_traces.append(
                 SkeletonSearchTrace(
-                    skeleton_id=skeleton.skeleton_id,
+                    skeleton_id=spec.spec_id,
                     theoretical_combinations=theoretical_combinations,
                     rejected_by=rejected_by,
                 )
@@ -2902,7 +2809,7 @@ def _rank_skeleton_plans_legacy(
                 continue
             plan, rejected_field = _build_local_plan(
                 sequence,
-                skeleton,
+                spec,
                 constraints,
                 planning_intent,
                 semantic_scores=semantic_scores,
@@ -2917,7 +2824,7 @@ def _rank_skeleton_plans_legacy(
                 rejected_by["local_plan"] = rejected_by.get("local_plan", 0) + 1
         search_traces.append(
             SkeletonSearchTrace(
-                skeleton_id=skeleton.skeleton_id,
+                skeleton_id=spec.spec_id,
                 theoretical_combinations=theoretical_combinations,
                 expansions=expansions,
                 finalists=local_schedule_passes,
@@ -2978,10 +2885,10 @@ def _rank_skeleton_plans_legacy(
     )
 
 
-def _rank_skeleton_plans_beam(
+def _rank_plan_specs_beam(
     candidates: list[StopCandidate],
     constraints: NormalizedConstraints,
-    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+    plan_specs: Sequence[PlanSpec],
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
 ) -> _LocalPlanningResult:
@@ -3003,11 +2910,8 @@ def _rank_skeleton_plans_beam(
         longitude=constraints.location.value.longitude,
     )
 
-    prepared_specs: list[
-        tuple[CompiledPlanSpec, list[list[StopCandidate]], int]
-    ] = []
-    for raw_spec in plan_specs:
-        spec = coerce_plan_spec(raw_spec, pace=planning_intent.pace)
+    prepared_specs: list[tuple[PlanSpec, list[list[StopCandidate]], int]] = []
+    for spec in plan_specs:
         full_role_pools = [
             _candidates_for_role(
                 candidates,
@@ -3022,7 +2926,7 @@ def _rank_skeleton_plans_beam(
         if any(not pool for pool in full_role_pools):
             search_traces.append(
                 SkeletonSearchTrace(
-                    skeleton_id=spec.skeleton.skeleton_id,
+                    skeleton_id=spec.spec_id,
                     theoretical_combinations=theoretical_combinations,
                     rejected_by={"empty_role_pool": 1},
                 )
@@ -3094,7 +2998,7 @@ def _rank_skeleton_plans_beam(
                 )
         search_traces.append(
             SkeletonSearchTrace(
-                skeleton_id=spec.skeleton.skeleton_id,
+                skeleton_id=spec.spec_id,
                 theoretical_combinations=theoretical_combinations,
                 expansions=result.stats.expansions,
                 finalists=result.stats.finalists,
@@ -3309,15 +3213,13 @@ def _beam_candidate_rank(
 
 def _build_local_plan(
     sequence: tuple[StopCandidate, ...],
-    plan_spec: CompiledPlanSpec | PlanSkeleton,
+    plan_spec: PlanSpec,
     constraints: NormalizedConstraints,
     planning_intent: PlanningIntent,
     semantic_scores: dict[str, float] | None = None,
 ) -> tuple[Plan | None, str | None]:
-    spec = coerce_plan_spec(plan_spec, pace=planning_intent.pace)
-    skeleton = spec.skeleton
-    if len(sequence) != len(skeleton.roles):
-        raise ValueError("plan sequence must fill every skeleton role")
+    if len(sequence) != len(plan_spec.roles):
+        raise ValueError("plan sequence must fill every PlanSpec role")
 
     location = constraints.location.value
     window = constraints.time_window.value
@@ -3330,7 +3232,7 @@ def _build_local_plan(
     scheduler = TimelineScheduler()
     estimated_timeline = scheduler.schedule(
         start_minutes=_planning_start_minutes(constraints),
-        roles=tuple(skeleton.roles),
+        roles=plan_spec.roles,
         travel_minutes=tuple(_estimated_route_minutes(distance) for distance in route_distances),
         stop_durations=tuple(item.duration_minutes for item in sequence),
     )
@@ -3339,7 +3241,7 @@ def _build_local_plan(
     # bound used for early rejection; real route facts are checked later.
     lower_bound_timeline = scheduler.schedule(
         start_minutes=_planning_start_minutes(constraints),
-        roles=tuple(skeleton.roles),
+        roles=plan_spec.roles,
         travel_minutes=(0,) * len(sequence),
         stop_durations=tuple(item.duration_minutes for item in sequence),
     )
@@ -3403,7 +3305,7 @@ def _build_local_plan(
     ]
     meal_candidates = [
         candidate
-        for role, candidate in zip(skeleton.roles, sequence)
+        for role, candidate in zip(plan_spec.roles, sequence)
         if role in {StopRole.MEAL, StopRole.LUNCH, StopRole.DINNER}
     ]
     matched_diet_tags = _matching_requested_tags(
@@ -3446,11 +3348,11 @@ def _build_local_plan(
         1,
     )
     if (
-        skeleton.skeleton_id
+        plan_spec.spec_id
         in {
-            _LUNCH_ACTIVITY_DINNER_SKELETON.skeleton_id,
-            _ACTIVITY_BREAK_DINNER_SKELETON.skeleton_id,
-            _ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON.skeleton_id,
+            "lunch-activity-dinner-v1",
+            "activity-break-dinner-v1",
+            "activity-lunch-activity-dinner-v1",
         }
         and {StopRole.LUNCH, StopRole.DINNER}.issubset(
             planning_intent.optional_roles
@@ -3476,9 +3378,9 @@ def _build_local_plan(
             points=structure_score,
             message="按时间窗口、节奏和角色覆盖评价行程骨架。",
             evidence=[
-                f"skeleton_id={skeleton.skeleton_id}",
+                f"skeleton_id={plan_spec.spec_id}",
                 f"pace={planning_intent.pace.value}",
-                f"roles={','.join(role.value for role in skeleton.roles)}",
+                f"roles={','.join(role.value for role in plan_spec.roles)}",
             ],
         ),
         ScoreContribution(
@@ -3602,7 +3504,7 @@ def _build_local_plan(
 
     stops: list[Stop] = []
     for role, candidate, scheduled in zip(
-        skeleton.roles,
+        plan_spec.roles,
         sequence,
         estimated_timeline.stops,
         strict=True,
@@ -3637,12 +3539,12 @@ def _build_local_plan(
     elif constraints.budget_per_person and not prices_are_usable:
         tradeoffs.append("价格信息不完整，无法确认是否满足预算偏好")
     fingerprint = hashlib.sha256(
-        "|".join([skeleton.skeleton_id, *resource_ids]).encode("utf-8")
+        "|".join([plan_spec.spec_id, *resource_ids]).encode("utf-8")
     ).hexdigest()[:12]
     return Plan(
         plan_id=f"plan-{uuid.uuid4().hex}",
         composition_fingerprint=f"composition-{fingerprint}",
-        skeleton_id=skeleton.skeleton_id,
+        skeleton_id=plan_spec.spec_id,
         title=" + ".join(item.name for item in sequence),
         strategy=PlanStrategy.BALANCED,
         total_score=total_score,
@@ -4011,11 +3913,11 @@ def _estimated_route_minutes(distance_km: float) -> int:
     return max(5, round(distance_km / 25.0 * 60))
 
 
-def _catalog_budget_exhausted_for_skeletons(
+def _catalog_budget_exhausted_for_plan_specs(
     catalog_result: CatalogResult,
-    plan_specs: Sequence[CompiledPlanSpec | PlanSkeleton],
+    plan_specs: Sequence[PlanSpec],
 ) -> bool:
-    """Prove that every eligible skeleton lost a role to strict budget.
+    """Prove that every eligible PlanSpec lost a role to strict budget.
 
     A catalog can still contain free/cheap activities while every restaurant
     has been pruned by a ten-yuan budget.  Looking only at
@@ -4043,10 +3945,9 @@ def _catalog_budget_exhausted_for_skeletons(
             violation.field
         )
 
-    for raw_spec in plan_specs:
-        skeleton = coerce_plan_spec(raw_spec)
+    for spec in plan_specs:
         budget_exhausted_role = False
-        for role in skeleton.roles:
+        for role in spec.roles:
             role_types = _ROLE_RESOURCE_TYPES[role]
             if surviving_types.intersection(role_types):
                 continue

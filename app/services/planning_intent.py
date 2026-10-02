@@ -26,7 +26,6 @@ from app.domain.semantics import (
 )
 from app.domain.planning import (
     PlanPace,
-    PlanSkeleton,
     PlanStructureProposal,
     PlanningIntent,
     PlanningIntentDecision,
@@ -37,54 +36,10 @@ from app.domain.planning import (
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 from app.services.model_errors import model_failure_reason
+from app.services.plan_spec_compiler import build_rule_plan_specs
 
 
-ACTIVITY_MEAL_SKELETON = PlanSkeleton(
-    skeleton_id="activity-meal-v1",
-    roles=(StopRole.ACTIVITY, StopRole.MEAL),
-)
-ACTIVITY_ONLY_SKELETON = PlanSkeleton(
-    skeleton_id="activity-only-v1",
-    roles=(StopRole.ACTIVITY,),
-)
-DINNER_ONLY_SKELETON = PlanSkeleton(
-    skeleton_id="dinner-only-v1",
-    roles=(StopRole.DINNER,),
-)
-LUNCH_ONLY_SKELETON = PlanSkeleton(
-    skeleton_id="lunch-only-v1",
-    roles=(StopRole.LUNCH,),
-)
-LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
-    skeleton_id="lunch-activity-dinner-v1",
-    roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
-)
-ACTIVITY_BREAK_DINNER_SKELETON = PlanSkeleton(
-    skeleton_id="activity-break-dinner-v1",
-    roles=(StopRole.ACTIVITY, StopRole.BREAK, StopRole.DINNER),
-)
-ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON = PlanSkeleton(
-    skeleton_id="activity-lunch-activity-dinner-v1",
-    roles=(
-        StopRole.ACTIVITY,
-        StopRole.LUNCH,
-        StopRole.ACTIVITY,
-        StopRole.DINNER,
-    ),
-)
-ALL_PLAN_SKELETONS: tuple[PlanSkeleton, ...] = (
-    ACTIVITY_MEAL_SKELETON,
-    ACTIVITY_ONLY_SKELETON,
-    DINNER_ONLY_SKELETON,
-    LUNCH_ONLY_SKELETON,
-    LUNCH_ACTIVITY_DINNER_SKELETON,
-    ACTIVITY_BREAK_DINNER_SKELETON,
-    ACTIVITY_LUNCH_ACTIVITY_DINNER_SKELETON,
-)
-
-# Explicit one-stop structures are intentionally a small closed vocabulary.
-# The role remains the source of candidate/resource semantics; the skeleton id
-# makes the chosen product contract visible in traces and persisted plans.
+# Explicit one-stop structures remain a small, deterministic product policy.
 SINGLE_STOP_ROLES = frozenset(
     {StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER}
 )
@@ -669,17 +624,6 @@ def _accept_proposal(
         raise ValueError("minimum stop count cannot be weakened")
     if proposal.maximum_stops < proposal.minimum_stops:
         raise ValueError("invalid stop range")
-    effective_proposal = proposal.model_copy(
-        update={
-            "required_roles": required_roles,
-            "optional_roles": optional_roles,
-        }
-    )
-    if not any(
-        _skeleton_matches_proposal(skeleton, effective_proposal)
-        for skeleton in ALL_PLAN_SKELETONS
-    ):
-        raise ValueError("proposal does not match an existing plan skeleton")
     semantic_request = _sanitize_semantic_request(
         proposal.semantic_request,
         baseline.semantic_request,
@@ -690,7 +634,7 @@ def _accept_proposal(
         baseline.semantic_request,
         allowed_roles=allowed_roles,
     )
-    return PlanningIntent(
+    intent = PlanningIntent(
         required_roles=required_roles,
         optional_roles=optional_roles,
         precedence=proposal.precedence,
@@ -702,6 +646,12 @@ def _accept_proposal(
         evidence=_sanitize_evidence(proposal.evidence, constraints, baseline),
         semantic_request=semantic_request,
     )
+    # The legacy DTO has no dynamic ordered-slot compiler. Keep its old
+    # safety property without consulting a parallel Skeleton registry: it
+    # must leave at least one executable deterministic PlanSpec.
+    if not build_rule_plan_specs(constraints, intent):
+        raise ValueError("proposal has no executable plan spec")
+    return intent
 
 
 def _merge_role_queries(
@@ -919,52 +869,6 @@ def _safe_contract_code(error: Exception, fallback: str) -> str:
 
     value = str(error).strip()
     return value if re.fullmatch(r"[a-z0-9_]+", value) else fallback
-
-
-def _skeleton_matches_proposal(
-    skeleton: PlanSkeleton,
-    proposal: PlanningIntentProposal,
-) -> bool:
-    roles = skeleton.roles
-    if not proposal.minimum_stops <= len(roles) <= proposal.maximum_stops:
-        return False
-    role_set = set(roles)
-    if not set(proposal.required_roles).issubset(role_set):
-        return False
-    if not role_set.issubset(set(proposal.required_roles) | set(proposal.optional_roles)):
-        return False
-    if proposal.slots:
-        required_slot_roles = tuple(
-            slot.role for slot in proposal.slots if slot.required
-        )
-        if not _contains_ordered_roles(roles, required_slot_roles):
-            return False
-    for before, after in proposal.precedence:
-        if before in role_set and after in role_set and roles.index(before) >= roles.index(after):
-            return False
-    return True
-
-
-def _contains_ordered_roles(
-    actual: tuple[StopRole, ...],
-    required: tuple[StopRole, ...],
-) -> bool:
-    """Return whether ``required`` occurs as an ordered subsequence.
-
-    Repeated roles are intentionally significant (for example
-    ``activity -> lunch -> activity -> dinner``).  Optional slots are omitted
-    by the caller, so a closed skeleton may still leave an optional break out.
-    """
-
-    if not required:
-        return True
-    cursor = 0
-    for role in actual:
-        if role == required[cursor]:
-            cursor += 1
-            if cursor == len(required):
-                return True
-    return False
 
 
 def _build_context(

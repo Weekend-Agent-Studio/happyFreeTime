@@ -19,7 +19,6 @@ from app.domain.constraints import (
 from app.domain.planning import (
     PlanPace,
     PlanPriceStatus,
-    PlanSkeleton,
     PlanStructureProposal,
     PlanningIntent,
     PlanningIntentDecision,
@@ -42,9 +41,10 @@ from app.services.planning import (
     _apply_dynamic_strategies,
     _build_planning_intent,
     _diversify_plans,
-    _rank_skeleton_plans,
-    _select_plan_skeletons,
+    _rank_plan_specs,
+    _select_plan_specs,
 )
+from app.services.plan_spec import PlanSlot, PlanSpec
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
 from app.services.plan_verifier import PlanVerifier
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
@@ -177,13 +177,17 @@ class NativePlanningBehaviorTest(unittest.TestCase):
     def test_beam_gives_later_skeleton_a_budget_after_earlier_failure(self) -> None:
         constraints = planning_constraints(time_end="18:00")
         specs = (
-            PlanSkeleton(
-                skeleton_id="too-long-first",
-                roles=(StopRole.ACTIVITY, StopRole.ACTIVITY),
+            PlanSpec(
+                spec_id="too-long-first",
+                slots=(PlanSlot(StopRole.ACTIVITY), PlanSlot(StopRole.ACTIVITY)),
+                min_stops=2,
+                max_stops=2,
             ),
-            PlanSkeleton(
-                skeleton_id="valid-later",
-                roles=(StopRole.DINNER,),
+            PlanSpec(
+                spec_id="valid-later",
+                slots=(PlanSlot(StopRole.DINNER),),
+                min_stops=1,
+                max_stops=1,
             ),
         )
         intent = PlanningIntent(
@@ -218,7 +222,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         ]
 
         with patch.dict("os.environ", {"HFT_PLANNER_SEARCH_MODE": "beam"}):
-            result = _rank_skeleton_plans(
+            result = _rank_plan_specs(
                 candidates,
                 constraints,
                 specs,
@@ -300,14 +304,14 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertEqual(dinner_intent.optional_roles, ())
         self.assertEqual((dinner_intent.minimum_stops, dinner_intent.maximum_stops), (1, 1))
         self.assertEqual(
-            [item.skeleton_id for item in _select_plan_skeletons(dinner_constraints, dinner_intent)],
+            [item.spec_id for item in _select_plan_specs(dinner_constraints, dinner_intent)],
             ["dinner-only-v1"],
         )
         self.assertIn(StopRole.ACTIVITY, default_intent.required_roles)
         self.assertGreaterEqual(default_intent.minimum_stops, 2)
         self.assertNotIn(
             "dinner-only-v1",
-            {item.skeleton_id for item in _select_plan_skeletons(planning_constraints(time_end="22:00"), default_intent)},
+            {item.spec_id for item in _select_plan_specs(planning_constraints(time_end="22:00"), default_intent)},
         )
 
     def test_unsupported_explicit_structure_is_rejected_instead_of_using_default_plan(self) -> None:
@@ -354,7 +358,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
         self.assertIsNone(compilation.conflict)
         self.assertEqual(
-            [item.skeleton_id for item in compilation.skeletons or ()],
+            [item.spec_id for item in compilation.specs or ()],
             ["activity-meal-v1"],
         )
 
@@ -398,7 +402,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
         self.assertIsNone(compilation.conflict)
         self.assertEqual(
-            [item.skeleton_id for item in compilation.skeletons or ()],
+            [item.spec_id for item in compilation.specs or ()],
             ["activity-meal-v1"],
         )
 
