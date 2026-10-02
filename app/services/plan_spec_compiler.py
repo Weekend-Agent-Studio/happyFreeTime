@@ -1,62 +1,194 @@
-"""Compile the bounded PlanningIntent structure proposal.
-
-The model is allowed to describe an ordered role sequence, but it is not
-allowed to decide feasibility or external facts.  This module is the narrow
-deep seam between that wire proposal and the deterministic planner.  It does
-not call a provider and it deliberately does not know about POIs or routes.
-"""
+"""Compile structural proposals into executable, bounded PlanSpecs."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
-from typing import Literal, Sequence
+from typing import Literal
 
 from app.domain.constraints import NormalizedConstraints, StopRole
 from app.domain.planning import (
-    PlanPace,
-    PlanSkeleton,
+    ConstraintConflict,
     PlanStructureProposal,
+    PlanPace,
     PlanningIntent,
 )
-from app.services.plan_spec import CompiledPlanSpec, PlanSlot, RolePrecedence
-
-
-MEAL_ROLES = frozenset({StopRole.MEAL, StopRole.LUNCH, StopRole.DINNER})
+from app.services.plan_spec import PlanSpec
 
 
 @dataclass(frozen=True)
-class CompiledPlanChoices:
+class PlanSpecChoices:
     """Preferred model structures and deterministic Rule fallback structures."""
 
-    preferred_specs: tuple[CompiledPlanSpec, ...] = ()
-    fallback_specs: tuple[CompiledPlanSpec, ...] = ()
+    preferred_specs: tuple[PlanSpec, ...] = ()
+    fallback_specs: tuple[PlanSpec, ...] = ()
     proposal_status: Literal["not_used", "compiled", "rejected"] = "not_used"
     diagnostic_code: str | None = None
+    conflict: ConstraintConflict | None = None
+    explicit_structure: bool = False
+
+
+def _build_rule_plan_specs(
+    constraints: NormalizedConstraints,
+    semantics: PlanningIntent,
+    *,
+    include_all_shapes: bool = False,
+) -> tuple[PlanSpec, ...]:
+    """Build the Rule search space directly as PlanSpecs.
+
+    The role patterns below are the product's current deterministic policy,
+    created locally in executable form. There is no separately addressable
+    Skeleton registry or conversion step.
+    """
+
+    available_minutes = _available_minutes(constraints)
+    exact_count = (
+        constraints.exact_stop_count.value
+        if constraints.exact_stop_count is not None
+        else None
+    )
+    window = constraints.time_window.value
+    start_minutes = _clock_minutes(window.start)
+    end_minutes = _clock_minutes(window.end)
+    includes_lunch = start_minutes <= 13 * 60 and end_minutes >= 12 * 60
+    includes_dinner = start_minutes <= 19 * 60 and end_minutes >= 18 * 60
+    includes_break = start_minutes <= 16 * 60 and end_minutes >= 18 * 60
+    allowed_roles = {StopRole.ACTIVITY, StopRole.MEAL}
+    if includes_lunch:
+        allowed_roles.add(StopRole.LUNCH)
+    if includes_break:
+        allowed_roles.add(StopRole.BREAK)
+    if includes_dinner:
+        allowed_roles.add(StopRole.DINNER)
+
+    explicit_roles = (
+        constraints.required_stop_roles.value
+        if constraints.required_stop_roles is not None
+        else ()
+    )
+    required_roles = explicit_roles or (StopRole.ACTIVITY,)
+    minimum_stops = 1 if exact_count == 1 and explicit_roles else 2
+    maximum_stops = (
+        exact_count
+        if exact_count is not None
+        else 2 if semantics.pace == PlanPace.RELAXED else 4
+    )
+
+    shapes = (
+        ("activity-meal-v1", (StopRole.ACTIVITY, StopRole.MEAL)),
+        ("activity-only-v1", (StopRole.ACTIVITY,)),
+        ("dinner-only-v1", (StopRole.DINNER,)),
+        ("lunch-only-v1", (StopRole.LUNCH,)),
+        (
+            "lunch-activity-dinner-v1",
+            (StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
+        ),
+        (
+            "activity-break-dinner-v1",
+            (StopRole.ACTIVITY, StopRole.BREAK, StopRole.DINNER),
+        ),
+        (
+            "activity-lunch-activity-dinner-v1",
+            (
+                StopRole.ACTIVITY,
+                StopRole.LUNCH,
+                StopRole.ACTIVITY,
+                StopRole.DINNER,
+            ),
+        ),
+    )
+    minimum_capacity_by_id = {
+        "lunch-activity-dinner-v1": 6 * 60,
+        "activity-break-dinner-v1": 5 * 60,
+        "activity-lunch-activity-dinner-v1": 8 * 60,
+    }
+
+    output: list[PlanSpec] = []
+    for spec_id, roles in shapes:
+        role_set = set(roles)
+        if exact_count is not None and len(roles) != exact_count:
+            continue
+        if not include_all_shapes:
+            if not minimum_stops <= len(roles) <= maximum_stops:
+                continue
+            if not set(required_roles).issubset(role_set):
+                continue
+            if not role_set.issubset(allowed_roles):
+                continue
+            if not _contains_compatible_subsequence(roles, required_roles):
+                continue
+        if minimum_capacity_by_id.get(spec_id, len(roles) * 30) > available_minutes:
+            continue
+        output.append(PlanSpec(spec_id=spec_id, roles=roles))
+    return tuple(output)
 
 
 class PlanSpecCompiler:
-    """Compile a V2 proposal without making the registry a legality gate."""
+    """Validate proposal semantics and compile a bounded set of PlanSpecs."""
 
-    def __init__(self, registry: Sequence[PlanSkeleton] | None = None) -> None:
-        if registry is None:
-            # Local import avoids a module cycle: planning_intent owns the
-            # compatibility registry, while this compiler is consumed by the
-            # planner and the provider.
-            from app.services.planning_intent import ALL_PLAN_SKELETONS
+    def compile_explicit_structure(
+        self,
+        constraints: NormalizedConstraints,
+        rule_baseline: PlanningIntent,
+    ) -> PlanSpecChoices | None:
+        """Preflight an explicit role/count request before a model decision."""
 
-            registry = ALL_PLAN_SKELETONS
-        self._registry = tuple(registry)
+        exact_stop_count = (
+            constraints.exact_stop_count.value
+            if constraints.exact_stop_count is not None
+            else None
+        )
+        required_roles = _explicit_roles(constraints)
+        if exact_stop_count is None and not required_roles:
+            return None
+
+        candidates = _build_rule_plan_specs(
+            constraints,
+            rule_baseline,
+            include_all_shapes=True,
+        )
+        matches = _explicit_matches(
+            exact_stop_count=exact_stop_count,
+            required_roles=required_roles,
+            candidates=candidates,
+        )
+        if matches:
+            return PlanSpecChoices(
+                preferred_specs=matches,
+                explicit_structure=True,
+            )
+
+        fields = []
+        if exact_stop_count is not None:
+            fields.append("exact_stop_count")
+        if required_roles:
+            fields.append("required_stop_roles")
+        fields.append("plan_structure")
+        return PlanSpecChoices(
+            conflict=ConstraintConflict(
+                code="UNSUPPORTED_PLAN_STRUCTURE",
+                message="当前请求指定的站点数量或角色组合无法编译为可执行结构。",
+                fields=fields,
+                relaxation_options=[
+                    "调整站点数量或角色组合",
+                    "移除明确的结构限制，交给系统选择默认骨架",
+                ],
+            ),
+            explicit_structure=True,
+        )
 
     def compile(
         self,
         constraints: NormalizedConstraints,
         rule_baseline: PlanningIntent,
         proposal: PlanStructureProposal | None,
-    ) -> CompiledPlanChoices:
-        fallback = self._rule_specs(constraints, rule_baseline)
+    ) -> PlanSpecChoices:
+        explicit = self.compile_explicit_structure(constraints, rule_baseline)
+        if explicit is not None:
+            return explicit
+        fallback = _build_rule_plan_specs(constraints, rule_baseline)
         if proposal is None:
-            return CompiledPlanChoices(
+            return PlanSpecChoices(
                 preferred_specs=fallback,
                 fallback_specs=(),
                 proposal_status="not_used",
@@ -65,20 +197,20 @@ class PlanSpecCompiler:
             self._validate_proposal(proposal, constraints, rule_baseline)
             preferred = self._proposal_specs(proposal, constraints)
         except ValueError as error:
-            return CompiledPlanChoices(
+            return PlanSpecChoices(
                 preferred_specs=(),
                 fallback_specs=fallback,
                 proposal_status="rejected",
                 diagnostic_code=_safe_code(error),
             )
         if not preferred:
-            return CompiledPlanChoices(
+            return PlanSpecChoices(
                 preferred_specs=(),
                 fallback_specs=fallback,
                 proposal_status="rejected",
                 diagnostic_code="no_compiled_plan_spec",
             )
-        return CompiledPlanChoices(
+        return PlanSpecChoices(
             preferred_specs=preferred,
             fallback_specs=fallback,
             proposal_status="compiled",
@@ -101,10 +233,6 @@ class PlanSpecCompiler:
         if lunch is not None and dinner is not None and lunch >= dinner:
             raise ValueError("lunch_before_dinner_required")
 
-        # Semantic objectives are part of the same bounded proposal, but they
-        # do not become valid merely because their enum value parsed.  Every
-        # objective must cite evidence already produced by the deterministic
-        # semantic layer; the model cannot manufacture provenance here.
         known_evidence = {item.evidence_id for item in baseline.semantic_request.evidence}
         seen_objectives: set[tuple[object, object | None]] = set()
         for objective in proposal.objectives:
@@ -155,7 +283,7 @@ class PlanSpecCompiler:
         self,
         proposal: PlanStructureProposal,
         constraints: NormalizedConstraints,
-    ) -> tuple[CompiledPlanSpec, ...]:
+    ) -> tuple[PlanSpec, ...]:
         slots = proposal.slots
         optional_indexes = tuple(
             index for index, slot in enumerate(slots) if slot.inclusion == "optional"
@@ -165,97 +293,34 @@ class PlanSpecCompiler:
             if constraints.exact_stop_count is not None
             else None
         )
-        variants: list[CompiledPlanSpec] = []
+        variants: list[PlanSpec] = []
         for optional_count in range(len(optional_indexes) + 1):
             for selected in combinations(optional_indexes, optional_count):
                 selected_set = set(selected)
-                concrete_slots = tuple(
-                    PlanSlot(role=slot.role, required=True)
+                concrete_roles = tuple(
+                    slot.role
                     for index, slot in enumerate(slots)
                     if slot.inclusion == "core" or index in selected_set
                 )
-                if not concrete_slots:
+                if not concrete_roles:
                     continue
-                if exact_count is not None and len(concrete_slots) != exact_count:
+                if exact_count is not None and len(concrete_roles) != exact_count:
                     continue
-                roles = tuple(slot.role for slot in concrete_slots)
                 variants.append(
-                    CompiledPlanSpec(
-                        skeleton_id=_stable_skeleton_id(roles),
-                        slots=concrete_slots,
-                        precedence=_adjacent_precedence(roles),
-                        min_stops=len(concrete_slots),
-                        max_stops=len(concrete_slots),
-                        pace=proposal.pace,
-                        coverage=(
-                            constraints.time_scope.value
-                            if constraints.time_scope is not None
-                            else None
-                        ),
+                    PlanSpec(
+                        spec_id=_stable_plan_spec_id(concrete_roles),
+                        roles=concrete_roles,
                     )
                 )
-        # Prefer the richest variant first; the planner may still rank all
-        # feasible variants.  Stable IDs and role tuples remove duplicates.
-        deduped: dict[tuple[str, tuple[StopRole, ...]], CompiledPlanSpec] = {}
+        deduped: dict[tuple[str, tuple[StopRole, ...]], PlanSpec] = {}
         for spec in variants:
-            deduped[(spec.skeleton_id, spec.roles)] = spec
+            deduped[(spec.spec_id, spec.roles)] = spec
         return tuple(
             sorted(
                 deduped.values(),
-                key=lambda spec: (-len(spec.roles), spec.skeleton_id),
+                key=lambda spec: (-len(spec.roles), spec.spec_id),
             )
         )
-
-    def _rule_specs(
-        self,
-        constraints: NormalizedConstraints,
-        baseline: PlanningIntent,
-    ) -> tuple[CompiledPlanSpec, ...]:
-        """Build the old Rule candidate set without consulting the LLM shape."""
-
-        maximum_minutes = _available_minutes(constraints)
-        allowed = set(baseline.required_roles) | set(baseline.optional_roles)
-        output: list[CompiledPlanSpec] = []
-        for skeleton in self._registry:
-            roles = skeleton.roles
-            if not baseline.minimum_stops <= len(roles) <= baseline.maximum_stops:
-                continue
-            if not set(baseline.required_roles).issubset(roles):
-                continue
-            if not set(roles).issubset(allowed):
-                continue
-            if baseline.slots and not _contains_compatible_subsequence(
-                roles,
-                tuple(slot.role for slot in baseline.slots if slot.required),
-            ):
-                continue
-            if not _precedence_holds(roles, baseline.precedence):
-                continue
-            minimum_capacity = {
-                "lunch-activity-dinner-v1": 6 * 60,
-                "activity-break-dinner-v1": 5 * 60,
-                "activity-lunch-activity-dinner-v1": 8 * 60,
-            }.get(skeleton.skeleton_id, len(roles) * 30)
-            if minimum_capacity > maximum_minutes:
-                continue
-            output.append(
-                CompiledPlanSpec.from_skeleton(
-                    skeleton,
-                    precedence=tuple(
-                        RolePrecedence(before=before, after=after)
-                        for before, after in baseline.precedence
-                    ),
-                    min_stops=len(roles),
-                    max_stops=len(roles),
-                    pace=baseline.pace,
-                    coverage=(
-                        constraints.time_scope.value
-                        if constraints.time_scope is not None
-                        else baseline.coverage
-                    ),
-                )
-            )
-        return tuple(output)
 
 
 def _explicit_roles(constraints: NormalizedConstraints) -> tuple[StopRole, ...]:
@@ -292,25 +357,111 @@ def roles_compatible(required: StopRole, actual: StopRole) -> bool:
     )
 
 
-def _precedence_holds(
-    roles: tuple[StopRole, ...],
-    precedence: tuple[tuple[StopRole, StopRole], ...],
-) -> bool:
-    for before, after in precedence:
-        if before in roles and after in roles and roles.index(before) >= roles.index(after):
-            return False
-    return True
+def _explicit_matches(
+    *,
+    exact_stop_count: int | None,
+    required_roles: tuple[StopRole, ...],
+    candidates: tuple[PlanSpec, ...],
+) -> tuple[PlanSpec, ...]:
+    # A single unspecified stop is ambiguous: do not choose a role for the user.
+    if exact_stop_count == 1 and not required_roles:
+        return ()
+
+    ranked: list[tuple[int, int, int, PlanSpec, tuple[int, ...]]] = []
+    for candidate_index, spec in enumerate(candidates):
+        if exact_stop_count is not None and len(spec.roles) != exact_stop_count:
+            continue
+        # A lone meal is a meal requirement, not an instruction to collapse the
+        # whole outing into a single-stop plan.
+        if (
+            exact_stop_count is None
+            and len(required_roles) == 1
+            and required_roles[0] in {StopRole.LUNCH, StopRole.DINNER}
+            and len(spec.roles) == 1
+        ):
+            continue
+        if not required_roles:
+            ranked.append((0, 0, candidate_index, spec, ()))
+            continue
+        assignment = _required_role_assignment(required_roles, spec.roles)
+        if assignment is None:
+            continue
+        penalty, matched_indices = assignment
+        # Prefer the smallest structure preserving the user's ordered roles;
+        # an exact meal role beats mapping a generic MEAL slot when tied.
+        ranked.append(
+            (
+                len(spec.roles) - len(required_roles),
+                penalty,
+                candidate_index,
+                spec,
+                matched_indices,
+            )
+        )
+    ranked.sort(key=lambda item: item[:3])
+    if required_roles and ranked:
+        best_key = ranked[0][:2]
+        return tuple(
+            _bind_explicit_roles(item[3], required_roles, item[4])
+            for item in ranked
+            if item[:2] == best_key
+        )
+    return tuple(item[3] for item in ranked)
 
 
-def _adjacent_precedence(roles: tuple[StopRole, ...]) -> tuple[RolePrecedence, ...]:
-    return tuple(
-        RolePrecedence(before=left, after=right)
-        for left, right in zip(roles, roles[1:])
-        if left != right
-    )
+def _required_role_assignment(
+    required_roles: tuple[StopRole, ...],
+    actual_roles: tuple[StopRole, ...],
+) -> tuple[int, tuple[int, ...]] | None:
+    """Find the cheapest ordered subsequence assignment."""
+
+    if len(required_roles) > len(actual_roles):
+        return None
+
+    def search(
+        required_index: int,
+        slot_index: int,
+    ) -> tuple[int, tuple[int, ...]] | None:
+        if required_index == len(required_roles):
+            return 0, ()
+        if slot_index == len(actual_roles):
+            return None
+        required = required_roles[required_index]
+        options: list[tuple[int, tuple[int, ...]]] = []
+        skipped = search(required_index, slot_index + 1)
+        if skipped is not None:
+            options.append(skipped)
+        actual = actual_roles[slot_index]
+        if roles_compatible(required, actual):
+            remainder = search(required_index + 1, slot_index + 1)
+            if remainder is not None:
+                options.append(
+                    (
+                        remainder[0] + (0 if required == actual else 1),
+                        (slot_index, *remainder[1]),
+                    )
+                )
+        return min(options, key=lambda item: (item[0], item[1])) if options else None
+
+    return search(0, 0)
 
 
-def _stable_skeleton_id(roles: tuple[StopRole, ...]) -> str:
+def _bind_explicit_roles(
+    spec: PlanSpec,
+    required_roles: tuple[StopRole, ...],
+    matched_indices: tuple[int, ...],
+) -> PlanSpec:
+    roles = list(spec.roles)
+    for required, index in zip(required_roles, matched_indices, strict=True):
+        if roles[index] == StopRole.MEAL and required in {
+            StopRole.LUNCH,
+            StopRole.DINNER,
+        }:
+            roles[index] = required
+    return replace(spec, roles=tuple(roles))
+
+
+def _stable_plan_spec_id(roles: tuple[StopRole, ...]) -> str:
     known = {
         (StopRole.ACTIVITY, StopRole.MEAL): "activity-meal-v1",
         (StopRole.ACTIVITY,): "activity-only-v1",
@@ -337,6 +488,11 @@ def _available_minutes(constraints: NormalizedConstraints) -> int:
     start_hour, start_minute = (int(part) for part in window.start.split(":"))
     end_hour, end_minute = (int(part) for part in window.end.split(":"))
     return max(0, (end_hour * 60 + end_minute) - (start_hour * 60 + start_minute))
+
+
+def _clock_minutes(value: str) -> int:
+    hour, minute = (int(part) for part in value.split(":"))
+    return hour * 60 + minute
 
 
 def _safe_code(error: Exception) -> str:

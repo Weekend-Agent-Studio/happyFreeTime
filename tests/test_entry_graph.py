@@ -16,10 +16,10 @@ from app.domain.constraints import (
     Interpretation,
     RawConstraints,
     StopRole,
-    TimeScope,
 )
 from app.orchestration.entry_graph import (
     build_entry_graph,
+    checkpoint_config,
     checkpoint_serializer,
 )
 from app.services.demo_router import DemoRouter
@@ -27,7 +27,7 @@ from app.services.enrichment import EnvironmentContext
 from app.providers.geocoding import MockGeocodingProvider
 from app.services.catalog import InMemoryCatalog
 from app.services.router_extractor import RouterContext
-from app.domain.planning import PlanningIntent
+from app.domain.planning import PlanSlotProposal, PlanStructureProposal
 from tests.test_planning import planning_constraints
 
 
@@ -73,21 +73,25 @@ class ExplicitLocationRouter:
 
 
 class EntryGraphTest(unittest.TestCase):
-    def test_legacy_planning_intent_checkpoint_with_coverage_is_restorable(self) -> None:
-        legacy_payload = {
-            "required_roles": ["activity"],
-            "optional_roles": ["meal"],
-            "minimum_stops": 2,
-            "maximum_stops": 4,
-            "pace": "balanced",
-            "coverage": "all_day",
-        }
-        legacy_intent = PlanningIntent.model_validate(legacy_payload)
+    def test_checkpoint_namespace_versions_the_development_state(self) -> None:
+        self.assertEqual(
+            checkpoint_config("session-1"),
+            {
+                "configurable": {
+                    "thread_id": "planner-core1b-v3:session-1",
+                }
+            },
+        )
+
+    def test_plan_structure_proposal_is_checkpoint_serializable(self) -> None:
+        proposal = PlanStructureProposal(
+            slots=(PlanSlotProposal(role=StopRole.ACTIVITY, inclusion="core"),)
+        )
         serializer = checkpoint_serializer()
-        encoded = serializer.dumps_typed(legacy_intent)
+        encoded = serializer.dumps_typed(proposal)
         restored = serializer.loads_typed(encoded)
 
-        self.assertEqual(restored.coverage, TimeScope.ALL_DAY)
+        self.assertEqual(restored, proposal)
 
     def test_active_plan_time_supplement_is_not_misclassified_as_replacement(self) -> None:
         interpretation = DemoRouter().interpret(

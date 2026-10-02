@@ -1,6 +1,8 @@
 # HappyFreeTime 三阶段架构演进：从 ReAct 原型到受约束规划 Agent
 
-_面试讲稿与追问题库 · 区分历史事实、当前实现和待验证目标 · 更新于 2026-09-05_
+_面试讲稿与追问题库 · 区分历史事实、当前实现和待验证目标 · 架构主叙事更新于 2026-10-02_
+
+> 当前规划结构已在 S-CORE1A/B/C 三个切片中继续收敛：唯一可执行结构为 `PlanSpec`；模型只输出一个 `PlanStructureProposal v3`，Harness 投影软语义并用 `PlanSpecCompiler` 编译结构。下方 2026-09-05 的问题表与个别“当前限制”是当时的阶段快照，不代表现在仍未实现；当前细节见[规划结构收敛面试说明](08_PlanSpecCompiler与结构提案收敛.md)和[当前架构](../current/resume_v2_architecture.md)。
 
 ---
 
@@ -10,7 +12,7 @@ _面试讲稿与追问题库 · 区分历史事实、当前实现和待验证目
 
 HappyFreeTime 经历了三次架构思考。第一阶段用 `IntentAgent → SlotAgent → PlannerAgent → ExecutorAgent` 验证 LangGraph、工具调用和中断恢复，但把时间、位置、天气等必需步骤也交给模型循环，调用慢、状态松散，方案事实缺少独立校验。第二阶段把系统重构为 `Router → Enrichment → Gate → Planning`：模型负责理解语言，确定性 Provider、Planner、Verifier 和 Repair Contract 负责事实、搜索与硬约束，建立了可回放的可信基线。这个版本可靠，但又暴露出相反问题——模型几乎不影响实际方案，精确时间、单站晚饭、模糊偏好和局部修改都容易退化成关键词或固定分支。
 
-第三阶段因此不是恢复全流程 ReAct，而是在可信内核外增加状态化对话控制，在规划内部增加受约束的语义决策：模型可以解释组合式命令、提出只读信息需求、形成 `PlanningIntent`，以及在已经通过 Verifier 的方案间评价软取舍；Harness 继续掌握硬约束、必需工具、预算、终止和副作用。核心不是“增加几个 Agent”，而是把自治权放在模型真正有优势且可验证的决策 Seam 上。
+第三阶段因此不是恢复全流程 ReAct，而是在可信内核外增加状态化对话控制，在规划内部增加受约束的语义决策：模型通过一个 `PlanStructureProposal v3` 表达有证据的软目标、角色查询和受限结构；Harness 投影为 `PlanningIntent`、编译为 `PlanSpec`，并继续掌握硬约束、事实、搜索预算、Verifier 和副作用。核心不是“增加几个 Agent”，而是把自治权放在模型真正有优势且可验证的决策 Seam 上。
 
 ### 面试时最重要的三句话
 
@@ -44,7 +46,7 @@ timeline
 | --- | --- | --- | --- | --- |
 | V1：ReAct 原型 | 意图、补全、工具选择、方案生成、部分执行判断 | 执行模型请求的工具，保存简单 Graph 状态 | 快速验证 Agent Loop、工具调用和 interrupt | 调用冗余、输出松散、事实和方案混合、缺少独立不变量 |
 | V2：可信规划工作流 | 一次结构化意图与约束抽取；可选文案解释 | Enrichment、Provider、骨架、组合、路线、Verifier、Repair、持久化 | 可测试、可降级、硬约束可信、离线可复现 | 模型几乎不影响候选召回、结构和最终排序；对话与修改能力弱 |
-| 第三阶段：受约束混合 Agent | `ConversationCommand`、可选 `InformationNeed`、`PlanningIntent`、可选 `PlanCritic` | 上下文投影、必需 Provider、结构编译、硬约束、预算、实际终止、权限与副作用 | 模型真正影响方案，同时保留 V2 的可信边界 | 尚待实现和评测；复杂度必须通过收益证明 |
+| 第三阶段：受约束混合 Agent | `ConversationCommand`、受约束 `PlanStructureProposal`、语义召回与证据化 Advisor | 上下文/状态、结构编译、Provider、硬约束、预算、Verifier 与降级 | 模型在可验证边界内影响结构和语义匹配，同时保留可信内核 | 仍需区分 Frozen 组件效果与 Live 稳定性，复杂度必须由评测证明 |
 
 ### V1：先验证 Agent 形态
 
@@ -87,13 +89,15 @@ V2 将主链重构为 [Router → Enrichment → Gate → Planning](../../app/or
 - `TurnInterpreter` 把自然语言解释为组合式 `ConversationCommand`，而不是继续扩充互斥 Intent 枚举。
 - `ContextAssembler` 针对当前决策投影活跃方案、相关历史和可用记忆，不把全量聊天重新塞给每个模型节点。
 - 模型可提出白名单只读 `InformationNeed`；`ToolBroker` 校验参数、权限、预算、重复观察和停止条件。
-- `PlanningIntent` 影响语义查询、角色覆盖、站数范围、节奏和软排序；确定性 `StructureCompiler` 只编译合法结构。
+- 当前实现：单个 `PlanStructureProposal v3` 携带结构与软语义；`PlanningIntent` 只保留 `pace + semantic_request`，`PlanSpecCompiler` 独自编译结构，Rule/显式/LLM 结构共享同一可执行 `PlanSpec`。
 - 可选 `PlanCritic` 只重排已通过 Verifier 的 finalist，不能复活硬约束违规方案。
 - RAG 通过 `CandidateRetriever` 增强模糊体验召回；MCP 只是 Capability Adapter，不侵入领域契约。
 
 完整目标结构见 [架构设计](../canonical/architecture_v2.md)，实施顺序见 [Roadmap](../canonical/v2_roadmap.md)。
 
-## 🔍 为什么 V2 仍需要调整
+## 🔍 为什么当时的 V2 仍需要调整（2026-09-05 阶段快照）
+
+下表记录的是第三阶段早期的问题假设。多个项目切片后来已经补齐其中能力；不要把表中的“当前限制”直接当作今天的实现状态。
 
 V2 解决了“可信不可信”，却还没有充分解决“懂不懂用户”和“能不能自然修改”。这不是一个抽象的“LLM 参与太少”问题，而是可以从当前契约和反例中定位的能力缺口。
 

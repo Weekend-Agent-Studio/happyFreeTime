@@ -209,7 +209,7 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
   required_stop_roles，按用户提及顺序保留 activity、lunch、dinner 或 meal；普通
   “安排 A 和 B”没有排他语义时不要填写 exact_stop_count。若用户说“只/仅/就安排
   A 和 B”，这表示恰好这些角色，exact_stop_count 填写为角色数量。dinner/lunch
-  是具体饭食角色，后续 StructureCompiler 可以把它们绑定到现有通用 meal 模板，
+  是具体饭食角色，后续 PlanSpecCompiler 可以把它们绑定到现有通用 meal 结构，
   不要为此编造新的 POI 或骨架。
 - 不调用工具，不生成地点、价格、库存、路线等事实。
 - “餐厅保留，只把活动换近一点”输出 operation=replace，target.role=activity，

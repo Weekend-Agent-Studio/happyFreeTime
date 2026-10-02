@@ -1,6 +1,6 @@
 # Resume V2 当前架构
 
-_Resume V2 发布基线的实现快照；更新时间：2026-09-26。本文只描述已落地代码，不描述长期目标。_
+_Resume V2 当前实现快照；核对日期：2026-10-02。发布 tag 仍是冻结评测基线，S-CORE1 后续收敛以本分支代码和新报告为准。本文只描述已落地代码，不描述长期目标。_
 
 ---
 
@@ -11,7 +11,7 @@ _Resume V2 发布基线的实现快照；更新时间：2026-09-26。本文只�
 - 发布 tag：planner-v2-eval-baseline，指向 bef5fa3；
 - 评测代码提交：db8603b，是发布 tag 的祖先；
 - 36 条人工复核 Frozen Fixture；
-- 当前代码、自动测试和 Resume V2 发布报告。
+- S-CORE1A/B/C 的代码、自动测试和阶段报告；其评测代码提交 `52fd353` 的正式结果见 [S-CORE1C 报告](../status/s_core1c_release_20261002.md)。该分支未合并 `main`；冻结 tag 的历史指标仍只对应旧提交。
 
 如果本文与根 README、代码或自动测试冲突，以代码和测试为准。目标架构、长期记忆、真实执行、Saga 和 MCP 演进见 canonical/architecture_v2.md，不能从目标设计推断为当前能力。
 
@@ -45,7 +45,7 @@ flowchart TB
     end
 
     subgraph planning_core["⚙️ Planning core"]
-        intent --> spec[🛡️ PlanSpecCompiler]
+        intent[Rule semantics + optional LLM proposal] --> spec[🛡️ PlanSpecCompiler]
         spec --> retrieve[🔍 Catalog and Hybrid Retrieval]
         retrieve --> search[⚙️ Beam Search]
         search --> schedule[⚙️ Timeline Scheduler]
@@ -96,13 +96,15 @@ QuestionGate 根据当前状态和能力合同判断是否必须反问。反问�
 
 ## 🧩 结构提案与规划搜索
 
-### PlanningIntent 与 PlanSpecCompiler
+### PlanningIntent、Proposal 与 PlanSpecCompiler
 
-PlanningIntent 可以提出软目标、角色顺序、required/optional slots、站数范围、节奏和角色级语义查询。
+模型每次规划至多输出一个 `PlanStructureProposal v3` Wire DTO，其中可以同时包含 1–4 个有序角色 slot、core/optional、pace、受证据约束的 objectives 和角色级检索 query。模型没有输出第二份 `PlanningIntent` 或可执行 `PlanSpec`：Harness 从 proposal 投影出内部 `PlanningIntent`（仅 `pace + semantic_request`），再由 `PlanSpecCompiler` 把结构部分编译为一个或多个 concrete `PlanSpec`。optional slot 只存在于 proposal，Compiler 将其有界展开；`PlanSpec` 本身只有确定的有序角色序列。
 
-它不是最终 Planner，也不能直接决定事实和硬约束。PlanSpecCompiler 负责校验角色顺序、餐时关系、站数和重复角色；将 optional slot 展开为有限结构变体；生成稳定结构标识；在结构不可编译或后段无法验证时回退到规则结构。
+用户显式站数/角色由同一个 `PlanSpecCompiler` 预检并保持优先；没有 LLM 提案时，Rule baseline 也由该 Compiler 内的私有工厂直接生成 `PlanSpec`。旧 `PlanSkeleton` 领域模型、注册表和转换 Adapter 已删除。PlanSpecCompiler 负责结构合法性、用户显式结构优先级、证据引用和稳定 ID；它不证明 POI、路线、营业或时间轴可行，这些由搜索、Scheduler、Provider 和 Verifier 处理。
 
-当前设计不是“模型从注册表中挑一个骨架”，也不是“模型直接生成最终路线”，而是“模型提出受限结构，Harness 将其编译成可搜索结构并裁决可执行性”。
+若已接受的 LLM 结构经本地排程或 Route/Availability/Verifier 仍无可行方案，Harness 最多尝试一次完整 Rule 恢复：重用确定性 Rule `PlanningIntent`，重新按角色召回并排序，使用 Rule PlanSpec，再走同一搜索和验证 Seam；不二次调用 LLM，且优先路径会为恢复预留有限 Provider 预算。Trace 记录 proposal、编译结果、失败阶段、失败字段和最终 PlanSpec。当前外部 `Plan.skeleton_id` 是历史字段名，仅承载稳定 PlanSpec ID，不表示仍存在 Skeleton 模型。
+
+当前不是“模型从注册表中挑一个骨架”，也不是“模型直接生成最终路线”，而是“模型提出受约束结构与软语义，Harness 编译并搜索，Verifier 对具体行程证明可行”。
 
 ### Beam Search
 
@@ -114,7 +116,7 @@ Beam 是当前默认搜索路径，主要价值是资源控制：
 - 保留 finalist 进入真实 Route、Availability 和 Verifier；
 - 不把本地估算误当作最终硬事实。
 
-Legacy Search 仍保留为显式模式和受控回退，便于兼容旧 checkpoint、调试和版本对照。当前评测证明 Beam 在相同安全结果下显著减少扩展量，但尚未证明它在小型 Demo World 上必然提高方案质量。
+Beam 是默认主路径。Legacy Search 仅通过显式实验模式或 Beam 在没有观察到 Provider/硬约束失败时的有界搜索恢复使用；两种算法消费相同 `PlanSpec`，没有旧 Skeleton 转换链。Rule 结构恢复与 Legacy 搜索恢复是不同层次，不能把后者算成第二次 LLM 调用。Beam 的价值主要是资源控制；评测是否证明质量收益以当前 S-CORE1C 报告为准。
 
 ### 时间与路线
 

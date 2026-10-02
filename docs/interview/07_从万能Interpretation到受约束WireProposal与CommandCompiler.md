@@ -425,7 +425,7 @@ flowchart TD
 - 是否应该反问；
 - 面向用户的回复。
 
-Compiler 生成内部兼容对象，Graph 再进入 Enrichment、Question Gate、StructureCompiler、PlanningIntent、CandidateRetriever、Provider、Planner 和 Verifier。
+Compiler 生成内部领域对象，Graph 再进入 Enrichment、Question Gate 和 PlanningService；规划内部由 `PlanStructureProposal v3` 投影语义，并由 `PlanSpecCompiler` 统一编译结构，之后进入 CandidateRetriever、Scheduler、Provider 和 Verifier。它不再进入旧 `StructureCompiler` 或兼容对象链。
 
 ### 5.3 明确修改示例
 

@@ -682,7 +682,7 @@ class EnrichmentService:
                     )
                 )
         # A meal-period default is safe only for a genuinely single-role
-        # request.  For “活动和晚饭” the StructureCompiler owns the shape and
+        # request.  For “活动和晚饭” the PlanSpecCompiler owns the shape and
         # Gate should not collapse the whole outing into an evening dinner
         # window merely because one required role is DINNER.
         elif (
@@ -984,10 +984,10 @@ class EnrichmentService:
     ) -> TimeWindow | None:
         """Choose a finite default window for multi-role meal requests.
 
-        This helper is intentionally limited to role combinations already
-        supported by the closed skeleton registry. It never overrides an
-        explicit numeric time range; ``return_by`` only acts as an upper bound
-        when the window is otherwise inferred.
+        This helper is intentionally limited to the closed StopRole vocabulary
+        understood by PlanSpecCompiler. It never overrides an explicit numeric
+        time range; ``return_by`` only acts as an upper bound when the window
+        is otherwise inferred.
         """
 
         # A single named meal role can still belong to a multi-stop request,

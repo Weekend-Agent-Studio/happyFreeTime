@@ -46,9 +46,10 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 
 - [Resume V2 当前架构](current/resume_v2_architecture.md)：当前 Graph、Wire Proposal、Enrichment、Gate、PlanSpecCompiler、Beam、Provider、Verifier、持久化和降级边界
 - [Resume V2 发布评测](releases/resume_v2_release_report.md)：36 条 reviewed Fixture、C0–C4、B0/B3、Retrieval、Advisor、Beam 和发布限制
+- [S-CORE1C PlanSpec 收敛验收](status/s_core1c_release_20261002.md)：三阶段重构、Rule fallback、C0–C4 与 Live B0/B3 的新分支回归结果
 - [CONTEXT.md](../CONTEXT.md)：Session、Planning Run、Plan Version、Constraint、Provider 和 Memory 等术语
 
-当前版本的发布 tag 是 planner-v2-eval-baseline。评测报告中记录的代码提交是 db8603b，发布文档随后收口在 bef5fa3；两者处于同一祖先链，不能把评测报告中的提交误认为另一个产品版本。
+冻结发布 tag 仍是 `planner-v2-eval-baseline`（评测代码 `db8603b`，文档收口 `bef5fa3`）。S-CORE1A/B/C 的代码评测提交为 `52fd353`，已完成正式回归并记录在上方验收报告；它仍是独立功能分支，未自动合并 `main`，也不应与旧冻结 tag 混称为同一提交。
 
 ### Canonical target and roadmap
 
@@ -62,6 +63,7 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 - [05_三阶段架构演进](interview/05_三阶段架构演进_从ReAct原型到受约束规划Agent.md)：V1 → V2 主叙事
 - [06_语义规划与轻量 RAG](interview/06_从关键词匹配到可验证语义规划与轻量RAG.md)：语义中间层、Hybrid Retrieval、Grounding 和评测
 - [07_Wire Proposal 与 CommandCompiler](interview/07_从万能Interpretation到受约束WireProposal与CommandCompiler.md)：结构化输出失败与 Harness 重构
+- [08_PlanSpecCompiler 与结构提案收敛](interview/08_PlanSpecCompiler与结构提案收敛.md)：S-CORE1A/B/C 三阶段 Planner 结构重构
 - [learning/](learning/)：按里程碑记录“我是否理解和验证过”，不是产品文档
 
 ## 🗂️ 目录地图

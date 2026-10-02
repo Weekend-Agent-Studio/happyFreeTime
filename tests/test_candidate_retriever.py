@@ -18,10 +18,11 @@ from app.services.candidate_retriever import (
 from app.services.embedding import FakeEmbeddingProvider
 from tests.test_native_planning import candidate
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
-from app.domain.planning import PlanSkeleton, PlanningIntent
+from app.domain.planning import PlanningIntent
 from app.services.catalog import InMemoryCatalog
 from app.services.planning import PlanningService
-from app.services.planning import _rank_skeleton_plans
+from app.services.planning import _rank_plan_specs
+from app.services.plan_spec import PlanSpec
 
 
 class CandidateRetrieverTest(unittest.TestCase):
@@ -145,20 +146,16 @@ class CandidateRetrieverTest(unittest.TestCase):
             candidate("dinner", ResourceType.RESTAURANT, "晚餐餐厅", ["餐厅"]),
         ]
         constraints = planning_constraints(max_distance_km=30, time_end="22:00")
-        skeleton = PlanSkeleton(
-            skeleton_id="three-stop-regression",
+        spec = PlanSpec(
+            spec_id="three-stop-regression",
             roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
         )
-        intent = PlanningIntent(
-            optional_roles=(StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
-            minimum_stops=3,
-            maximum_stops=3,
-        )
+        intent = PlanningIntent()
 
-        result = _rank_skeleton_plans(
+        result = _rank_plan_specs(
             [*distractors, semantic_target, *restaurants],
             constraints,
-            (skeleton,),
+            (spec,),
             intent,
             semantic_scores={semantic_target.resource_id: 100.0},
         )
