@@ -517,9 +517,6 @@ class PlanningService:
         preferred_specs = plan_choices.preferred_specs
         fallback_specs = plan_choices.fallback_specs
         plan_specs = preferred_specs or fallback_specs
-        structure_fallback_attempted = bool(
-            plan_choices.proposal_status == "rejected" and fallback_specs
-        )
         structure_fallback_used = False
         structure_fallback_reason = plan_choices.diagnostic_code
         structure_fallback_stage = (

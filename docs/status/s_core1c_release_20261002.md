@@ -1,11 +1,11 @@
 # S-CORE1C：PlanSpec 收敛与 Resume V2 回归验收
 
-日期：2026-10-02  
-分支：`codex/s-core1a-plan-spec`  
-评测代码提交：`52fd353`（`refactor: complete canonical plan spec pipeline`）  
-评测时：`git_dirty=false`  
-冻结集：36 条 reviewed；Fixture SHA256 `e650bf04d01701a358981e21e4899c57bc8f16a4248f7f83cabd1051f8106422`  
-Dataset SHA256：`751b8ee9fba08302467c59538376454492acc81d8f07be32a0afd4c009e18160`
+- 日期：2026-10-02
+- 分支：`codex/s-core1a-plan-spec`
+- 评测代码提交：`52fd353`（`refactor: complete canonical plan spec pipeline`）
+- 评测时：`git_dirty=false`
+- 冻结集：36 条 reviewed；Fixture SHA256 `e650bf04d01701a358981e21e4899c57bc8f16a4248f7f83cabd1051f8106422`
+- Dataset SHA256：`751b8ee9fba08302467c59538376454492acc81d8f07be32a0afd4c009e18160`
 
 ## 1C 收口内容
 
@@ -58,4 +58,3 @@ B3 Advisor 接受率 20/23（87.0%），3 次被 grounding Harness 安全拒绝�
 3. Live B0/B3 是单次端到端样本，结果会受 Router 输出影响；当前不用于稳定成功率或版本提升声明。
 4. Advisor 的拒绝是安全行为，不影响 C4 的计划完成；但质量收益需单独盲评，接受率不等于解释质量。
 5. `Plan.skeleton_id` 与 Search Trace 的历史命名仍在；代码语义与取值已是 PlanSpec ID。它们不是旧结构模型，但将来若清理外部 API 名称，需要另作 API 变更。
-
