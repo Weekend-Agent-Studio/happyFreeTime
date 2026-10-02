@@ -12,7 +12,7 @@ _面试设计说明；现行结构契约以代码、测试和 S-CORE1C 正式评
 | --- | --- | --- |
 | S-CORE1A | Planner 内部同时存在 `PlanSkeleton`、`CompiledPlanSpec` 与转换函数 | 搜索、Beam、Scheduler、修改链路统一消费 `PlanSpec`；删除旧结构模型、注册表和强转适配器 |
 | S-CORE1B | `PlanningIntent` 同时携带软语义和结构字段，旧/新 Proposal 与 checkpoint 兼容分支并存 | 实时 LLM 只输出 `PlanStructureProposal v3`；`PlanningIntent` 只保留 `pace + semantic_request`；开发 checkpoint 明确版本隔离 |
-| S-CORE1C | Rule fallback 曾只换结构却复用 LLM 语义/检索结果；文档仍描述旧合同 | 完整 Rule 恢复、单一 Compiler 入口、最终 C/B 回归和文档收口（以本切片最终报告为准） |
+| S-CORE1C | Rule fallback 曾只换结构却复用 LLM 语义/检索结果；文档仍描述旧合同 | 完整 Rule 恢复、单一 Compiler 入口、C0–C4/B0/B3 最终回归和三阶段文档收口，结果见最终报告 |
 
 ## 模型究竟输出什么
 
@@ -103,4 +103,4 @@ Rule PlanningIntent + 新的角色级召回/排序 + Rule PlanSpec
 - 唯一结构 Compiler：[plan_spec_compiler.py](../../app/services/plan_spec_compiler.py)
 - PlanSpec：[plan_spec.py](../../app/services/plan_spec.py)
 - 规划、fallback、Provider/Verifier Seam：[planning.py](../../app/services/planning.py)
-- S-CORE1A/B/C 的阶段结果及正式指标：见 [文档索引](../README.md) 指向的 current、status 和 release 文件。面试时使用 S-CORE1C 最终报告，不把旧的冻结 tag 指标说成新分支指标。
+- S-CORE1A/B/C 的阶段结果及正式指标：见 [S-CORE1C 最终评测记录](../status/s_core1c_release_20261002.md)。面试时使用该分支的 C/B 结果，不把旧冻结 tag 指标说成新分支指标。

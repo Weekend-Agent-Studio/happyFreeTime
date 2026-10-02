@@ -11,7 +11,7 @@ _Resume V2 当前实现快照；核对日期：2026-10-02。发布 tag 仍是冻
 - 发布 tag：planner-v2-eval-baseline，指向 bef5fa3；
 - 评测代码提交：db8603b，是发布 tag 的祖先；
 - 36 条人工复核 Frozen Fixture；
-- S-CORE1A/B/C 的代码、自动测试和阶段报告；正式发布评测以 S-CORE1C 报告为准。
+- S-CORE1A/B/C 的代码、自动测试和阶段报告；其评测代码提交 `52fd353` 的正式结果见 [S-CORE1C 报告](../status/s_core1c_release_20261002.md)。该分支未合并 `main`；冻结 tag 的历史指标仍只对应旧提交。
 
 如果本文与根 README、代码或自动测试冲突，以代码和测试为准。目标架构、长期记忆、真实执行、Saga 和 MCP 演进见 canonical/architecture_v2.md，不能从目标设计推断为当前能力。
 

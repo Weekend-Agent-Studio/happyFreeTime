@@ -71,7 +71,7 @@ Verification after this follow-up:
   have not been rerun after this fix; those remain in S-CORE1C.
 
 The S-CORE1B task card intentionally limited live validation to five targeted
-C1 cases and explicitly deferred full C0-C4/B0-B3 to S-CORE1C. The full
-ablation was therefore not silently skipped; the remaining gap is the
-unreported intermediate discrepancy documented above, now fixed at the
-deterministic code/test level and awaiting the 1C release rerun.
+C1 cases and explicitly deferred full C0-C4/B0-B3 to S-CORE1C. That deferral
+was closed by the full S-CORE1C release rerun; see
+[`s_core1c_release_20261002.md`](s_core1c_release_20261002.md) for the final
+Rule-fallback, frozen, live, and environment-qualified results.
