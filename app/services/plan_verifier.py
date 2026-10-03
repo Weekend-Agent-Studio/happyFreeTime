@@ -56,7 +56,10 @@ class PlanVerifier:
     ) -> VerificationResult:
         violations: list[VerificationFinding] = []
         plan_end_minutes = _elapsed_minutes(plan.stops[-1].end)
-        window_end_minutes = _elapsed_minutes(constraints.time_window.value.end)
+        planning_window = constraints.planning_window
+        window_end_minutes = _elapsed_minutes(
+            planning_window.end_at.value if planning_window.end_at else None
+        )
         if (
             plan_end_minutes is None
             or window_end_minutes is None
@@ -101,8 +104,9 @@ class PlanVerifier:
                         message="全程累计距离超过用户限制。",
                     )
                 )
-        if constraints.return_by:
-            return_by_minutes = _elapsed_minutes(constraints.return_by.value)
+        return_deadline = planning_window.explicit_return_deadline
+        if return_deadline:
+            return_by_minutes = _elapsed_minutes(return_deadline.value)
             return_leg = plan.route_legs[-1] if plan.route_legs else None
             if return_leg is None or return_leg.destination_name != "出发地":
                 violations.append(
@@ -148,7 +152,7 @@ class PlanVerifier:
                     )
 
         weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
-            constraints.date.value.weekday()
+            planning_window.date.value.weekday()
         ]
         for stop in plan.stops:
             resource = resources[stop.resource_id]

@@ -3,12 +3,12 @@
 from pydantic import BaseModel, ConfigDict
 
 from app.domain.constraints import (
-    EnrichmentResult,
+    ClarificationIssue,
     Intent,
     Interpretation,
+    PlanRequest,
     QuestionDecision,
 )
-from app.services.enrichment import TemporalCompiler
 
 
 class GateContext(BaseModel):
@@ -31,10 +31,29 @@ class NeedQuestionGate:
     def decide(
         self,
         interpretation: Interpretation,
-        enrichment: EnrichmentResult,
+        request: PlanRequest,
         context: GateContext,
+        issue: ClarificationIssue | None = None,
     ) -> QuestionDecision:
-        constraints = enrichment.constraints
+        constraints = request
+
+        if issue is not None:
+            questions = {
+                "date": ("你具体想安排在哪一天？可以直接告诉我日期或说今天、明天。", "question.date.unresolved.v1"),
+                "departure_at": ("你希望早上/下午/晚上大概几点出发？请给一个具体时间。", "question.departure_at.unresolved.v1"),
+                "return_by": ("你最晚几点需要到家？请用例如 20:00 的时间告诉我。", "question.return_by.unresolved.v1"),
+            }
+            question, rule_id = questions.get(
+                issue.field,
+                ("还需要补充一个信息才能继续规划。", f"question.{issue.field}.unresolved.v1"),
+            )
+            return QuestionDecision(
+                need_question=True,
+                field=issue.field,
+                question=question,
+                severity="blocking",
+                rule_id=rule_id,
+            )
 
         if interpretation.primary_intent == Intent.EXECUTE_PLAN:
             if not context.has_plans or interpretation.selected_plan_index is None:
@@ -56,64 +75,6 @@ class NeedQuestionGate:
             )
 
         raw = interpretation.raw_constraints
-
-        # An explicitly stated but unresolved return deadline is a blocking
-        # hard constraint.  Ask for it before optional/defaultable fields such
-        # as an omitted date or a broad time scope; otherwise a request like
-        # “下午出去，晚饭前后一定要回家” incorrectly asks for the date first.
-        if (raw.return_by_text or raw.return_by) and constraints.return_by is None:
-            return QuestionDecision(
-                need_question=True,
-                field="return_by",
-                question="你最晚几点需要到家？请用例如 18:00 的时间告诉我。",
-                severity="blocking",
-                rule_id="question.return_by.unresolved.v1",
-            )
-
-        if (raw.date_reference or raw.date_text) and constraints.date is None:
-            return QuestionDecision(
-                need_question=True,
-                field="date",
-                question="你具体想安排在哪一天？可以直接告诉我日期或说今天、明天。",
-                severity="blocking",
-                rule_id="question.date.unresolved.v1",
-            )
-
-        departure_period = (
-            raw.departure_period
-            or TemporalCompiler.extract_departure_period(raw.departure_at_text)
-            or TemporalCompiler.extract_departure_period(raw.time_text)
-        )
-        if departure_period is not None and constraints.departure_at is None:
-            return QuestionDecision(
-                need_question=True,
-                field="departure_at",
-                question="你希望早上/下午/晚上大概几点出发？请给一个具体时间。",
-                severity="blocking",
-                rule_id="question.departure_period.unresolved.v1",
-            )
-
-        if (
-            raw.time_scope is not None
-            or raw.explicit_time_window is not None
-            or raw.time_text
-        ) and constraints.time_window is None:
-            return QuestionDecision(
-                need_question=True,
-                field="time_window",
-                question="你大概想从几点到几点？",
-                severity="blocking",
-                rule_id="question.time_window.unresolved.v1",
-            )
-
-        if (raw.departure_at_text or raw.departure_at) and constraints.departure_at is None:
-            return QuestionDecision(
-                need_question=True,
-                field="departure_at",
-                question="你希望几点准时出发？请用例如 14:30 出发的时间告诉我。",
-                severity="blocking",
-                rule_id="question.departure_at.unresolved.v1",
-            )
 
         if raw.location_text and constraints.location is None:
             return QuestionDecision(

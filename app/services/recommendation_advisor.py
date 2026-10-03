@@ -287,19 +287,20 @@ def _build_needs(request: RecommendationAdviceRequest) -> tuple[NeedSummary, ...
         )
 
     constraints = request.constraints
-    if constraints.time_window is not None:
-        window = constraints.time_window.value
+    window = constraints.planning_window.clock_bounds
+    if window is not None:
         needs.append(
             NeedSummary(
-                need_id="constraint.time_window",
+                need_id="constraint.planning_window",
                 text=f"时间 {window.start}–{window.end}",
             )
         )
-    if constraints.return_by is not None:
+    return_deadline = constraints.planning_window.explicit_return_deadline
+    if return_deadline is not None:
         needs.append(
             NeedSummary(
                 need_id="constraint.return_by",
-                text=f"最晚 {constraints.return_by.value} 前到家",
+                text=f"最晚 {return_deadline.value} 前到家",
             )
         )
     if constraints.exact_stop_count is not None:

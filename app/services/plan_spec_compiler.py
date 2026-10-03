@@ -47,7 +47,9 @@ def _build_rule_plan_specs(
         if constraints.exact_stop_count is not None
         else None
     )
-    window = constraints.time_window.value
+    window = constraints.planning_window.clock_bounds
+    if window is None:
+        return ()
     start_minutes = _clock_minutes(window.start)
     end_minutes = _clock_minutes(window.end)
     includes_lunch = start_minutes <= 13 * 60 and end_minutes >= 12 * 60
@@ -482,9 +484,9 @@ def _stable_plan_spec_id(roles: tuple[StopRole, ...]) -> str:
 
 
 def _available_minutes(constraints: PlanRequest) -> int:
-    if constraints.time_window is None:
+    window = constraints.planning_window.clock_bounds
+    if window is None:
         return 24 * 60
-    window = constraints.time_window.value
     start_hour, start_minute = (int(part) for part in window.start.split(":"))
     end_hour, end_minute = (int(part) for part in window.end.split(":"))
     return max(0, (end_hour * 60 + end_minute) - (start_hour * 60 + start_minute))

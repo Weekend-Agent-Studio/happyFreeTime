@@ -165,8 +165,16 @@ class RepairContractTest(unittest.TestCase):
             budget=1_000, time_end="17:00", max_distance_km=40
         ).model_copy(
             update={
-                "return_by": ConstraintValue(
-                    value="17:00", source=ConstraintSource.USER_EXPLICIT
+                "planning_window": planning_constraints(
+                    budget=1_000, time_end="17:00", max_distance_km=40
+                ).planning_window.model_copy(
+                    update={
+                        "end_at": ConstraintValue(
+                            value="17:00",
+                            source=ConstraintSource.USER_EXPLICIT,
+                            rule_id="time.return.clock.v1",
+                        )
+                    }
                 )
             }
         )

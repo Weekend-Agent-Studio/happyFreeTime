@@ -60,7 +60,13 @@ class ConstraintEngine:
     contract. Natural-language parsing and question wording belong elsewhere.
     """
 
-    def apply(self, request: PlanRequest, patch: RequestPatch) -> ConstraintEngineResult:
+    def apply(
+        self,
+        request: PlanRequest,
+        patch: RequestPatch,
+        *,
+        issues: tuple[ClarificationIssue, ...] = (),
+    ) -> ConstraintEngineResult:
         if patch.base_revision != request.revision:
             return ConflictedRequest(
                 conflict=ConstraintConflict(
@@ -98,17 +104,48 @@ class ConstraintEngine:
                 )
             )
 
+        if issues:
+            return NeedsClarification(
+                issue=issues[0].model_copy(
+                    update={"request_revision": request.revision}
+                )
+            )
+
         for name, proposed_value in patch.set_fields.items():
             field = request_fields[name]
-            value = proposed_value.value if isinstance(proposed_value, ConstraintValue) else proposed_value
             wrapped = _is_constraint_value_field(field.annotation)
             if wrapped:
+                proposed_wrapper = (
+                    proposed_value if isinstance(proposed_value, ConstraintValue) else None
+                )
+                value = (
+                    proposed_wrapper.value
+                    if proposed_wrapper is not None
+                    else proposed_value
+                )
                 value = ConstraintValue(
                     value=value,
-                    source=patch.source,
-                    raw_text=patch.evidence.get(name),
-                    rule_id=f"request_patch.{name}.v1",
+                    source=patch.field_sources.get(
+                        name,
+                        proposed_wrapper.source if proposed_wrapper is not None else patch.source,
+                    ),
+                    raw_text=(
+                        patch.evidence.get(name)
+                        or (proposed_wrapper.raw_text if proposed_wrapper is not None else None)
+                    ),
+                    confidence=(
+                        proposed_wrapper.confidence
+                        if proposed_wrapper is not None
+                        else None
+                    ),
+                    rule_id=(
+                        proposed_wrapper.rule_id
+                        if proposed_wrapper is not None and proposed_wrapper.rule_id
+                        else f"request_patch.{name}.v1"
+                    ),
                 )
+            else:
+                value = proposed_value
             current = getattr(request, name)
             if not _same_request_value(current, value, wrapped=wrapped):
                 changed[name] = value
@@ -172,28 +209,36 @@ class ConstraintEngine:
 
     @staticmethod
     def _validate_cross_fields(request: PlanRequest) -> ConflictedRequest | None:
-        departure = request.departure_at.value if request.departure_at else None
-        return_by = request.return_by.value if request.return_by else None
-        if departure is not None and return_by is not None and departure >= return_by:
-            return ConflictedRequest(
-                conflict=ConstraintConflict(
-                    code="DEPARTURE_NOT_BEFORE_RETURN_BY",
-                    message="准点出发时间必须早于最晚到家时间。",
-                    fields=["departure_at", "return_by"],
-                    relaxation_options=["提前出发", "延后最晚到家时间"],
-                )
+        window = request.planning_window
+        start_at = window.start_at.value if window.start_at else None
+        end_at = window.end_at.value if window.end_at else None
+        if start_at is not None and end_at is not None and start_at >= end_at:
+            departure_return_conflict = (
+                window.explicit_departure is not None
+                and window.explicit_return_deadline is not None
             )
-
-        time_window = request.time_window.value if request.time_window else None
-        if (
-            time_window is not None
-            and _clock_minutes(time_window.start) >= _clock_minutes(time_window.end)
-        ):
             return ConflictedRequest(
                 conflict=ConstraintConflict(
-                    code="INVALID_TIME_WINDOW_ORDER",
-                    message="规划时间范围的结束时间必须晚于开始时间。",
-                    fields=["time_window.start", "time_window.end"],
+                    code=(
+                        "DEPARTURE_NOT_BEFORE_RETURN_BY"
+                        if departure_return_conflict
+                        else "INVALID_TIME_WINDOW_ORDER"
+                    ),
+                    message=(
+                        "出发时间必须早于返程时间。"
+                        if departure_return_conflict
+                        else "行程开始时间必须早于结束时间。"
+                    ),
+                    fields=(
+                        ["departure_at", "return_by"]
+                        if departure_return_conflict
+                        else ["planning_window.start_at", "planning_window.end_at"]
+                    ),
+                    relaxation_options=(
+                        ["提前出发", "延后最晚到家时间"]
+                        if departure_return_conflict
+                        else ["调整行程开始或结束时间"]
+                    ),
                 )
             )
         return None

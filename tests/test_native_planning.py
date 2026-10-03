@@ -52,6 +52,7 @@ from app.services.plan_spec_compiler import PlanSpecCompiler
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
 from app.services.plan_verifier import PlanVerifier
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints
+from tests.test_planning import with_planning_window
 
 
 SOURCE = CatalogSource(
@@ -118,15 +119,11 @@ class UnexpectedWeatherProvider:
 
 class NativePlanningBehaviorTest(unittest.TestCase):
     def test_llm_structure_falls_back_after_route_verifier_rejects_preferred(self) -> None:
-        constraints = planning_constraints(budget=1_000, time_end="22:00").model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="11:00", end="22:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                ),
-                "preferences": ["浪漫"],
-            }
-        )
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="22:00"),
+            start="11:00",
+            end="22:00",
+        ).model_copy(update={"preferences": ["浪漫"]})
         proposal = PlanStructureProposal(
             schema_version="plan-structure-proposal.v3",
             slots=[
@@ -213,15 +210,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         )
 
     def test_preferred_route_budget_leaves_capacity_for_rule_fallback(self) -> None:
-        constraints = planning_constraints(budget=1_000, time_end="22:00").model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="11:00", end="22:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                ),
-                "preferences": ["浪漫"],
-            }
-        )
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="22:00"),
+            start="11:00",
+            end="22:00",
+        ).model_copy(update={"preferences": ["浪漫"]})
         proposal = PlanStructureProposal(
             schema_version="plan-structure-proposal.v3",
             slots=[
@@ -375,12 +368,12 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
     @staticmethod
     def _dinner_only_constraints(*, return_by: bool = False, strict_budget: bool = False) -> NormalizedConstraints:
-        base = planning_constraints(budget=150, time_end="22:00").model_copy(
+        base = with_planning_window(
+            planning_constraints(budget=150, time_end="22:00"),
+            start="18:00",
+            end="22:00",
+        ).model_copy(
             update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="18:00", end="22:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                ),
                 "exact_stop_count": ConstraintValue[int](
                     value=1,
                     source=ConstraintSource.USER_EXPLICIT,
@@ -396,12 +389,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         )
         if not return_by:
             return base
-        return base.model_copy(
-            update={
-                "return_by": ConstraintValue[str](
-                    value="22:00", source=ConstraintSource.USER_EXPLICIT
-                )
-            }
+        return with_planning_window(
+            base,
+            end="22:00",
+            source=ConstraintSource.USER_EXPLICIT,
+            end_rule_id="time.return.clock.v1",
         )
 
     @staticmethod
@@ -410,12 +402,12 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             StopRole.ACTIVITY: TimeWindow(start="14:00", end="18:00"),
             StopRole.LUNCH: TimeWindow(start="11:30", end="14:00"),
         }
-        return planning_constraints(time_end=windows[role].end).model_copy(
+        return with_planning_window(
+            planning_constraints(time_end=windows[role].end),
+            start=windows[role].start,
+            end=windows[role].end,
+        ).model_copy(
             update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=windows[role],
-                    source=ConstraintSource.USER_INFERRED,
-                ),
                 "exact_stop_count": ConstraintValue[int](
                     value=1,
                     source=ConstraintSource.USER_EXPLICIT,
@@ -559,17 +551,16 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         )
 
     def test_departure_only_horizon_allows_activity_then_dinner_to_continue_into_evening(self) -> None:
-        constraints = planning_constraints(time_end="23:59").model_copy(
+        constraints = with_planning_window(
+            planning_constraints(time_end="23:59"),
+            start="13:00",
+            end="23:59",
+            start_source=ConstraintSource.USER_EXPLICIT,
+            end_source=ConstraintSource.DEFAULT_RULE,
+            start_rule_id="time.departure.clock.v1",
+            end_rule_id="time.departure.default_horizon.v1",
+        ).model_copy(
             update={
-                "departure_at": ConstraintValue[str](
-                    value="13:00", source=ConstraintSource.USER_EXPLICIT
-                ),
-                "return_by": None,
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="13:00", end="23:59"),
-                    source=ConstraintSource.DEFAULT_RULE,
-                    rule_id="time.departure_only.planning_horizon.v1",
-                ),
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
                     value=(StopRole.ACTIVITY, StopRole.DINNER),
                     source=ConstraintSource.USER_EXPLICIT,
@@ -704,12 +695,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         )
 
     def test_explicit_activity_then_lunch_preserves_order_and_lunch_anchor(self) -> None:
-        constraints = planning_constraints(time_end="14:00").model_copy(
+        constraints = with_planning_window(
+            planning_constraints(time_end="14:00"), start="09:00", end="14:00"
+        ).model_copy(
             update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="09:00", end="14:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                ),
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
                     value=(StopRole.ACTIVITY, StopRole.LUNCH),
                     source=ConstraintSource.USER_EXPLICIT,
@@ -746,12 +735,15 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         )
 
     def test_explicit_window_is_not_widened_when_it_cannot_reach_dinner(self) -> None:
-        constraints = planning_constraints(time_end="16:00").model_copy(
+        constraints = with_planning_window(
+            planning_constraints(time_end="16:00"),
+            start="14:00",
+            end="16:00",
+            source=ConstraintSource.USER_EXPLICIT,
+            start_rule_id="time.trip.range.v1",
+            end_rule_id="time.trip.range.v1",
+        ).model_copy(
             update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="14:00", end="16:00"),
-                    source=ConstraintSource.USER_EXPLICIT,
-                ),
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
                     value=(StopRole.ACTIVITY, StopRole.DINNER),
                     source=ConstraintSource.USER_EXPLICIT,
@@ -864,8 +856,13 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertIn("availability", unavailable_result.conflict.fields)
 
     def test_dinner_only_still_rejects_off_anchor_and_closed_restaurants(self) -> None:
-        off_anchor = self._dinner_only_constraints().model_copy(
-            update={"time_window": ConstraintValue[TimeWindow](value=TimeWindow(start="14:00", end="16:00"), source=ConstraintSource.USER_EXPLICIT)}
+        off_anchor = with_planning_window(
+            self._dinner_only_constraints(),
+            start="14:00",
+            end="16:00",
+            source=ConstraintSource.USER_EXPLICIT,
+            start_rule_id="time.trip.range.v1",
+            end_rule_id="time.trip.range.v1",
         )
         closed = InMemoryCatalog([
             candidate("dinner", ResourceType.RESTAURANT, "午间餐厅", ["餐厅"], open_hours={"sat": "11:00-14:00"})
@@ -884,15 +881,14 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
     def test_exact_departure_drives_local_timeline_and_route_requests(self) -> None:
         route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
-        constraints = planning_constraints(budget=1_000, time_end="18:00").model_copy(
-            update={
-                "departure_at": ConstraintValue[str](
-                    value="14:30", source=ConstraintSource.USER_EXPLICIT
-                ),
-                "return_by": ConstraintValue[str](
-                    value="18:00", source=ConstraintSource.USER_EXPLICIT
-                ),
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="18:00"),
+            start="14:30",
+            end="18:00",
+            start_source=ConstraintSource.USER_EXPLICIT,
+            end_source=ConstraintSource.USER_EXPLICIT,
+            start_rule_id="time.departure.clock.v1",
+            end_rule_id="time.return.clock.v1",
         )
         result = PlanningService(
             catalog=InMemoryCatalog(
@@ -910,45 +906,27 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertEqual(first.stops[0].start, "14:40")
         self.assertEqual(route_provider.requests[0].departure_at.hour, 14)
         self.assertEqual(route_provider.requests[0].departure_at.minute, 30)
-        self.assertEqual(route_provider.requests[0].departure_at.date(), constraints.date.value)
+        self.assertEqual(
+            route_provider.requests[0].departure_at.date(),
+            constraints.planning_window.date.value,
+        )
         self.assertLessEqual(first.route_legs[-1].end, "18:00")
 
     def test_invalid_departure_conflict_skips_route_provider(self) -> None:
         route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
-        constraints = planning_constraints(budget=1_000, time_end="18:00").model_copy(
-            update={
-                "departure_at": ConstraintValue[str](
-                    value="17:30", source=ConstraintSource.USER_EXPLICIT
-                ),
-                "return_by": ConstraintValue[str](
-                    value="17:00", source=ConstraintSource.USER_EXPLICIT
-                ),
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="18:00"),
+            start="17:30",
+            end="17:00",
+            start_source=ConstraintSource.USER_EXPLICIT,
+            end_source=ConstraintSource.USER_EXPLICIT,
+            start_rule_id="time.departure.clock.v1",
+            end_rule_id="time.return.clock.v1",
         )
         result = PlanningService(route_provider=route_provider).plan(constraints)
 
         self.assertEqual(result.conflict.code, "DEPARTURE_NOT_BEFORE_RETURN_BY")
         self.assertEqual(result.conflict.fields, ["departure_at", "return_by"])
-        self.assertEqual(route_provider.requests, [])
-
-    def test_departure_outside_explicit_window_skips_route_provider(self) -> None:
-        route_provider = FixedReplayRouteProvider(duration_minutes=10, distance_km=1)
-        constraints = planning_constraints(budget=1_000, time_end="18:00").model_copy(
-            update={
-                "departure_at": ConstraintValue[str](
-                    value="13:30", source=ConstraintSource.USER_EXPLICIT
-                ),
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="14:00", end="18:00"),
-                    source=ConstraintSource.USER_EXPLICIT,
-                    rule_id="time.explicit_range.v1",
-                ),
-            }
-        )
-        result = PlanningService(route_provider=route_provider).plan(constraints)
-
-        self.assertEqual(result.conflict.code, "DEPARTURE_OUTSIDE_TIME_WINDOW")
-        self.assertEqual(result.conflict.fields, ["departure_at", "time_window"])
         self.assertEqual(route_provider.requests, [])
 
     def test_verified_unavailable_stop_is_locally_replaced_without_changing_other_stop(self) -> None:
@@ -1190,16 +1168,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 ),
             ]
         )
-        constraints = planning_constraints(
-            budget=1_000,
-            time_end="21:00",
-        ).model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="09:00", end="21:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="21:00"),
+            start="09:00",
+            end="21:00",
         )
 
         result = PlanningService(
@@ -1258,16 +1230,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 ),
             ]
         )
-        constraints = planning_constraints(
-            budget=1_000,
-            time_end="20:00",
-        ).model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="12:00", end="20:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="20:00"),
+            start="12:00",
+            end="20:00",
         )
 
         result = PlanningService(
@@ -1355,16 +1321,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 ),
             ]
         )
-        constraints = planning_constraints(
-            budget=1_000,
-            time_end="20:00",
-        ).model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="12:00", end="20:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="20:00"),
+            start="12:00",
+            end="20:00",
         )
 
         result = PlanningService(
@@ -1443,16 +1403,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 ],
             ]
         )
-        constraints = planning_constraints(
-            budget=1_000,
-            time_end="20:00",
-        ).model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="12:00", end="20:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="20:00"),
+            start="12:00",
+            end="20:00",
         )
         route_provider = FixedReplayRouteProvider(duration_minutes=5, distance_km=1)
 
@@ -1492,16 +1446,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 ],
             ]
         )
-        constraints = planning_constraints(
-            budget=1_000,
-            time_end="21:00",
-        ).model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="09:00", end="21:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="21:00"),
+            start="09:00",
+            end="21:00",
         )
 
         result = PlanningService(
@@ -2034,13 +1982,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertIsNone(result.conflict)
 
     def _full_day_constraints(self) -> NormalizedConstraints:
-        return planning_constraints(budget=1_000, time_end="20:00").model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="11:00", end="20:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        return with_planning_window(
+            planning_constraints(budget=1_000, time_end="20:00"),
+            start="11:00",
+            end="20:00",
         )
 
     def test_meal_roles_anchor_arrival_to_meal_windows(self) -> None:
@@ -2145,12 +2090,12 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 candidate("dinner", ResourceType.RESTAURANT, "晚餐馆", ["晚餐"], duration_minutes=60),
             ]
         )
-        constraints = planning_constraints(budget=1_000, time_end="21:00").model_copy(
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, time_end="21:00"),
+            start="09:00",
+            end="21:00",
+        ).model_copy(
             update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="09:00", end="21:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                ),
                 "exact_stop_count": ConstraintValue[int](
                     value=3,
                     source=ConstraintSource.USER_EXPLICIT,
@@ -2200,13 +2145,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 ),
             ]
         )
-        constraints = planning_constraints(time_end="20:00").model_copy(
-            update={
-                "return_by": ConstraintValue[str](
-                    value="20:00",
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(time_end="20:00"),
+            end="20:00",
+            source=ConstraintSource.USER_INFERRED,
+            end_rule_id="time.return.clock.v1",
         )
 
         result = PlanningService(
@@ -2239,13 +2182,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 ],
             ]
         )
-        constraints = planning_constraints(time_end="22:00").model_copy(
-            update={
-                "return_by": ConstraintValue[str](
-                    value="23:00",
-                    source=ConstraintSource.USER_EXPLICIT,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(time_end="22:00"),
+            end="23:00",
+            source=ConstraintSource.USER_EXPLICIT,
+            end_rule_id="time.return.clock.v1",
         )
         route_provider = FixedReplayRouteProvider(duration_minutes=5, distance_km=1)
 
@@ -2264,22 +2205,20 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 candidate("restaurant", ResourceType.RESTAURANT, "附近简餐", ["简餐"]),
             ]
         )
-        constraints = planning_constraints(time_end="20:00").model_copy(
-            update={
-                "return_by": ConstraintValue[str](
-                    value="15:00",
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(time_end="20:00"),
+            end="20:00",
+            source=ConstraintSource.USER_EXPLICIT,
+            end_rule_id="time.return.clock.v1",
         )
 
         result = PlanningService(
             catalog=catalog,
-            route_provider=FixedReplayRouteProvider(duration_minutes=30, distance_km=2),
+            route_provider=FixedReplayRouteProvider(duration_minutes=180, distance_km=2),
         ).plan(constraints)
 
         self.assertEqual(result.plans, [])
-        self.assertEqual(result.conflict.code, "NO_FEASIBLE_PLAN")
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
         self.assertIn("return_by", result.conflict.fields)
 
     def test_return_verifier_requires_a_real_leg_back_to_origin_and_honors_boundary(self) -> None:
@@ -2287,13 +2226,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"]),
             candidate("restaurant", ResourceType.RESTAURANT, "附近简餐", ["简餐"]),
         ]
-        constraints = planning_constraints(time_end="20:00").model_copy(
-            update={
-                "return_by": ConstraintValue[str](
-                    value="20:00",
-                    source=ConstraintSource.USER_EXPLICIT,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(time_end="20:00"),
+            end="20:00",
+            source=ConstraintSource.USER_EXPLICIT,
+            end_rule_id="time.return.clock.v1",
         )
         plan = PlanningService(
             catalog=InMemoryCatalog(resources),
@@ -2379,7 +2316,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
                 city="北京市",
                 district="朝阳区",
                 adcode="110105",
-                date=base_constraints.date.value,
+                date=base_constraints.planning_window.date.value,
             )
         )
 

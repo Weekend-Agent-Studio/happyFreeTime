@@ -62,6 +62,7 @@ class ConstraintSource(str, Enum):
     """约束值的来源，用于解释、审计以及将来计算不同来源的可信度。"""
     USER_EXPLICIT = "user_explicit"
     USER_INFERRED = "user_inferred"
+    DERIVED = "derived"
     SESSION_CONFIRMED = "session_confirmed"
     MEMORY = "memory"
     SYSTEM_CONTEXT = "system_context"
@@ -335,6 +336,49 @@ class TimeWindow(BaseModel):
         return _canonical_clock(value, field_name="time") or value
 
 
+class TimeProposal(BaseModel):
+    """One time phrase with its semantic target preserved until compilation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target: Literal["trip", "departure", "return"]
+    precision: Literal["exact", "period"]
+    clock: str | None = None
+    end_clock: str | None = None
+    period: TimeScope | None = None
+    evidence: str = Field(min_length=1)
+
+    @field_validator("clock", "end_clock")
+    @classmethod
+    def validate_clocks(cls, value: str | None) -> str | None:
+        return _canonical_clock(value, field_name="clock")
+
+    @model_validator(mode="after")
+    def validate_proposal_shape(self) -> "TimeProposal":
+        if self.precision == "exact":
+            if self.clock is None or self.period is not None:
+                raise ValueError("exact time proposal requires clock and no period")
+            if self.target == "trip" and self.end_clock is None:
+                raise ValueError("exact trip time proposal requires end_clock")
+            if self.target != "trip" and self.end_clock is not None:
+                raise ValueError("only a trip range may provide end_clock")
+            if self.end_clock is not None and self.clock >= self.end_clock:
+                raise PydanticCustomError(
+                    "explicit_time_window_order_invalid",
+                    "trip range start must be before end",
+                )
+        else:
+            if self.period is None or self.clock is not None or self.end_clock is not None:
+                raise ValueError("period time proposal requires period and no clock")
+            if self.target != "trip" and self.period not in {
+                TimeScope.MORNING,
+                TimeScope.AFTERNOON,
+                TimeScope.EVENING,
+            }:
+                raise ValueError("departure and return periods must be a day period")
+        return self
+
+
 
 class RawConstraints(BaseModel):
     """Router 从用户原话中抽出的“原始约束”。
@@ -346,21 +390,11 @@ class RawConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     date_text: str | None = None
-    # Structured temporal contract.  The legacy *_text fields remain for
-    # checkpoint compatibility and as user-language evidence.
+    # Date understanding remains explicit until the request compiler resolves it.
     date_reference: DateReference | None = None
     weekday: Weekday | None = None
     week_offset: Literal[0, 1] | None = None
     absolute_date: Date | None = None
-    time_text: str | None = None
-    time_scope: TimeScope | None = None
-    explicit_time_window: TimeWindow | None = None
-    # ``time_scope`` describes the whole outing.  ``departure_period`` only
-    # qualifies the departure action, so “早上出发” must not become a
-    # 09:00–12:00 itinerary window.
-    departure_period: TimeScope | None = None
-    departure_at_text: str | None = None
-    departure_at: str | None = None
     exact_stop_count: int | None = Field(default=None, ge=1, le=4)
     required_stop_roles: tuple[StopRole, ...] = ()
     duration_minutes: int | None = Field(default=None, gt=0)
@@ -381,15 +415,8 @@ class RawConstraints(BaseModel):
     diet_tags: list[str] = Field(default_factory=list)
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
-    return_by_text: str | None = None
-    return_by: str | None = None
     total_distance_text: str | None = None
     total_distance_km: float | None = Field(default=None, gt=0)
-
-    @field_validator("departure_at")
-    @classmethod
-    def validate_departure_at(cls, value: str | None) -> str | None:
-        return _canonical_clock(value, field_name="departure_at")
 
     @model_validator(mode="after")
     def validate_temporal_contract(self) -> "RawConstraints":
@@ -424,18 +451,6 @@ class RawConstraints(BaseModel):
                 "weekday_reference_mismatch",
                 "relative date reference cannot carry weekday fields",
             )
-        if self.explicit_time_window is not None and (
-            self.explicit_time_window.start >= self.explicit_time_window.end
-        ):
-            raise PydanticCustomError(
-                "explicit_time_window_order_invalid",
-                "explicit time window start must be before end",
-            )
-        if self.departure_period in {TimeScope.ALL_DAY, TimeScope.EXPLICIT_RANGE}:
-            raise PydanticCustomError(
-                "departure_period_invalid",
-                "departure_period must be morning, afternoon, or evening",
-            )
         return self
 
 
@@ -446,6 +461,7 @@ class Interpretation(BaseModel):
     primary_intent: Intent
     intent_scores: dict[Intent, float]
     raw_constraints: RawConstraints = Field(default_factory=RawConstraints)
+    time_proposals: tuple[TimeProposal, ...] = ()
     selected_plan_index: int | None = Field(default=None, ge=0)
     target_reference: str | None = None
     conversation_command: ConversationCommand | None = None
@@ -522,12 +538,6 @@ class Interpretation(BaseModel):
         require_trace("weekday", ("weekday", "date_reference", "date_text"))
         require_trace("week_offset", ("week_offset", "date_reference", "date_text"))
         require_trace("absolute_date", ("absolute_date", "date_reference", "date_text"))
-        require_trace("time_scope", ("time_scope", "time_text"))
-        require_trace("explicit_time_window", ("explicit_time_window", "time_text"))
-        require_trace(
-            "departure_period",
-            ("departure_period", "departure_at_text", "time_text"),
-        )
         return self
 
 
@@ -545,6 +555,53 @@ class ConstraintValue(BaseModel, Generic[T]):
     rule_id: str | None = None
 
 
+class PlanningWindow(BaseModel):
+    """Resolved time bounds used by the planner; every bound retains origin."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    date: ConstraintValue[Date] | None = None
+    start_at: ConstraintValue[str] | None = None
+    end_at: ConstraintValue[str] | None = None
+
+    @field_validator("start_at", "end_at")
+    @classmethod
+    def validate_clock_bound(
+        cls,
+        value: ConstraintValue[str] | None,
+    ) -> ConstraintValue[str] | None:
+        if value is None:
+            return None
+        return value.model_copy(
+            update={"value": _canonical_clock(value.value, field_name="clock")}
+        )
+
+    @property
+    def clock_bounds(self) -> TimeWindow | None:
+        if self.start_at is None or self.end_at is None:
+            return None
+        return TimeWindow(start=self.start_at.value, end=self.end_at.value)
+
+    @property
+    def explicit_departure(self) -> ConstraintValue[str] | None:
+        if self.start_at is not None and self.start_at.rule_id == "time.departure.clock.v1":
+            return self.start_at
+        return None
+
+    @property
+    def explicit_return_deadline(self) -> ConstraintValue[str] | None:
+        if self.end_at is not None and self.end_at.rule_id == "time.return.clock.v1":
+            return self.end_at
+        return None
+
+    @property
+    def explicit_trip_range(self) -> bool:
+        return any(
+            item is not None and item.rule_id == "time.trip.range.v1"
+            for item in (self.start_at, self.end_at)
+        )
+
+
 class PlanRequest(BaseModel):
     """当前一轮规划的唯一执行就绪请求。
 
@@ -556,9 +613,7 @@ class PlanRequest(BaseModel):
 
     revision: int = Field(default=0, ge=0)
 
-    date: ConstraintValue[Date] | None = None
-    time_scope: ConstraintValue[TimeScope] | None = None
-    time_window: ConstraintValue[TimeWindow] | None = None
+    planning_window: PlanningWindow = Field(default_factory=PlanningWindow)
     duration_minutes: ConstraintValue[int] | None = None
     location: ConstraintValue[GeoLocation] | None = None
     party: ConstraintValue[PartyProfile] | None = None
@@ -570,21 +625,9 @@ class PlanRequest(BaseModel):
     avoid: list[str] = Field(default_factory=list)
     strict_budget: bool = False
     require_availability_confirmation: bool = False
-    departure_at: ConstraintValue[str] | None = None
     exact_stop_count: ConstraintValue[int] | None = None
     required_stop_roles: ConstraintValue[tuple[StopRole, ...]] | None = None
-    return_by: ConstraintValue[str] | None = None
     total_distance_km: ConstraintValue[float] | None = None
-
-    @field_validator("departure_at", "return_by")
-    @classmethod
-    def validate_clock_constraint(cls, value: ConstraintValue[str] | None) -> ConstraintValue[str] | None:
-        """Planner only receives canonical same-day clock constraints."""
-        if value is None:
-            return None
-        return value.model_copy(
-            update={"value": _canonical_clock(value.value, field_name="clock")}
-        )
 
 
 # Temporary source-level alias while Graph, API and callers migrate by slice.
@@ -617,15 +660,6 @@ class Assumption(BaseModel):
     reason: str
     rule_id: str
     user_editable: bool = True
-
-
-class EnrichmentResult(BaseModel):
-    """规范化约束与本轮新增假设的组合结果。"""
-    model_config = ConfigDict(extra="forbid")
-
-    constraints: PlanRequest
-    assumptions: list[Assumption] = Field(default_factory=list)
-    geocoding_fact: GeocodingFact | None = None
 
 
 class ClarificationOption(BaseModel):
@@ -667,6 +701,7 @@ class RequestPatch(BaseModel):
     set_fields: dict[str, object] = Field(default_factory=dict)
     clear_fields: tuple[str, ...] = ()
     source: ConstraintSource
+    field_sources: dict[str, ConstraintSource] = Field(default_factory=dict)
     evidence: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -678,9 +713,21 @@ class RequestPatch(BaseModel):
             raise ValueError("a field cannot be set and cleared in one patch")
         if not set(self.evidence).issubset(self.set_fields):
             raise ValueError("evidence can only be supplied for fields being set")
+        if not set(self.field_sources).issubset(self.set_fields):
+            raise ValueError("field_sources can only be supplied for fields being set")
         if "revision" in self.set_fields or "revision" in self.clear_fields:
             raise ValueError("request revision is managed by ConstraintEngine")
         return self
+
+
+class EnrichmentResult(BaseModel):
+    """Non-temporal enrichment proposal plus visible assumptions/provider facts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_patch: RequestPatch
+    assumptions: list[Assumption] = Field(default_factory=list)
+    geocoding_fact: GeocodingFact | None = None
 
 
 class ClarificationReply(BaseModel):

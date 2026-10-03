@@ -5,6 +5,7 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
     PlanRequest,
+    PlanningWindow,
     RequestPatch,
 )
 from app.services.constraint_engine import (
@@ -60,26 +61,46 @@ class ConstraintEngineTest(unittest.TestCase):
             request,
             RequestPatch(
                 base_revision=0,
-                set_fields={"date": date(2026, 10, 3)},
+                set_fields={
+                    "planning_window": PlanningWindow(
+                        date=ConstraintValue[date](
+                            value=date(2026, 10, 3),
+                            source=ConstraintSource.DEFAULT_RULE,
+                        )
+                    )
+                },
                 source=ConstraintSource.DEFAULT_RULE,
             ),
         )
         self.assertIsInstance(defaulted, ResolvedRequest)
-        self.assertEqual(defaulted.request.date.source, ConstraintSource.DEFAULT_RULE)
+        self.assertEqual(
+            defaulted.request.planning_window.date.source,
+            ConstraintSource.DEFAULT_RULE,
+        )
 
         confirmed = self.engine.apply(
             defaulted.request,
             RequestPatch(
                 base_revision=1,
-                set_fields={"date": date(2026, 10, 3)},
+                set_fields={
+                    "planning_window": PlanningWindow(
+                        date=ConstraintValue[date](
+                            value=date(2026, 10, 3),
+                            source=ConstraintSource.USER_EXPLICIT,
+                            raw_text="周六",
+                        )
+                    )
+                },
                 source=ConstraintSource.USER_EXPLICIT,
-                evidence={"date": "周六"},
             ),
         )
         self.assertIsInstance(confirmed, ResolvedRequest)
         self.assertEqual(confirmed.request.revision, 2)
-        self.assertEqual(confirmed.request.date.source, ConstraintSource.USER_EXPLICIT)
-        self.assertEqual(confirmed.request.date.raw_text, "周六")
+        self.assertEqual(
+            confirmed.request.planning_window.date.source,
+            ConstraintSource.USER_EXPLICIT,
+        )
+        self.assertEqual(confirmed.request.planning_window.date.raw_text, "周六")
 
     def test_empty_or_repeated_patch_is_noop(self) -> None:
         request = PlanRequest(preferences=["安静"])
@@ -137,16 +158,20 @@ class ConstraintEngineTest(unittest.TestCase):
                 base_revision=0,
                 set_fields={
                     "preferences": ["安静"],
-                    "departure_at": "25:90",
+                    "planning_window": {
+                        "start_at": {"value": "25:90", "source": "user_explicit"},
+                        "end_at": {"value": "20:00", "source": "default_rule"},
+                    },
                 },
                 source=ConstraintSource.USER_EXPLICIT,
-                evidence={"departure_at": "凌晨二十五点九十出发"},
             ),
         )
 
         self.assertIsInstance(result, ConflictedRequest)
         self.assertEqual(result.conflict.code, "INVALID_REQUEST_PATCH")
-        self.assertIn("departure_at", result.conflict.fields)
+        self.assertTrue(
+            any(field.startswith("planning_window.start_at") for field in result.conflict.fields)
+        )
         self.assertEqual(request.preferences, ["轻松"])
         self.assertEqual(request.revision, 0)
 
@@ -155,12 +180,21 @@ class ConstraintEngineTest(unittest.TestCase):
             PlanRequest(),
             RequestPatch(
                 base_revision=0,
-                set_fields={"departure_at": "20:30", "return_by": "20:00"},
-                source=ConstraintSource.USER_EXPLICIT,
-                evidence={
-                    "departure_at": "晚上八点半出发",
-                    "return_by": "晚上八点前回家",
+                set_fields={
+                    "planning_window": PlanningWindow(
+                        start_at=ConstraintValue[str](
+                            value="20:30",
+                            source=ConstraintSource.USER_EXPLICIT,
+                            rule_id="time.departure.clock.v1",
+                        ),
+                        end_at=ConstraintValue[str](
+                            value="20:00",
+                            source=ConstraintSource.USER_EXPLICIT,
+                            rule_id="time.return.clock.v1",
+                        ),
+                    )
                 },
+                source=ConstraintSource.USER_EXPLICIT,
             ),
         )
         self.assertIsInstance(result, ConflictedRequest)
@@ -191,14 +225,21 @@ class ConstraintEngineTest(unittest.TestCase):
             PlanRequest(),
             RequestPatch(
                 base_revision=0,
-                set_fields={"time_window": {"start": "20:00", "end": "18:00"}},
+                set_fields={
+                    "planning_window": {
+                        "start_at": {"value": "20:00", "source": "user_explicit"},
+                        "end_at": {"value": "18:00", "source": "user_explicit"},
+                    }
+                },
                 source=ConstraintSource.USER_EXPLICIT,
-                evidence={"time_window": "晚上八点到六点"},
             ),
         )
         self.assertIsInstance(result, ConflictedRequest)
         self.assertEqual(result.conflict.code, "INVALID_TIME_WINDOW_ORDER")
-        self.assertEqual(result.conflict.fields, ["time_window.start", "time_window.end"])
+        self.assertEqual(
+            result.conflict.fields,
+            ["planning_window.start_at", "planning_window.end_at"],
+        )
 
 
 if __name__ == "__main__":

@@ -513,9 +513,8 @@ def create_app(
             conflict = candidate_set.conflict if candidate_set else None
             effective_constraints = (
                 result.get("planning_constraints")
-                or (result["enrichment"].constraints
-                if result.get("enrichment") is not None
-                else result.get("active_constraints"))
+                or result.get("plan_request")
+                or result.get("active_constraints")
             )
             if plans:
                 reply = present_candidate_set(
@@ -891,20 +890,49 @@ def _modification_reply(plan_diffs: list) -> str:
 
 def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
     """把规划实际使用的约束转换成稳定的前端摘要。"""
-    enrichment = result.get("enrichment")
     constraints = (
         result.get("planning_constraints")
-        or (enrichment.constraints if enrichment is not None else None)
+        or result.get("plan_request")
         or result.get("active_constraints")
     )
     if constraints is None:
         return []
     summary = []
+    planning_window = getattr(constraints, "planning_window", None)
+    if planning_window is not None:
+        for field, constraint, value in (
+            ("date", planning_window.date, planning_window.date.value.isoformat() if planning_window.date else None),
+            ("time_window", planning_window.start_at, (
+                {
+                    "start": planning_window.start_at.value,
+                    "end": planning_window.end_at.value,
+                }
+                if planning_window.start_at and planning_window.end_at
+                else None
+            )),
+            ("departure_at", planning_window.explicit_departure, (
+                planning_window.explicit_departure.value
+                if planning_window.explicit_departure
+                else None
+            )),
+            ("return_by", planning_window.explicit_return_deadline, (
+                planning_window.explicit_return_deadline.value
+                if planning_window.explicit_return_deadline
+                else None
+            )),
+        ):
+            if constraint is not None and value is not None:
+                summary.append(
+                    ConstraintSummaryItem(
+                        field=field,
+                        value=value,
+                        source=constraint.source,
+                        evidence=constraint.raw_text,
+                        confidence=constraint.confidence,
+                        rule_id=constraint.rule_id,
+                    )
+                )
     for field in (
-        "date",
-        "time_scope",
-        "time_window",
-        "departure_at",
         "exact_stop_count",
         "required_stop_roles",
         "duration_minutes",
@@ -912,7 +940,6 @@ def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
         "party",
         "budget_per_person",
         "max_distance_km",
-        "return_by",
         "total_distance_km",
     ):
         constraint = getattr(constraints, field)

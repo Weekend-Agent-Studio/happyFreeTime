@@ -8,6 +8,7 @@ from app.domain.constraints import (
     ConstraintValue,
     GeoLocation,
     NormalizedConstraints,
+    PlanningWindow,
     PartyProfile,
     TimeWindow,
 )
@@ -59,13 +60,19 @@ def planning_constraints(
     time_end: str = "18:00",
 ) -> NormalizedConstraints:
     return NormalizedConstraints(
-        date=ConstraintValue[date](
-            value=date(2026, 8, 15),
-            source=ConstraintSource.USER_INFERRED,
-        ),
-        time_window=ConstraintValue[TimeWindow](
-            value=TimeWindow(start="14:00", end=time_end),
-            source=ConstraintSource.USER_INFERRED,
+        planning_window=PlanningWindow(
+            date=ConstraintValue[date](
+                value=date(2026, 8, 15),
+                source=ConstraintSource.USER_INFERRED,
+            ),
+            start_at=ConstraintValue[str](
+                value="14:00",
+                source=ConstraintSource.USER_INFERRED,
+            ),
+            end_at=ConstraintValue[str](
+                value=time_end,
+                source=ConstraintSource.USER_INFERRED,
+            ),
         ),
         location=ConstraintValue[GeoLocation](
             value=GeoLocation(
@@ -90,6 +97,54 @@ def planning_constraints(
             source=ConstraintSource.USER_INFERRED,
         ),
         strict_budget=strict_budget,
+    )
+
+
+def with_planning_window(
+    constraints: NormalizedConstraints,
+    *,
+    start: str | None = None,
+    end: str | None = None,
+    source: ConstraintSource | None = None,
+    start_source: ConstraintSource | None = None,
+    end_source: ConstraintSource | None = None,
+    start_rule_id: str | None = None,
+    end_rule_id: str | None = None,
+) -> NormalizedConstraints:
+    """Copy a request with canonical planner clock bounds for focused tests."""
+    window = constraints.planning_window
+
+    def bound(
+        value: str | None,
+        current: ConstraintValue[str] | None,
+        bound_source: ConstraintSource | None,
+        rule_id: str | None,
+    ) -> ConstraintValue[str] | None:
+        if value is None:
+            return current
+        return ConstraintValue[str](
+            value=value,
+            source=(
+                bound_source
+                or source
+                or (current.source if current is not None else ConstraintSource.USER_INFERRED)
+            ),
+            rule_id=(
+                rule_id
+                if rule_id is not None
+                else current.rule_id if current is not None else None
+            ),
+        )
+
+    return constraints.model_copy(
+        update={
+            "planning_window": window.model_copy(
+                update={
+                    "start_at": bound(start, window.start_at, start_source, start_rule_id),
+                    "end_at": bound(end, window.end_at, end_source, end_rule_id),
+                }
+            )
+        }
     )
 
 

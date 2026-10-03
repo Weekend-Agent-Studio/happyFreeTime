@@ -25,6 +25,8 @@ from app.domain.constraints import (
     ClarificationReply,
     CommandOperation,
     ConstraintPatch,
+    ConstraintValue,
+    ClarificationIssue,
     CriterionStrength,
     ConversationCommand,
     ConstraintSource,
@@ -34,6 +36,9 @@ from app.domain.constraints import (
     Intent,
     Interpretation,
     NormalizedConstraints,
+    PlanRequest,
+    PlanningWindow,
+    RequestPatch,
     PendingModification,
     QuestionDecision,
     RouteObjective,
@@ -41,10 +46,12 @@ from app.domain.constraints import (
     StopRole,
     TargetReference,
     TimeScope,
+    TimeProposal,
     Weekday,
 )
 from app.domain.planning import (
     CandidateSet,
+    ConstraintConflict,
     LockedStop,
     Plan,
     PlanDiff,
@@ -61,7 +68,7 @@ from app.domain.planning import (
 )
 
 
-CHECKPOINT_SCHEMA_VERSION = "planner-core1b-v3"
+CHECKPOINT_SCHEMA_VERSION = "planner-core2b-v1"
 
 
 def checkpoint_config(session_id: str) -> dict[str, dict[str, str]]:
@@ -115,6 +122,13 @@ from app.services.planning_intent import PlanningIntentProvider
 from app.services.question_gate import GateContext, NeedQuestionGate
 from app.services.clarification import ClarificationResolution, ClarificationResolver
 from app.services.constraint_patch import ConstraintPatchCompiler
+from app.services.constraint_engine import (
+    ConflictedRequest,
+    ConstraintEngine,
+    NeedsClarification,
+    ResolvedRequest,
+)
+from app.services.request_patch_compiler import RequestPatchProposalCompiler
 from app.services.router_extractor import RouterContext
 
 
@@ -138,6 +152,9 @@ class EntryState(TypedDict, total=False):
     actor: ActorContext
     interpretation: Interpretation | None
     enrichment: EnrichmentResult | None
+    plan_request: PlanRequest | None
+    request_issue: ClarificationIssue | None
+    request_conflict: ConstraintConflict | None
     question_decision: QuestionDecision | None
     candidate_set: CandidateSet | None
     ready_for_planning: bool
@@ -179,6 +196,8 @@ def build_entry_graph(
     则使用真实 Router、系统时间和 SQLite checkpoint，但 Graph 本身无需分叉。
     """
     enrichment_service = EnrichmentService(geocoding_provider=geocoding_provider)
+    request_patch_compiler = RequestPatchProposalCompiler()
+    constraint_engine = ConstraintEngine()
     question_gate = NeedQuestionGate()
     clarification_resolver = ClarificationResolver()
     constraint_patch_compiler = ConstraintPatchCompiler(
@@ -261,6 +280,9 @@ def build_entry_graph(
         return {
             "interpretation": interpretation,
             "enrichment": None,
+            "plan_request": None,
+            "request_issue": None,
+            "request_conflict": None,
             "question_decision": None,
             "candidate_set": None,
             "ready_for_planning": False,
@@ -457,38 +479,87 @@ def build_entry_graph(
             state["actor"],
             environment,
         )
+        return {
+            "enrichment": result,
+            "plan_request": None,
+            "request_issue": None,
+            "request_conflict": None,
+        }
+
+    def compile_request_node(state: EntryState) -> dict[str, object]:
+        environment = environment_provider(state["actor"])
+        enrichment = state["enrichment"]
+        compilation = request_patch_compiler.compile(
+            state["interpretation"],
+            enrichment.request_patch,
+            environment,
+        )
+        outcome = constraint_engine.apply(
+            PlanRequest(),
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        assumptions = [*enrichment.assumptions, *compilation.assumptions]
+        if isinstance(outcome, NeedsClarification):
+            return {
+                "enrichment": enrichment.model_copy(update={"assumptions": assumptions}),
+                "request_issue": outcome.issue,
+                "plan_request": None,
+            }
+        if isinstance(outcome, ConflictedRequest):
+            return {
+                "enrichment": enrichment.model_copy(update={"assumptions": assumptions}),
+                "request_conflict": outcome.conflict,
+                "candidate_set": CandidateSet(conflict=outcome.conflict),
+                "plan_request": None,
+            }
+
         default_fields = state.get("clarification_default_fields", ())
-        if default_fields:
-            assumptions = list(result.assumptions)
-            for field in default_fields:
-                if any(
-                    item.field == field
-                    and item.rule_id == f"clarification.default.{field}.v1"
-                    for item in assumptions
-                ):
-                    continue
-                value = getattr(result.constraints, field, None)
+        for field in default_fields:
+            if any(
+                item.field == field
+                and item.rule_id == f"clarification.default.{field}.v1"
+                for item in assumptions
+            ):
+                continue
+            if field == "date":
+                value = outcome.request.planning_window.date
+                raw_value = value.value.isoformat() if value else None
+            elif field in {"time_window", "planning_window"}:
+                window = outcome.request.planning_window
+                raw_value = {
+                    "start_at": window.start_at.value if window.start_at else None,
+                    "end_at": window.end_at.value if window.end_at else None,
+                }
+            else:
+                value = getattr(outcome.request, field, None)
                 raw_value = (
                     value.value.model_dump(mode="json")
                     if value is not None and hasattr(value.value, "model_dump")
                     else value.value if value is not None else None
                 )
-                assumptions.append(
-                    Assumption(
-                        field=field,
-                        value=raw_value,
-                        reason="用户选择使用该字段的系统默认值",
-                        rule_id=f"clarification.default.{field}.v1",
-                    )
+            assumptions.append(
+                Assumption(
+                    field=field,
+                    value=raw_value,
+                    reason="用户选择使用该字段的系统默认值",
+                    rule_id=f"clarification.default.{field}.v1",
                 )
-            result = result.model_copy(update={"assumptions": assumptions})
-        return {"enrichment": result}
+            )
+        return {
+            "enrichment": enrichment.model_copy(update={"assumptions": assumptions}),
+            "plan_request": outcome.request,
+            "request_issue": None,
+            "request_conflict": None,
+            "clarification_default_fields": (),
+        }
 
     def gate_node(state: EntryState) -> dict[str, object]:
         decision = question_gate.decide(
             state["interpretation"],
-            state["enrichment"],
+            state.get("plan_request") or PlanRequest(),
             GateContext(has_plans=state.get("has_plans", False)),
+            issue=state.get("request_issue"),
         )
         # 只有真正需要产出/修改方案的意图才能进入 Planner。天气查询、执行和
         # 取消等意图即使字段完整，也不应错误触发双站规划。
@@ -505,6 +576,7 @@ def build_entry_graph(
             "question_decision": _prepare_question_decision(decision),
             "ready_for_planning": (
                 not decision.need_question
+                and state.get("request_conflict") is None
                 and (
                     state["interpretation"].primary_intent in planning_intents
                     or weather_condition_planning
@@ -521,7 +593,7 @@ def build_entry_graph(
         return END
 
     def planning_node(state: EntryState) -> dict[str, object]:
-        constraints = state.get("planning_constraints") or state["enrichment"].constraints
+        constraints = state.get("planning_constraints") or state["plan_request"]
         candidate_set = planning_service.plan(constraints)
         geocoding_fact = state["enrichment"].geocoding_fact if state.get("enrichment") else None
         if geocoding_fact is not None:
@@ -634,6 +706,7 @@ def build_entry_graph(
     graph.add_node("compile_patch", compile_patch_node)
     graph.add_node("modify_plan", modify_plan_node)
     graph.add_node("enrichment", enrichment_node)
+    graph.add_node("compile_request", compile_request_node)
     graph.add_node("gate", gate_node)
     graph.add_node("ask_question", ask_question_node)
     graph.add_node("planning", planning_node)
@@ -658,7 +731,8 @@ def build_entry_graph(
         route_after_modify,
         {"ask_question": "ask_question", "planning": "planning", END: END},
     )
-    graph.add_edge("enrichment", "gate")
+    graph.add_edge("enrichment", "compile_request")
+    graph.add_edge("compile_request", "gate")
     graph.add_conditional_edges(
         "gate",
         route_after_gate,
@@ -847,10 +921,7 @@ def _weather_condition_requests_planning(interpretation: Interpretation) -> bool
         or raw.avoid
         or raw.required_stop_roles
         or raw.exact_stop_count is not None
-        or raw.time_text
-        or raw.explicit_time_window
-        or raw.departure_at_text
-        or raw.return_by_text
+        or interpretation.time_proposals
         or raw.duration_minutes is not None
     )
 
@@ -861,6 +932,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
         allowed_msgpack_modules=[
             ActorContext,
             CandidateSet,
+            ConstraintConflict,
             PlanWarning,
             CatalogWarningCode,
             CatalogSource,
@@ -868,6 +940,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             ConstraintSource,
             DateReference,
             EnrichmentResult,
+            Assumption,
             IdentityType,
             Intent,
             Interpretation,
@@ -876,6 +949,11 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             CriterionStrength,
             ConversationCommand,
             NormalizedConstraints,
+            PlanRequest,
+            PlanningWindow,
+            RequestPatch,
+            ConstraintValue,
+            ClarificationIssue,
             PendingModification,
             LockedStop,
             Plan,
@@ -905,6 +983,7 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             SemanticCriterion,
             StopRole,
             TimeScope,
+            TimeProposal,
             Weekday,
             TargetReference,
             StopReplacement,

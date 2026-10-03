@@ -423,8 +423,8 @@ class PlanningService:
         )
         if (
             constraints.location is None
-            or constraints.time_window is None
-            or constraints.date is None
+            or constraints.planning_window.clock_bounds is None
+            or constraints.planning_window.date is None
         ):
             raise ValueError("planning requires normalized date, time window, and location")
 
@@ -481,7 +481,7 @@ class PlanningService:
                 # city default is retained only for legacy/default start points
                 # that predate the GeocodingProvider seam.
                 adcode=location.adcode or "110105",
-                date=constraints.date.value,
+                date=constraints.planning_window.date.value,
             )
         )
         catalog_result = self._catalog.recall(constraints)
@@ -532,15 +532,33 @@ class PlanningService:
                     "proposal_accepted": plan_choices.proposal_status == "compiled",
                     "proposal_rejection_reason": plan_choices.diagnostic_code,
                 }
-            )
+        )
         if not plan_specs:
-            return CandidateSet(
-                conflict=ConstraintConflict(
+            deadline = constraints.planning_window.explicit_return_deadline
+            explicit_window = constraints.planning_window.explicit_trip_range
+            if deadline is not None:
+                conflict = ConstraintConflict(
+                    code="NO_FEASIBLE_PLAN",
+                    message="最晚到家时间留给规划的可用时长不足，无法安排可执行行程。",
+                    fields=["return_by"],
+                    relaxation_options=["提前出发", "延后最晚到家时间"],
+                )
+            elif explicit_window:
+                conflict = ConstraintConflict(
+                    code="NO_FEASIBLE_PLAN",
+                    message="指定时间范围内没有可执行的行程结构。",
+                    fields=["time_window"],
+                    relaxation_options=["扩大可用时间范围"],
+                )
+            else:
+                conflict = ConstraintConflict(
                     code="NO_PLAN_SPEC",
                     message="当前请求没有可执行的行程结构。",
                     fields=["plan_structure"],
                     relaxation_options=["放宽站点结构限制"],
-                ),
+                )
+            return CandidateSet(
+                conflict=conflict,
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
             )
@@ -629,7 +647,7 @@ class PlanningService:
         fallback_availability_reserve = 0
         if preferred_specs and fallback_specs:
             max_fallback_route_legs = max(
-                len(spec.roles) + int(constraints.return_by is not None)
+                len(spec.roles) + int(constraints.planning_window.explicit_return_deadline is not None)
                 for spec in fallback_specs
             )
             fallback_route_reserve = min(
@@ -660,7 +678,7 @@ class PlanningService:
             route_candidates = _select_route_candidates(
                 current_result.plans,
                 max(0, route_budget_limit - route_leg_verifications),
-                has_return_leg=constraints.return_by is not None,
+                has_return_leg=constraints.planning_window.explicit_return_deadline is not None,
             )
             if route_candidates:
                 had_route_candidates = True
@@ -708,7 +726,7 @@ class PlanningService:
                     availability_facts = tuple(
                         self._availability_provider.check(
                             AvailabilityRequest(
-                                date=constraints.date.value,
+                                date=constraints.planning_window.date.value,
                                 checks=tuple(
                                     AvailabilityCheck(
                                         resource_id=stop.resource_id,
@@ -1291,7 +1309,7 @@ class PlanningService:
                 city=constraints.location.value.city,
                 district=constraints.location.value.district,
                 adcode=constraints.location.value.adcode or "110105",
-                date=constraints.date.value,
+                date=constraints.planning_window.date.value,
             )
         )
         accepted_types = _ROLE_RESOURCE_TYPES.get(target_stop.role, frozenset())
@@ -1362,7 +1380,7 @@ class PlanningService:
             cheap_distance = _estimate_sequence_distance(
                 tuple(item for item in sequence if item is not None),
                 origin,
-                has_return_leg=constraints.return_by is not None,
+                has_return_leg=constraints.planning_window.explicit_return_deadline is not None,
             )
             return (
                 (
@@ -1380,7 +1398,7 @@ class PlanningService:
         # four-stop plan with a return leg can therefore inspect only a bounded
         # number of replacements, while still allowing the two requested
         # finalists whenever the provider budget permits.
-        legs_per_candidate = len(selected_plan.stops) + int(constraints.return_by is not None)
+        legs_per_candidate = len(selected_plan.stops) + int(constraints.planning_window.explicit_return_deadline is not None)
         max_candidates = max(
             1,
             min(
@@ -1429,7 +1447,7 @@ class PlanningService:
                 availability_facts = tuple(
                     self._availability_provider.check(
                         AvailabilityRequest(
-                            date=constraints.date.value,
+                            date=constraints.planning_window.date.value,
                             checks=tuple(
                                 AvailabilityCheck(
                                     resource_id=stop.resource_id,
@@ -1647,7 +1665,7 @@ class PlanningService:
                     mode=RouteMode.TAXI,
                     departure_at=(
                         datetime.combine(
-                            constraints.date.value,
+                            constraints.planning_window.date.value,
                             time.min,
                             tzinfo=ZoneInfo("Asia/Shanghai"),
                         )
@@ -1697,7 +1715,7 @@ class PlanningService:
             current_point = destination
             current_name = stop.name
 
-        if constraints.return_by is not None:
+        if constraints.planning_window.explicit_return_deadline is not None:
             return_route = self._route_provider.route(
                 RouteRequest(
                     origin=current_point,
@@ -1708,7 +1726,7 @@ class PlanningService:
                     mode=RouteMode.TAXI,
                     departure_at=(
                         datetime.combine(
-                            constraints.date.value,
+                            constraints.planning_window.date.value,
                             time.min,
                             tzinfo=ZoneInfo("Asia/Shanghai"),
                         )
@@ -2985,7 +3003,7 @@ def _build_local_plan(
         raise ValueError("plan sequence must fill every PlanSpec role")
 
     location = constraints.location.value
-    window = constraints.time_window.value
+    window = constraints.planning_window.clock_bounds
     origin = GeoPoint(latitude=location.latitude, longitude=location.longitude)
     route_distances: list[float] = []
     current_point = origin
@@ -3011,6 +3029,13 @@ def _build_local_plan(
     total_duration = estimated_timeline.elapsed_minutes
     lower_bound_duration = lower_bound_timeline.elapsed_minutes
     maximum_minutes, target_minutes = _planning_minutes(constraints)
+    if constraints.planning_window.explicit_return_deadline:
+        start_minutes = _planning_start_minutes(constraints)
+        home_arrival = start_minutes + lower_bound_duration
+        if home_arrival > _time_to_minutes(
+            constraints.planning_window.explicit_return_deadline.value
+        ):
+            return None, "return_by"
     if lower_bound_duration > maximum_minutes:
         return None, "duration_minutes" if constraints.duration_minutes else "time_window"
     if (
@@ -3022,7 +3047,7 @@ def _build_local_plan(
 
     return_distance = (
         _haversine_km(current_point, origin)
-        if constraints.return_by
+        if constraints.planning_window.explicit_return_deadline
         else 0.0
     )
     if (
@@ -3031,15 +3056,6 @@ def _build_local_plan(
         > constraints.total_distance_km.value
     ):
         return None, "total_distance_km"
-    if constraints.return_by:
-        start_minutes = _planning_start_minutes(constraints)
-        home_arrival = (
-            start_minutes
-            + lower_bound_duration
-        )
-        if home_arrival > _time_to_minutes(constraints.return_by.value):
-            return None, "return_by"
-
     people = 1
     if constraints.party:
         people = max(1, constraints.party.value.adults + constraints.party.value.children)
@@ -3400,7 +3416,7 @@ def _refresh_verified_score(
 
 
 def _planning_minutes(constraints: PlanRequest) -> tuple[int, int]:
-    window = constraints.time_window.value
+    window = constraints.planning_window.clock_bounds
     available_minutes = _time_to_minutes(window.end) - _planning_start_minutes(constraints)
     maximum_minutes = min(
         available_minutes,
@@ -3421,9 +3437,9 @@ def _planning_minutes(constraints: PlanRequest) -> tuple[int, int]:
 def _planning_start_minutes(constraints: PlanRequest) -> int:
     """The one canonical start for every local and provider-backed timeline."""
     return _time_to_minutes(
-        constraints.departure_at.value
-        if constraints.departure_at is not None
-        else constraints.time_window.value.start
+        constraints.planning_window.start_at.value
+        if constraints.planning_window.start_at is not None
+        else "00:00"
     )
 
 
@@ -3431,7 +3447,7 @@ def _planning_time_conflict(
     constraints: PlanRequest,
 ) -> ConstraintConflict | None:
     """Reject incompatible explicit clocks before any provider call."""
-    if constraints.departure_at is None:
+    if constraints.planning_window.explicit_departure is None:
         return None
     departure = _planning_start_minutes(constraints)
 
@@ -3439,8 +3455,8 @@ def _planning_time_conflict(
     # specific than any derived planning window.  Enrichment may need an
     # operational horizon for the existing Planner, but it must not mask this
     # chronology error as an outside-window failure.
-    if constraints.return_by is not None and departure >= _time_to_minutes(
-        constraints.return_by.value
+    if constraints.planning_window.explicit_return_deadline is not None and departure >= _time_to_minutes(
+        constraints.planning_window.explicit_return_deadline.value
     ):
         return ConstraintConflict(
             code="DEPARTURE_NOT_BEFORE_RETURN_BY",
@@ -3449,7 +3465,7 @@ def _planning_time_conflict(
             relaxation_options=["提前出发或延后最晚到家时间"],
         )
 
-    window = constraints.time_window.value
+    window = constraints.planning_window.clock_bounds
     # Only a user-authored numeric range is an availability constraint.  A
     # fuzzy period (morning/afternoon/evening) and a DEFAULT_RULE horizon are
     # scheduling hints that Enrichment may shift around an exact departure.
@@ -3475,13 +3491,10 @@ def _is_explicit_time_window(constraints: PlanRequest) -> bool:
     internal marker during Resume V1.
     """
 
-    time_window = constraints.time_window
-    if time_window is None:
+    time_window = constraints.planning_window
+    if time_window.clock_bounds is None:
         return False
-    if time_window.rule_id == "time.explicit_range.v1":
-        return True
-    time_scope = constraints.time_scope
-    return time_scope is not None and time_scope.value == TimeScope.EXPLICIT_RANGE
+    return time_window.explicit_trip_range
 
 
 def _meal_anchor_conflict_fields(
@@ -3500,20 +3513,21 @@ def _meal_anchor_conflict_fields(
         if constraints.required_stop_roles is not None
         else ()
     )
-    if not required_roles or constraints.time_window is None:
+    if not required_roles or constraints.planning_window.clock_bounds is None:
         return []
 
-    window_start = _time_to_minutes(constraints.time_window.value.start)
-    window_end = _time_to_minutes(constraints.time_window.value.end)
-    if constraints.departure_at is not None:
+    window = constraints.planning_window.clock_bounds
+    window_start = _time_to_minutes(window.start)
+    window_end = _time_to_minutes(window.end)
+    if constraints.planning_window.explicit_departure is not None:
         window_start = max(
             window_start,
-            _time_to_minutes(constraints.departure_at.value),
+            _time_to_minutes(constraints.planning_window.explicit_departure.value),
         )
-    if constraints.return_by is not None:
+    if constraints.planning_window.explicit_return_deadline is not None:
         window_end = min(
             window_end,
-            _time_to_minutes(constraints.return_by.value),
+            _time_to_minutes(constraints.planning_window.explicit_return_deadline.value),
         )
 
     for role in required_roles:

@@ -24,6 +24,7 @@ from app.domain.constraints import (
     RawConstraints,
     TargetReference,
     StopRole,
+    TimeProposal,
 )
 from app.domain.catalog import ResourceType
 
@@ -123,6 +124,7 @@ class ClarificationResolver:
                 return self._unresolved(pending_question, base_interpretation)
             raw = base_interpretation.raw_constraints
             updates: dict[str, object] = {}
+            time_proposals = base_interpretation.time_proposals
             if pending_question.field == "location":
                 updates["location_text"] = None
             elif pending_question.field == "date":
@@ -136,13 +138,8 @@ class ClarificationResolver:
                     }
                 )
             elif pending_question.field == "time_window":
-                updates.update(
-                    {
-                        "time_text": None,
-                        "time_scope": None,
-                        "explicit_time_window": None,
-                        "departure_period": None,
-                    }
+                time_proposals = tuple(
+                    item for item in time_proposals if item.target != "trip"
                 )
             else:
                 # Clearing a field lets Enrichment apply its visible product
@@ -151,6 +148,7 @@ class ClarificationResolver:
             updated = self._update_interpretation(
                 base_interpretation,
                 raw_updates=updates,
+                time_proposals=time_proposals,
                 evidence_remove=(pending_question.field, f"{pending_question.field}_text"),
                 inferred_remove=(pending_question.field,),
             )
@@ -349,6 +347,7 @@ class ClarificationResolver:
         base: Interpretation,
     ) -> Interpretation | None:
         raw_updates: dict[str, object] = {}
+        time_proposals = list(base.time_proposals)
         evidence_key = field
 
         if field == "budget_per_person":
@@ -361,14 +360,30 @@ class ClarificationResolver:
             clock = cls._parse_clock(value)
             if clock is None:
                 return None
-            raw_updates.update({"return_by_text": value, "return_by": clock})
-            evidence_key = "return_by_text"
+            time_proposals = [item for item in time_proposals if item.target != "return"]
+            time_proposals.append(
+                TimeProposal(
+                    target="return",
+                    precision="exact",
+                    clock=clock,
+                    evidence=value,
+                )
+            )
+            evidence_key = "return_by"
         elif field == "departure_at":
             clock = cls._parse_clock(value)
             if clock is None:
                 return None
-            raw_updates.update({"departure_at_text": value, "departure_at": clock})
-            evidence_key = "departure_at_text"
+            time_proposals = [item for item in time_proposals if item.target != "departure"]
+            time_proposals.append(
+                TimeProposal(
+                    target="departure",
+                    precision="exact",
+                    clock=clock,
+                    evidence=value,
+                )
+            )
+            evidence_key = "departure_at"
         elif field == "date":
             from app.services.enrichment import TemporalCompiler
 
@@ -393,14 +408,29 @@ class ClarificationResolver:
                 # A bare clock is not a range and must not silently become a
                 # planning horizon; ask again for a window.
                 return None
-            raw_updates.update(
-                {
-                    "time_text": time_text,
-                    "time_scope": scope,
-                    "explicit_time_window": window,
-                }
-            )
-            evidence_key = "time_text"
+            time_proposals = [item for item in time_proposals if item.target != "trip"]
+            if window is not None:
+                time_proposals.append(
+                    TimeProposal(
+                        target="trip",
+                        precision="exact",
+                        clock=window.start,
+                        end_clock=window.end,
+                        evidence=time_text,
+                    )
+                )
+            elif scope is not None:
+                time_proposals.append(
+                    TimeProposal(
+                        target="trip",
+                        precision="period",
+                        period=scope,
+                        evidence=time_text,
+                    )
+                )
+            else:
+                return None
+            evidence_key = "trip_time"
         elif field == "location":
             if len(value) < 2:
                 return None
@@ -454,6 +484,7 @@ class ClarificationResolver:
         return cls._update_interpretation(
             base,
             raw_updates=raw_updates,
+            time_proposals=tuple(time_proposals),
             evidence=evidence,
             confidence=confidence,
             inferred=inferred,
@@ -481,10 +512,52 @@ class ClarificationResolver:
                     "absolute_date": source.absolute_date,
                 }
             )
-        elif field == "return_by" and (source.return_by or source.return_by_text):
-            updates.update({"return_by": source.return_by, "return_by_text": source.return_by_text or evidence})
-        elif field == "departure_at" and (source.departure_at or source.departure_at_text):
-            updates.update({"departure_at": source.departure_at, "departure_at_text": source.departure_at_text or evidence})
+        elif field == "return_by" and any(
+            item.target == "return" for item in proposed.time_proposals
+        ):
+            proposal = next((item for item in proposed.time_proposals if item.target == "return"), None)
+            if proposal is None:
+                return None
+            return cls._update_interpretation(
+                base,
+                raw_updates=updates,
+                time_proposals=tuple(
+                    [item for item in base.time_proposals if item.target != "return"]
+                    + [proposal.model_copy(update={"evidence": evidence})]
+                ),
+                evidence={**base.evidence_map, field: evidence},
+                confidence={**base.extraction_confidence, field: 1.0},
+            )
+        elif field == "departure_at" and any(
+            item.target == "departure" for item in proposed.time_proposals
+        ):
+            proposal = next((item for item in proposed.time_proposals if item.target == "departure"), None)
+            if proposal is None:
+                return None
+            return cls._update_interpretation(
+                base,
+                raw_updates=updates,
+                time_proposals=tuple(
+                    [item for item in base.time_proposals if item.target != "departure"]
+                    + [proposal.model_copy(update={"evidence": evidence})]
+                ),
+                evidence={**base.evidence_map, field: evidence},
+                confidence={**base.extraction_confidence, field: 1.0},
+            )
+        elif field == "time_window" and any(
+            item.target == "trip" for item in proposed.time_proposals
+        ):
+            proposal = next(item for item in proposed.time_proposals if item.target == "trip")
+            return cls._update_interpretation(
+                base,
+                raw_updates=updates,
+                time_proposals=tuple(
+                    [item for item in base.time_proposals if item.target != "trip"]
+                    + [proposal.model_copy(update={"evidence": evidence})]
+                ),
+                evidence={**base.evidence_map, field: evidence},
+                confidence={**base.extraction_confidence, field: 1.0},
+            )
         else:
             return None
         return cls._update_interpretation(
@@ -499,6 +572,7 @@ class ClarificationResolver:
         base: Interpretation,
         *,
         raw_updates: dict[str, object],
+        time_proposals: tuple[TimeProposal, ...] | None = None,
         evidence: dict[str, str] | None = None,
         confidence: dict[str, float] | None = None,
         inferred: set[str] | None = None,
@@ -517,6 +591,7 @@ class ClarificationResolver:
         return base.model_copy(
             update={
                 "raw_constraints": RawConstraints.model_validate(raw),
+                "time_proposals": base.time_proposals if time_proposals is None else time_proposals,
                 "evidence_map": next_evidence,
                 "extraction_confidence": next_confidence,
                 "inferred_fields": next_inferred,

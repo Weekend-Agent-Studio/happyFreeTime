@@ -16,6 +16,8 @@ from app.domain.constraints import (
     Interpretation,
     RawConstraints,
     StopRole,
+    TimeProposal,
+    TimeScope,
 )
 from app.orchestration.entry_graph import (
     build_entry_graph,
@@ -28,7 +30,14 @@ from app.providers.geocoding import MockGeocodingProvider
 from app.services.catalog import InMemoryCatalog
 from app.services.router_extractor import RouterContext
 from app.domain.planning import PlanSlotProposal, PlanStructureProposal
+from app.domain.planning import ConstraintConflict
 from tests.test_planning import planning_constraints
+
+
+def _afternoon() -> TimeProposal:
+    return TimeProposal(
+        target="trip", precision="period", period=TimeScope.AFTERNOON, evidence="下午"
+    )
 
 
 class FollowUpRouter:
@@ -41,9 +50,9 @@ class FollowUpRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 0.99},
+                time_proposals=(_afternoon(),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="人均200",
                     budget_per_person=200,
                     strict_budget=True,
@@ -52,9 +61,9 @@ class FollowUpRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 0.99},
+            time_proposals=(_afternoon(),),
             raw_constraints=RawConstraints(
                 date_text="今天",
-                time_text="下午",
                 budget_text="千万别超预算",
                 strict_budget=True,
             ),
@@ -66,8 +75,9 @@ class ExplicitLocationRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
+            time_proposals=(_afternoon(),),
             raw_constraints=RawConstraints(
-                date_text="今天", time_text="下午", location_text="不存在地标"
+                date_text="今天", location_text="不存在地标"
             ),
         )
 
@@ -78,7 +88,7 @@ class EntryGraphTest(unittest.TestCase):
             checkpoint_config("session-1"),
             {
                 "configurable": {
-                    "thread_id": "planner-core1b-v3:session-1",
+                    "thread_id": "planner-core2b-v1:session-1",
                 }
             },
         )
@@ -92,6 +102,17 @@ class EntryGraphTest(unittest.TestCase):
         restored = serializer.loads_typed(encoded)
 
         self.assertEqual(restored, proposal)
+
+    def test_constraint_conflict_is_checkpoint_serializable(self) -> None:
+        conflict = ConstraintConflict(
+            code="DEPARTURE_NOT_BEFORE_RETURN_BY",
+            message="出发时间必须早于返程时间。",
+            fields=["departure_at", "return_by"],
+        )
+        serializer = checkpoint_serializer()
+        restored = serializer.loads_typed(serializer.dumps_typed(conflict))
+
+        self.assertEqual(restored, conflict)
 
     def test_active_plan_time_supplement_is_not_misclassified_as_replacement(self) -> None:
         interpretation = DemoRouter().interpret(
@@ -183,7 +204,10 @@ class EntryGraphTest(unittest.TestCase):
             config=config,
         )
         self.assertNotIn("__interrupt__", resumed)
-        self.assertEqual(resumed["planning_constraints"].departure_at.value, "09:00")
+        self.assertEqual(
+            resumed["planning_constraints"].planning_window.start_at.value,
+            "09:00",
+        )
 
     def test_demo_departure_period_patch_uses_the_shared_resume_contract(self) -> None:
         environment = EnvironmentContext(
@@ -231,7 +255,10 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         self.assertNotIn("__interrupt__", resumed)
-        self.assertEqual(resumed["planning_constraints"].departure_at.value, "09:00")
+        self.assertEqual(
+            resumed["planning_constraints"].planning_window.start_at.value,
+            "09:00",
+        )
 
     def test_refine_plan_without_resolved_command_asks_without_planning(self) -> None:
         class UnresolvedModificationRouter:
@@ -371,7 +398,7 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertTrue(final["ready_for_planning"])
         self.assertEqual(
-            final["enrichment"].constraints.location.source.value,
+            final["plan_request"].location.source.value,
             "system_context",
         )
         self.assertTrue(
@@ -462,15 +489,17 @@ class EntryGraphTest(unittest.TestCase):
                     return Interpretation(
                         primary_intent=Intent.PLAN_OUTING,
                         intent_scores={Intent.PLAN_OUTING: 1.0},
+                        time_proposals=(_afternoon(),),
                         raw_constraints=RawConstraints(
-                            date_text="今天", time_text="下午", location_text="不存在地标",
+                            date_text="今天", location_text="不存在地标",
                             preferences=["旧偏好"],
                         ),
                     )
                 return Interpretation(
                     primary_intent=Intent.PLAN_OUTING,
                     intent_scores={Intent.PLAN_OUTING: 1.0},
-                    raw_constraints=RawConstraints(date_text="今天", time_text="下午"),
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(date_text="今天"),
                 )
 
         environment = EnvironmentContext(
@@ -545,7 +574,7 @@ class EntryGraphTest(unittest.TestCase):
 
         self.assertTrue(final_result["ready_for_planning"])
         self.assertEqual(
-            final_result["enrichment"].constraints.budget_per_person.value,
+            final_result["plan_request"].budget_per_person.value,
             200,
         )
         # The answer is projected onto the pending field and resumes at
@@ -632,9 +661,9 @@ class EntryGraphTest(unittest.TestCase):
                 return Interpretation(
                     primary_intent=Intent.CHECK_WEATHER,
                     intent_scores={Intent.CHECK_WEATHER: 1.0},
+                    time_proposals=(_afternoon(),),
                     raw_constraints=RawConstraints(
                         date_text="今天",
-                        time_text="下午",
                         preferences=["下雨就安排室内活动"],
                         scene_tags=["室内"],
                     ),
@@ -678,9 +707,9 @@ class EntryGraphTest(unittest.TestCase):
                 return Interpretation(
                     primary_intent=Intent.PLAN_OUTING,
                     intent_scores={Intent.PLAN_OUTING: 0.99},
+                    time_proposals=(_afternoon(),),
                     raw_constraints=RawConstraints(
                         date_text="今天",
-                        time_text="下午",
                         max_distance_text="别太远",
                     ),
                 )
@@ -745,11 +774,10 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         self.assertTrue(result["ready_for_planning"])
-        self.assertEqual(result["enrichment"].constraints.date.value, date(2026, 8, 12))
-        self.assertEqual(
-            result["enrichment"].constraints.time_window.value.model_dump(),
-            {"start": "18:00", "end": "22:00"},
-        )
+        window = result["plan_request"].planning_window
+        self.assertEqual(window.date.value.isoformat(), "2026-08-12")
+        self.assertEqual(window.start_at.value, "18:00")
+        self.assertEqual(window.end_at.value, "22:00")
         self.assertTrue(result["candidate_set"].plans)
 
     def test_runtime_decisions_distinguish_demo_router_and_rule_planning(self) -> None:

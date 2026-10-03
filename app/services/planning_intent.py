@@ -218,13 +218,26 @@ def build_rule_based_planning_intent(
         "不累",
     }:
         pace = PlanPace.RELAXED
-    elif preferences & {"丰富", "充实", "多玩几个", "尽量多"}:
+    elif (
+        preferences & {"丰富", "充实", "多玩几个", "尽量多"}
+        or _is_all_day_request(constraints)
+    ):
         pace = PlanPace.FULL
     else:
         pace = PlanPace.BALANCED
     return PlanningIntent(
         pace=pace,
         semantic_request=_build_rule_semantic_request(constraints),
+    )
+
+
+def _is_all_day_request(constraints: PlanRequest) -> bool:
+    """Recognize the compiled all-day window without inventing user preference text."""
+
+    window = constraints.planning_window
+    return any(
+        bound is not None and bound.rule_id == "time.trip.all_day.v1"
+        for bound in (window.start_at, window.end_at)
     )
 
 
@@ -551,11 +564,23 @@ def _build_context(
         "diet_tags": constraints.diet_tags,
         "scene_tags": constraints.scene_tags,
         "avoid": constraints.avoid,
-        "time_window": (
-            constraints.time_window.value.model_dump(mode="json")
-            if constraints.time_window is not None
-            else None
-        ),
+        "planning_window": {
+            "date": (
+                constraints.planning_window.date.value.isoformat()
+                if constraints.planning_window.date is not None
+                else None
+            ),
+            "start_at": (
+                constraints.planning_window.start_at.value
+                if constraints.planning_window.start_at is not None
+                else None
+            ),
+            "end_at": (
+                constraints.planning_window.end_at.value
+                if constraints.planning_window.end_at is not None
+                else None
+            ),
+        },
         "exact_stop_count": (
             constraints.exact_stop_count.value
             if constraints.exact_stop_count is not None

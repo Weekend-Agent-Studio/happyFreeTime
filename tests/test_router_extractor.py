@@ -12,6 +12,7 @@ from app.domain.constraints import (
     Interpretation,
     RawConstraints,
     TargetReference,
+    TimeProposal,
     TimeWindow,
     TimeScope,
     Weekday,
@@ -295,10 +296,17 @@ class RouterExtractorTest(unittest.TestCase):
             intent_scores={Intent.PLAN_OUTING: 0.97},
             raw_constraints=RawConstraints(
                 date_text="今天",
-                time_text="下午",
                 max_distance_text="别太远",
             ),
-            evidence_map={"date_text": "今天", "time_text": "下午"},
+            time_proposals=(
+                TimeProposal(
+                    target="trip",
+                    precision="period",
+                    period=TimeScope.AFTERNOON,
+                    evidence="下午",
+                ),
+            ),
+            evidence_map={"date_text": "今天"},
         )
         model = FakeStructuredModel([expected])
         router = RouterExtractor(model)
@@ -465,8 +473,12 @@ class RouterExtractorTest(unittest.TestCase):
             ),
             (
                 "explicit_time_window_order_invalid",
-                lambda: RawConstraints(
-                    explicit_time_window=TimeWindow(start="18:00", end="17:00")
+                lambda: TimeProposal(
+                    target="trip",
+                    precision="exact",
+                    clock="18:00",
+                    end_clock="17:00",
+                    evidence="18点到17点",
                 ),
             ),
             (
@@ -710,15 +722,14 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertEqual(result.conversation_command.operation.value, "replace")
         self.assertTrue(result.conversation_command.constraint_patch.prefer_shorter_travel)
 
-    def test_structured_temporal_values_require_evidence_and_confidence(self) -> None:
+    def test_temporal_proposals_require_evidence_but_not_confidence(self) -> None:
         with self.assertRaises(ValueError):
-            Interpretation(
-                primary_intent=Intent.PLAN_OUTING,
-                intent_scores={Intent.PLAN_OUTING: 1.0},
-                raw_constraints=RawConstraints(
-                    date_reference=DateReference.TODAY,
-                    time_scope=TimeScope.EVENING,
-                ),
+            TimeProposal.model_validate(
+                {
+                    "target": "trip",
+                    "precision": "period",
+                    "period": "evening",
+                }
             )
 
         valid = Interpretation(
@@ -727,13 +738,19 @@ class RouterExtractorTest(unittest.TestCase):
             raw_constraints=RawConstraints(
                 date_text="今晚",
                 date_reference=DateReference.TODAY,
-                time_text="今晚",
-                time_scope=TimeScope.EVENING,
             ),
-            evidence_map={"date_text": "今晚", "time_text": "今晚"},
-            extraction_confidence={"date_text": 1.0, "time_text": 1.0},
+            time_proposals=(
+                TimeProposal(
+                    target="trip",
+                    precision="period",
+                    period=TimeScope.EVENING,
+                    evidence="今晚",
+                ),
+            ),
+            evidence_map={"date_text": "今晚"},
         )
         self.assertEqual(valid.raw_constraints.date_reference, DateReference.TODAY)
+        self.assertEqual(valid.time_proposals[0].evidence, "今晚")
 
 
 if __name__ == "__main__":

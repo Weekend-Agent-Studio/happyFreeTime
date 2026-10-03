@@ -317,10 +317,11 @@ def _opening_penalty(
     the actual hard result.
     """
 
-    if not constraints.date or not candidate.open_hours:
+    planning_window = constraints.planning_window
+    if not planning_window.date or not candidate.open_hours:
         return 0
     weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
-        constraints.date.value.weekday()
+        planning_window.date.value.weekday()
     ]
     hours = candidate.open_hours.get(weekday)
     if not hours:
@@ -342,16 +343,20 @@ def _count(values: dict[str, int], key: str) -> None:
 
 def _planning_start_minutes(constraints: PlanRequest) -> int:
     value = (
-        constraints.departure_at.value
-        if constraints.departure_at is not None
-        else constraints.time_window.value.start
+        constraints.planning_window.start_at.value
+        if constraints.planning_window.start_at is not None
+        else "00:00"
     )
     hour, minute = (int(part) for part in value.split(":"))
     return hour * 60 + minute
 
 
 def _maximum_planning_minutes(constraints: PlanRequest, start_minutes: int) -> int:
-    end = constraints.time_window.value.end
+    end = (
+        constraints.planning_window.end_at.value
+        if constraints.planning_window.end_at is not None
+        else "23:59"
+    )
     hour, minute = (int(part) for part in end.split(":"))
     available = hour * 60 + minute - start_minutes
     if constraints.duration_minutes is not None:

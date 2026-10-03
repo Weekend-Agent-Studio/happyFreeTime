@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from app.api.application import create_app
-from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole
+from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole, TimeProposal, TimeScope
 from app.domain.providers import (
     AvailabilityStatus,
     GeoPoint,
@@ -35,21 +35,30 @@ from tests.test_native_planning import candidate
 from app.domain.catalog import ResourceType
 
 
+def _trip_period(scope: TimeScope, evidence: str) -> TimeProposal:
+    return TimeProposal(target="trip", precision="period", period=scope, evidence=evidence)
+
+
+def _exact_time(target: str, clock: str, evidence: str) -> TimeProposal:
+    return TimeProposal(target=target, precision="exact", clock=clock, evidence=evidence)
+
+
 class RuleRouter:
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         if "只安排一家晚饭" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    _trip_period(TimeScope.EVENING, "晚上"),
+                    _exact_time("return", "22:00", "晚上十点前回家"),
+                ),
                 raw_constraints=RawConstraints(
                     date_text="明天",
-                    time_text="晚上",
                     exact_stop_count=1,
                     required_stop_roles=(StopRole.DINNER,),
                     budget_text="人均150",
                     budget_per_person=150,
-                    return_by_text="晚上十点前回家",
-                    return_by="22:00",
                 ),
                 evidence_map={"exact_stop_count": "只安排一家", "required_stop_roles": "晚饭"},
             )
@@ -57,20 +66,21 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    _exact_time("departure", "14:30", "下午两点半准时出发"),
+                    _exact_time("return", "18:00", "18:00 前回家"),
+                ),
                 raw_constraints=RawConstraints(
                     date_text="明天",
-                    time_text="下午",
-                    departure_at_text="下午两点半准时出发",
-                    return_by_text="18:00 前回家",
                 ),
             )
         if "约会" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     adults=2,
                     preferences=["轻松", "甜品"],
                     scene_tags=["约会"],
@@ -83,9 +93,9 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="人均100",
                     budget_per_person=100,
                     strict_budget=True,
@@ -95,9 +105,9 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="人均200",
                     budget_per_person=200,
                     strict_budget=True,
@@ -107,11 +117,12 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    _trip_period(TimeScope.AFTERNOON, "下午"),
+                    _exact_time("return", "23:00", "最晚23:00到家"),
+                ),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
-                    return_by_text="最晚23:00到家",
-                    return_by="23:00",
                     total_distance_text="全程不超过50公里",
                     total_distance_km=50,
                 ),
@@ -120,9 +131,9 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="别超预算",
                     strict_budget=True,
                 ),
@@ -130,7 +141,8 @@ class RuleRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
-            raw_constraints=RawConstraints(date_text="今天", time_text="下午"),
+            time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
+            raw_constraints=RawConstraints(date_text="今天"),
         )
 
 
@@ -139,9 +151,9 @@ class LocationRuleRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
+            time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
             raw_constraints=RawConstraints(
                 date_text="今天",
-                time_text="下午",
                 location_text="国贸",
             ),
         )

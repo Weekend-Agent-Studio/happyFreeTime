@@ -60,15 +60,18 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
 
         family_dinner = by_id["plan_family_home_style_dinner"].interpretation.raw_constraints
         self.assertIsNone(family_dinner.date_text)
-        self.assertEqual(family_dinner.time_scope.value, "afternoon")
+        family_time = by_id["plan_family_home_style_dinner"].interpretation.time_proposals
+        self.assertEqual(family_time[0].target, "trip")
+        self.assertEqual(family_time[0].period.value, "afternoon")
 
         new_plan = by_id["plan_fast_meal_more_activity"].interpretation
         self.assertEqual(new_plan.primary_intent.value, "plan_outing")
         self.assertIsNone(new_plan.conversation_command)
 
         first_stop = by_id["modify_first_stop_parents"].interpretation.raw_constraints
-        self.assertIsNone(first_stop.time_text)
-        self.assertIsNone(first_stop.time_scope)
+        self.assertFalse(
+            by_id["modify_first_stop_parents"].interpretation.time_proposals
+        )
 
         child_case = load_resume_release_dataset(DATASET_PATH)
         child = next(item for item in child_case.cases if item.case_id == "plan_child_indoor_explore")

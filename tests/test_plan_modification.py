@@ -29,7 +29,11 @@ from app.services.constraint_patch import ConstraintPatchCompiler
 from app.services.enrichment import EnvironmentContext
 from app.services.planning import PlanningService
 from tests.test_native_planning import candidate
-from tests.test_planning import FixedReplayRouteProvider, planning_constraints
+from tests.test_planning import (
+    FixedReplayRouteProvider,
+    planning_constraints,
+    with_planning_window,
+)
 
 
 class PlanModificationTest(unittest.TestCase):
@@ -98,7 +102,7 @@ class PlanModificationTest(unittest.TestCase):
 
         self.assertIsNone(result.question)
         self.assertIsNotNone(result.updated_constraints)
-        self.assertEqual(result.updated_constraints.return_by.value, "19:00")
+        self.assertEqual(result.updated_constraints.planning_window.end_at.value, "19:00")
         self.assertEqual(result.updated_constraints.preferences, ["轻松", "安静"])
         self.assertEqual(result.updated_constraints.budget_per_person.value, 1_000)
 
@@ -184,8 +188,8 @@ class PlanModificationTest(unittest.TestCase):
 
         self.assertIsNone(result.question)
         self.assertIsNotNone(result.updated_constraints)
-        self.assertEqual(result.updated_constraints.time_window.value.start, "14:00")
-        self.assertEqual(result.updated_constraints.time_window.value.end, "18:00")
+        self.assertEqual(result.updated_constraints.planning_window.start_at.value, "14:00")
+        self.assertEqual(result.updated_constraints.planning_window.end_at.value, "18:00")
 
     def test_departure_period_patch_asks_for_a_clock(self) -> None:
         proposal = ConstraintPatchCompiler.proposal_from_text(
@@ -218,7 +222,7 @@ class PlanModificationTest(unittest.TestCase):
         )
 
         self.assertIsNone(result.question)
-        self.assertEqual(result.updated_constraints.departure_at.value, "09:00")
+        self.assertEqual(result.updated_constraints.planning_window.start_at.value, "09:00")
 
     def test_replace_activity_keeps_restaurant_and_shortens_verified_route(self) -> None:
         restaurant = candidate(
@@ -290,13 +294,10 @@ class PlanModificationTest(unittest.TestCase):
                 candidate("dinner", ResourceType.RESTAURANT, "晚餐", ["晚餐"], duration_minutes=60, open_hours={"sat": "17:00-21:00"}),
             ]
         )
-        constraints = planning_constraints(budget=1_000, max_distance_km=30, time_end="21:00").model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="09:00", end="21:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(budget=1_000, max_distance_km=30, time_end="21:00"),
+            start="09:00",
+            end="21:00",
         )
         service = PlanningService(
             catalog=catalog,
@@ -402,17 +403,14 @@ class PlanModificationTest(unittest.TestCase):
             duration_minutes=300,
             open_hours={"sat": "12:00-18:00"},
         )
-        constraints = planning_constraints(
-            budget=1_000,
-            max_distance_km=30,
-            time_end="21:00",
-        ).model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="10:00", end="21:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                )
-            }
+        constraints = with_planning_window(
+            planning_constraints(
+                budget=1_000,
+                max_distance_km=30,
+                time_end="21:00",
+            ),
+            start="10:00",
+            end="21:00",
         )
         service = PlanningService(
             catalog=InMemoryCatalog(

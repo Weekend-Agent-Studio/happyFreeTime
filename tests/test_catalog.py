@@ -17,6 +17,7 @@ from app.domain.constraints import (
     ConstraintValue,
     GeoLocation,
     NormalizedConstraints,
+    PlanningWindow,
     PartyProfile,
     TimeWindow,
 )
@@ -35,13 +36,17 @@ SOURCE = CatalogSource(
 
 def constraints() -> NormalizedConstraints:
     return NormalizedConstraints(
-        date=ConstraintValue[date](
-            value=date(2026, 8, 15),
-            source=ConstraintSource.USER_EXPLICIT,
-        ),
-        time_window=ConstraintValue[TimeWindow](
-            value=TimeWindow(start="14:00", end="18:00"),
-            source=ConstraintSource.USER_EXPLICIT,
+        planning_window=PlanningWindow(
+            date=ConstraintValue[date](
+                value=date(2026, 8, 15),
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+            start_at=ConstraintValue[str](
+                value="14:00", source=ConstraintSource.USER_EXPLICIT
+            ),
+            end_at=ConstraintValue[str](
+                value="18:00", source=ConstraintSource.USER_EXPLICIT
+            ),
         ),
         location=ConstraintValue[GeoLocation](
             value=GeoLocation(

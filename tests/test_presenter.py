@@ -10,9 +10,14 @@ class TemplatePresenterTest(unittest.TestCase):
     def test_plan_reply_only_uses_verified_plan_facts_and_active_constraints(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={
-                "return_by": ConstraintValue[str](
-                    value="23:00",
-                    source=ConstraintSource.USER_EXPLICIT,
+                "planning_window": planning_constraints(time_end="22:00").planning_window.model_copy(
+                    update={
+                        "end_at": ConstraintValue[str](
+                            value="23:00",
+                            source=ConstraintSource.USER_EXPLICIT,
+                            rule_id="time.return.clock.v1",
+                        )
+                    }
                 ),
                 "total_distance_km": ConstraintValue[float](
                     value=30.0,

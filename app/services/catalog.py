@@ -230,12 +230,13 @@ def _violations_for(
                 )
             )
 
-    if constraints.date and constraints.time_window:
+    planning_window = constraints.planning_window
+    if planning_window.date and planning_window.clock_bounds:
         weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
-            constraints.date.value.weekday()
+            planning_window.date.value.weekday()
         ]
         hours = candidate.open_hours.get(weekday)
-        window = constraints.time_window.value
+        window = planning_window.clock_bounds
         if hours and not _overlaps(hours, window.start, window.end):
             violations.append(
                 _violation(
@@ -282,9 +283,10 @@ def _warnings_for(
                 "该地点没有可靠的儿童适用性信息，请出发前确认。",
             )
         )
-    if constraints.date and constraints.time_window:
+    planning_window = constraints.planning_window
+    if planning_window.date and planning_window.clock_bounds:
         weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
-            constraints.date.value.weekday()
+            planning_window.date.value.weekday()
         ]
         hours = candidate.open_hours.get(weekday)
         if not hours or parse_basic_intervals(hours) is None:

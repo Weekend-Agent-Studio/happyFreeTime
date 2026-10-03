@@ -21,6 +21,7 @@ from app.domain.constraints import (
     ConstraintValue,
     GeoLocation,
     PlanRequest,
+    PlanningWindow,
     QuestionDecision,
     TimeScope,
     TimeWindow,
@@ -69,12 +70,13 @@ class ConstraintPatchCompiler:
         """Compile all fields atomically against the active constraints."""
 
         updates: dict[str, object] = {}
+        window_updates: dict[str, object] = {}
 
         if proposal.date_text:
             date_value = self._compile_date(proposal.date_text, environment)
             if date_value is None:
                 return self._ask("date")
-            updates["date"] = date_value
+            window_updates["date"] = date_value
 
         if proposal.departure_period is not None and not proposal.departure_at_text:
             # “早上/下午出发” constrains only the departure action.  Do not
@@ -87,23 +89,61 @@ class ConstraintPatchCompiler:
             if time_value is None:
                 return self._ask("time_window")
             scope, window = time_value
-            updates["time_scope"] = self._value(scope, proposal.time_window_text, "time.patch.scope.v1")
-            updates["time_window"] = self._value(window, proposal.time_window_text, "time.patch.window.v1")
-            # A new fuzzy period supersedes an earlier exact departure.  This
-            # is an explicit user patch, not an untouched field.
-            updates["departure_at"] = None
+            source = (
+                ConstraintSource.USER_INFERRED
+                if scope != TimeScope.EXPLICIT_RANGE
+                else ConstraintSource.USER_EXPLICIT
+            )
+            window_updates.update(
+                {
+                    "start_at": ConstraintValue[str](
+                        value=window.start,
+                        source=source,
+                        raw_text=proposal.time_window_text,
+                        rule_id=(
+                            "time.trip.range.v1"
+                            if scope == TimeScope.EXPLICIT_RANGE
+                            else f"time.trip.{scope.value}.v1"
+                        ),
+                    ),
+                    "end_at": ConstraintValue[str](
+                        value=window.end,
+                        source=source,
+                        raw_text=proposal.time_window_text,
+                        rule_id=(
+                            "time.trip.range.v1"
+                            if scope == TimeScope.EXPLICIT_RANGE
+                            else f"time.trip.{scope.value}.v1"
+                        ),
+                    ),
+                }
+            )
 
         if proposal.departure_at_text:
             value = TemporalCompiler.normalize_clock_text(proposal.departure_at_text)
             if value is None:
                 return self._ask("departure_at")
-            updates["departure_at"] = self._value(value, proposal.departure_at_text, "departure_at.patch.v1")
+            window_updates["start_at"] = self._value(
+                value,
+                proposal.departure_at_text,
+                "time.departure.clock.v1",
+            )
+            if base.planning_window.end_at is None:
+                window_updates["end_at"] = ConstraintValue[str](
+                    value="23:59",
+                    source=ConstraintSource.DEFAULT_RULE,
+                    rule_id="time.departure.default_horizon.v1",
+                )
 
         if proposal.return_by_text:
             value = TemporalCompiler.normalize_clock_text(proposal.return_by_text)
             if value is None:
                 return self._ask("return_by")
-            updates["return_by"] = self._value(value, proposal.return_by_text, "return_by.patch.v1")
+            window_updates["end_at"] = self._value(
+                value,
+                proposal.return_by_text,
+                "time.return.clock.v1",
+            )
 
         if proposal.budget_text:
             amount = self._parse_amount(proposal.budget_text)
@@ -154,7 +194,11 @@ class ConstraintPatchCompiler:
         if proposal.avoid:
             updates["avoid"] = self._merge(base.avoid, proposal.avoid)
 
-        self._apply_clears(updates, proposal.clear_fields)
+        self._apply_clears(updates, window_updates, proposal.clear_fields)
+        if window_updates:
+            updates["planning_window"] = base.planning_window.model_copy(
+                update=window_updates
+            )
         if not updates:
             return ConstraintPatchResult(
                 question=QuestionDecision(
@@ -169,8 +213,16 @@ class ConstraintPatchCompiler:
             )
 
         candidate = base.model_copy(update=updates)
-        departure = candidate.departure_at.value if candidate.departure_at else None
-        return_by = candidate.return_by.value if candidate.return_by else None
+        departure = (
+            candidate.planning_window.start_at.value
+            if candidate.planning_window.explicit_departure
+            else None
+        )
+        return_by = (
+            candidate.planning_window.explicit_return_deadline.value
+            if candidate.planning_window.explicit_return_deadline
+            else None
+        )
         if departure is not None and return_by is not None and departure >= return_by:
             return ConstraintPatchResult(
                 conflict=ConstraintConflict(
@@ -278,11 +330,24 @@ class ConstraintPatchCompiler:
         return list(dict.fromkeys((*existing, *additions)))
 
     @staticmethod
-    def _apply_clears(updates: dict[str, object], fields: tuple[str, ...]) -> None:
+    def _apply_clears(
+        updates: dict[str, object],
+        window_updates: dict[str, object],
+        fields: tuple[str, ...],
+    ) -> None:
         value_fields = {"date", "time_scope", "time_window", "location", "budget_per_person", "max_distance_km", "total_distance_km", "departure_at", "return_by"}
         list_fields = {"preferences", "diet_tags", "avoid"}
         for field in fields:
-            if field in value_fields or field in list_fields:
+            if field in {"date", "time_scope", "time_window", "departure_at", "return_by"}:
+                if field == "date":
+                    window_updates["date"] = None
+                elif field == "time_window":
+                    window_updates.update({"start_at": None, "end_at": None})
+                elif field == "departure_at":
+                    window_updates["start_at"] = None
+                elif field == "return_by":
+                    window_updates["end_at"] = None
+            elif field in value_fields or field in list_fields:
                 updates[field] = [] if field in list_fields else None
             if field == "strict_budget":
                 updates[field] = False

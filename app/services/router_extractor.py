@@ -31,6 +31,8 @@ from app.domain.constraints import (
     StopRole,
     STRUCTURED_OUTPUT_RULE_CODES,
     TargetReference,
+    TimeProposal,
+    TimeScope,
 )
 from app.domain.catalog import ResourceType
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
@@ -101,6 +103,7 @@ class LlmInterpretationProposal(BaseModel):
 
     primary_intent: Intent
     raw_constraints: RawConstraints = Field(default_factory=RawConstraints)
+    time_proposals: tuple[TimeProposal, ...] = ()
     selected_plan_index: int | None = Field(default=None, ge=0)
     conversation_command: ConversationCommandProposal | None = None
     evidence_map: dict[str, str] = Field(default_factory=dict)
@@ -175,25 +178,20 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
    date_text 作为原文证据。weekday 需要同时填写 weekday；“下周”填写 week_offset=1，
    “本周/这周”填写 week_offset=0，普通“周六”不填写 week_offset。absolute 必须填写
    ISO 格式 absolute_date。无法可靠归类时只保留 date_text，等待 Enrichment/Gate。
- - “今晚”填写 date_reference="today"、time_scope="evening”；“明晚”填写
-   date_reference="tomorrow"、time_scope="evening”。不要把“晚上”单独推断成今天。
- - “一整天”“全天”“从早到晚”填写 time_scope="all_day"，同时保留 time_text 作为证据。
- - 明确的数字范围（例如“10:00–16:00”）填写 time_scope="explicit_range" 和
-   explicit_time_window={"start":"10:00","end":"16:00"}，并保留 time_text。
- - 区分整段行程时间和出发时段： “早上/上午/下午/晚上出发”但没有具体钟点时，
-   只填写 departure_period="morning|afternoon|evening"，保留 departure_at_text 或
-   time_text 作为证据，不要把 time_scope 填成同名整段行程窗口；系统会就
-   departure_at 进行字段级反问。 “早上九点出发”同时保留 departure_at_text，能可靠
-   规范化时填写 departure_at，departure_period 只能表示出发语义，不能代替精确时刻。
- - 任何 date_reference、weekday、week_offset、absolute_date 或
-   explicit_time_window 只在能从用户原话确认时填写；对应 evidence_map 必须提供。
-   模糊的“晚饭前后”“有空时”不能编译成精确时钟。
- - “下午两点半准时出发”要保留 departure_at_text；如果能可靠规范化，也可填写
-   departure_at="14:30”，但不要把到家时间写成出发时间。Enrichment 会再次校验时钟。
-   如果同时出现“上午/下午/晚上”和精确出发时刻，保留两者；精确时刻优先，不能仅因为
-   它超出模糊时段的默认边界就判定冲突。只有用户明确给出时间范围，且精确时刻超出该
-   范围时，才由后续 Harness 判定时间冲突。
- - “最晚 18:00 到家”要保留 return_by_text，并在时钟明确时填写 return_by；
+ - 时间统一填写在 time_proposals，不再写入 raw_constraints。每个 proposal 必须带
+   target（trip/departure/return）、precision（exact/period）和原文 evidence。
+ - “今晚”应同时将日期理解为 today，并填写 target=trip、precision=period、period=evening；
+   “明晚”对应 tomorrow + evening。不要把单独的“晚上”推断成今天。
+ - “一整天”“全天”“从早到晚”填写 target=trip、precision=period、period=all_day。
+ - “早上出去玩”是 trip/morning；“早上出发”是 departure/morning，不能当作整体上午窗口。
+ - “早上九点出发”是 departure/exact、clock=09:00；“晚上八点前回来”是
+   return/exact、clock=20:00。模糊但明确作用于出发/返程的时段填写 period，Harness 会反问精确钟点。
+ - 明确的整体时间范围（例如“10:00–16:00”）填写 target=trip、precision=exact、
+   clock=10:00、end_clock=16:00。精确出发和返程只填写 clock。
+ - 模糊的“晚饭前后”“有空时”不能编译成精确钟点；若用户将其作为必须回家的期限，
+   表达为 return/period，并保留该短语作为 evidence。
+ - 日期字段 date_reference、weekday、week_offset、absolute_date 只在用户原话支持时填写；
+   对应 evidence_map 必须提供。日期无法可靠分类时只保留 date_text，由 Harness 反问。
    “全程不超过 10 公里”要保留 total_distance_text 并填写 total_distance_km。不要把
    全程距离写入 max_distance_km，后者表示单段/召回距离。
 - 对“只安排一家晚饭”“就吃个晚饭”这类同时表达排他和晚餐的请求，填写
@@ -621,6 +619,7 @@ def _compile_llm_interpretation_proposal(
             primary_intent=proposal.primary_intent,
             intent_scores={proposal.primary_intent: 1.0},
             raw_constraints=proposal.raw_constraints,
+            time_proposals=proposal.time_proposals,
             selected_plan_index=proposal.selected_plan_index,
             target_reference=unresolved_target,
             conversation_command=command,
