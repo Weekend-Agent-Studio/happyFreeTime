@@ -39,7 +39,9 @@ class NeedQuestionGate:
 
         if issue is not None:
             questions = {
+                "location": ("你希望从哪里出发？可以输入小区、地铁站或附近地标。", "question.location.required.v1"),
                 "date": ("你具体想安排在哪一天？可以直接告诉我日期或说今天、明天。", "question.date.unresolved.v1"),
+                "time_window": ("你希望大约几点开始、几点结束？", "question.time_window.required.v1"),
                 "departure_at": ("你希望早上/下午/晚上大概几点出发？请给一个具体时间。", "question.departure_at.unresolved.v1"),
                 "return_by": ("你最晚几点需要到家？请用例如 20:00 的时间告诉我。", "question.return_by.unresolved.v1"),
             }

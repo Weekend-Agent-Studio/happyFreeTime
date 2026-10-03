@@ -16,6 +16,7 @@ from app.domain.constraints import (
     RequestPatch,
 )
 from app.domain.planning import ConstraintConflict
+from app.services.request_readiness import RequestReadinessPolicy
 
 
 class ResolvedRequest(BaseModel):
@@ -29,12 +30,19 @@ class ResolvedRequest(BaseModel):
 
 
 class NeedsClarification(BaseModel):
-    """The patch cannot be committed until the user supplies one required value."""
+    """A valid request snapshot exists, but planning needs one more value.
+
+    ``request`` is present when the patch was valid and atomically applied; it is
+    absent only when a proposal compiler supplied an unresolved issue and the
+    patch therefore could not be applied yet.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: Literal["needs_clarification"] = "needs_clarification"
     issue: ClarificationIssue
+    request: PlanRequest | None = None
+    changed_fields: tuple[str, ...] = ()
 
 
 class ConflictedRequest(BaseModel):
@@ -60,6 +68,9 @@ class ConstraintEngine:
     cross-field rules that are already unambiguous in the current request
     contract. Natural-language parsing and question wording belong elsewhere.
     """
+
+    def __init__(self) -> None:
+        self._readiness = RequestReadinessPolicy()
 
     def apply(
         self,
@@ -229,8 +240,18 @@ class ConstraintEngine:
                     reason="strict_budget_requires_amount",
                     expected_value_type="integer",
                     allow_free_text=True,
-                    request_revision=request.revision,
-                )
+                    request_revision=candidate.revision,
+                ),
+                request=candidate,
+                changed_fields=tuple(sorted(changed)),
+            )
+
+        readiness_issue = self._readiness.first_issue(candidate)
+        if readiness_issue is not None:
+            return NeedsClarification(
+                issue=readiness_issue,
+                request=candidate,
+                changed_fields=tuple(sorted(changed)),
             )
 
         return ResolvedRequest(

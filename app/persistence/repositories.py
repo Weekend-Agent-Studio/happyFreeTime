@@ -154,8 +154,9 @@ class SessionRepository:
         session_id: str,
         request_id: str,
         content: str,
+        record_user_message: bool = True,
     ) -> PlanningRunStart:
-        """Create one logical run and user message, or resume its stored outcome."""
+        """Create one logical run, optionally recording a natural-language user turn."""
         if self.get_session(user_id, session_id) is None:
             raise LookupError("session not found")
         now = utc_now()
@@ -203,19 +204,20 @@ class SessionRepository:
                 updated_at=now,
             )
             database.add(planning_run)
-            database.add(
-                MessageRecord(
-                    id=uuid.uuid4().hex,
-                    user_id=user_id,
-                    session_id=session_id,
-                    role="user",
-                    content=content,
-                    created_at=now,
+            if record_user_message:
+                database.add(
+                    MessageRecord(
+                        id=uuid.uuid4().hex,
+                        user_id=user_id,
+                        session_id=session_id,
+                        role="user",
+                        content=content,
+                        created_at=now,
+                    )
                 )
-            )
             session = database.get(SessionRecord, session_id)
             if session is not None:
-                if session.title == "新规划":
+                if record_user_message and session.title == "新规划":
                     session.title = _session_title(content)
                 session.status = "running"
                 session.updated_at = now

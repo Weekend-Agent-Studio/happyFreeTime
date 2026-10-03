@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date as Date, timedelta
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -71,6 +72,8 @@ class RequestPatchProposalCompiler:
         updates["planning_window.date"] = window.date
         updates["planning_window.start_at"] = window.start_at
         updates["planning_window.end_at"] = window.end_at
+        updates["planning_window.start_kind"] = window.start_kind
+        updates["planning_window.end_kind"] = window.end_kind
         evidence = dict(base_patch.evidence)
 
         return RequestPatchCompilation(
@@ -224,6 +227,8 @@ class RequestPatchProposalCompiler:
         end_text: str | None = None
         start_rule = "time.default.afternoon.v1"
         end_rule = "time.default.afternoon.v1"
+        start_kind: Literal["trip_start", "departure"] = "trip_start"
+        end_kind: Literal["trip_end", "return_deadline"] = "trip_end"
 
         if trip is not None and trip.precision == "exact":
             start, end = trip.clock, trip.end_clock
@@ -271,6 +276,7 @@ class RequestPatchProposalCompiler:
 
         if departure is not None:
             start = departure.clock
+            start_kind = "departure"
             start_source = ConstraintSource.USER_EXPLICIT
             start_text = departure.evidence
             start_rule = "time.departure.clock.v1"
@@ -289,6 +295,7 @@ class RequestPatchProposalCompiler:
 
         if return_time is not None:
             end = return_time.clock
+            end_kind = "return_deadline"
             end_source = ConstraintSource.USER_EXPLICIT
             end_text = return_time.evidence
             end_rule = "time.return.clock.v1"
@@ -334,6 +341,8 @@ class RequestPatchProposalCompiler:
                     raw_text=end_text,
                     rule_id=end_rule,
                 ),
+                start_kind=start_kind,
+                end_kind=end_kind,
             ),
             assumptions,
         )

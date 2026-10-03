@@ -173,7 +173,8 @@ class RepairContractTest(unittest.TestCase):
                             value="17:00",
                             source=ConstraintSource.USER_EXPLICIT,
                             rule_id="time.return.clock.v1",
-                        )
+                        ),
+                        "end_kind": "return_deadline",
                     }
                 )
             }

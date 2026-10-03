@@ -146,10 +146,44 @@ button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visibl
   min-width: 0;
   height: calc(100dvh - 16px);
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   padding: 0 2px;
 }
+.planning-context-wrap { position: relative; z-index: 30; padding: 8px 16px 9px; }
+.planning-context-bar { width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 2px; margin: 0 auto; padding: 4px; overflow-x: auto; background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.8); border-radius: 999px; box-shadow: 0 7px 20px rgba(55,92,133,.08); backdrop-filter: blur(20px); }
+.planning-context-trigger { min-width: 82px; max-width: 230px; min-height: 35px; display: grid; grid-template-columns: 16px auto; grid-template-rows: 16px 13px; align-items: center; justify-content: center; column-gap: 6px; padding: 3px 11px; color: #40516a; background: transparent; border: 0; border-radius: 999px; text-align: left; }
+.planning-context-trigger:hover, .planning-context-trigger:focus-visible { background: rgba(231,242,255,.9); outline: none; }
+.planning-context-trigger > span { font-size: 11px; font-weight: 760; }
+.planning-context-trigger > small { grid-column: 2; max-width: 185px; overflow: hidden; color: #78879b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.planning-context-trigger svg { grid-row: 1 / 3; color: #68809c; }
+.planning-context-trigger.assumed > small { color: #9aa5b2; }
+.planning-context-trigger.pending { color: #1768b1; background: #e9f4ff; box-shadow: inset 0 0 0 1px rgba(43,126,201,.16); }
+.planning-context-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17,29,45,.38); backdrop-filter: blur(3px); }
+.planning-context-dialog { width: min(100%, 510px); max-height: min(84dvh, 720px); overflow: auto; color: #1b293e; background: #fff; border-radius: 18px; box-shadow: 0 24px 80px rgba(13,34,61,.24); }
+.planning-context-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 22px 14px; border-bottom: 1px solid #edf0f4; }
+.planning-context-dialog header small { color: #8692a1; font-size: 11px; }
+.planning-context-dialog h2 { margin: 3px 0 0; font-size: 20px; }
+.planning-context-dialog header button { width: 32px; height: 32px; display: grid; place-items: center; color: #68768a; background: #f4f6f8; border: 0; border-radius: 50%; }
+.planning-context-dialog form { padding: 20px 22px 18px; }
+.context-form-field, .context-form-grid, .context-budget-options, .context-preference-editor { display: grid; gap: 13px; }
+.context-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.context-form-grid > small { grid-column: 1 / -1; color: #8792a2; font-size: 11px; line-height: 1.5; }
+.context-form-wide { grid-column: 1 / -1; }
+.context-form-field label, .context-form-grid label, .context-budget-options > label:not(.context-checkbox), .context-preference-editor > label { display: grid; gap: 6px; color: #4d5b70; font-size: 12px; font-weight: 650; }
+.planning-context-dialog input:not([type="radio"]):not([type="checkbox"]) { width: 100%; min-height: 40px; padding: 8px 10px; color: #24334a; background: #f8fafc; border: 1px solid #dce3eb; border-radius: 9px; outline: none; }
+.planning-context-dialog input:focus { border-color: #6aa8e8; box-shadow: 0 0 0 3px rgba(52,139,222,.13); }
+.context-budget-options > label { display: flex; align-items: center; gap: 8px; color: #334258; font-size: 13px; }
+.context-budget-options input { accent-color: #176dc2; }
+.context-checkbox { display: flex; align-items: center; gap: 7px; color: #4d5b70; font-size: 12px; }
+.context-preference-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.context-preference-chips button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; color: #325b80; background: #edf6ff; border: 0; border-radius: 999px; font-size: 11px; }
+.context-secondary, .context-primary { min-height: 38px; padding: 8px 13px; border: 0; border-radius: 9px; font-size: 12px; font-weight: 700; }
+.context-secondary { color: #42617f; background: #eff4f8; }
+.context-primary { color: #fff; background: #126bc0; }
+.context-primary:disabled, .context-secondary:disabled { opacity: .55; }
+.planning-context-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+.context-error { margin: 14px 0 0; color: #b14336; font-size: 12px; }
 h2, h3, p { margin-top: 0; }
 
 .conversation {
@@ -206,6 +240,8 @@ h2, h3, p { margin-top: 0; }
 .clarification-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
 .clarification-options button { min-height: 36px; color: #2369ad; background: rgba(255,255,255,.86); border: 1px solid rgba(69,130,195,.3); border-radius: 10px; padding: 7px 11px; font-size: 12px; font-weight: 700; }
 .clarification-options button:disabled { opacity: .5; }
+.clarification-context-link { margin-top: 9px; padding: 0; color: #2369ad; background: transparent; border: 0; font-size: 11px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.clarification-context-link:disabled { opacity: .5; }
 .clarification-status { margin: 0 3px 7px; color: #35658e; font-size: 11px; font-weight: 700; }
 
 .rich-planning-reply { min-width: 0; margin-top: 10px; animation: replyReveal 600ms var(--ease-out) both; }
@@ -473,12 +509,17 @@ h2, h3, p { margin-top: 0; }
   body { background-attachment: scroll; }
   .app-shell, .app-shell.inspector-collapsed { display: block; height: 100dvh; padding: 0; overflow: hidden; }
   .session-sidebar, .detail-panel, .inspector-toggle { display: none !important; }
-  .workspace { height: 100dvh; grid-template-rows: auto minmax(0, 1fr) auto; padding: 0 12px 8px; }
+  .workspace { height: 100dvh; grid-template-rows: auto auto minmax(0, 1fr) auto; padding: 0 12px 8px; }
   .mobile-topbar { height: calc(60px + env(safe-area-inset-top)); display: flex; align-items: center; justify-content: space-between; padding-top: env(safe-area-inset-top); }
   .mobile-topbar > div { display: flex; gap: 6px; }
   .mobile-topbar button { width: 44px; height: 44px; display: grid; place-items: center; color: #42526a; background: rgba(255,255,255,.58); border: 0; border-radius: 12px; }
   .mobile-topbar button:disabled { opacity: .4; }
   .conversation { padding: 14px 9px 20px; border-radius: 14px 14px 0 0; }
+  .planning-context-wrap { padding: 4px 0 8px; }
+  .planning-context-bar { width: 100%; justify-content: flex-start; }
+  .planning-context-trigger { flex: 1 0 auto; min-width: 66px; padding-inline: 8px; }
+  .planning-context-dialog { max-height: 88dvh; }
+  .planning-context-dialog form { padding: 16px; }
   .empty-conversation { min-height: 100%; padding-inline: 12px; }
   .suggestion-list { grid-template-columns: 1fr; }
   .suggestion-list button { min-height: 52px; }

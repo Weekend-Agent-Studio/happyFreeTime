@@ -1,9 +1,11 @@
 from datetime import date
+from datetime import date
 import unittest
 
 from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
+    GeoLocation,
     PlanRequest,
     PlanningWindow,
     RequestPatch,
@@ -20,18 +22,47 @@ class ConstraintEngineTest(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = ConstraintEngine()
 
+    @staticmethod
+    def _ready_request() -> PlanRequest:
+        return PlanRequest(
+            planning_window=PlanningWindow(
+                date=ConstraintValue[date](
+                    value=date(2026, 10, 3),
+                    source=ConstraintSource.DEFAULT_RULE,
+                ),
+                start_at=ConstraintValue[str](
+                    value="14:00",
+                    source=ConstraintSource.DEFAULT_RULE,
+                ),
+                end_at=ConstraintValue[str](
+                    value="18:00",
+                    source=ConstraintSource.DEFAULT_RULE,
+                ),
+            ),
+            location=ConstraintValue[GeoLocation](
+                value=GeoLocation(
+                    city="北京市",
+                    district="朝阳区",
+                    address="北京市朝阳区",
+                    latitude=39.9,
+                    longitude=116.4,
+                ),
+                source=ConstraintSource.SYSTEM_CONTEXT,
+            ),
+        )
+
     def test_applies_multiple_fields_atomically_and_preserves_provenance(self) -> None:
-        request = PlanRequest(
-            budget_per_person=ConstraintValue[int](
+        request = self._ready_request().model_copy(update={
+            "budget_per_person": ConstraintValue[int](
                 value=500,
                 source=ConstraintSource.DEFAULT_RULE,
                 rule_id="budget.default.test",
             ),
-            total_distance_km=ConstraintValue[float](
+            "total_distance_km": ConstraintValue[float](
                 value=20.0,
                 source=ConstraintSource.USER_EXPLICIT,
             ),
-        )
+        })
 
         result = self.engine.apply(
             request,
@@ -56,17 +87,21 @@ class ConstraintEngineTest(unittest.TestCase):
         self.assertIsNotNone(request.total_distance_km)
 
     def test_default_source_is_retained_and_provenance_change_advances_revision(self) -> None:
-        request = PlanRequest()
+        request = self._ready_request().model_copy(
+            update={
+                "planning_window": self._ready_request().planning_window.model_copy(
+                    update={"date": None}
+                )
+            }
+        )
         defaulted = self.engine.apply(
             request,
             RequestPatch(
                 base_revision=0,
                 set_fields={
-                    "planning_window": PlanningWindow(
-                        date=ConstraintValue[date](
-                            value=date(2026, 10, 3),
-                            source=ConstraintSource.DEFAULT_RULE,
-                        )
+                    "planning_window.date": ConstraintValue[date](
+                        value=date(2026, 10, 3),
+                        source=ConstraintSource.DEFAULT_RULE,
                     )
                 },
                 source=ConstraintSource.DEFAULT_RULE,
@@ -83,12 +118,10 @@ class ConstraintEngineTest(unittest.TestCase):
             RequestPatch(
                 base_revision=1,
                 set_fields={
-                    "planning_window": PlanningWindow(
-                        date=ConstraintValue[date](
-                            value=date(2026, 10, 3),
-                            source=ConstraintSource.USER_EXPLICIT,
-                            raw_text="周六",
-                        )
+                    "planning_window.date": ConstraintValue[date](
+                        value=date(2026, 10, 3),
+                        source=ConstraintSource.USER_EXPLICIT,
+                        raw_text="周六",
                     )
                 },
                 source=ConstraintSource.USER_EXPLICIT,
@@ -161,7 +194,7 @@ class ConstraintEngineTest(unittest.TestCase):
         self.assertTrue(result.request.strict_budget)
 
     def test_empty_or_repeated_patch_is_noop(self) -> None:
-        request = PlanRequest(preferences=["安静"])
+        request = self._ready_request().model_copy(update={"preferences": ["安静"]})
         empty = self.engine.apply(
             request,
             RequestPatch(base_revision=0, source=ConstraintSource.USER_EXPLICIT),
@@ -235,22 +268,20 @@ class ConstraintEngineTest(unittest.TestCase):
 
     def test_departure_must_precede_return_deadline(self) -> None:
         result = self.engine.apply(
-            PlanRequest(),
+            self._ready_request(),
             RequestPatch(
                 base_revision=0,
                 set_fields={
-                    "planning_window": PlanningWindow(
-                        start_at=ConstraintValue[str](
-                            value="20:30",
-                            source=ConstraintSource.USER_EXPLICIT,
-                            rule_id="time.departure.clock.v1",
-                        ),
-                        end_at=ConstraintValue[str](
-                            value="20:00",
-                            source=ConstraintSource.USER_EXPLICIT,
-                            rule_id="time.return.clock.v1",
-                        ),
-                    )
+                    "planning_window.start_at": ConstraintValue[str](
+                        value="20:30",
+                        source=ConstraintSource.USER_EXPLICIT,
+                    ),
+                    "planning_window.end_at": ConstraintValue[str](
+                        value="20:00",
+                        source=ConstraintSource.USER_EXPLICIT,
+                    ),
+                    "planning_window.start_kind": "departure",
+                    "planning_window.end_kind": "return_deadline",
                 },
                 source=ConstraintSource.USER_EXPLICIT,
             ),
@@ -260,7 +291,7 @@ class ConstraintEngineTest(unittest.TestCase):
         self.assertEqual(result.conflict.fields, ["departure_at", "return_by"])
 
     def test_strict_budget_without_amount_requests_clarification_atomically(self) -> None:
-        request = PlanRequest(preferences=["清淡"])
+        request = self._ready_request().model_copy(update={"preferences": ["清淡"]})
         result = self.engine.apply(
             request,
             RequestPatch(
@@ -273,10 +304,23 @@ class ConstraintEngineTest(unittest.TestCase):
         self.assertEqual(result.issue.field, "budget_per_person")
         self.assertEqual(result.issue.code, "STRICT_BUDGET_AMOUNT_REQUIRED")
         self.assertEqual(result.issue.expected_value_type, "integer")
-        self.assertEqual(result.issue.request_revision, 0)
+        self.assertEqual(result.issue.request_revision, 1)
+        self.assertIsNotNone(result.request)
+        self.assertEqual(result.request.revision, 1)
+        self.assertTrue(result.request.strict_budget)
+        self.assertEqual(result.request.preferences, ["清淡", "安静"])
         self.assertTrue(result.issue.allow_free_text)
         self.assertFalse(request.strict_budget)
         self.assertEqual(request.preferences, ["清淡"])
+
+    def test_incomplete_request_never_returns_resolved(self) -> None:
+        outcome = self.engine.apply(
+            PlanRequest(),
+            RequestPatch(base_revision=0, source=ConstraintSource.USER_EXPLICIT),
+        )
+        self.assertIsInstance(outcome, NeedsClarification)
+        self.assertEqual(outcome.issue.field, "location")
+        self.assertIsNotNone(outcome.request)
 
     def test_invalid_time_range_is_a_conflict(self) -> None:
         result = self.engine.apply(

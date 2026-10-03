@@ -128,7 +128,10 @@ class PlanModificationTest(unittest.TestCase):
             environment=self._patch_environment(),
         )
         self.assertIsNotNone(patch)
-        self.assertEqual(set(patch.set_fields), {"planning_window.start_at"})
+        self.assertEqual(
+            set(patch.set_fields),
+            {"planning_window.start_at", "planning_window.start_kind"},
+        )
 
     def test_constraint_patch_proposal_is_shared_with_demo_adapter(self) -> None:
         period = ConstraintPatchProposalCompiler.proposal_from_text("补充一下，下午才出发", has_plans=True)

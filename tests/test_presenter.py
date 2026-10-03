@@ -16,7 +16,8 @@ class TemplatePresenterTest(unittest.TestCase):
                             value="23:00",
                             source=ConstraintSource.USER_EXPLICIT,
                             rule_id="time.return.clock.v1",
-                        )
+                        ),
+                        "end_kind": "return_deadline",
                     }
                 ),
                 "total_distance_km": ConstraintValue[float](

@@ -147,6 +147,12 @@ class ClarificationPatchCompiler:
                     source=ConstraintSource.DEFAULT_RULE,
                     rule_id=("time.departure.default_horizon.v1" if field == "departure_at" else "time.default.afternoon.v1"),
                 ),
+                start_kind="departure" if field == "departure_at" else "trip_start",
+                end_kind=(
+                    current_window.end_kind
+                    if field == "departure_at" and current_window.end_at is not None
+                    else "trip_end"
+                ),
             )
             return self._single_field_patch(
                 request, "planning_window", default_window,

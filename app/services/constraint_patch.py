@@ -95,6 +95,8 @@ class ConstraintPatchProposalCompiler:
                     raw_text=proposal.time_window_text,
                     rule_id=rule_id,
                 )
+                updates["planning_window.start_kind"] = "trip_start"
+                updates["planning_window.end_kind"] = "trip_end"
 
         if proposal.departure_at_text:
             value = TemporalCompiler.normalize_clock_text(proposal.departure_at_text)
@@ -104,6 +106,7 @@ class ConstraintPatchProposalCompiler:
                 updates["planning_window.start_at"] = self._value(
                     value, proposal.departure_at_text, "time.departure.clock.v1"
                 )
+                updates["planning_window.start_kind"] = "departure"
             if value is not None and base.planning_window.end_at is None and "planning_window.end_at" not in updates:
                 updates["planning_window.end_at"] = ConstraintValue[str](
                     value="23:59",
@@ -119,6 +122,7 @@ class ConstraintPatchProposalCompiler:
                 updates["planning_window.end_at"] = self._value(
                     value, proposal.return_by_text, "time.return.clock.v1"
                 )
+                updates["planning_window.end_kind"] = "return_deadline"
 
         if proposal.budget_text:
             amount = self._parse_amount(proposal.budget_text)

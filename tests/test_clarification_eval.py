@@ -12,6 +12,7 @@ from app.domain.constraints import (
     IdentityType,
     PartyProfile,
     PlanRequest,
+    PlanningWindow,
     RequestPatch,
 )
 from app.providers.geocoding import MockGeocodingProvider
@@ -53,6 +54,50 @@ class ClarificationRecoveryEvalTest(unittest.TestCase):
             identity_type=IdentityType.DEMO,
         )
 
+    def _ready_except(self, request: PlanRequest, field: str) -> PlanRequest:
+        """Keep each case planner-ready apart from the field being recovered."""
+        window = request.planning_window
+        location = request.location
+        if field != "location" and location is None:
+            location = ConstraintValue(
+                value=self.environment.default_location,
+                source=ConstraintSource.SYSTEM_CONTEXT,
+            )
+
+        date_value = window.date
+        if field != "date" and date_value is None:
+            date_value = ConstraintValue(
+                value=date(2026, 10, 10),
+                source=ConstraintSource.DEFAULT_RULE,
+            )
+
+        start_at = window.start_at
+        end_at = window.end_at
+        if field != "time_window":
+            if start_at is None:
+                start_at = ConstraintValue(
+                    value="14:00",
+                    source=ConstraintSource.DEFAULT_RULE,
+                )
+            if end_at is None:
+                end_at = ConstraintValue(
+                    value="18:00",
+                    source=ConstraintSource.DEFAULT_RULE,
+                )
+
+        return request.model_copy(
+            update={
+                "location": location,
+                "planning_window": window.model_copy(
+                    update={
+                        "date": date_value,
+                        "start_at": start_at,
+                        "end_at": end_at,
+                    }
+                ),
+            }
+        )
+
     def test_24_deterministic_field_recovery_cases(self) -> None:
         cases = [
             ("budget Arabic", "budget_per_person", "人均200元", "answer", PlanRequest(), lambda r: r.budget_per_person.value == 200),
@@ -85,6 +130,7 @@ class ClarificationRecoveryEvalTest(unittest.TestCase):
 
         for case in cases:
             label, field, answer, mode, request, expected = case[:6]
+            request = self._ready_except(request, field)
             existing_fields = case[6] if len(case) == 7 else {}
             with self.subTest(case=label):
                 if mode == "default":

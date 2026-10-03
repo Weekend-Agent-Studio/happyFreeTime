@@ -37,8 +37,9 @@ import {
   X,
 } from "lucide-react";
 
-import { createSession, getSession, listSessions, selectPlan, sendMessage } from "./api";
+import { createSession, getSession, listSessions, selectPlan, sendMessage, updatePlanningContext } from "./api";
 import { AmapPlanMap } from "./AmapPlanMap";
+import { clarificationSection, PlanningContextBar, type ContextSection } from "./PlanningContextBar";
 import type {
   AgentResponse,
   Assumption,
@@ -48,6 +49,8 @@ import type {
   ConversationCommand,
   ConstraintSummaryItem,
   Plan,
+  PlanningContextPatch,
+  PlanningContextSummary,
   PlanAdvice,
   PlanWarning,
   PoiPresentation,
@@ -193,6 +196,7 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     plan_diff: response.plan_diff ?? null,
     plan_diffs: response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []),
     recommendation_advice: response.recommendation_advice ?? null,
+    planning_context: response.planning_context ?? null,
   };
 }
 
@@ -466,6 +470,8 @@ function App() {
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
+  const [planningContext, setPlanningContext] = useState<PlanningContextSummary | null>(null);
+  const [contextFocus, setContextFocus] = useState<ContextSection | null>(null);
   const [inspectedResponse, setInspectedResponse] = useState<AgentResponse | null>(null);
   const [viewedPlanId, setViewedPlanId] = useState<string | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
@@ -513,6 +519,7 @@ function App() {
       setSessionId(view.session_id);
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
       setResponse(restoredResponse);
+      setPlanningContext(view.planning_context ?? restoredResponse?.planning_context ?? null);
       setInspectedResponse(restoredActiveResponse ?? restoredResponse);
       setSelectedPlanId(restoredSelectedId);
        setReplacementDraft(null);
@@ -532,6 +539,7 @@ function App() {
       setSessionId(null);
       setMessages([]);
       setResponse(null);
+      setPlanningContext(null);
       setInspectedResponse(null);
       setSelectedPlanId(null);
       setViewedPlanId(null);
@@ -559,6 +567,7 @@ function App() {
         setSessionId(null);
         setMessages([]);
         setResponse(null);
+        setPlanningContext(null);
         setInspectedResponse(null);
         setSelectedPlanId(null);
         setViewedPlanId(null);
@@ -627,6 +636,7 @@ function App() {
       setFailedRequest(null);
       setNewRequestMode(false);
       setResponse(nextResponse);
+      setPlanningContext(nextResponse.planning_context ?? null);
       if (nextResponse.plans.length) {
         activePlanVersionIdRef.current = nextResponse.plan_version_id ?? null;
         setInspectedResponse(nextResponse);
@@ -651,6 +661,56 @@ function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function updateContext(patch: PlanningContextPatch) {
+    if (loading || restoring) return;
+    setLoading(true);
+    setError("");
+    let activeSession = sessionId;
+    try {
+      if (!activeSession) {
+        activeSession = await createSession();
+        sessionIdRef.current = activeSession;
+        activePlanVersionIdRef.current = null;
+        setSessionId(activeSession);
+        updateSessionUrl(activeSession);
+      }
+      const nextResponse = await updatePlanningContext(activeSession, patch, crypto.randomUUID());
+      setFailedRequest(null);
+      setNewRequestMode(false);
+      setResponse(nextResponse);
+      setPlanningContext(nextResponse.planning_context ?? null);
+      if (nextResponse.plans.length) {
+        activePlanVersionIdRef.current = nextResponse.plan_version_id ?? null;
+        setInspectedResponse(nextResponse);
+        setSelectedPlanId(null);
+        setReplacementDraft(null);
+        setViewedPlanId(nextResponse.plans[0].plan_id);
+        setFocusedLegIndex(null);
+        setRightTab("trip");
+      } else {
+        setInspectedResponse((current) => current?.plans.length ? current : nextResponse);
+      }
+      const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
+      if (assistantText || nextResponse.plans.length || nextResponse.conflict) {
+        setMessages((current) => [...current, {
+          id: crypto.randomUUID(), role: "assistant", content: assistantText ?? "", response: nextResponse,
+        }]);
+      }
+      await refreshRecentSessions();
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "规划条件更新失败";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openContextForClarification(field: string | null | undefined) {
+    const section = clarificationSection(field);
+    if (section) setContextFocus(section);
   }
 
   function onSubmit(event: FormEvent) {
@@ -685,6 +745,8 @@ function App() {
     setSessionId(null);
     setMessages([]);
     setResponse(null);
+    setPlanningContext(null);
+    setContextFocus(null);
     setInspectedResponse(null);
     setSelectedPlanId(null);
     setViewedPlanId(null);
@@ -785,6 +847,14 @@ function App() {
           </div>
         </header>
 
+        <PlanningContextBar
+          context={planningContext}
+          busy={loading || restoring}
+          externalOpen={contextFocus}
+          onExternalOpenHandled={() => setContextFocus(null)}
+          onSave={updateContext}
+        />
+
         <section className="conversation" aria-live="polite" ref={conversationRef}>
           {messages.length === 0 ? <EmptyConversation onSelect={(suggestion) => void submit(suggestion)} /> : (
             <div className="message-list">
@@ -802,6 +872,7 @@ function App() {
                  onReplaceStop={startReplacement}
                  onChooseConflict={setInput}
                  onClarificationOption={(option) => message.response?.question && onClarificationOption(option, message.response.question)}
+                 onOpenContext={() => openContextForClarification(message.response?.question?.field)}
               />)}
               {loading ? <ThinkingRow /> : null}
               <div ref={conversationEndRef} aria-hidden="true" />
@@ -907,7 +978,7 @@ function ButlerAvatar() {
   return <span className="butler-avatar" aria-hidden="true"><Compass size={18} /></span>;
 }
 
-function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onChooseConflict, onClarificationOption }: {
+function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onChooseConflict, onClarificationOption, onOpenContext }: {
   message: ChatMessage;
   loading: boolean;
   selectedPlan?: Plan;
@@ -920,6 +991,7 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
   onReplaceStop: (plan: Plan, stopIndex: number) => void;
   onChooseConflict: (option: string) => void;
   onClarificationOption: (option: ClarificationOption) => void;
+  onOpenContext: () => void;
 }) {
   const usesStructuredResponse = Boolean(
     message.response && (
@@ -943,6 +1015,7 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
                 <button type="button" key={option.id} disabled={loading} onClick={() => onClarificationOption(option)}>{option.label}</button>
               ))}
             </div>
+            {clarificationSection(message.response.question.field) ? <button type="button" className="clarification-context-link" disabled={loading} onClick={onOpenContext}>去顶部修改</button> : null}
             {message.response.question.allow_free_text === false ? <small>请使用上面的选项继续，避免重复询问。</small> : <small>也可以在下方直接输入。</small>}
           </section>
         ) : null}

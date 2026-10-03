@@ -563,6 +563,9 @@ class PlanningWindow(BaseModel):
     date: ConstraintValue[Date] | None = None
     start_at: ConstraintValue[str] | None = None
     end_at: ConstraintValue[str] | None = None
+    # Time-bound meaning is explicit domain data, not inferred from rule ids.
+    start_kind: Literal["trip_start", "departure"] = "trip_start"
+    end_kind: Literal["trip_end", "return_deadline"] = "trip_end"
 
     @field_validator("start_at", "end_at")
     @classmethod
@@ -584,21 +587,26 @@ class PlanningWindow(BaseModel):
 
     @property
     def explicit_departure(self) -> ConstraintValue[str] | None:
-        if self.start_at is not None and self.start_at.rule_id == "time.departure.clock.v1":
+        if self.start_at is not None and self.start_kind == "departure":
             return self.start_at
         return None
 
     @property
     def explicit_return_deadline(self) -> ConstraintValue[str] | None:
-        if self.end_at is not None and self.end_at.rule_id == "time.return.clock.v1":
+        if self.end_at is not None and self.end_kind == "return_deadline":
             return self.end_at
         return None
 
     @property
     def explicit_trip_range(self) -> bool:
         return any(
-            item is not None and item.rule_id == "time.trip.range.v1"
-            for item in (self.start_at, self.end_at)
+            value is not None
+            and kind == expected_kind
+            and value.source == ConstraintSource.USER_EXPLICIT
+            for value, kind, expected_kind in (
+                (self.start_at, self.start_kind, "trip_start"),
+                (self.end_at, self.end_kind, "trip_end"),
+            )
         )
 
 

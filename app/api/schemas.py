@@ -1,15 +1,157 @@
 """HTTP 层的数据契约；负责稳定前后端接口，不承载规划业务规则。"""
 
-from datetime import datetime
+from datetime import date as DateValue, datetime
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.constraints import ClarificationReply, ConstraintSource, ConversationCommand
+from app.domain.constraints import (
+    ClarificationReply,
+    ConstraintSource,
+    ConversationCommand,
+    PartyProfile,
+)
 from app.domain.runtime import RuntimeDecision
 
 
 T = TypeVar("T")
+
+
+class FieldEdit(BaseModel, Generic[T]):
+    """Typed set/clear operation used by the five-column planning editor."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: Literal["set", "clear"]
+    value: T | None = None
+
+    @model_validator(mode="after")
+    def validate_value(self) -> "FieldEdit":
+        if self.operation == "set" and self.value is None:
+            raise ValueError("set operations require a value")
+        if self.operation == "clear" and self.value is not None:
+            raise ValueError("clear operations must not include a value")
+        return self
+
+
+class WhenEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    date: FieldEdit[DateValue] | None = None
+    start_at: FieldEdit[str] | None = None
+    end_at: FieldEdit[str] | None = None
+
+    @model_validator(mode="after")
+    def require_an_edit(self) -> "WhenEdit":
+        if self.date is None and self.start_at is None and self.end_at is None:
+            raise ValueError("when edit must change at least one field")
+        return self
+
+
+class WhoEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    adults: int | None = Field(default=None, ge=0)
+    children: int | None = Field(default=None, ge=0)
+    child_age: FieldEdit[int] | None = None
+    members: FieldEdit[list[str]] | None = None
+
+    @model_validator(mode="after")
+    def require_an_edit(self) -> "WhoEdit":
+        if all(value is None for value in (self.adults, self.children, self.child_age, self.members)):
+            raise ValueError("who edit must change at least one field")
+        return self
+
+
+class BudgetEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mode: Literal["unlimited", "per_person"]
+    amount: int | None = Field(default=None, gt=0)
+    strict: bool = False
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> "BudgetEdit":
+        if self.mode == "per_person" and self.amount is None:
+            raise ValueError("per_person budget requires an amount")
+        if self.mode == "unlimited" and (self.amount is not None or self.strict):
+            raise ValueError("unlimited budget cannot include amount or strict mode")
+        return self
+
+
+class PreferencesEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    add: list[str] = Field(default_factory=list, max_length=20)
+    remove: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_changes(self) -> "PreferencesEdit":
+        normalized_add = {item.strip() for item in self.add if item.strip()}
+        normalized_remove = {item.strip() for item in self.remove if item.strip()}
+        if not normalized_add and not normalized_remove:
+            raise ValueError("preferences edit must add or remove a value")
+        if normalized_add.intersection(normalized_remove):
+            raise ValueError("a preference cannot be added and removed together")
+        return self
+
+
+class PlanningContextPatch(BaseModel):
+    """Public typed editor contract; internal RequestPatch stays server-owned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    base_revision: int = Field(ge=0)
+    where: FieldEdit[str] | None = None
+    when: WhenEdit | None = None
+    who: WhoEdit | None = None
+    budget: BudgetEdit | None = None
+    preferences: PreferencesEdit | None = None
+
+    @model_validator(mode="after")
+    def require_an_edit(self) -> "PlanningContextPatch":
+        if all(value is None for value in (self.where, self.when, self.who, self.budget, self.preferences)):
+            raise ValueError("planning context patch must edit at least one section")
+        return self
+
+
+class PlanningContextUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=8, max_length=64)
+    patch: PlanningContextPatch
+
+
+class PlanningContextField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: Any = None
+    display_value: str = "未设置"
+    source: Literal["user", "derived", "default"] = "default"
+    editable: bool = True
+    status: Literal["resolved", "assumed", "pending"] = "assumed"
+
+
+class PlanningContextWhen(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: PlanningContextField
+    start_at: PlanningContextField
+    end_at: PlanningContextField
+    start_kind: Literal["trip_start", "departure"] = "trip_start"
+    end_kind: Literal["trip_end", "return_deadline"] = "trip_end"
+
+
+class PlanningContextSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_revision: int = Field(ge=0)
+    where: PlanningContextField
+    when: PlanningContextWhen
+    who: PlanningContextField
+    budget: PlanningContextField
+    preferences: PlanningContextField
+    pending_field: str | None = None
 
 
 class ResponseEnvelope(BaseModel, Generic[T]):
@@ -28,6 +170,21 @@ class MessageRequest(BaseModel):
     # same Graph authorization and planning service.  It is additive so old
     # natural-language clients remain valid.
     conversation_command: ConversationCommand | None = None
+    planning_context_patch: PlanningContextPatch | None = None
+
+    @model_validator(mode="after")
+    def validate_action_shape(self) -> "MessageRequest":
+        actions = sum(
+            value is not None
+            for value in (
+                self.clarification_reply,
+                self.conversation_command,
+                self.planning_context_patch,
+            )
+        )
+        if actions > 1:
+            raise ValueError("only one structured action may be submitted per request")
+        return self
 
 
 class SessionSummaryResponse(BaseModel):
@@ -120,6 +277,7 @@ class AgentResponse(BaseModel):
     plan_diff: dict[str, Any] | None = None
     plan_diffs: list[dict[str, Any]] = Field(default_factory=list)
     recommendation_advice: dict[str, Any] | None = None
+    planning_context: PlanningContextSummary | None = None
 
 
 class PlanVersionSummary(BaseModel):

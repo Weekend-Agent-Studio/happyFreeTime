@@ -142,6 +142,20 @@ def with_planning_window(
                 update={
                     "start_at": bound(start, window.start_at, start_source, start_rule_id),
                     "end_at": bound(end, window.end_at, end_source, end_rule_id),
+                    "start_kind": (
+                        "departure"
+                        if start_rule_id == "time.departure.clock.v1"
+                        else "trip_start"
+                        if start_rule_id is not None
+                        else window.start_kind
+                    ),
+                    "end_kind": (
+                        "return_deadline"
+                        if end_rule_id == "time.return.clock.v1"
+                        else "trip_end"
+                        if end_rule_id is not None
+                        else window.end_kind
+                    ),
                 }
             )
         }

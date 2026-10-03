@@ -164,6 +164,8 @@ class EntryState(TypedDict, total=False):
     plan_diff: PlanDiff | None
     plan_diffs: tuple[PlanDiff, ...]
     conversation_command_override: ConversationCommand | None
+    request_patch_override: RequestPatch | None
+    request_patch_issues: tuple[ClarificationIssue, ...]
     runtime_decisions: tuple[RuntimeDecision, ...]
     clarification_resolution: str | None
     pending_modification: PendingModification | None
@@ -462,15 +464,25 @@ def build_entry_graph(
             prepared = _prepare_question_decision(
                 question_gate.decide(
                     state["interpretation"],
-                    active_constraints,
+                    outcome.request or active_constraints,
                     GateContext(has_plans=state.get("has_plans", False)),
                     issue=outcome.issue,
                 )
             )
             return {
+                **(
+                    {"active_request": outcome.request}
+                    if outcome.request is not None
+                    else {}
+                ),
                 "pending_issue": prepared,
-                "pending_patch": compilation.patch,
-                "pending_issues": compilation.issues or (outcome.issue,),
+                "pending_patch": (
+                    None if outcome.request is not None else compilation.patch
+                ),
+                "pending_issues": (
+                    () if outcome.request is not None
+                    else compilation.issues or (outcome.issue,)
+                ),
                 "mutation_kind": "constraint_patch",
             }
         if isinstance(outcome, ConflictedRequest):
@@ -488,6 +500,137 @@ def build_entry_graph(
             "pending_patch": None,
             "pending_issues": (),
         }
+
+    def apply_request_patch_state(
+        state: EntryState,
+        request: PlanRequest,
+        patch: RequestPatch,
+        issues: tuple[ClarificationIssue, ...] = (),
+        *,
+        existing_decision: QuestionDecision | None = None,
+        resumed: bool = False,
+    ) -> dict[str, object]:
+        """Apply a typed UI edit through the same Engine as Router/Patch paths."""
+        outcome = constraint_engine.apply(request, patch, issues=issues)
+        if isinstance(outcome, NeedsClarification):
+            candidate = outcome.request or request
+            if (
+                existing_decision is not None
+                and existing_decision.field == outcome.issue.field
+                and existing_decision.request_revision == candidate.revision
+            ):
+                question = existing_decision
+            else:
+                interpretation = state.get("interpretation") or Interpretation(
+                    primary_intent=Intent.REFINE_PLAN,
+                    intent_scores={Intent.REFINE_PLAN: 1.0},
+                    reply="正在按编辑后的条件规划。",
+                )
+                question = _prepare_question_decision(
+                    question_gate.decide(
+                        interpretation,
+                        candidate,
+                        GateContext(has_plans=state.get("has_plans", False)),
+                        issue=outcome.issue,
+                    )
+                )
+            return {
+                **({"active_request": outcome.request} if outcome.request is not None else {}),
+                "pending_issue": question,
+                "pending_patch": patch if outcome.request is None else None,
+                "pending_issues": issues or (outcome.issue,),
+                "mutation_kind": "constraint_patch",
+                "clarification_resolution": (
+                    ClarificationResolution.UNRESOLVED.value if resumed else None
+                ),
+                "ready_for_planning": False,
+            }
+        if isinstance(outcome, ConflictedRequest):
+            return {
+                "candidate_set": CandidateSet(conflict=outcome.conflict),
+                "pending_issue": None,
+                "pending_patch": None,
+                "pending_issues": (),
+                "mutation_kind": "constraint_patch_conflict",
+                "clarification_resolution": "conflict" if resumed else None,
+                "ready_for_planning": False,
+            }
+        changed = bool(outcome.changed_fields)
+        return {
+            "active_request": outcome.request,
+            "pending_issue": None,
+            "pending_patch": None,
+            "pending_issues": (),
+            "mutation_kind": "constraint_patch" if changed else "constraint_patch_noop",
+            "clarification_resolution": (
+                ClarificationResolution.RESOLVED.value if resumed else None
+            ),
+            "ready_for_planning": changed,
+        }
+
+    def apply_request_patch_node(state: EntryState) -> dict[str, object]:
+        patch = state.get("request_patch_override")
+        if patch is None:
+            raise ValueError("apply_request_patch requires a typed RequestPatch")
+        return {
+            "request_patch_override": None,
+            "interpretation": state.get("interpretation") or Interpretation(
+                primary_intent=Intent.REFINE_PLAN,
+                intent_scores={Intent.REFINE_PLAN: 1.0},
+                reply="条件没有变化，无需重新规划。",
+            ),
+            **apply_request_patch_state(
+                state,
+                state.get("active_request") or PlanRequest(),
+                patch,
+                state.get("request_patch_issues", ()),
+            ),
+        }
+
+    def patch_resolves_issue(
+        patch: RequestPatch,
+        issue: ClarificationIssue,
+        request: PlanRequest,
+    ) -> bool:
+        """Whether a typed edit supplied the value required by a pending issue."""
+        fields = patch.set_fields
+        if issue.field == "location":
+            return fields.get("location") is not None
+        if issue.field == "date":
+            return fields.get("planning_window.date") is not None
+        if issue.field == "departure_at":
+            return (
+                fields.get("planning_window.start_at") is not None
+                and fields.get("planning_window.start_kind", request.planning_window.start_kind)
+                == "departure"
+            )
+        if issue.field == "return_by":
+            return (
+                fields.get("planning_window.end_at") is not None
+                and fields.get("planning_window.end_kind", request.planning_window.end_kind)
+                == "return_deadline"
+            )
+        if issue.field == "time_window":
+            start_present = (
+                "planning_window.start_at" in fields
+                or (
+                    request.planning_window.start_at is not None
+                    and "planning_window.start_at" not in patch.clear_fields
+                )
+            )
+            end_present = (
+                "planning_window.end_at" in fields
+                or (
+                    request.planning_window.end_at is not None
+                    and "planning_window.end_at" not in patch.clear_fields
+                )
+            )
+            return start_present and end_present
+        if issue.field == "budget_per_person":
+            return fields.get("budget_per_person") is not None
+        if issue.field in {"party", "child_age"}:
+            return fields.get("party") is not None
+        return False
 
     def enrichment_node(state: EntryState) -> dict[str, object]:
         environment = environment_provider(state["actor"])
@@ -517,16 +660,16 @@ def build_entry_graph(
             question = _prepare_question_decision(
                 question_gate.decide(
                     state["interpretation"],
-                    PlanRequest(),
+                    outcome.request or PlanRequest(),
                     GateContext(has_plans=state.get("has_plans", False)),
                     issue=outcome.issue,
                 )
             )
             return {
                 "enrichment": enrichment.model_copy(update={"assumptions": assumptions}),
-                "active_request": PlanRequest(),
-                "pending_patch": compilation.patch,
-                "pending_issues": issues,
+                "active_request": outcome.request or PlanRequest(),
+                "pending_patch": None if outcome.request is not None else compilation.patch,
+                "pending_issues": () if outcome.request is not None else issues,
                 "pending_issue": question,
                 "mutation_kind": "create",
             }
@@ -632,7 +775,17 @@ def build_entry_graph(
         if decision is None:
             raise ValueError("ask_question requires a QuestionDecision")
         answer = interrupt(_question_payload(decision))
-        reply = _coerce_clarification_reply(answer, decision)
+        context_patch_answer = (
+            answer if isinstance(answer, dict) and answer.get("kind") == "planning_context_patch" else None
+        )
+        if context_patch_answer is not None:
+            reply = ClarificationReply(
+                clarification_id=str(context_patch_answer.get("clarification_id") or ""),
+                action=ClarificationAction.ANSWER,
+                request_revision=context_patch_answer.get("request_revision"),
+            )
+        else:
+            reply = _coerce_clarification_reply(answer, decision)
         request = state.get("active_request") or PlanRequest()
         expected_revision = decision.request_revision
         if decision.clarification_id and reply.clarification_id != decision.clarification_id:
@@ -669,6 +822,30 @@ def build_entry_graph(
                 "clarification_resolution": "stale_rejected",
                 "ready_for_planning": False,
             }
+
+        if context_patch_answer is not None:
+            patch = RequestPatch.model_validate(context_patch_answer.get("request_patch"))
+            issues = tuple(
+                ClarificationIssue.model_validate(item)
+                for item in context_patch_answer.get("request_patch_issues", ())
+            )
+            pending_patch = state.get("pending_patch")
+            if pending_patch is not None:
+                patch = merge_request_patches(pending_patch, patch)
+                unresolved = tuple(
+                    issue
+                    for issue in state.get("pending_issues", ())
+                    if not patch_resolves_issue(patch, issue, request)
+                )
+                issues = (*unresolved, *issues)
+            return apply_request_patch_state(
+                state,
+                request,
+                patch,
+                issues,
+                existing_decision=decision,
+                resumed=True,
+            )
 
         value = (reply.value or "").strip()
         if reply.action == ClarificationAction.ANSWER and value in {
@@ -776,15 +953,22 @@ def build_entry_graph(
                 next_question = _prepare_question_decision(
                     question_gate.decide(
                         state["interpretation"],
-                        request,
+                        result.request or request,
                         GateContext(has_plans=state.get("has_plans", False)),
                         issue=issue,
                     )
                 )
                 trace_status = ClarificationResolution.UNRESOLVED
                 return {
+                    **(
+                        {"active_request": result.request}
+                        if result.request is not None
+                        else {}
+                    ),
                     "pending_issue": next_question,
-                    "pending_patch": merged_patch,
+                    "pending_patch": (
+                        None if result.request is not None else merged_patch
+                    ),
                     "pending_issues": remaining_issues,
                     "clarification_resolution": trace_status.value,
                     "ready_for_planning": False,
@@ -867,6 +1051,7 @@ def build_entry_graph(
 
     graph = StateGraph(EntryState)
     graph.add_node("router", router_node)
+    graph.add_node("apply_request_patch", apply_request_patch_node)
     graph.add_node("compile_patch", compile_patch_node)
     graph.add_node("modify_plan", modify_plan_node)
     graph.add_node("enrichment", enrichment_node)
@@ -874,7 +1059,16 @@ def build_entry_graph(
     graph.add_node("gate", gate_node)
     graph.add_node("ask_question", ask_question_node)
     graph.add_node("planning", planning_node)
-    graph.add_edge(START, "router")
+    graph.add_conditional_edges(
+        START,
+        lambda state: "apply_request_patch" if state.get("request_patch_override") is not None else "router",
+        {"apply_request_patch": "apply_request_patch", "router": "router"},
+    )
+    graph.add_conditional_edges(
+        "apply_request_patch",
+        route_after_patch,
+        {"ask_question": "ask_question", "planning": "planning", END: END},
+    )
     graph.add_conditional_edges(
         "router",
         route_after_router,
