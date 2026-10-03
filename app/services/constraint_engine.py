@@ -5,13 +5,14 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Annotated, Literal, get_args, get_origin
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 
 from app.domain.constraints import (
     ClarificationIssue,
     ConstraintValue,
     PlanRequest,
+    PlanningWindow,
     RequestPatch,
 )
 from app.domain.planning import ConstraintConflict
@@ -79,7 +80,14 @@ class ConstraintEngine:
         request_fields = PlanRequest.model_fields
         changed: dict[str, object] = {}
         unknown_fields = sorted(
-            (set(patch.set_fields) | set(patch.clear_fields)) - (set(request_fields) - {"revision"})
+            name
+            for name in (
+                set(patch.set_fields)
+                | set(patch.clear_fields)
+                | set(patch.add_to_fields)
+                | set(patch.remove_from_fields)
+            )
+            if _request_field(name) is None or name == "revision"
         )
         if unknown_fields:
             return ConflictedRequest(
@@ -93,7 +101,7 @@ class ConstraintEngine:
         unsupported_evidence = sorted(
             name
             for name in patch.evidence
-            if not _is_constraint_value_field(request_fields[name].annotation)
+            if not _is_constraint_value_field(_request_field(name).annotation)
         )
         if unsupported_evidence:
             return ConflictedRequest(
@@ -112,11 +120,12 @@ class ConstraintEngine:
             )
 
         for name, proposed_value in patch.set_fields.items():
-            field = request_fields[name]
+            field = _request_field(name)
             wrapped = _is_constraint_value_field(field.annotation)
             if wrapped:
-                proposed_wrapper = (
-                    proposed_value if isinstance(proposed_value, ConstraintValue) else None
+                proposed_wrapper = _coerce_constraint_value(
+                    field.annotation,
+                    proposed_value,
                 )
                 value = (
                     proposed_wrapper.value
@@ -146,12 +155,12 @@ class ConstraintEngine:
                 )
             else:
                 value = proposed_value
-            current = getattr(request, name)
+            current = _get_request_value(request, name)
             if not _same_request_value(current, value, wrapped=wrapped):
                 changed[name] = value
 
         for name in patch.clear_fields:
-            field = request_fields[name]
+            field = _request_field(name)
             default = _field_default(field)
             if default is _MISSING:
                 return ConflictedRequest(
@@ -161,8 +170,30 @@ class ConstraintEngine:
                         fields=[name],
                     )
                 )
-            if getattr(request, name) != default:
+            if _get_request_value(request, name) != default:
                 changed[name] = default
+
+        for operations, add in (
+            (patch.add_to_fields, True),
+            (patch.remove_from_fields, False),
+        ):
+            for name, values in operations.items():
+                if name not in {"preferences", "diet_tags", "scene_tags", "avoid"}:
+                    return ConflictedRequest(
+                        conflict=ConstraintConflict(
+                            code="REQUEST_LIST_OPERATION_UNSUPPORTED",
+                            message="只有偏好类列表字段支持追加或移除操作。",
+                            fields=[name],
+                        )
+                    )
+                current = list(_get_request_value(request, name))
+                if add:
+                    updated = list(dict.fromkeys((*current, *values)))
+                else:
+                    removal = set(values)
+                    updated = [value for value in current if value not in removal]
+                if updated != current:
+                    changed[name] = updated
 
         # A patch that repeats the current values is a true no-op: neither its
         # revision nor downstream plan state should change. It still passes
@@ -170,7 +201,7 @@ class ConstraintEngine:
         # never be reported as executable merely because the patch was empty.
         if changed:
             candidate_data = request.model_dump(mode="python")
-            candidate_data.update(changed)
+            _apply_request_changes(candidate_data, changed)
             candidate_data["revision"] = request.revision + 1
             try:
                 candidate = PlanRequest.model_validate(candidate_data)
@@ -257,6 +288,34 @@ def _field_default(field: FieldInfo) -> object:
     return _MISSING
 
 
+def _request_field(name: str) -> FieldInfo | None:
+    """Resolve one top-level or supported PlanningWindow field path."""
+    if name in PlanRequest.model_fields:
+        return PlanRequest.model_fields[name]
+    prefix, separator, nested = name.partition(".")
+    if separator and prefix == "planning_window":
+        return PlanningWindow.model_fields.get(nested)
+    return None
+
+
+def _get_request_value(request: PlanRequest, name: str) -> object:
+    prefix, separator, nested = name.partition(".")
+    if separator and prefix == "planning_window":
+        return getattr(request.planning_window, nested)
+    return getattr(request, name)
+
+
+def _apply_request_changes(data: dict[str, object], changes: dict[str, object]) -> None:
+    for name, value in changes.items():
+        prefix, separator, nested = name.partition(".")
+        if separator and prefix == "planning_window":
+            window = dict(data["planning_window"])
+            window[nested] = value
+            data["planning_window"] = window
+        else:
+            data[name] = value
+
+
 def _is_constraint_value_field(annotation: object) -> bool:
     origin = get_origin(annotation)
     if origin is ConstraintValue:
@@ -267,6 +326,27 @@ def _is_constraint_value_field(annotation: object) -> bool:
         argument is not type(None) and _is_constraint_value_field(argument)
         for argument in get_args(annotation)
     )
+
+
+def _coerce_constraint_value(
+    annotation: object,
+    value: object,
+) -> ConstraintValue[object] | None:
+    """Recover typed wrappers after RequestPatch's JSON-like dict boundary.
+
+    ``RequestPatch.set_fields`` is intentionally an open field map, so Pydantic
+    turns nested ``ConstraintValue`` instances into dictionaries when storing
+    them. Parse those dictionaries using the destination field annotation
+    before projecting provenance into the canonical request.
+    """
+
+    if isinstance(value, ConstraintValue):
+        return value
+    try:
+        parsed = TypeAdapter(annotation).validate_python(value)
+    except ValidationError:
+        return None
+    return parsed if isinstance(parsed, ConstraintValue) else None
 
 
 def _allows_none(annotation: object) -> bool:

@@ -52,6 +52,8 @@ class NeedQuestionGate:
                 field=issue.field,
                 question=question,
                 severity="blocking",
+                issue_kind="constraint",
+                request_revision=request.revision,
                 rule_id=rule_id,
             )
 
@@ -62,6 +64,8 @@ class NeedQuestionGate:
                     field="selected_plan_index",
                     question="你想执行哪个方案？可以选择第一个、第二个或第三个方案。",
                     severity="blocking",
+                    issue_kind="selection",
+                    request_revision=request.revision,
                     rule_id="question.selected_plan.v1",
                 )
 
@@ -71,6 +75,7 @@ class NeedQuestionGate:
                 field="budget_per_person",
                 question="你的预算大概是多少？可以告诉我总预算或人均预算。",
                 severity="blocking",
+                request_revision=request.revision,
                 rule_id="question.budget_per_person.v1",
             )
 
@@ -82,6 +87,7 @@ class NeedQuestionGate:
                 field="location",
                 question="我还不能确定这个位置，能提供更具体的地点或地标吗？",
                 severity="blocking",
+                request_revision=request.revision,
                 rule_id="question.location.unresolved.v1",
             )
 
@@ -91,6 +97,7 @@ class NeedQuestionGate:
                 field="max_distance_km",
                 question="你能接受的最远距离大概是多少公里？",
                 severity="blocking",
+                request_revision=request.revision,
                 rule_id="question.max_distance_km.unresolved.v1",
             )
 
@@ -100,6 +107,7 @@ class NeedQuestionGate:
                 field="total_distance_km",
                 question="你希望全程总路程最多是多少公里？请给一个数字，例如 12 公里。",
                 severity="blocking",
+                request_revision=request.revision,
                 rule_id="question.total_distance_km.unresolved.v1",
             )
 
@@ -111,6 +119,7 @@ class NeedQuestionGate:
                     field="party",
                     question="实际需要预订几位成人和几位儿童？",
                     severity="blocking",
+                    request_revision=request.revision,
                     rule_id="question.party.booking.v1",
                 )
 
@@ -122,7 +131,8 @@ class NeedQuestionGate:
                     field="child_age",
                     question="同行儿童几岁？部分活动有明确的年龄限制。",
                     severity="blocking",
+                    request_revision=request.revision,
                     rule_id="question.child_age.required.v1",
                 )
 
-        return QuestionDecision(need_question=False)
+        return QuestionDecision(need_question=False, request_revision=request.revision)

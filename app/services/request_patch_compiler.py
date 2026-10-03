@@ -51,10 +51,16 @@ class RequestPatchProposalCompiler:
         raw = interpretation.raw_constraints
         date_value, date_issue = self._compile_date(interpretation, environment.now.date())
         temporal_issues = self._compile_issues(interpretation, base_patch.base_revision)
-        issues = tuple(temporal_issues or ([date_issue] if date_issue else []))
-        if issues:
-            return RequestPatchCompilation(patch=base_patch, issues=issues)
-
+        issues = tuple((*temporal_issues, *([date_issue] if date_issue else [])))
+        # Keep the normalized, non-blocking portions in the pending patch while
+        # a single unresolved field is clarified. Nothing is applied to the
+        # request until the complete patch passes ConstraintEngine.
+        if date_value is None:
+            date_value = ConstraintValue[Date](
+                value=self._next_saturday(environment.now.date()),
+                source=ConstraintSource.DEFAULT_RULE,
+                rule_id="date.default.next_saturday.v1",
+            )
         window, assumptions = self._compile_window(
             interpretation.time_proposals,
             date_value,
@@ -62,13 +68,16 @@ class RequestPatchProposalCompiler:
             raw.exact_stop_count,
         )
         updates = dict(base_patch.set_fields)
-        updates["planning_window"] = window
+        updates["planning_window.date"] = window.date
+        updates["planning_window.start_at"] = window.start_at
+        updates["planning_window.end_at"] = window.end_at
         evidence = dict(base_patch.evidence)
 
         return RequestPatchCompilation(
             patch=base_patch.model_copy(
                 update={"set_fields": updates, "evidence": evidence}
             ),
+            issues=issues,
             assumptions=tuple(assumptions),
         )
 

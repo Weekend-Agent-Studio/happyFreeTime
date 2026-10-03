@@ -700,6 +700,8 @@ class RequestPatch(BaseModel):
     base_revision: int = Field(ge=0)
     set_fields: dict[str, object] = Field(default_factory=dict)
     clear_fields: tuple[str, ...] = ()
+    add_to_fields: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    remove_from_fields: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     source: ConstraintSource
     field_sources: dict[str, ConstraintSource] = Field(default_factory=dict)
     evidence: dict[str, str] = Field(default_factory=dict)
@@ -711,10 +713,23 @@ class RequestPatch(BaseModel):
         overlap = set(self.set_fields).intersection(self.clear_fields)
         if overlap:
             raise ValueError("a field cannot be set and cleared in one patch")
-        if not set(self.evidence).issubset(self.set_fields):
-            raise ValueError("evidence can only be supplied for fields being set")
-        if not set(self.field_sources).issubset(self.set_fields):
-            raise ValueError("field_sources can only be supplied for fields being set")
+        touched = (
+            set(self.set_fields)
+            | set(self.clear_fields)
+            | set(self.add_to_fields)
+            | set(self.remove_from_fields)
+        )
+        if set(self.evidence) - touched:
+            raise ValueError("evidence must refer to a field changed by this patch")
+        if set(self.field_sources) - touched:
+            raise ValueError("field_sources must refer to a field changed by this patch")
+        if set(self.add_to_fields).intersection(self.remove_from_fields):
+            for name in set(self.add_to_fields).intersection(self.remove_from_fields):
+                if set(self.add_to_fields[name]).intersection(self.remove_from_fields[name]):
+                    raise ValueError("a list value cannot be both added and removed")
+        list_ops = set(self.add_to_fields) | set(self.remove_from_fields)
+        if set(self.set_fields).intersection(list_ops) or set(self.clear_fields).intersection(list_ops):
+            raise ValueError("list operations cannot be combined with set/clear for one field")
         if "revision" in self.set_fields or "revision" in self.clear_fields:
             raise ValueError("request revision is managed by ConstraintEngine")
         return self
@@ -738,6 +753,7 @@ class ClarificationReply(BaseModel):
     clarification_id: str = Field(min_length=1)
     action: ClarificationAction
     value: str | None = None
+    request_revision: int | None = Field(default=None, ge=0)
 
 
 class QuestionDecision(BaseModel):
@@ -748,6 +764,8 @@ class QuestionDecision(BaseModel):
     field: str | None = None
     question: str = ""
     severity: str = "none"
+    issue_kind: Literal["constraint", "target", "selection"] = "constraint"
+    request_revision: int | None = Field(default=None, ge=0)
     # Stable policy identity for evaluation and clients.  The natural-language
     # question is presentation; callers should classify the decision by this
     # code instead of matching Chinese wording.

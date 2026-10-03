@@ -88,7 +88,7 @@ class EntryGraphTest(unittest.TestCase):
             checkpoint_config("session-1"),
             {
                 "configurable": {
-                    "thread_id": "planner-core2b-v1:session-1",
+                    "thread_id": "planner-core2c-v1:session-1",
                 }
             },
         )
@@ -185,13 +185,14 @@ class EntryGraphTest(unittest.TestCase):
                 "user_input": "改成早上出发",
                 "actor": actor,
                 "has_plans": True,
-                "active_constraints": planning_constraints(),
+                "active_request": planning_constraints(),
             },
             config=config,
         )
         question = first["__interrupt__"][0].value
         self.assertEqual(question["field"], "departure_at")
-        self.assertEqual(question["continuation"], "patch_constraints")
+        self.assertEqual(question["issue_kind"], "constraint")
+        self.assertEqual(question["request_revision"], 0)
 
         resumed = graph.invoke(
             Command(
@@ -205,7 +206,7 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertNotIn("__interrupt__", resumed)
         self.assertEqual(
-            resumed["planning_constraints"].planning_window.start_at.value,
+            resumed["active_request"].planning_window.start_at.value,
             "09:00",
         )
 
@@ -236,7 +237,7 @@ class EntryGraphTest(unittest.TestCase):
                 "user_input": "补充一下，早上出发",
                 "actor": actor,
                 "has_plans": True,
-                "active_constraints": planning_constraints(),
+                "active_request": planning_constraints(),
             },
             config=config,
         )
@@ -256,7 +257,7 @@ class EntryGraphTest(unittest.TestCase):
 
         self.assertNotIn("__interrupt__", resumed)
         self.assertEqual(
-            resumed["planning_constraints"].planning_window.start_at.value,
+            resumed["active_request"].planning_window.start_at.value,
             "09:00",
         )
 
@@ -303,10 +304,10 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            result["modification_question"].field,
+            result["pending_issue"].field,
             "conversation_command",
         )
-        self.assertTrue(result["modification_question"].need_question)
+        self.assertTrue(result["pending_issue"].need_question)
         self.assertIsNone(result["candidate_set"])
         self.assertIsNone(result["plan_diff"])
         self.assertEqual(result["plan_diffs"], ())
@@ -338,13 +339,13 @@ class EntryGraphTest(unittest.TestCase):
                 "actor": actor,
                 "has_plans": True,
                 "active_plan_version_id": "version-1",
-                "active_constraints": None,
+                "active_request": None,
                 "selected_plan": None,
             },
             config={"configurable": {"thread_id": actor.session_id}},
         )
 
-        self.assertEqual(result["modification_question"].field, "selected_plan_id")
+        self.assertEqual(result["pending_issue"].field, "selected_plan_id")
         self.assertIsNone(result["candidate_set"])
 
     def test_unresolvable_explicit_location_interrupts_without_falling_back_to_default(self) -> None:
@@ -398,12 +399,55 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertTrue(final["ready_for_planning"])
         self.assertEqual(
-            final["plan_request"].location.source.value,
+            final["active_request"].location.source.value,
             "system_context",
         )
-        self.assertTrue(
-            any(item.rule_id == "clarification.default.location.v1" for item in final["enrichment"].assumptions)
+        default_assumption = next(
+            item for item in final["enrichment"].assumptions
+            if item.rule_id == "clarification.default.location.v1"
         )
+        self.assertEqual(default_assumption.value, environment.default_location)
+
+    def test_stale_clarification_revision_is_rejected(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user", session_id="session-stale-clarification",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=ExplicitLocationRouter(),
+            environment_provider=lambda _: environment,
+            geocoding_provider=MockGeocodingProvider.from_locations({}),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {"user_input": "不存在地标今天下午出去玩", "actor": actor},
+            config=config,
+        )
+        question = first["__interrupt__"][0].value
+
+        resumed = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"] + 1,
+                    "action": ClarificationAction.ANSWER.value,
+                    "value": "朝阳公园",
+                }
+            ),
+            config=config,
+        )
+
+        self.assertEqual(resumed["clarification_resolution"], "stale_rejected")
+        self.assertEqual(resumed["candidate_set"].conflict.code, "STALE_CLARIFICATION_REVISION")
+        self.assertIsNone(resumed["pending_issue"])
+        self.assertFalse(resumed["ready_for_planning"])
 
     def test_invalid_clarification_reaches_cap_without_repeating_free_text_forever(self) -> None:
         environment = EnvironmentContext(
@@ -574,7 +618,7 @@ class EntryGraphTest(unittest.TestCase):
 
         self.assertTrue(final_result["ready_for_planning"])
         self.assertEqual(
-            final_result["plan_request"].budget_per_person.value,
+            final_result["active_request"].budget_per_person.value,
             200,
         )
         # The answer is projected onto the pending field and resumes at
@@ -774,7 +818,7 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         self.assertTrue(result["ready_for_planning"])
-        window = result["plan_request"].planning_window
+        window = result["active_request"].planning_window
         self.assertEqual(window.date.value.isoformat(), "2026-08-12")
         self.assertEqual(window.start_at.value, "18:00")
         self.assertEqual(window.end_at.value, "22:00")
@@ -842,7 +886,7 @@ class EntryGraphTest(unittest.TestCase):
         final_result = graph.invoke(Command(resume="18:00"), config=config)
 
         self.assertTrue(final_result["ready_for_planning"])
-        self.assertFalse(final_result["question_decision"].need_question)
+        self.assertIsNone(final_result["pending_issue"])
         self.assertTrue(final_result["candidate_set"].plans)
         self.assertTrue(
             all(
@@ -877,10 +921,25 @@ class EntryGraphTest(unittest.TestCase):
             config={"configurable": {"thread_id": actor.session_id}},
         )
 
-        self.assertEqual(result["__interrupt__"][0].value["field"], "date")
+        question = result["__interrupt__"][0].value
+        self.assertEqual(question["field"], "date")
         self.assertEqual(
-            result["__interrupt__"][0].value["rule_id"],
+            question["rule_id"],
             "question.date.unresolved.v1",
+        )
+        resumed = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.USE_DEFAULT.value,
+                }
+            ),
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+        self.assertTrue(resumed["ready_for_planning"])
+        self.assertEqual(
+            resumed["active_request"].planning_window.date.value.isoformat(),
+            "2026-08-15",
         )
 
 

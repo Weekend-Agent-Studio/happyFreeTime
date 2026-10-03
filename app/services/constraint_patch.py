@@ -1,11 +1,4 @@
-"""Compile post-plan constraint proposals into normalized constraints.
-
-The Router is allowed to preserve user-language values in ``ConstraintPatch``.
-This module is the single place that turns those values into the same
-``PlanRequest`` contract used by the create flow.  It is deliberately
-not a second conversation router: unresolved values become a field-scoped
-question and no partial constraint object is returned.
-"""
+"""Compile post-plan wire proposals into the shared RequestPatch contract."""
 
 from __future__ import annotations
 
@@ -16,45 +9,32 @@ from pydantic import BaseModel, ConfigDict
 
 from app.domain.constraints import (
     ActorContext,
+    ClarificationIssue,
     ConstraintPatch,
     ConstraintSource,
     ConstraintValue,
     GeoLocation,
     PlanRequest,
-    PlanningWindow,
-    QuestionDecision,
+    RequestPatch,
     TimeScope,
     TimeWindow,
 )
-from app.domain.planning import ConstraintConflict
 from app.domain.providers import GeocodeRequest, GeocodeResolution
 from app.providers.geocoding import GeocodingProvider
 from app.services.enrichment import EnvironmentContext, TemporalCompiler
 
 
-class ConstraintPatchResult(BaseModel):
-    """One atomic compiler result: updated constraints, question, or conflict."""
+class ConstraintPatchCompilation(BaseModel):
+    """Normalized update operations and any fields that still need input."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    updated_constraints: PlanRequest | None = None
-    question: QuestionDecision | None = None
-    conflict: ConstraintConflict | None = None
+    patch: RequestPatch
+    issues: tuple[ClarificationIssue, ...] = ()
 
 
-class ConstraintPatchCompiler:
-    """Normalize a bounded patch without allowing raw text into the Planner."""
-
-    _FIELD_RULES = {
-        "date": ("改到哪一天？可以说周六、明天或具体日期。", "question.patch.date.v1"),
-        "time_window": ("希望从哪个时间段开始安排？例如“下午出发”。", "question.patch.time_window.v1"),
-        "departure_at": ("准点出发时间是什么？例如“下午两点出发”。", "question.patch.departure_at.v1"),
-        "return_by": ("最晚几点回家？例如“晚上七点前回家”。", "question.patch.return_by.v1"),
-        "location": ("新的出发地点是什么？可以提供具体地标。", "question.patch.location.v1"),
-        "budget_per_person": ("新的人均预算是多少？例如“人均三百元”。", "question.patch.budget.v1"),
-        "max_distance_km": ("最多能接受多少公里的距离？", "question.patch.distance.v1"),
-        "total_distance_km": ("全程最多能接受多少公里？", "question.patch.total_distance.v1"),
-    }
+class ConstraintPatchProposalCompiler:
+    """Normalize a proposal; ConstraintEngine alone applies and validates it."""
 
     def __init__(self, *, geocoding_provider: GeocodingProvider | None = None) -> None:
         self._geocoding_provider = geocoding_provider
@@ -66,70 +46,66 @@ class ConstraintPatchCompiler:
         proposal: ConstraintPatch,
         actor: ActorContext,
         environment: EnvironmentContext,
-    ) -> ConstraintPatchResult:
-        """Compile all fields atomically against the active constraints."""
+    ) -> ConstraintPatchCompilation:
+        """Compile every supported field against the current request revision."""
 
         updates: dict[str, object] = {}
-        window_updates: dict[str, object] = {}
+        add_to_fields: dict[str, tuple[str, ...]] = {}
+        clear_fields: list[str] = []
+        issues: list[ClarificationIssue] = []
 
         if proposal.date_text:
             date_value = self._compile_date(proposal.date_text, environment)
             if date_value is None:
-                return self._ask("date")
-            window_updates["date"] = date_value
+                issues.append(self._issue("date", base.revision))
+            else:
+                updates["planning_window.date"] = date_value
 
         if proposal.departure_period is not None and not proposal.departure_at_text:
             # “早上/下午出发” constrains only the departure action.  Do not
             # compile it as the itinerary's overall time window; ask for the
             # exact clock through the same field-scoped resume path as CREATE.
-            return self._ask("departure_at")
+            issues.append(self._issue("departure_at", base.revision))
 
         if proposal.time_window_text:
             time_value = self._compile_time_window(proposal.time_window_text)
             if time_value is None:
-                return self._ask("time_window")
-            scope, window = time_value
-            source = (
-                ConstraintSource.USER_INFERRED
-                if scope != TimeScope.EXPLICIT_RANGE
-                else ConstraintSource.USER_EXPLICIT
-            )
-            window_updates.update(
-                {
-                    "start_at": ConstraintValue[str](
-                        value=window.start,
-                        source=source,
-                        raw_text=proposal.time_window_text,
-                        rule_id=(
-                            "time.trip.range.v1"
-                            if scope == TimeScope.EXPLICIT_RANGE
-                            else f"time.trip.{scope.value}.v1"
-                        ),
-                    ),
-                    "end_at": ConstraintValue[str](
-                        value=window.end,
-                        source=source,
-                        raw_text=proposal.time_window_text,
-                        rule_id=(
-                            "time.trip.range.v1"
-                            if scope == TimeScope.EXPLICIT_RANGE
-                            else f"time.trip.{scope.value}.v1"
-                        ),
-                    ),
-                }
-            )
+                issues.append(self._issue("time_window", base.revision))
+            else:
+                scope, window = time_value
+                source = (
+                    ConstraintSource.USER_INFERRED
+                    if scope != TimeScope.EXPLICIT_RANGE
+                    else ConstraintSource.USER_EXPLICIT
+                )
+                rule_id = (
+                    "time.trip.range.v1"
+                    if scope == TimeScope.EXPLICIT_RANGE
+                    else f"time.trip.{scope.value}.v1"
+                )
+                updates["planning_window.start_at"] = ConstraintValue[str](
+                    value=window.start,
+                    source=source,
+                    raw_text=proposal.time_window_text,
+                    rule_id=rule_id,
+                )
+                updates["planning_window.end_at"] = ConstraintValue[str](
+                    value=window.end,
+                    source=source,
+                    raw_text=proposal.time_window_text,
+                    rule_id=rule_id,
+                )
 
         if proposal.departure_at_text:
             value = TemporalCompiler.normalize_clock_text(proposal.departure_at_text)
             if value is None:
-                return self._ask("departure_at")
-            window_updates["start_at"] = self._value(
-                value,
-                proposal.departure_at_text,
-                "time.departure.clock.v1",
-            )
-            if base.planning_window.end_at is None:
-                window_updates["end_at"] = ConstraintValue[str](
+                issues.append(self._issue("departure_at", base.revision))
+            else:
+                updates["planning_window.start_at"] = self._value(
+                    value, proposal.departure_at_text, "time.departure.clock.v1"
+                )
+            if value is not None and base.planning_window.end_at is None and "planning_window.end_at" not in updates:
+                updates["planning_window.end_at"] = ConstraintValue[str](
                     value="23:59",
                     source=ConstraintSource.DEFAULT_RULE,
                     rule_id="time.departure.default_horizon.v1",
@@ -138,101 +114,88 @@ class ConstraintPatchCompiler:
         if proposal.return_by_text:
             value = TemporalCompiler.normalize_clock_text(proposal.return_by_text)
             if value is None:
-                return self._ask("return_by")
-            window_updates["end_at"] = self._value(
-                value,
-                proposal.return_by_text,
-                "time.return.clock.v1",
-            )
+                issues.append(self._issue("return_by", base.revision))
+            else:
+                updates["planning_window.end_at"] = self._value(
+                    value, proposal.return_by_text, "time.return.clock.v1"
+                )
 
         if proposal.budget_text:
             amount = self._parse_amount(proposal.budget_text)
             if amount is None or amount <= 0:
-                return self._ask("budget_per_person")
-            updates["budget_per_person"] = self._value(amount, proposal.budget_text, "budget.patch.v1")
-            updates["strict_budget"] = True if proposal.strict_budget is None else proposal.strict_budget
+                issues.append(self._issue("budget_per_person", base.revision))
+            else:
+                updates["budget_per_person"] = self._value(amount, proposal.budget_text, "budget.patch.v1")
+                updates["strict_budget"] = True if proposal.strict_budget is None else proposal.strict_budget
         elif proposal.strict_budget is not None:
             updates["strict_budget"] = proposal.strict_budget
 
         if proposal.max_distance_text:
             distance = self._parse_float(proposal.max_distance_text)
             if distance is None or distance <= 0:
-                return self._ask("max_distance_km")
-            updates["max_distance_km"] = self._value(distance, proposal.max_distance_text, "distance.patch.v1")
+                issues.append(self._issue("max_distance_km", base.revision))
+            else:
+                updates["max_distance_km"] = self._value(distance, proposal.max_distance_text, "distance.patch.v1")
 
         if proposal.total_distance_text:
             distance = self._parse_float(proposal.total_distance_text)
             if distance is None or distance <= 0:
-                return self._ask("total_distance_km")
-            updates["total_distance_km"] = self._value(distance, proposal.total_distance_text, "total_distance.patch.v1")
+                issues.append(self._issue("total_distance_km", base.revision))
+            else:
+                updates["total_distance_km"] = self._value(distance, proposal.total_distance_text, "total_distance.patch.v1")
 
         if proposal.location_text:
             if self._geocoding_provider is None:
-                return self._ask("location")
-            geocoding_fact = self._geocoding_provider.geocode(
-                GeocodeRequest(
-                    location_text=proposal.location_text,
-                    city=(base.location.value.city if base.location is not None else environment.default_location.city),
+                issues.append(self._issue("location", base.revision))
+            else:
+                geocoding_fact = self._geocoding_provider.geocode(
+                    GeocodeRequest(
+                        location_text=proposal.location_text,
+                        city=(base.location.value.city if base.location is not None else environment.default_location.city),
+                    )
                 )
-            )
-            if geocoding_fact.resolution != GeocodeResolution.RESOLVED or geocoding_fact.point is None:
-                return self._ask("location")
-            location = GeoLocation(
-                city=geocoding_fact.city or environment.default_location.city,
-                district=geocoding_fact.district or "",
-                address=geocoding_fact.address or proposal.location_text,
-                latitude=geocoding_fact.point.latitude,
-                longitude=geocoding_fact.point.longitude,
-                adcode=geocoding_fact.adcode,
-            )
-            updates["location"] = self._value(location, proposal.location_text, "location.patch.geocoded.v1")
+                if geocoding_fact.resolution != GeocodeResolution.RESOLVED or geocoding_fact.point is None:
+                    issues.append(self._issue("location", base.revision))
+                else:
+                    location = GeoLocation(
+                        city=geocoding_fact.city or environment.default_location.city,
+                        district=geocoding_fact.district or "",
+                        address=geocoding_fact.address or proposal.location_text,
+                        latitude=geocoding_fact.point.latitude,
+                        longitude=geocoding_fact.point.longitude,
+                        adcode=geocoding_fact.adcode,
+                    )
+                    updates["location"] = self._value(location, proposal.location_text, "location.patch.geocoded.v1")
 
         if proposal.preferences:
-            updates["preferences"] = self._merge(base.preferences, proposal.preferences)
+            add_to_fields["preferences"] = proposal.preferences
         if proposal.diet_tags:
-            updates["diet_tags"] = self._merge(base.diet_tags, proposal.diet_tags)
+            add_to_fields["diet_tags"] = proposal.diet_tags
         if proposal.avoid:
-            updates["avoid"] = self._merge(base.avoid, proposal.avoid)
+            add_to_fields["avoid"] = proposal.avoid
 
-        self._apply_clears(updates, window_updates, proposal.clear_fields)
-        if window_updates:
-            updates["planning_window"] = base.planning_window.model_copy(
-                update=window_updates
-            )
-        if not updates:
-            return ConstraintPatchResult(
-                question=QuestionDecision(
-                    need_question=True,
-                    field="constraint_patch",
-                    continuation="patch_constraints",
-                    question="你想补充哪条约束？可以选择时间、预算、地点或偏好。",
-                    severity="blocking",
-                    rule_id="question.patch.empty.v2",
-                    allow_free_text=False,
-                )
-            )
+        self._compile_clears(clear_fields, proposal.clear_fields)
+        if proposal.strict_budget is False:
+            updates["strict_budget"] = False
+        if not updates and not add_to_fields and not clear_fields and not issues:
+            issues.append(ClarificationIssue(
+                field="constraint_patch",
+                code="EMPTY_CONSTRAINT_PATCH",
+                reason="no_supported_constraint_change",
+                expected_value_type="constraint_patch",
+                request_revision=base.revision,
+            ))
 
-        candidate = base.model_copy(update=updates)
-        departure = (
-            candidate.planning_window.start_at.value
-            if candidate.planning_window.explicit_departure
-            else None
+        return ConstraintPatchCompilation(
+            patch=RequestPatch(
+                base_revision=base.revision,
+                set_fields=updates,
+                clear_fields=tuple(dict.fromkeys(clear_fields)),
+                add_to_fields=add_to_fields,
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+            issues=tuple(issues),
         )
-        return_by = (
-            candidate.planning_window.explicit_return_deadline.value
-            if candidate.planning_window.explicit_return_deadline
-            else None
-        )
-        if departure is not None and return_by is not None and departure >= return_by:
-            return ConstraintPatchResult(
-                conflict=ConstraintConflict(
-                    code="DEPARTURE_NOT_BEFORE_RETURN_BY",
-                    message="准点出发时间必须早于最晚回家时间。",
-                    fields=["departure_at", "return_by"],
-                    relaxation_options=["提前出发", "延后最晚回家时间"],
-                )
-            )
-        return ConstraintPatchResult(updated_constraints=candidate)
 
     @classmethod
     def proposal_from_text(cls, text: str, *, has_plans: bool) -> ConstraintPatch | None:
@@ -326,44 +289,41 @@ class ConstraintPatchCompiler:
         return ConstraintValue(value=value, source=ConstraintSource.USER_EXPLICIT, raw_text=raw_text, rule_id=rule_id)
 
     @staticmethod
-    def _merge(existing: list[str], additions: tuple[str, ...]) -> list[str]:
-        return list(dict.fromkeys((*existing, *additions)))
+    def _compile_clears(target: list[str], fields: tuple[str, ...]) -> None:
+        aliases = {
+            "date": ("planning_window.date",),
+            "time_scope": ("planning_window.start_at", "planning_window.end_at"),
+            "time_window": ("planning_window.start_at", "planning_window.end_at"),
+            "departure_at": ("planning_window.start_at",),
+            "return_by": ("planning_window.end_at",),
+        }
+        for field in fields:
+            if field == "strict_budget":
+                continue
+            if field in aliases:
+                target.extend(aliases[field])
+            else:
+                target.append(field)
 
     @staticmethod
-    def _apply_clears(
-        updates: dict[str, object],
-        window_updates: dict[str, object],
-        fields: tuple[str, ...],
-    ) -> None:
-        value_fields = {"date", "time_scope", "time_window", "location", "budget_per_person", "max_distance_km", "total_distance_km", "departure_at", "return_by"}
-        list_fields = {"preferences", "diet_tags", "avoid"}
-        for field in fields:
-            if field in {"date", "time_scope", "time_window", "departure_at", "return_by"}:
-                if field == "date":
-                    window_updates["date"] = None
-                elif field == "time_window":
-                    window_updates.update({"start_at": None, "end_at": None})
-                elif field == "departure_at":
-                    window_updates["start_at"] = None
-                elif field == "return_by":
-                    window_updates["end_at"] = None
-            elif field in value_fields or field in list_fields:
-                updates[field] = [] if field in list_fields else None
-            if field == "strict_budget":
-                updates[field] = False
-
-    @classmethod
-    def _ask(cls, field: str) -> ConstraintPatchResult:
-        question, rule_id = cls._FIELD_RULES[field]
-        return ConstraintPatchResult(
-            question=QuestionDecision(
-                need_question=True,
-                field=field,
-                continuation="patch_constraints",
-                question=question,
-                severity="blocking",
-                rule_id=rule_id,
-            )
+    def _issue(field: str, revision: int) -> ClarificationIssue:
+        codes = {
+            "date": ("DATE_REQUIRES_RESOLUTION", "date"),
+            "time_window": ("TRIP_TIME_REQUIRES_RESOLUTION", "time_window"),
+            "departure_at": ("DEPARTURE_TIME_REQUIRES_CLOCK", "clock"),
+            "return_by": ("RETURN_TIME_REQUIRES_CLOCK", "clock"),
+            "location": ("LOCATION_REQUIRES_RESOLUTION", "location"),
+            "budget_per_person": ("BUDGET_AMOUNT_REQUIRED", "integer"),
+            "max_distance_km": ("MAX_DISTANCE_REQUIRES_NUMBER", "number"),
+            "total_distance_km": ("TOTAL_DISTANCE_REQUIRES_NUMBER", "number"),
+        }
+        code, expected = codes.get(field, ("PATCH_FIELD_REQUIRES_INPUT", "text"))
+        return ClarificationIssue(
+            field=field,
+            code=code,
+            reason="explicit_patch_value_could_not_be_normalized",
+            expected_value_type=expected,
+            request_revision=revision,
         )
 
     @staticmethod

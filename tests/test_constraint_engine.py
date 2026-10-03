@@ -102,6 +102,64 @@ class ConstraintEngineTest(unittest.TestCase):
         )
         self.assertEqual(confirmed.request.planning_window.date.raw_text, "周六")
 
+    def test_nested_constraint_values_survive_request_patch_boundary(self) -> None:
+        request = PlanRequest()
+        result = self.engine.apply(
+            request,
+            RequestPatch(
+                base_revision=0,
+                set_fields={
+                    "location": ConstraintValue(
+                        value={
+                            "city": "北京市",
+                            "district": "朝阳区",
+                            "address": "北京市朝阳区",
+                            "latitude": 39.9,
+                            "longitude": 116.4,
+                        },
+                        source=ConstraintSource.SYSTEM_CONTEXT,
+                        rule_id="location.default.test",
+                    ),
+                    "party": ConstraintValue(
+                        value={"adults": 2, "children": 0, "members": []},
+                        source=ConstraintSource.DEFAULT_RULE,
+                    ),
+                    "planning_window.date": ConstraintValue[date](
+                        value=date(2026, 10, 10),
+                        source=ConstraintSource.USER_EXPLICIT,
+                        raw_text="周六",
+                    ),
+                    "planning_window.start_at": ConstraintValue[str](
+                        value="14:00",
+                        source=ConstraintSource.DERIVED,
+                    ),
+                    "planning_window.end_at": ConstraintValue[str](
+                        value="18:00",
+                        source=ConstraintSource.DERIVED,
+                    ),
+                    "budget_per_person": ConstraintValue[int](
+                        value=200,
+                        source=ConstraintSource.USER_EXPLICIT,
+                    ),
+                    "max_distance_km": ConstraintValue[float](
+                        value=8.0,
+                        source=ConstraintSource.DEFAULT_RULE,
+                    ),
+                    "strict_budget": True,
+                },
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+        )
+
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertEqual(result.request.revision, 1)
+        self.assertEqual(result.request.location.source, ConstraintSource.SYSTEM_CONTEXT)
+        self.assertEqual(result.request.party.value.adults, 2)
+        self.assertEqual(result.request.planning_window.date.raw_text, "周六")
+        self.assertEqual(result.request.planning_window.start_at.value, "14:00")
+        self.assertEqual(result.request.budget_per_person.value, 200)
+        self.assertTrue(result.request.strict_budget)
+
     def test_empty_or_repeated_patch_is_noop(self) -> None:
         request = PlanRequest(preferences=["安静"])
         empty = self.engine.apply(

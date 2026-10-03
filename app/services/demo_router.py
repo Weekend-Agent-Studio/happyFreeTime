@@ -20,7 +20,7 @@ from app.domain.constraints import (
 )
 from app.domain.runtime import RuntimeDecision
 from app.services.enrichment import TemporalCompiler
-from app.services.constraint_patch import ConstraintPatchCompiler
+from app.services.constraint_patch import ConstraintPatchProposalCompiler
 from app.services.router_extractor import RouterContext
 
 
@@ -138,7 +138,7 @@ class DemoRouter:
         # A follow-up that adds a constraint to the selected plan is compiled
         # by the same bounded proposal adapter used by the patch compiler.  No
         # Graph or clarification service scans the message independently.
-        patch = ConstraintPatchCompiler.proposal_from_text(
+        patch = ConstraintPatchProposalCompiler.proposal_from_text(
             text,
             has_plans=context.has_plans,
         )
@@ -190,7 +190,7 @@ class DemoRouter:
             )
 
         # 普通创建请求仍由这一组有限规则抽取；字段级反问恢复不会把答案
-        # 拼回这里，而是由 ClarificationResolver 直接投影到待补字段。
+        # 拼回这里；Graph 会把回答编译成字段级 RequestPatch 并交给 ConstraintEngine。
         budget_match = re.search(
             r"(?:人均|每人)\s*"
             r"(?:(?:最多|不超过|至多|不超|严格控制在|控制在|约|大约)\s*)?"

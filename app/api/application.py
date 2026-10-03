@@ -25,7 +25,7 @@ from app.domain.constraints import (
     ClarificationAction,
     CommandOperation,
     IdentityType,
-    NormalizedConstraints,
+    PlanRequest,
 )
 from app.domain.planning import Plan
 from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
@@ -280,6 +280,20 @@ def create_app(
                     status_code=409,
                     detail="反问已更新，请使用当前问题的选项或重新输入",
                 )
+            pending_revision = (
+                pending_interrupt.get("request_revision")
+                if isinstance(pending_interrupt, dict)
+                else None
+            )
+            if (
+                pending_revision is not None
+                and request.clarification_reply.request_revision is not None
+                and request.clarification_reply.request_revision != pending_revision
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="规划条件已更新，请基于当前条件重新回答",
+                )
 
         # Validate structured replacement anchors before creating a planning
         # run or user message.  Invalid UI commands must be side-effect free;
@@ -359,6 +373,11 @@ def create_app(
                         ),
                         "action": ClarificationAction.ANSWER.value,
                         "value": request.content,
+                        "request_revision": (
+                            pending_interrupt.get("request_revision")
+                            if isinstance(pending_interrupt, dict)
+                            else None
+                        ),
                     }
                 result = graph.invoke(Command(resume=resume_value), config=config)
             else:
@@ -432,8 +451,8 @@ def create_app(
                             if session_snapshot is not None
                             else None
                         ),
-                        "active_constraints": (
-                            NormalizedConstraints.model_validate(
+                        "active_request": (
+                            PlanRequest.model_validate(
                                 active_constraints_payload
                             )
                             if active_constraints_payload is not None
@@ -478,43 +497,13 @@ def create_app(
                 )
                 return ResponseEnvelope(data=response)
 
-            modification_question = result.get("modification_question")
-            if modification_question is not None and modification_question.need_question:
-                question = modification_question.model_dump(mode="json")
-                response = AgentResponse(
-                    status="needs_input",
-                    question=question,
-                    reply=modification_question.question,
-                    conversation_command=(
-                        result["interpretation"].conversation_command.model_dump(
-                            mode="json"
-                        )
-                        if result.get("interpretation") is not None
-                        and result["interpretation"].conversation_command is not None
-                        else None
-                    ),
-                    runtime_decisions=runtime_decisions,
-                )
-                repository.complete_planning_run(
-                    user_id=x_user_id,
-                    session_id=session_id,
-                    planning_run_id=run.planning_run_id,
-                    status="needs_input",
-                    response=response.model_dump(mode="json"),
-                    assistant_content=modification_question.question,
-                    plans=[],
-                )
-                return ResponseEnvelope(data=response)
-
             interpretation = result.get("interpretation")
             candidate_set = result.get("candidate_set")
             reply = interpretation.reply if interpretation else ""
             plans = candidate_set.plans if candidate_set else []
             conflict = candidate_set.conflict if candidate_set else None
             effective_constraints = (
-                result.get("planning_constraints")
-                or result.get("plan_request")
-                or result.get("active_constraints")
+                result.get("active_request")
             )
             if plans:
                 reply = present_candidate_set(
@@ -891,9 +880,7 @@ def _modification_reply(plan_diffs: list) -> str:
 def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
     """把规划实际使用的约束转换成稳定的前端摘要。"""
     constraints = (
-        result.get("planning_constraints")
-        or result.get("plan_request")
-        or result.get("active_constraints")
+        result.get("active_request")
     )
     if constraints is None:
         return []
