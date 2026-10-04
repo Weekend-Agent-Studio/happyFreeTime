@@ -7,7 +7,7 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
     GeoLocation,
-    NormalizedConstraints,
+    PlanRequest,
     PlanningWindow,
     PartyProfile,
     TimeWindow,
@@ -58,8 +58,8 @@ def planning_constraints(
     strict_budget: bool = False,
     max_distance_km: float = 8.0,
     time_end: str = "18:00",
-) -> NormalizedConstraints:
-    return NormalizedConstraints(
+) -> PlanRequest:
+    return PlanRequest(
         planning_window=PlanningWindow(
             date=ConstraintValue[date](
                 value=date(2026, 8, 15),
@@ -101,7 +101,7 @@ def planning_constraints(
 
 
 def with_planning_window(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     *,
     start: str | None = None,
     end: str | None = None,
@@ -110,7 +110,7 @@ def with_planning_window(
     end_source: ConstraintSource | None = None,
     start_rule_id: str | None = None,
     end_rule_id: str | None = None,
-) -> NormalizedConstraints:
+) -> PlanRequest:
     """Copy a request with canonical planner clock bounds for focused tests."""
     window = constraints.planning_window
 

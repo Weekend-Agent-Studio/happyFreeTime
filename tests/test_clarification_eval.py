@@ -25,8 +25,8 @@ from app.services.constraint_engine import (
     ConstraintEngine,
     ResolvedRequest,
 )
-from app.services.constraint_patch import ConstraintPatchProposalCompiler
 from app.services.enrichment import EnvironmentContext
+from app.services.request_patch_update import RequestPatchUpdateCompiler
 
 
 class ClarificationRecoveryEvalTest(unittest.TestCase):
@@ -43,7 +43,7 @@ class ClarificationRecoveryEvalTest(unittest.TestCase):
         geocoder = MockGeocodingProvider.from_locations(
             {("北京市", "朝阳公园"): (39.93, 116.44, "朝阳区", "110105", "北京市朝阳区朝阳公园")}
         )
-        self.proposal_compiler = ConstraintPatchProposalCompiler(
+        self.proposal_compiler = RequestPatchUpdateCompiler(
             geocoding_provider=geocoder,
         )
         self.compiler = ClarificationPatchCompiler(self.proposal_compiler)

@@ -295,6 +295,7 @@ export type ClarificationOption = {
 export type ClarificationReply = {
   clarification_id: string;
   action: ClarificationAction;
+  request_revision: number;
   value?: string | null;
 };
 
@@ -355,6 +356,7 @@ export type AgentResponse = {
     field: string | null;
     question: string;
     severity: string;
+    request_revision: number;
     rule_id?: string;
     clarification_id?: string | null;
     attempt?: number;

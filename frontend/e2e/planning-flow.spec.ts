@@ -230,6 +230,7 @@ test("clarification card opens When and resolves through the same topbar request
     field: "departure_at",
     question: "早上大概几点出发？",
     severity: "blocking",
+    request_revision: 4,
     clarification_id: "clarification-departure-1",
     options: [{ id: "use-default", label: "使用默认", action: "use_default" }],
   };

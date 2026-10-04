@@ -16,7 +16,7 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
     GeoLocation,
-    NormalizedConstraints,
+    PlanRequest,
     PlanningWindow,
     PartyProfile,
     TimeWindow,
@@ -34,8 +34,8 @@ SOURCE = CatalogSource(
 )
 
 
-def constraints() -> NormalizedConstraints:
-    return NormalizedConstraints(
+def constraints() -> PlanRequest:
+    return PlanRequest(
         planning_window=PlanningWindow(
             date=ConstraintValue[date](
                 value=date(2026, 8, 15),

@@ -30,6 +30,7 @@ class RequestPatchCompilation(BaseModel):
     patch: RequestPatch
     issues: tuple[ClarificationIssue, ...] = ()
     assumptions: tuple[Assumption, ...] = ()
+    condition_requests_plan: bool = False
 
 
 class RequestPatchProposalCompiler:
@@ -52,7 +53,17 @@ class RequestPatchProposalCompiler:
         raw = interpretation.raw_constraints
         date_value, date_issue = self._compile_date(interpretation, environment.now.date())
         temporal_issues = self._compile_issues(interpretation, base_patch.base_revision)
-        issues = tuple((*temporal_issues, *([date_issue] if date_issue else [])))
+        unresolved_issues = self._compile_unresolved_fields(
+            interpretation,
+            base_patch,
+        )
+        issues = tuple(
+            (
+                *unresolved_issues,
+                *temporal_issues,
+                *([date_issue] if date_issue else []),
+            )
+        )
         # Keep the normalized, non-blocking portions in the pending patch while
         # a single unresolved field is clarified. Nothing is applied to the
         # request until the complete patch passes ConstraintEngine.
@@ -82,6 +93,43 @@ class RequestPatchProposalCompiler:
             ),
             issues=issues,
             assumptions=tuple(assumptions),
+            condition_requests_plan=bool(
+                raw.preferences
+                or raw.scene_tags
+                or raw.diet_tags
+                or raw.avoid
+                or raw.required_stop_roles
+                or raw.exact_stop_count is not None
+                or interpretation.time_proposals
+                or raw.duration_minutes is not None
+            ),
+        )
+
+    @staticmethod
+    def _compile_unresolved_fields(
+        interpretation: Interpretation,
+        base_patch: RequestPatch,
+    ) -> tuple[ClarificationIssue, ...]:
+        """Turn explicitly requested but unnormalized fields into typed issues."""
+
+        raw = interpretation.raw_constraints
+        normalized = base_patch.set_fields
+        unresolved: list[tuple[str, str, str, str]] = []
+        if raw.location_text and normalized.get("location") is None:
+            unresolved.append(("location", "LOCATION_REQUIRES_RESOLUTION", "location", "explicit_location_not_resolved"))
+        if raw.max_distance_text and normalized.get("max_distance_km") is None:
+            unresolved.append(("max_distance_km", "MAX_DISTANCE_REQUIRES_NUMBER", "number", "explicit_max_distance_not_resolved"))
+        if raw.total_distance_text and normalized.get("total_distance_km") is None:
+            unresolved.append(("total_distance_km", "TOTAL_DISTANCE_REQUIRES_NUMBER", "number", "explicit_total_distance_not_resolved"))
+        return tuple(
+            ClarificationIssue(
+                field=field,
+                code=code,
+                reason=reason,
+                expected_value_type=value_type,
+                request_revision=base_patch.base_revision,
+            )
+            for field, code, value_type, reason in unresolved
         )
 
     @staticmethod

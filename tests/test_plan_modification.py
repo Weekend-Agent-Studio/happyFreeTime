@@ -18,7 +18,8 @@ from app.domain.planning import LockedStop
 from app.domain.providers import AvailabilityStatus, GeoPoint
 from app.providers.availability import MockAvailabilityProvider
 from app.services.catalog import InMemoryCatalog
-from app.services.constraint_patch import ConstraintPatchProposalCompiler
+from app.services.demo_router import DemoRouter
+from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.constraint_engine import ConstraintEngine, ResolvedRequest
 from app.services.clarification_patch import ClarificationPatchCompiler
 from app.services.enrichment import EnvironmentContext
@@ -43,13 +44,13 @@ class PlanModificationTest(unittest.TestCase):
                     raw_text="餐厅",
                 ),
             ),
-            constraint_patch=ConstraintPatch(prefer_shorter_travel=True),
+            replacement_criteria=(RouteObjective(),),
             evidence={"replace": "活动换近一点", "keep": "餐厅保留"},
         )
 
     @staticmethod
-    def _patch_compiler() -> ConstraintPatchProposalCompiler:
-        return ConstraintPatchProposalCompiler()
+    def _patch_compiler() -> RequestPatchUpdateCompiler:
+        return RequestPatchUpdateCompiler()
 
     @staticmethod
     def _patch_environment() -> EnvironmentContext:
@@ -85,7 +86,7 @@ class PlanModificationTest(unittest.TestCase):
             max_distance_km=30,
             time_end="20:00",
         ).model_copy(update={"preferences": ["轻松"]})
-        result = self._patch_compiler().compile(
+        result = self._patch_compiler().compile_update_proposal(
             base=constraints,
             proposal=ConstraintPatch(
                 return_by_text="晚上七点前",
@@ -108,7 +109,7 @@ class PlanModificationTest(unittest.TestCase):
             max_distance_km=30,
             time_end="20:00",
         )
-        result = self._patch_compiler().compile(
+        result = self._patch_compiler().compile_update_proposal(
             base=constraints,
             proposal=ConstraintPatch(return_by_text="尽快回家"),
             actor=self._patch_actor(),
@@ -134,9 +135,9 @@ class PlanModificationTest(unittest.TestCase):
         )
 
     def test_constraint_patch_proposal_is_shared_with_demo_adapter(self) -> None:
-        period = ConstraintPatchProposalCompiler.proposal_from_text("补充一下，下午才出发", has_plans=True)
-        exact = ConstraintPatchProposalCompiler.proposal_from_text("改成下午两点出发", has_plans=True)
-        deadline = ConstraintPatchProposalCompiler.proposal_from_text("对了，晚上七点前回家", has_plans=True)
+        period = DemoRouter.patch_proposal_from_text("补充一下，下午才出发", has_plans=True)
+        exact = DemoRouter.patch_proposal_from_text("改成下午两点出发", has_plans=True)
+        deadline = DemoRouter.patch_proposal_from_text("对了，晚上七点前回家", has_plans=True)
 
         self.assertIsNotNone(period)
         self.assertIsNone(period.time_window_text)
@@ -153,7 +154,7 @@ class PlanModificationTest(unittest.TestCase):
             max_distance_km=30,
             time_end="20:00",
         )
-        result = self._patch_compiler().compile(
+        result = self._patch_compiler().compile_update_proposal(
             base=constraints,
             proposal=ConstraintPatch(time_window_text="下午才出发"),
             actor=self._patch_actor(),
@@ -167,7 +168,7 @@ class PlanModificationTest(unittest.TestCase):
         self.assertEqual(applied.request.planning_window.end_at.value, "18:00")
 
     def test_departure_period_patch_asks_for_a_clock(self) -> None:
-        proposal = ConstraintPatchProposalCompiler.proposal_from_text(
+        proposal = DemoRouter.patch_proposal_from_text(
             "补充一下，早上出发",
             has_plans=True,
         )
@@ -175,7 +176,7 @@ class PlanModificationTest(unittest.TestCase):
         self.assertEqual(proposal.departure_period.value, "morning")
         self.assertIsNone(proposal.time_window_text)
 
-        result = self._patch_compiler().compile(
+        result = self._patch_compiler().compile_update_proposal(
             base=planning_constraints(),
             proposal=proposal,
             actor=self._patch_actor(),
@@ -186,7 +187,7 @@ class PlanModificationTest(unittest.TestCase):
         self.assertEqual(result.issues[0].field, "departure_at")
 
     def test_departure_period_patch_with_exact_answer_compiles_to_clock(self) -> None:
-        result = self._patch_compiler().compile(
+        result = self._patch_compiler().compile_update_proposal(
             base=planning_constraints(),
             proposal=ConstraintPatch(
                 departure_period=TimeScope.MORNING,

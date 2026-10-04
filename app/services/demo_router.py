@@ -13,6 +13,7 @@ from app.domain.constraints import (
     Intent,
     Interpretation,
     RawConstraints,
+    RouteObjective,
     StopRole,
     TargetReference,
     TimeProposal,
@@ -20,7 +21,7 @@ from app.domain.constraints import (
 )
 from app.domain.runtime import RuntimeDecision
 from app.services.enrichment import TemporalCompiler
-from app.services.constraint_patch import ConstraintPatchProposalCompiler
+from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.router_extractor import RouterContext
 
 
@@ -107,7 +108,7 @@ class DemoRouter:
                             raw_text="餐厅",
                         ),
                     ),
-                    constraint_patch=ConstraintPatch(prefer_shorter_travel=True),
+                    replacement_criteria=(RouteObjective(),),
                     evidence={
                         "replace": "活动换近一点",
                         "keep": "餐厅保留",
@@ -135,10 +136,9 @@ class DemoRouter:
                 ),
             )
 
-        # A follow-up that adds a constraint to the selected plan is compiled
-        # by the same bounded proposal adapter used by the patch compiler.  No
-        # Graph or clarification service scans the message independently.
-        patch = ConstraintPatchProposalCompiler.proposal_from_text(
+        # Keep deterministic text interpretation inside this Demo Router;
+        # downstream services receive the same bounded wire proposal as the LLM.
+        patch = self.patch_proposal_from_text(
             text,
             has_plans=context.has_plans,
         )
@@ -175,8 +175,10 @@ class DemoRouter:
                     conversation_command=ConversationCommand(
                         operation=CommandOperation.REPLACE,
                         target=target,
-                        constraint_patch=ConstraintPatch(
-                            prefer_shorter_travel=any(value in text for value in ("近一点", "近点", "更近")),
+                        replacement_criteria=(
+                            (RouteObjective(),)
+                            if any(value in text for value in ("近一点", "近点", "更近"))
+                            else ()
                         ),
                         evidence={"target": raw_target},
                     ),
@@ -617,6 +619,81 @@ class DemoRouter:
             },
             evidence_map=evidence,
             inferred_fields={"party"} if party_evidence else set(),
+        )
+
+    @staticmethod
+    def patch_proposal_from_text(text: str, *, has_plans: bool) -> ConstraintPatch | None:
+        """Build the bounded patch proposal used by the offline Demo Router."""
+        if not has_plans:
+            return None
+        value = text.strip()
+        if not value or any(
+            marker in value
+            for marker in ("换站", "换这站", "换个", "换活动", "换晚餐", "替换", "更换")
+        ):
+            return None
+        if "保留" in value and any(marker in value for marker in ("活动", "晚餐", "晚饭", "餐厅")):
+            return None
+        date_text, _, _, _, _ = TemporalCompiler.extract_date(value)
+        time_text, scope, explicit_window = TemporalCompiler.extract_time(value)
+        departure_period = TemporalCompiler.extract_departure_period(value)
+        departure = None
+        clock_like = re.search(
+            r"(?:\d{1,2}[:：]\d{1,2}|[零〇一二两三四五六七八九十]+点(?:半|[零〇一二两三四五六七八九十]+分?)?)",
+            value,
+        )
+        if re.search(r"出发|出门|离开", value) and clock_like and TemporalCompiler.normalize_clock_text(value):
+            departure = value
+            time_text = None
+        return_by = value if re.search(r"回家|到家|回来", value) else None
+        strict_budget: bool | None = None
+        budget = None
+        if "预算不限" in value or "不设预算" in value:
+            strict_budget = False
+        elif "预算" in value or "人均" in value or "每人" in value:
+            budget = value
+            strict_budget = True
+        max_distance = value if re.search(r"(?:公里|千米|km|KM)", value) else None
+        location_match = re.search(r"从(?P<location>[^，,。；;]{2,30})(?:出发|出门)", value)
+        location = location_match.group("location") if location_match else None
+        preferences = tuple(
+            label
+            for keyword, label in (("安静", "安静"), ("聊天", "适合聊天"), ("浪漫", "浪漫"), ("轻松", "轻松"), ("不累", "不累"))
+            if keyword in value
+        )
+        diet_tags = tuple(
+            label for keyword, label in (("少辣", "少辣"), ("清淡", "清淡"))
+            if keyword in value
+        )
+        avoid = ("博物馆",) if "不要博物馆" in value else ()
+        has_patch_marker = any(
+            marker in value
+            for marker in ("补充", "忘了说", "对了", "另外", "再加", "重新规划", "改到", "改成", "改为")
+        )
+        if not (
+            has_patch_marker or date_text or departure or departure_period or return_by
+            or budget or strict_budget is not None or location or preferences or diet_tags
+            or avoid or max_distance or scope is not None or explicit_window is not None
+        ):
+            return None
+        return ConstraintPatch(
+            date_text=date_text,
+            return_by_text=return_by,
+            departure_at_text=departure,
+            departure_period=departure_period,
+            time_window_text=(
+                value
+                if time_text and departure is None and departure_period is None and return_by is None
+                else None
+            ),
+            location_text=location,
+            budget_text=budget,
+            max_distance_text=max_distance,
+            preferences=preferences,
+            diet_tags=diet_tags,
+            avoid=avoid,
+            strict_budget=strict_budget,
+            clear_fields=("budget_per_person", "strict_budget") if strict_budget is False else (),
         )
 
     def interpret_with_runtime(

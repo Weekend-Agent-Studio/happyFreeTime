@@ -1207,6 +1207,7 @@ class ApiTest(unittest.TestCase):
                 "content": "人均200",
                 "clarification_reply": {
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "人均200",
                 },
@@ -1227,6 +1228,7 @@ class ApiTest(unittest.TestCase):
                 "content": "人均200",
                 "clarification_reply": {
                     "clarification_id": "stale-clarification",
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "人均200",
                 },
@@ -1251,6 +1253,7 @@ class ApiTest(unittest.TestCase):
                 "content": "取消本轮",
                 "clarification_reply": {
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "cancel",
                 },
             },
@@ -1296,6 +1299,7 @@ class ApiTest(unittest.TestCase):
                     "content": "人均200",
                     "clarification_reply": {
                         "clarification_id": question["clarification_id"],
+                        "request_revision": question["request_revision"],
                         "action": "answer",
                         "value": "人均200",
                     },

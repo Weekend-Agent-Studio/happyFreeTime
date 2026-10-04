@@ -641,6 +641,15 @@ def create_app(
             if pending_snapshot.next and pending_snapshot.interrupts
             else None
         )
+        if pending_interrupt is not None and (
+            not isinstance(pending_interrupt, dict)
+            or not pending_interrupt.get("clarification_id")
+            or pending_interrupt.get("request_revision") is None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="当前会话的旧反问状态已失效，请新建规划会话后继续。",
+            )
 
         pending_values = getattr(pending_snapshot, "values", None) or {}
         active_value = pending_values.get("active_request")
@@ -715,7 +724,6 @@ def create_app(
             )
             if (
                 pending_revision is not None
-                and request.clarification_reply.request_revision is not None
                 and request.clarification_reply.request_revision != pending_revision
             ):
                 raise HTTPException(
@@ -806,11 +814,7 @@ def create_app(
                 if compiled_context_patch is not None:
                     resume_value = {
                         "kind": "planning_context_patch",
-                        "clarification_id": (
-                            pending_interrupt.get("clarification_id", "legacy")
-                            if isinstance(pending_interrupt, dict)
-                            else "legacy"
-                        ),
+                        "clarification_id": pending_interrupt["clarification_id"],
                         "request_revision": request.planning_context_patch.base_revision,
                         "request_patch": compiled_context_patch.model_dump(mode="json"),
                         "request_patch_issues": [
@@ -820,22 +824,13 @@ def create_app(
                 elif request.clarification_reply is not None:
                     resume_value: object = request.clarification_reply.model_dump(mode="json")
                 else:
-                    # Compatibility for the old input box: plain text is an
-                    # answer to the exact pending field, not a new full Router
-                    # turn and not a concatenation with the old request.
+                    # Free-text answers are bound to the current field issue;
+                    # they do not start another Router turn.
                     resume_value = {
-                        "clarification_id": (
-                            pending_interrupt.get("clarification_id", "legacy")
-                            if isinstance(pending_interrupt, dict)
-                            else "legacy"
-                        ),
+                        "clarification_id": pending_interrupt["clarification_id"],
                         "action": ClarificationAction.ANSWER.value,
                         "value": request.content,
-                        "request_revision": (
-                            pending_interrupt.get("request_revision")
-                            if isinstance(pending_interrupt, dict)
-                            else None
-                        ),
+                        "request_revision": pending_interrupt["request_revision"],
                     }
                 result = graph.invoke(Command(resume=resume_value), config=config)
             elif compiled_context_patch is not None:
@@ -1025,11 +1020,6 @@ def create_app(
 
             plan_version_id = uuid.uuid4().hex if plans else None
             raw_plan_diffs = result.get("plan_diffs") or ()
-            # Checkpoints created before the candidate-level contract may only
-            # expose one ``plan_diff``.  Read it for compatibility, but every
-            # newly produced response is serialized through ``plan_diffs``.
-            if not raw_plan_diffs and result.get("plan_diff") is not None:
-                raw_plan_diffs = (result["plan_diff"],)
             plan_diffs = list(raw_plan_diffs)
             interpretation_command = (
                 interpretation.conversation_command
@@ -1052,7 +1042,6 @@ def create_app(
                     for diff in plan_diffs
                 ]
                 reply = _modification_reply(plan_diffs)
-            enrichment = result.get("enrichment")
             normalized_constraints_json = (
                 effective_constraints.model_dump_json()
                 if plans and effective_constraints is not None
@@ -1270,18 +1259,17 @@ def create_app(
                     and interpretation.conversation_command is not None
                     else None
                 ),
-                # ``plan_diff`` is intentionally left empty for new responses;
-                # old persisted responses remain readable by AgentResponse.  A
-                # legacy natural-language command that still uses the original
-                # ConstraintPatch gets the old convenience field as well; the
-                # new structured criterion path never aliases a candidate diff.
+                # Keep the singular convenience view for a route-objective
+                # replacement; candidate-aligned details remain in plan_diffs.
                 plan_diff=(
                     plan_diffs[0].model_dump(mode="json")
                     if (
                         plan_diffs
                         and interpretation_command is not None
-                        and interpretation_command.constraint_patch.prefer_shorter_travel
-                        and not interpretation_command.replacement_criteria
+                        and any(
+                            criterion.kind == "route_objective"
+                            for criterion in interpretation_command.replacement_criteria
+                        )
                     )
                     else None
                 ),
@@ -1356,10 +1344,11 @@ def create_app(
 
 
 def _dump_assumptions(result: dict) -> list[dict]:
-    enrichment = result.get("enrichment")
-    if enrichment is None:
-        return []
-    return [item.model_dump(mode="json") for item in enrichment.assumptions]
+    assumptions = result.get("assumptions") or ()
+    return [
+        item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+        for item in assumptions
+    ]
 
 
 def _dump_runtime_decisions(result: dict, snapshot: object | None = None) -> list[dict]:

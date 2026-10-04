@@ -88,7 +88,7 @@ class EntryGraphTest(unittest.TestCase):
             checkpoint_config("session-1"),
             {
                 "configurable": {
-                    "thread_id": "planner-core2c-v1:session-1",
+                    "thread_id": "planner-core2e-v1:session-1",
                 }
             },
         )
@@ -198,6 +198,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "早上九点",
                 }
@@ -248,6 +249,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "早上九点",
                 }
@@ -309,7 +311,6 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertTrue(result["pending_issue"].need_question)
         self.assertIsNone(result["candidate_set"])
-        self.assertIsNone(result["plan_diff"])
         self.assertEqual(result["plan_diffs"], ())
 
     def test_replace_without_selected_plan_asks_before_planning(self) -> None:
@@ -392,6 +393,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": ClarificationAction.USE_DEFAULT.value,
                 }
             ),
@@ -403,7 +405,7 @@ class EntryGraphTest(unittest.TestCase):
             "system_context",
         )
         default_assumption = next(
-            item for item in final["enrichment"].assumptions
+            item for item in final["assumptions"]
             if item.rule_id == "clarification.default.location.v1"
         )
         self.assertEqual(default_assumption.value, environment.default_location)
@@ -477,6 +479,7 @@ class EntryGraphTest(unittest.TestCase):
                 Command(
                     resume={
                         "clarification_id": current["clarification_id"],
+                        "request_revision": current["request_revision"],
                         "action": ClarificationAction.ANSWER.value,
                         "value": "?",
                     }
@@ -514,6 +517,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": ClarificationAction.CANCEL.value,
                 }
             ),
@@ -572,6 +576,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": ClarificationAction.NEW_REQUEST.value,
                     "value": "新需求今天下午看展",
                 }
@@ -614,7 +619,18 @@ class EntryGraphTest(unittest.TestCase):
         self.assertEqual(snapshot.next, ("ask_question",))
         self.assertEqual(snapshot.interrupts[0].value["field"], "budget_per_person")
 
-        final_result = graph.invoke(Command(resume="人均200"), config=config)
+        question = snapshot.interrupts[0].value
+        final_result = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.ANSWER.value,
+                    "value": "人均200",
+                    "request_revision": question["request_revision"],
+                }
+            ),
+            config=config,
+        )
 
         self.assertTrue(final_result["ready_for_planning"])
         self.assertEqual(
@@ -883,7 +899,18 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertEqual(first_result["__interrupt__"][0].value["field"], "return_by")
 
-        final_result = graph.invoke(Command(resume="18:00"), config=config)
+        question = first_result["__interrupt__"][0].value
+        final_result = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.ANSWER.value,
+                    "value": "18:00",
+                    "request_revision": question["request_revision"],
+                }
+            ),
+            config=config,
+        )
 
         self.assertTrue(final_result["ready_for_planning"])
         self.assertIsNone(final_result["pending_issue"])
@@ -931,6 +958,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": ClarificationAction.USE_DEFAULT.value,
                 }
             ),

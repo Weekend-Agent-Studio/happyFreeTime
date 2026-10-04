@@ -24,7 +24,6 @@ from app.domain.catalog import (
 from app.domain.constraints import (
     CommandOperation,
     ConversationCommand,
-    effective_replacement_criteria,
     PlanRequest,
     QuestionDecision,
     RouteObjective,
@@ -1329,7 +1328,7 @@ class PlanningService:
                 relaxation_options=["放宽时间、距离或预算约束"],
             )
 
-        criteria = effective_replacement_criteria(command)
+        criteria = command.replacement_criteria
         semantic_criteria = tuple(
             criterion
             for criterion in criteria

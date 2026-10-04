@@ -16,8 +16,8 @@ from app.domain.constraints import (
     PlanningWindow,
     RequestPatch,
 )
-from app.services.constraint_patch import ConstraintPatchProposalCompiler
 from app.services.enrichment import EnvironmentContext
+from app.services.request_patch_update import RequestPatchUpdateCompiler
 
 
 class ClarificationPatchCompiler:
@@ -28,7 +28,7 @@ class ClarificationPatchCompiler:
     the regular proposal compiler; party and child age are typed directly.
     """
 
-    def __init__(self, proposal_compiler: ConstraintPatchProposalCompiler) -> None:
+    def __init__(self, proposal_compiler: RequestPatchUpdateCompiler) -> None:
         self._proposal_compiler = proposal_compiler
 
     def compile_answer(
@@ -93,7 +93,7 @@ class ClarificationPatchCompiler:
         proposal = proposals.get(field)
         if proposal is None:
             return None
-        compiled = self._proposal_compiler.compile(
+        compiled = self._proposal_compiler.compile_update_proposal(
             base=request,
             proposal=proposal,
             actor=actor,

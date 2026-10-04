@@ -12,7 +12,7 @@ from app.domain.catalog import (
 from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
-    NormalizedConstraints,
+    PlanRequest,
     PartyProfile,
     TimeWindow,
 )
@@ -367,7 +367,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertGreater(traces["valid-later"].local_schedule_passes, 0)
 
     @staticmethod
-    def _dinner_only_constraints(*, return_by: bool = False, strict_budget: bool = False) -> NormalizedConstraints:
+    def _dinner_only_constraints(*, return_by: bool = False, strict_budget: bool = False) -> PlanRequest:
         base = with_planning_window(
             planning_constraints(budget=150, time_end="22:00"),
             start="18:00",
@@ -397,7 +397,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         )
 
     @staticmethod
-    def _single_role_constraints(role: StopRole) -> NormalizedConstraints:
+    def _single_role_constraints(role: StopRole) -> PlanRequest:
         windows = {
             StopRole.ACTIVITY: TimeWindow(start="14:00", end="18:00"),
             StopRole.LUNCH: TimeWindow(start="11:30", end="14:00"),
@@ -1981,7 +1981,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertTrue(result.plans)
         self.assertIsNone(result.conflict)
 
-    def _full_day_constraints(self) -> NormalizedConstraints:
+    def _full_day_constraints(self) -> PlanRequest:
         return with_planning_window(
             planning_constraints(budget=1_000, time_end="20:00"),
             start="11:00",

@@ -211,7 +211,8 @@ JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、n
   不要为此编造新的 POI 或骨架。
 - 不调用工具，不生成地点、价格、库存、路线等事实。
 - “餐厅保留，只把活动换近一点”输出 operation=replace，target.role=activity，
-  locked_targets 中使用 resource_type=restaurant，constraint_patch.prefer_shorter_travel=true。
+  locked_targets 中使用 resource_type=restaurant，replacement_criteria 中使用
+  {kind: route_objective, metric: total_route_distance, direction: decrease, strength: required}。
   只保留用户语言引用，不猜测 resource_id；若无法确定 role、resource_type 或 stop_index，
   仍可只填写 target.raw_text，有限解析和对象锁定由 Harness 完成，无法唯一解析时由系统反问。
 - 当会话已有 active plan 且用户是在补充“最晚几点回家、预算、少辣、安静”等约束时，

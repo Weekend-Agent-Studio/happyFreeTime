@@ -21,7 +21,7 @@
 
 本文后续章节描述目标边界、接口演进和取舍；出现“应支持”“目标形态”“后续”时，不得当作当前能力。
 
-> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。详见 [current/resume_v2_architecture.md](../current/resume_v2_architecture.md) 与 [面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
+> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。S-CORE2A–E 又在 `codex/s-core2-request-engine` 上完成约束与反问收敛（尚待 PR）：自然语言、顶部栏与反问统一进入 `PlanRequest / RequestPatch / ConstraintEngine`；时间使用带来源的 `PlanningWindow` 和轻量 `TimeProposal`，不建设完整 Temporal AST；Question Policy 确定性决策，旧开发 checkpoint 明确失效。详见 [当前架构](../current/resume_v2_architecture.md)、[S-CORE2E 验收报告](../status/s_core2e_release_20261004.md) 与 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
 
 当本文档与早期的 [`mock_design.md`](../archive/v1/mock_design.md)、[`router_extractor_design_v2_draft.md`](../archive/router/router_extractor_design_v2_draft.md) 或实验代码冲突时，以本文档为准。早期文档保留为设计演进记录，不再作为实现契约。
 

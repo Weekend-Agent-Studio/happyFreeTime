@@ -107,7 +107,7 @@ class RouterExtractorTest(unittest.TestCase):
                     "locked_targets": [
                         {"resource_type": "restaurant", "raw_text": "餐厅"}
                     ],
-                    "constraint_patch": {"prefer_shorter_travel": True},
+                    "replacement_criteria": [{"kind": "route_objective"}],
                     "evidence": {"replace": "活动换近一点"},
                 },
                 "evidence_map": {"party": "女朋友"},
@@ -698,7 +698,7 @@ class RouterExtractorTest(unittest.TestCase):
         command = {
             "operation": "replace",
             "target": {"role": "activity", "raw_text": "活动"},
-            "constraint_patch": {"prefer_shorter_travel": True},
+            "replacement_criteria": [{"kind": "route_objective"}],
         }
         model = FakeStructuredModel(
             [
@@ -720,7 +720,10 @@ class RouterExtractorTest(unittest.TestCase):
 
         self.assertIsNone(runtime.fallback_reason)
         self.assertEqual(result.conversation_command.operation.value, "replace")
-        self.assertTrue(result.conversation_command.constraint_patch.prefer_shorter_travel)
+        self.assertEqual(
+            result.conversation_command.replacement_criteria[0].kind,
+            "route_objective",
+        )
 
     def test_temporal_proposals_require_evidence_but_not_confidence(self) -> None:
         with self.assertRaises(ValueError):

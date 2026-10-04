@@ -7,8 +7,11 @@ from zoneinfo import ZoneInfo
 from app.domain.constraints import (
     ActorContext,
     ConstraintSource,
+    Intent,
     IdentityType,
+    Interpretation,
     PlanRequest,
+    RawConstraints,
     TimeProposal,
     TimeScope,
 )
@@ -167,6 +170,53 @@ class RequestPatchCompilerTest(unittest.TestCase):
         _, compilation, outcome = self._compile("下午出发，晚饭前后一定回来")
         self.assertEqual(compilation.issues[0].field, "return_by")
         self.assertIsInstance(outcome, NeedsClarification)
+
+    def test_unresolved_explicit_fields_become_compiler_issues(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                location_text="我公司附近",
+                max_distance_text="别跑得太远",
+            ),
+        )
+        enrichment = self.enrichment.enrich(
+            interpretation,
+            self.actor,
+            self.environment,
+        )
+        compilation = self.compiler.compile(
+            interpretation,
+            enrichment.request_patch,
+            self.environment,
+        )
+        self.assertEqual(
+            [issue.field for issue in compilation.issues],
+            ["location", "max_distance_km"],
+        )
+
+    def test_weather_condition_routing_is_a_compiled_fact(self) -> None:
+        conditioned = Interpretation(
+            primary_intent=Intent.CHECK_WEATHER,
+            intent_scores={Intent.CHECK_WEATHER: 1.0},
+            raw_constraints=RawConstraints(scene_tags=["indoor"]),
+        )
+        plain_weather = Interpretation(
+            primary_intent=Intent.CHECK_WEATHER,
+            intent_scores={Intent.CHECK_WEATHER: 1.0},
+        )
+        for interpretation, expected in ((conditioned, True), (plain_weather, False)):
+            enrichment = self.enrichment.enrich(
+                interpretation,
+                self.actor,
+                self.environment,
+            )
+            compilation = self.compiler.compile(
+                interpretation,
+                enrichment.request_patch,
+                self.environment,
+            )
+            self.assertEqual(compilation.condition_requests_plan, expected)
 
     def test_departure_after_return_is_a_conflict(self) -> None:
         _, _, outcome = self._compile("晚上九点出发，晚上八点前回家")

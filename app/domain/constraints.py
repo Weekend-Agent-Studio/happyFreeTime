@@ -168,7 +168,6 @@ class ConstraintPatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    prefer_shorter_travel: bool = False
     date_text: str | None = None
     return_by_text: str | None = None
     departure_at_text: str | None = None
@@ -230,9 +229,8 @@ class ConversationCommand(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation: CommandOperation
-    # Optional client anchors are checked by the API against the session
-    # snapshot.  They are additive so legacy natural-language checkpoints can
-    # still deserialize without these fields.
+    # UI-issued mutation commands carry optimistic-concurrency anchors;
+    # natural-language Router proposals leave them unset.
     base_plan_version_id: str | None = None
     base_plan_id: str | None = None
     target: TargetReference | None = None
@@ -269,23 +267,6 @@ class PendingModification(BaseModel):
     constraint_patch: ConstraintPatch = Field(default_factory=ConstraintPatch)
     replacement_criteria: tuple[ReplacementCriterion, ...] = ()
     evidence: dict[str, str] = Field(default_factory=dict)
-
-
-def effective_replacement_criteria(
-    command: ConversationCommand,
-) -> tuple[ReplacementCriterion, ...]:
-    """Return one canonical criterion tuple while supporting old checkpoints.
-
-    S3 stored ``ConstraintPatch.prefer_shorter_travel`` before the typed
-    replacement vocabulary existed. Keeping this conversion in one place means
-    callers never need to interpret both representations independently.
-    """
-    criteria = list(command.replacement_criteria)
-    if command.constraint_patch.prefer_shorter_travel and not any(
-        item.kind == "route_objective" for item in criteria
-    ):
-        criteria.append(RouteObjective())
-    return tuple(criteria)
 
 
 class ActorContext(BaseModel):
@@ -638,12 +619,6 @@ class PlanRequest(BaseModel):
     total_distance_km: ConstraintValue[float] | None = None
 
 
-# Temporary source-level alias while Graph, API and callers migrate by slice.
-# This is the same class object, not a second constraints model; remove the
-# alias after S-CORE2E has migrated all production references.
-NormalizedConstraints = PlanRequest
-
-
 def _canonical_clock(value: str | None, *, field_name: str) -> str | None:
     if value is None:
         return None
@@ -761,7 +736,7 @@ class ClarificationReply(BaseModel):
     clarification_id: str = Field(min_length=1)
     action: ClarificationAction
     value: str | None = None
-    request_revision: int | None = Field(default=None, ge=0)
+    request_revision: int = Field(ge=0)
 
 
 class QuestionDecision(BaseModel):
@@ -778,15 +753,8 @@ class QuestionDecision(BaseModel):
     # question is presentation; callers should classify the decision by this
     # code instead of matching Chinese wording.
     rule_id: str = "question.none.v1"
-    # Additive interruption metadata.  Old checkpoints and non-interrupting
-    # modification questions remain readable because every field has a
-    # backwards-compatible default.
     clarification_id: str | None = None
     attempt: int = Field(default=0, ge=0, le=2)
     max_attempts: int = Field(default=2, ge=0, le=2)
     options: tuple[ClarificationOption, ...] = ()
     allow_free_text: bool = True
-    # The continuation identifies the deterministic compiler to resume.  It
-    # is intentionally separate from ``field`` so old checkpoints remain
-    # readable while patch questions can name the actual missing field.
-    continuation: str | None = None

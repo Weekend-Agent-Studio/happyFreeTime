@@ -1,11 +1,9 @@
-"""Compile post-plan wire proposals into the shared RequestPatch contract."""
+"""Compile post-plan Router proposals into the canonical RequestPatch contract."""
 
 from __future__ import annotations
 
 import re
 from datetime import date as Date
-
-from pydantic import BaseModel, ConfigDict
 
 from app.domain.constraints import (
     ActorContext,
@@ -22,31 +20,23 @@ from app.domain.constraints import (
 from app.domain.providers import GeocodeRequest, GeocodeResolution
 from app.providers.geocoding import GeocodingProvider
 from app.services.enrichment import EnvironmentContext, TemporalCompiler
+from app.services.request_patch_compiler import RequestPatchCompilation
 
 
-class ConstraintPatchCompilation(BaseModel):
-    """Normalized update operations and any fields that still need input."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    patch: RequestPatch
-    issues: tuple[ClarificationIssue, ...] = ()
-
-
-class ConstraintPatchProposalCompiler:
+class RequestPatchUpdateCompiler:
     """Normalize a proposal; ConstraintEngine alone applies and validates it."""
 
     def __init__(self, *, geocoding_provider: GeocodingProvider | None = None) -> None:
         self._geocoding_provider = geocoding_provider
 
-    def compile(
+    def compile_update_proposal(
         self,
         *,
         base: PlanRequest,
         proposal: ConstraintPatch,
         actor: ActorContext,
         environment: EnvironmentContext,
-    ) -> ConstraintPatchCompilation:
+    ) -> RequestPatchCompilation:
         """Compile every supported field against the current request revision."""
 
         updates: dict[str, object] = {}
@@ -190,7 +180,7 @@ class ConstraintPatchProposalCompiler:
                 request_revision=base.revision,
             ))
 
-        return ConstraintPatchCompilation(
+        return RequestPatchCompilation(
             patch=RequestPatch(
                 base_revision=base.revision,
                 set_fields=updates,
@@ -199,76 +189,6 @@ class ConstraintPatchProposalCompiler:
                 source=ConstraintSource.USER_EXPLICIT,
             ),
             issues=tuple(issues),
-        )
-
-    @classmethod
-    def proposal_from_text(cls, text: str, *, has_plans: bool) -> ConstraintPatch | None:
-        """Offline Demo adapter for the same proposal contract as the LLM.
-
-        This is intentionally the only deterministic text adapter for patches.
-        The Graph and Planner never inspect these phrases directly.
-        """
-        if not has_plans:
-            return None
-        value = text.strip()
-        if not value or any(
-            marker in value
-            for marker in ("换站", "换这站", "换个", "换活动", "换晚餐", "替换", "更换")
-        ):
-            return None
-        if "保留" in value and any(marker in value for marker in ("活动", "晚餐", "晚饭", "餐厅")):
-            # A role-preservation sentence is a replacement request, even if
-            # it does not literally contain the verb “替换”.
-            return None
-        date_text, _, _, _, _ = TemporalCompiler.extract_date(value)
-        time_text, scope, explicit_window = TemporalCompiler.extract_time(value)
-        departure_period = TemporalCompiler.extract_departure_period(value)
-        departure = None
-        clock_like = re.search(
-            r"(?:\d{1,2}[:：]\d{1,2}|[零〇一二两三四五六七八九十]+点(?:半|[零〇一二两三四五六七八九十]+分?)?)",
-            value,
-        )
-        if re.search(r"出发|出门|离开", value) and clock_like and TemporalCompiler.normalize_clock_text(value):
-            departure = value
-            time_text = None
-        return_by = value if re.search(r"回家|到家|回来", value) else None
-        strict_budget: bool | None = None
-        budget = None
-        if "预算不限" in value or "不设预算" in value:
-            strict_budget = False
-        elif "预算" in value or "人均" in value or "每人" in value:
-            budget = value
-            strict_budget = True
-        max_distance = value if re.search(r"(?:公里|千米|km|KM)", value) else None
-        location_match = re.search(r"从(?P<location>[^，,。；;]{2,30})(?:出发|出门)", value)
-        location = location_match.group("location") if location_match else None
-        preferences = tuple(label for keyword, label in (("安静", "安静"), ("聊天", "适合聊天"), ("浪漫", "浪漫"), ("轻松", "轻松"), ("不累", "不累")) if keyword in value)
-        diet_tags = tuple(label for keyword, label in (("少辣", "少辣"), ("清淡", "清淡")) if keyword in value)
-        avoid = ("博物馆",) if "不要博物馆" in value else ()
-        has_patch_marker = any(marker in value for marker in ("补充", "忘了说", "对了", "另外", "再加", "重新规划", "改到", "改成", "改为"))
-        if not (has_patch_marker or date_text or departure or departure_period or return_by or budget or strict_budget is not None or location or preferences or diet_tags or avoid or max_distance or scope is not None or explicit_window is not None):
-            return None
-        return ConstraintPatch(
-            date_text=date_text,
-            return_by_text=return_by,
-            departure_at_text=departure,
-            departure_period=departure_period,
-            time_window_text=(
-                value
-                if time_text
-                and departure is None
-                and departure_period is None
-                and return_by is None
-                else None
-            ),
-            location_text=location,
-            budget_text=budget,
-            max_distance_text=max_distance,
-            preferences=preferences,
-            diet_tags=diet_tags,
-            avoid=avoid,
-            strict_budget=strict_budget,
-            clear_fields=("budget_per_person", "strict_budget") if strict_budget is False else (),
         )
 
     def _compile_date(self, text: str, environment: EnvironmentContext) -> ConstraintValue[Date] | None:

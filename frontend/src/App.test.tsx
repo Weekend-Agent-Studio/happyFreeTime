@@ -651,7 +651,7 @@ describe("planning workspace", () => {
     const questionResponse: Partial<AgentResponse> = {
       status: "needs_input",
       reply: "",
-      question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+      question: { field: "budget", question: "预算是多少？", severity: "blocking", request_revision: 0 },
       plans: [],
       conflict: null,
       plan_version_id: null,
@@ -736,7 +736,7 @@ describe("planning workspace", () => {
       .mockResolvedValueOnce({
         status: "needs_input",
         reply: "",
-        question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+        question: { field: "budget", question: "预算是多少？", severity: "blocking", request_revision: 0 },
         assumptions: [], constraint_summary: [], plans: [], conflict: null,
         provider_facts: [], catalog_violations: [], catalog_warnings: [], warnings: [], poi_presentations: [],
       });
@@ -769,6 +769,7 @@ describe("planning workspace", () => {
         field: "location",
         question: "我还不能确定这个位置，能提供更具体的地点或地标吗？",
         severity: "blocking",
+        request_revision: 0,
         clarification_id: "clarification-location-1",
         attempt: 0,
         max_attempts: 2,
@@ -792,6 +793,7 @@ describe("planning workspace", () => {
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
       clarification_id: "clarification-location-1",
+      request_revision: 0,
       action: "use_default",
       value: null,
     });
@@ -830,6 +832,7 @@ describe("planning workspace", () => {
         field: "location",
         question: "请补充地点",
         severity: "blocking",
+        request_revision: 0,
         clarification_id: "clarification-location-2",
         options: [{ id: "new-request", label: "开始新需求", action: "new_request" }],
       },
@@ -845,6 +848,7 @@ describe("planning workspace", () => {
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
       clarification_id: "clarification-location-2",
+      request_revision: 0,
       action: "new_request",
       value: "今天下午去看展",
     });

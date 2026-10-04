@@ -35,7 +35,7 @@ from app.services.constraint_engine import (
 )
 from app.services.opening_hours import visit_fits_opening_hours
 from app.services.planning import PlanningService
-from app.services.question_gate import GateContext, NeedQuestionGate
+from app.services.question_policy import QuestionPolicyContext, QuestionPolicy
 from app.services.request_patch_compiler import RequestPatchProposalCompiler
 
 
@@ -105,7 +105,7 @@ def run_smoke_cases(
     这不是最终质量评测：它不测真实 Router 抽取准确率，也不评价推荐主观质量；
     它用于快速发现默认规则、反问字段或冲突语义的回归。
     """
-    gate = NeedQuestionGate()
+    question_policy = QuestionPolicy()
     request_compiler = RequestPatchProposalCompiler()
     constraint_engine = ConstraintEngine()
     catalog = SnapshotCatalog()
@@ -137,7 +137,12 @@ def run_smoke_cases(
         )
         issue = applied.issue if isinstance(applied, NeedsClarification) else None
         request = applied.request if isinstance(applied, ResolvedRequest) else PlanRequest()
-        decision = gate.decide(interpretation, request, GateContext(), issue=issue)
+        decision = question_policy.decide(
+            case.intent,
+            request,
+            QuestionPolicyContext(selected_plan_index=interpretation.selected_plan_index),
+            issue=issue,
+        )
 
         # 每个用例只关心一个稳定的外部结果：需要提问、生成方案或返回冲突。
         # 这样内部算法可以重构，而评测仍围绕用户可观察行为。

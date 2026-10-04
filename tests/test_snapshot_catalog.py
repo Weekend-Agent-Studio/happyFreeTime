@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.domain.catalog import CoordinateSystem
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import PlanRequest
 from app.services.catalog import CatalogDataError, SnapshotCatalog
 from app.services.catalog_collection import CatalogCollector
 from tests.test_catalog_collection import COLLECTED_AT
@@ -41,7 +41,7 @@ class SnapshotCatalogTest(unittest.TestCase):
                         SnapshotCatalog(path)
 
     def test_repository_snapshot_is_balanced_unique_and_materially_complete(self) -> None:
-        candidates = SnapshotCatalog().recall(NormalizedConstraints()).candidates
+        candidates = SnapshotCatalog().recall(PlanRequest()).candidates
 
         self.assertEqual(len(candidates), 200)
         self.assertEqual(len({item.resource_id for item in candidates}), 200)
@@ -84,7 +84,7 @@ class SnapshotCatalogTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "pois.json"
             path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
-            candidate = SnapshotCatalog(path).recall(NormalizedConstraints()).candidates[0]
+            candidate = SnapshotCatalog(path).recall(PlanRequest()).candidates[0]
 
         self.assertEqual(candidate.coordinate_system, CoordinateSystem.GCJ02)
         self.assertGreater(candidate.location.longitude, 116.4)

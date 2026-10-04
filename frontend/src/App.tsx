@@ -613,8 +613,9 @@ function App() {
     const effectiveClarificationReply = clarificationReply ?? (
       response?.question?.clarification_id && !conversationCommand
         ? {
-            clarification_id: response.question.clarification_id,
-            action: newRequestMode ? "new_request" : "answer",
+          clarification_id: response.question.clarification_id,
+          request_revision: response.question.request_revision,
+          action: newRequestMode ? "new_request" : "answer",
             value: trimmed,
           } satisfies ClarificationReply
         : undefined
@@ -783,6 +784,7 @@ function App() {
       undefined,
       {
         clarification_id: question.clarification_id,
+        request_revision: question.request_revision,
         action: option.action,
         value: null,
       },

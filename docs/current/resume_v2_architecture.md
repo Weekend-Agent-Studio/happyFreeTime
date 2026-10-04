@@ -1,6 +1,6 @@
 # Resume V2 当前架构
 
-_Resume V2 当前实现快照；核对日期：2026-10-02。发布 tag 仍是冻结评测基线，S-CORE1 后续收敛以本分支代码和新报告为准。本文只描述已落地代码，不描述长期目标。_
+_Resume V2 当前实现快照；核对日期：2026-10-04。S-CORE2A–E 在 `codex/s-core2-request-engine` 上完成，尚未合并 main；本文件描述该分支的实现。发布 tag 仍是冻结评测基线。_
 
 ---
 
@@ -11,7 +11,8 @@ _Resume V2 当前实现快照；核对日期：2026-10-02。发布 tag 仍是冻
 - 发布 tag：planner-v2-eval-baseline，指向 bef5fa3；
 - 评测代码提交：db8603b，是发布 tag 的祖先；
 - 36 条人工复核 Frozen Fixture；
-- S-CORE1A/B/C 的代码、自动测试和阶段报告；其评测代码提交 `52fd353` 的正式结果见 [S-CORE1C 报告](../status/s_core1c_release_20261002.md)。该分支未合并 `main`；冻结 tag 的历史指标仍只对应旧提交。
+- S-CORE1A/B/C 的代码、自动测试和阶段报告；其评测代码提交 `52fd353` 的正式结果见 [S-CORE1C 报告](../status/s_core1c_release_20261002.md)。
+- S-CORE2A–E 的代码、测试和本次验收报告；该分支基于已合并 S-CORE1 的 `origin/main@26df327`，仍需单独 PR。冻结 tag 的历史指标仍只对应旧提交。
 
 如果本文与根 README、代码或自动测试冲突，以代码和测试为准。目标架构、长期记忆、真实执行、Saga 和 MCP 演进见 canonical/architecture_v2.md，不能从目标设计推断为当前能力。
 
@@ -37,11 +38,14 @@ flowchart TB
 
     subgraph graph_control["⚙️ Stateful graph"]
         api --> turn[🧠 TurnInterpreter or DemoRouter]
-        turn --> enrich[⚙️ Enrichment]
-        enrich --> gate{🔍 Blocking input?}
-        gate -->|Yes| pause[🔒 Interrupt and SQLite checkpoint]
+        turn --> compile[⚙️ Enrichment + Proposal Compilers]
+        compile --> engine{🧭 ConstraintEngine}
+        engine -->|NeedsClarification| policy[❓ QuestionPolicy]
+        policy --> pause[🔒 Interrupt and SQLite checkpoint]
         pause --> input
-        gate -->|No| intent[🧠 PlanningIntent adapter]
+        engine -->|Resolved| policy
+        policy -->|ready| intent[🧠 PlanningIntent adapter]
+        engine -->|Conflict| conflict[⚠️ Structured conflict]
     end
 
     subgraph planning_core["⚙️ Planning core"]
@@ -76,23 +80,21 @@ Graph 只编排有状态分支、反问恢复和有限决策；普通过滤、�
 
 Wire Proposal 由 Harness 编译为内部领域对象。旧 Interpretation 字段仍保留部分兼容能力，但不应理解为模型直接拥有整个领域状态。
 
-### Enrichment 与 QuestionGate
+### PlanRequest、RequestPatch 与 QuestionPolicy
 
-Enrichment 将已识别的用户表达补成可计算约束，并保留来源、假设和 warning。它可以使用安全默认值，但不能用系统默认值覆盖用户明确输入。
+`PlanRequest` 是 Planner 唯一读取的规划条件快照。自然语言入口由 `EnrichmentService` 与 `RequestPatchProposalCompiler` 把 Router Wire Proposal 编译为一个 `RequestPatch`；顶部栏由类型化 API DTO 编译为同一 Patch；反问恢复由字段级 Compiler 生成 Patch。三类入口都交给纯确定性的 `ConstraintEngine` 原子应用、校验 revision、跨字段硬冲突并更新请求 revision。模型不直接写 PlanRequest，也不裁定硬约束。
 
-QuestionGate 根据当前状态和能力合同判断是否必须反问。反问是确定性策略，问题文案和选项可以由模板生成；Graph 通过 interrupt/resume 暂停，回答只更新当前待补字段，不把整段历史重新交给 Router。
+`ConstraintEngine` 的结果分为 `ResolvedRequest`、`NeedsClarification` 和 `ConflictedRequest`。`QuestionPolicy` 只处理结构化 Issue 与当前交互条件，以确定性规则决定是否阻断并渲染模板问题；它不从 `RawConstraints` 或用户原话里二次抽取约束，也不调用 LLM。`RawConstraints` 仍是 Router Proposal 的有限抽取 DTO，不是 Planner 输入或执行状态。
 
-### Constraint Patch
+反问由 `interrupt/resume` 恢复。每个待问 Issue 绑定 `clarification_id + request_revision`；用户回答由字段 Compiler 限定在当前字段，顶部栏 Patch 可解决对应 Issue。旧 ID/revision 被拒绝为明确的 stale 状态；有效回答不会把整段对话重新送回 Router。
 
-已有方案后的补充约束进入共享 ConstraintPatchCompiler：
+### CREATE、约束修改与局部替换
 
-1. 解析日期、时间、返程、预算、距离、地点和偏好补丁；
-2. 一次性验证并合并；
-3. 如果信息不足，返回待补字段；
-4. 如果冲突，返回结构化冲突；
-5. 通过后以当前 Plan Version 为基线重新规划，并生成新版本。
-
-定向替换仍走 REPLACE 边界：例如“保留餐厅，只把活动换近一点”不会被当成普通约束补丁。
+- CREATE：Router Proposal → Enrichment/时间 Proposal 编译 → `RequestPatch` → `ConstraintEngine` → `PlanRequest` → Readiness/QuestionPolicy → Planner。
+- 方案后约束修改：`RequestPatchUpdateCompiler` 编译日期、时间、地点、预算、距离、偏好和清除操作；再由同一 Engine 应用，成功后保存新请求 revision。
+- 反问回答：`ClarificationPatchCompiler` 只编译当前待补字段，并复用更新 Patch Compiler 与同一 Engine；取消/新需求和方案目标引用仍由 `ClarificationResolver` 处理，它不再修改规划约束。
+- 顶部栏：`planning_context` 是 PlanRequest 的只读投影；输入经类型化 API DTO 编译，不经过 Router。保存约束与按新条件重新规划分离；`plan_stale` 表示当前显示方案仍对应旧 request revision。
+- 定向替换仍走 `ConversationCommand` / Command Compiler 边界；它不伪装成通用 RequestPatch。
 
 ## 🧩 结构提案与规划搜索
 
@@ -126,6 +128,8 @@ Beam 是默认主路径。Legacy Search 仅通过显式实验模式或 Beam 在�
 - finalist 才调用 Route Provider 重建真实或 replay 时间线；
 - 最终由 Verifier 检查路线、时间窗、营业、预算、距离、返程和 Availability。
 
+当前没有完整 Temporal AST。Planner 只读一个 `PlanningWindow(date, start_at, end_at)`；开始/结束各自携带 `ConstraintValue` 来源，`start_kind` 为 `trip_start | departure`，`end_kind` 为 `trip_end | return_deadline`。Router 仅在时间作用域有歧义时提出轻量 `TimeProposal(target, precision, clock/period, evidence)`。默认窗口可见、可编辑；未提时间采用默认窗口，不因此反问。“早上出去玩”影响整体窗口，“早上出发”只约束出发并可能进入字段级澄清，“晚上八点前回来”以 return deadline 进入硬校验。时间含义来自显式 kind，不由前端或 rule_id 推断。
+
 ## 🔌 Provider、数据和降级
 
 | Provider | 作用 | 可用模式 |
@@ -149,15 +153,17 @@ Beam 是默认主路径。Legacy Search 仅通过显式实验模式或 Beam 在�
 
 Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单、预订、叫车或长期用户记忆模块。
 
+当前 Graph 状态以 `active_request`、一个 `pending_issue`、待应用 Patch、方案/候选结果和运行诊断为主；Enrichment 结果只作为瞬时输出，假设与地理编码事实按需单独存储。`CHECKPOINT_SCHEMA_VERSION=planner-core2e-v1`。旧开发 checkpoint 不做读取 Adapter；旧测试会话需新建，不删除用户本地数据库或历史记录。
+
 ## 📊 当前评测证据
 
-详见 Resume V2 发布评测：
+详见冻结发布基线与 [S-CORE2E 验收报告](../status/s_core2e_release_20261004.md)。在本分支一次复验中：
 
-- Frozen C0–C4 使用同一份 36 条 reviewed Interpretation，隔离 Rule/LLM PlanningIntent、Rule/Hybrid Retrieval 和 Advisor；
-- C3/C4 任务完成率为 36/36，硬约束安全率为 100%，9/9 修改链路通过；
-- Live B0/B3 用于观察真实 Router 稳定性，不能与 Frozen 结果混为生产成功率；
-- Hybrid Retrieval 的 Recall@5 为 0.537，Rule baseline 为 0.240；
-- Advisor 接受的结果通过 Plan/Evidence/Fact ID grounding，失败时安全回退；
+- Frozen C0–C4 使用同一份 36 条 reviewed Interpretation；C0/C1 为 34/36，C2/C3/C4 为 36/36；各冻结变体硬约束 7/7、冲突归因 4/4、修改链路 10/10；
+- C4 Advisor 结构有效 27/27，接受 23/27，其余 4 次按规则安全回退；
+- Live B0/B3 分别为 26/36 和 28/36；硬约束均 6/6、冲突归因均 4/4。这是一次实时模型诊断，不代表通用或生产成功率，B3 也有模型波动；
+- S-CORE2 Clarification Eval 24/24 子案例通过；端到端前端浏览器用例覆盖条件保存/重规划和从顶部栏解决反问，具体 runner 收尾限制见报告；
+- Hybrid Retrieval 的历史正式 Recall@5 为 0.537，Rule baseline 为 0.240；Advisor 接受结果经过 Plan/Evidence/Fact ID grounding，失败时安全回退；
 - BGE 冷启动延迟与稳态延迟分开记录。
 
 ## 🚫 当前明确未实现
@@ -181,7 +187,8 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 | Graph/API | app/orchestration/entry_graph.py、app/api/application.py |
 | 领域契约 | app/domain/ |
 | 语义入口 | app/services/router_extractor.py、app/services/demo_router.py |
-| 约束与反问 | app/services/enrichment.py、app/services/question_gate.py、app/services/constraint_patch.py |
+| 请求编译与执行 | app/services/enrichment.py、app/services/request_patch_compiler.py、app/services/request_patch_update.py、app/services/constraint_engine.py |
+| 反问策略与恢复 | app/services/question_policy.py、app/services/clarification_patch.py、app/services/clarification.py |
 | 规划与结构 | app/services/planning.py、app/services/planning_intent.py、app/services/plan_spec_compiler.py |
 | Provider | app/providers/ |
 | 持久化 | app/persistence/ |
@@ -189,4 +196,4 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 
 ## 🎓 学习建议
 
-先读根 README 和发布报告建立当前系统概念；再读本文；随后按一次请求流向阅读 TurnInterpreter → Enrichment → QuestionGate → PlanningIntent → PlanSpecCompiler → PlanningService → Provider/Verifier → Persistence。每读完一层，运行对应测试，再回到发布报告核对证据。
+先读根 README 和发布报告建立当前系统概念；再读本文；随后按一次请求流向阅读 TurnInterpreter → Proposal/Enrichment Compiler → ConstraintEngine → QuestionPolicy/Readiness → PlanningIntent → PlanSpecCompiler → PlanningService → Provider/Verifier → Persistence。自然语言、顶栏、反问三种入口的 Patch 最终汇入同一个 PlanRequest。
