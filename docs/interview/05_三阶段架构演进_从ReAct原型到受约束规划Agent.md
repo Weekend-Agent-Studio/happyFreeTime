@@ -4,7 +4,7 @@ _面试讲稿与追问题库 · 区分历史事实、当前实现和待验证目
 
 > 当前规划结构已在 S-CORE1A/B/C 三个切片中继续收敛：唯一可执行结构为 `PlanSpec`；模型只输出一个 `PlanStructureProposal v3`，Harness 投影软语义并用 `PlanSpecCompiler` 编译结构。下方 2026-09-05 的问题表与个别“当前限制”是当时的阶段快照，不代表现在仍未实现；当前细节见[规划结构收敛面试说明](08_PlanSpecCompiler与结构提案收敛.md)和[当前架构](../current/resume_v2_architecture.md)。
 
-> S-CORE2A–E（2026-10-04，尚待 PR）进一步把自然语言、顶部条件栏和反问恢复收敛为 `RequestPatch → ConstraintEngine → PlanRequest`；Planner 只消费执行就绪请求。时间仅使用带字段来源的 `PlanningWindow` 与轻量 `TimeProposal`，不声称支持完整 Temporal AST。默认值可见且可编辑；是否阻断由确定性 `QuestionPolicy` 决定，模型不裁决硬约束或执行。
+> S-CORE2A–E（2026-10-04，尚未合并 main）进一步把自然语言、顶部条件栏和反问恢复收敛为 `RequestPatch → ConstraintEngine → PlanRequest`；Planner 只消费执行就绪请求。时间仅使用带字段来源的 `PlanningWindow` 与轻量 `TimeProposal`，不声称支持完整 Temporal AST。默认值可见且可编辑；是否阻断由确定性 `QuestionPolicy` 决定，模型不裁决硬约束或执行。
 
 ---
 

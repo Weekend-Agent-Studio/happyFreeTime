@@ -10,10 +10,11 @@
 
 ### 当前状态判读
 
-| 内容 | Resume V2 当前状态（冻结发布 tag） |
+| 内容 | 冻结发布 tag / S-CORE2 分支状态 |
 | --- | --- |
 | Graph、反问恢复、Enrichment、Provider、Planner、Verifier | 已实现 |
 | Wire Proposal、PlanSpecCompiler、Beam、Hybrid Retrieval、Grounded Advisor | 已实现并纳入发布评测 |
+| PlanRequest、RequestPatch、ConstraintEngine、PlanningWindow、顶部五栏与字段反问 | S-CORE2A–E 已在分支实现；尚未合并 main |
 | 真实订单、预订、叫车、Saga | 目标设计，未实现 |
 | 长期记忆、Memory Influence、可删除画像 | 目标设计，未实现 |
 | ToolBroker、MCP Client/Server Adapter | 目标设计，未接入主链 |
@@ -21,7 +22,7 @@
 
 本文后续章节描述目标边界、接口演进和取舍；出现“应支持”“目标形态”“后续”时，不得当作当前能力。
 
-> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。S-CORE2A–E 又在 `codex/s-core2-request-engine` 上完成约束与反问收敛（尚待 PR）：自然语言、顶部栏与反问统一进入 `PlanRequest / RequestPatch / ConstraintEngine`；时间使用带来源的 `PlanningWindow` 和轻量 `TimeProposal`，不建设完整 Temporal AST；Question Policy 确定性决策，旧开发 checkpoint 明确失效。详见 [当前架构](../current/resume_v2_architecture.md)、[S-CORE2E 验收报告](../status/s_core2e_release_20261004.md) 与 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
+> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。S-CORE2A–E 又在 `codex/s-core2-request-engine` 上完成约束与反问收敛（尚未合并 main）：自然语言、顶部栏与反问统一进入 `PlanRequest / RequestPatch / ConstraintEngine`；时间使用带来源的 `PlanningWindow` 和轻量 `TimeProposal`，不建设完整 Temporal AST；`QuestionPolicy` 确定性决策，旧开发 checkpoint 明确失效。本文的 `QuestionGate`、`NormalizedConstraints`、`TimeConstraintSet` 等旧名称均属目标草案或历史快照，不是当前接口。详见 [当前架构](../current/resume_v2_architecture.md)、[S-CORE2E 验收报告](../status/s_core2e_release_20261004.md) 与 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
 
 当本文档与早期的 [`mock_design.md`](../archive/v1/mock_design.md)、[`router_extractor_design_v2_draft.md`](../archive/router/router_extractor_design_v2_draft.md) 或实验代码冲突时，以本文档为准。早期文档保留为设计演进记录，不再作为实现契约。
 
@@ -122,25 +123,33 @@ V2 的目标形态是 **由状态图编排的受约束规划 Agent**：LLM 负�
 ```mermaid
 flowchart TB
     accTitle: HappyFreeTime 受约束规划 Agent 总体架构
-    accDescr: 用户请求进入对话控制图，按能力路由到查询、规划、解释或执行子图；模型只在语义决策点工作，确定性服务负责事实、验证和副作用。
+    accDescr: 当前已实现规划请求主链，以及仍属于目标的查询、解释和执行能力；模型只在受限语义决策点工作，确定性服务负责状态、事实与硬约束。
 
     user([用户输入或界面操作]) --> api[会话 API]
 
-    subgraph control_graph ["🧭 对话控制图"]
-        interpret[TurnInterpreter]
-        merge[StateMerger]
-        gate{QuestionGate}
-        question[Interrupt 与 QuestionSpec]
-        route{CapabilityRouter}
-        interpret --> merge --> gate
+    subgraph control_graph ["🧭 当前请求主链与目标扩展"]
+        router[Router / DemoRouter]
+        compile[compile_request：Enrichment + Proposal Compiler + ConstraintEngine]
+        gate{ReadinessPolicy / QuestionPolicy}
+        question[Interrupt 与 ClarificationIssue]
+        current_planning[[当前 planning 节点]]
+        topbar[顶部栏 typed Patch]
+        reply[字段级反问回答]
+        patch[apply_request_patch / compile_patch]
+        modify[modify_plan：定向方案修改]
+        router --> compile --> gate
         gate -->|缺阻塞信息| question
-        question -->|Resume| interpret
-        gate -->|信息齐全| route
+        question -->|Resume| gate
+        gate -->|信息齐全| current_planning
+        topbar --> patch --> gate
+        reply --> patch
+        router -->|方案后补充| patch
+        router -->|目标修改| modify --> current_planning
     end
 
-    subgraph capability_graphs ["🧩 稳定能力子图"]
+    subgraph capability_graphs ["🧩 目标能力子图"]
         inquiry[[InquiryGraph]]
-        planning[[PlanningGraph]]
+        planning[[目标 PlanningGraph]]
         explanation[[ExplanationGraph]]
         execution[[ExecutionGraph]]
     end
@@ -158,21 +167,22 @@ flowchart TB
         memory_store[(Memory Module)]
         retrievers[(Semantic Retrievers)]
         providers[(Real Replay Mock Providers)]
-        trace[(Trace 与 Eval)]
+        trace[(分散 Runtime Diagnostics / Eval；统一 Trace 属于 S-TRACE1)]
     end
 
-    api --> interpret
+    api --> router
     state_store --> context
     memory_store --> context
-    context --> interpret
-    merge --> state_store
-    route --> inquiry
-    route --> planning
-    route --> explanation
-    route --> execution
+    context --> router
+    current_planning --> state_store
+    route{未来 CapabilityRouter}
+    route -.-> inquiry
+    route -.-> explanation
+    route -.-> execution
     inquiry --> broker
     planning --> planner
     planning -. 可选信息缺口 .-> broker
+    current_planning --> planner
     explanation --> presenter
     execution --> executor
     broker --> retrievers
@@ -223,21 +233,23 @@ flowchart TB
 | `MemoryService` | `recall / propose / decide` | scope、冲突、衰减、删除传播与影响证据 | SQLite/In-memory Adapter；向量召回是内部增强 |
 | `ExecutionService` | preview、confirm、cancel | snapshot、幂等、订单状态机与 Saga | Booking/Mock Adapter 不能绕过确认 |
 
-这些 Module 提供 Leverage 的前提是调用者不需要了解内部协作。`CapabilityRegistry` 是 ToolBroker 的策略数据，不单独包装成只有转发作用的空壳 Service；`QuestionComposer` 是 Gate 的可选 Implementation，不作为独立顶层 Agent。这样减少中间层数量并提高改动 Locality。
+这些 Module 提供 Leverage 的前提是调用者不需要了解内部协作。`CapabilityRegistry` 是未来扩展 ToolBroker 时的策略数据，不单独包装成只有转发作用的空壳 Service。当前反问由确定性 `QuestionPolicy` 使用模板渲染，不存在独立 LLM `QuestionComposer`；这样减少中间层数量并提高改动 Locality。
 
 ## 5. Graph 设计
 
 ### 5.1 MainGraph
 
-MainGraph 负责产品级控制流，建议节点如下：
+MainGraph 负责产品级控制流。下表中 `router → compile_request → gate → ask_question / planning` 是当前 S-CORE2 已实现的请求主链；Inquiry、Execution、长期 Memory 等其余节点仍是目标架构，不代表本分支已交付：
 
 | 节点 | 类型 | 输入 | 输出 |
 | --- | --- | --- | --- |
-| `interpret_turn` | 最多 1 次必要 LLM | 最新用户输入、按用途裁剪的 `DecisionContext` | `ConversationCommand` |
-| `resolve_state` | 确定性代码 | 命令、Session Snapshot | 已解析引用、合并后的 Patch 和锁定项 |
-| `enrichment` | 确定性代码 + 必需 Provider | 原始约束、ActorContext | `NormalizedConstraints`、前置事实 |
-| `question_gate` | 确定性代码 | Capability Contract、当前状态和阻塞缺口 | `QuestionSpec` 或继续 |
-| `ask_question` | Graph interrupt | 一个最重要问题和结构化输入选项 | Resume 后的新输入或结构化值 |
+| `router` | 当前实现：Demo/LLM Router | 最新用户输入与有限会话上下文 | 内部 `Interpretation` / 受限 Proposal |
+| `compile_request` | 确定性代码 + 必需 Provider | Proposal、当前请求、ActorContext | `RequestPatch`、结构化 Issue 与前置事实 |
+| `compile_patch` / `apply_request_patch` | 确定性代码 | 方案后约束提案或已编译 typed Patch | 同一 Engine 的新 `PlanRequest`，或阻塞 Issue |
+| `replan_current_request` | 确定性代码 | 已保存且 revision 最新的请求 | 使用新请求进入 Planning |
+| `modify_plan` | 确定性代码 + 有界语义提案 | 选中方案、修改命令与锁定项 | `PlanDiff` 与新 Plan Version |
+| `gate` | 确定性代码 | `ConstraintEngine` 结果、Readiness Issue、交互状态 | `QuestionDecision` 或继续 |
+| `ask_question` | Graph interrupt | 一个字段级问题及合法选项 | 字段限定 Patch 后 Resume |
 | `capability_router` | 确定性代码 | 已校验 `ConversationCommand` | 一个允许的稳定子图 |
 | `inquiry_subgraph` | 确定性主流程 + 可选只读 Tool Loop | 查询、搜索或比较请求 | 有来源的事实或比较结果 |
 | `planning_subgraph` | 确定性内核 + 有界 LLM 决策 | 创建或修改命令、规范化约束 | `CandidateSet`、`PlanDiff` |
@@ -247,7 +259,7 @@ MainGraph 负责产品级控制流，建议节点如下：
 | `persist_and_emit` | 基础设施 | 状态变化 | 数据库记录、`AgentEvent` |
 | `feedback_and_memory` | 确定性主流程 + 可选 LLM 提取 | 完成/跳过/评分/纠正 | `MemoryCandidate[]`、确认或丢弃结果 |
 
-`TurnInterpreter` 是当前 `RouterExtractor` 的演进和替代，不在 Router 后再叠加一次重复的全量语义解析。它识别组合式操作与参数；`CapabilityRouter` 只根据经过 schema 与权限校验的命令选择子图，不能听从自由文本跳过 Gate。界面按钮、约束面板和方案操作可直接产生结构化命令，绕过不必要的 LLM 解释。
+当前 Graph 的 `router` 将受限语义提案编译为内部 `Interpretation`；`compile_request` 由 `EnrichmentService`、`RequestPatchProposalCompiler` 与 `ConstraintEngine` 建立单一 `PlanRequest`。`gate` 通过 `RequestReadinessPolicy` 检查 Planner 必需字段，再由 `QuestionPolicy` 消费结构化 Issue。界面按钮和顶部栏可直接产生 typed Patch，绕过不必要的 LLM 解释。更完整的 `CapabilityRouter` 与多能力子图仍是目标架构：它只能根据经过 schema/权限校验的命令路由，不能听从自由文本跳过 Gate。
 
 ### 5.2 子图与 Module 的边界
 
@@ -258,7 +270,7 @@ MainGraph 负责产品级控制流，建议节点如下：
 - `ExplanationGraph`：解释已存在的方案、证据、差异和记忆影响。
 - `ExecutionGraph`：预览、确认、执行、取消和补偿。
 
-“晚饭换川菜”和“第二站换近一点”是同一 `PlanningGraph` 的不同 `ConstraintPatch`；“查天气”和“比较两家餐厅”是同一 `InquiryGraph` 的不同 `InformationNeed`。不为每句新表达新增 Intent 或 Graph 分支。
+请求级约束补充通过 `RequestPatch → ConstraintEngine → PlanRequest` 更新；“第二站换近一点”这类针对具体方案目标的修改仍经 `ConversationCommand` / Command Compiler 和 `PlanDiff`，不会塞进通用请求 Patch。“查天气”和“比较两家餐厅”属于尚未交付的 Inquiry 能力设想。不为每句新表达新增 Intent 或 Graph 分支。
 
 新增节点必须至少具备一项独立价值：可恢复状态、条件分支、模型观察后的有界循环、人工中断、副作用边界或需要单独评测。否则保留为深 Module 的内部 Implementation。尤其不把 `WeatherProvider`、`RouteProvider`、每一步过滤器或每个评分器拆成 Graph 节点。
 
@@ -335,24 +347,27 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | --- | --- | --- |
 | `ActorContext` | 身份与权限上下文 | identity type、user、session、locale、timezone |
 | `ConversationCommand` | 一轮对话的组合式语义命令 | operation、subject、target、Patch、locks、requested facts、evidence、confidence |
-| `Interpretation` | 当前实现的过渡契约 | primary intent、raw constraints、target、evidence；迁移后由 `ConversationCommand` 取代 |
+| `Interpretation` | Router 的内部解释对象 | primary intent、proposal 约束、时间提案、目标引用与 evidence；不是 Planner 请求或旧 checkpoint Adapter |
 | `TargetReference` | 指向已有领域对象 | plan version、stop、role、candidate、order 或 memory 的稳定引用/待解析表达 |
 | `ConstraintPatch` | 对当前约束快照的显式增量 | set、remove、strength、source、target scope |
 | `LockedStop` | 局部修改中不得无理由改变的停靠点 | plan version、stop identity、lock reason、owner |
 | `PlanDiff` | 两个 Plan Version 的可解释差异 | stops、route、time、price、warnings、execution impact |
-| `RawConstraints` | 保留用户原始表达 | date text、time text、location text、party、budget、avoid 等 |
-| `TimeConstraintSet` | 不混淆的时间语义 | departure at、availability window、duration、return by |
-| `NormalizedConstraints` | 规划的规范化约束输入 | 时间集合、坐标、预算、人数、距离、硬软约束 |
+| `RawConstraints` | Router 的有限 Proposal 字段 | date text/reference、location text、party、budget、distance 与软语义等；不直接交给 Planner |
+| `TimeProposal` | 有界时间语义提案 | target、exact/period、clock/period、evidence；由编译器解释时间作用域 |
+| `PlanningWindow` | Planner 使用的唯一时间窗口 | 带来源的 date/start_at/end_at，以及 start/end kind |
+| `PlanRequest` | Planner 的唯一约束快照 | `PlanningWindow`、地点、同行人、预算、距离、偏好、结构约束、revision |
+| `RequestPatch` | 对一个 `PlanRequest` 的原子增量 | set/clear/list operations、source、field provenance、evidence |
+| `ClarificationIssue` | 机器可读的阻塞原因 | field、code、reason、expected type、options、request revision |
 | `ConstraintValue[T]` | 单字段审计信息 | value、source、raw text、confidence、rule id |
 | `Assumption` | 默认值说明 | 字段、默认值、原因、是否可修改 |
-| `QuestionSpec` | Gate 输出给 Graph/UI 的反问契约 | field、question、input mode、options、severity、reason |
-| `SessionSnapshot` | 本轮可引用的结构化会话状态 | current constraints、active Plan Version、locks、pending question、recent summary |
+| `QuestionDecision` | `QuestionPolicy` 输出给 Graph/UI 的交互决策 | 是否阻断、字段、模板问题、选项、severity、request revision |
+| `SessionSnapshot` | 目标态中可引用的结构化会话状态 | active `PlanRequest`、active Plan Version、locks、pending issue、recent summary |
 | `DecisionContext` | 面向一个模型决策的有界上下文投影 | purpose、facts、references、provenance、omissions、budget、allowed actions |
 | `InformationNeed` | 继续决策前缺少的可获取信息 | kind、query、reason、required confidence、scope |
 | `CapabilityRequest` | 模型对一个白名单只读能力的请求 | capability、validated arguments、need id |
 | `ToolObservation` | ToolBroker 返回的结构化观察 | data、source、freshness、confidence、errors |
 | `AgentDecision` | 模型对下一步的结构化提议 | continue、ask user、request capability、finish；由 Harness 校验 |
-| `PlanningRequest` | PlanningService 的版本化输入包 | normalized constraints、PlanningIntent、前置事实、可用记忆影响、previous plan/locks、budgets |
+| `PlanningRequest` | PlanningService 的版本化输入包 | `PlanRequest`、`PlanningIntent`、前置事实、可用记忆影响、previous plan/locks、budgets |
 | `PlanningIntent` | 规划语义输入 | `pace`、`semantic_request`（软目标、检索 query 与 evidence） |
 | `PlanStructureProposal` | 模型 Wire 结构提案 | 有序 slots、core/optional、pace、grounded objectives、role queries、evidence refs |
 | `PlanSpec` | 可执行结构 | concrete 有序 StopRole 序列、稳定 spec ID；不含 optional slot |
@@ -386,9 +401,9 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 
 ## 7. 对话控制、上下文与补全
 
-### 7.1 TurnInterpreter 与组合式命令
+### 7.1 目标态 TurnInterpreter 与组合式命令
 
-`TurnInterpreter` 是当前 `RouterExtractor` 的渐进演进，不是新增一个重复 Router。自然语言入口每轮默认最多进行 1 次必要 LLM 调用，使用 `with_structured_output(ConversationCommand)` 或等价结构化输出能力。
+本节描述完整多能力架构的目标语义入口，不代表 S-CORE2 已交付 `ConversationCommand` / `StateMerger`。当前 Graph 的 `router` 节点输出受限 `Interpretation`，CREATE 与请求更新按第 5 节和第 7.3 节编译为统一 `PlanRequest`；旧 checkpoint 不提供兼容读取。未来若扩展为 `TurnInterpreter`，也不应重复执行一次全量语义解析。自然语言入口每轮默认最多进行 1 次必要 LLM 调用，目标输出可使用 `ConversationCommand` 等有界结构。
 
 稳定的 `operation` 控制在：`CREATE`、`MODIFY`、`QUERY`、`SEARCH`、`COMPARE`、`EXPLAIN`、`EXECUTE`、`CHAT` 和 `UNSUPPORTED`。新表达优先表示为 `operation + subject + TargetReference + ConstraintPatch` 的组合，不为“换晚饭”“换第二站”“查新展”等句式增加新的 Graph Intent。
 
@@ -409,7 +424,7 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 
 `StateMerger` 接收命令和 `SessionSnapshot`，用 Plan Version、选中方案、停靠点角色和当前 UI selection 解析引用，并按来源优先级生成新的约束快照。无法唯一解析的目标保持 unresolved，交给 Gate 反问；不允许让模型凭记忆中的名字直接修改未授权对象。
 
-Prompt 可注入当前日期和时区帮助理解相对日期，但环境事实和默认值仍由 Enrichment 提供。结构化校验失败时重试 1 次；仍失败进入安全澄清。迁移期可由 Adapter 将旧 `Interpretation` 映射为 `ConversationCommand`，但最终只保留一个语义入口。
+Prompt 可注入当前日期和时区帮助理解相对日期，但环境事实和默认值仍由 Enrichment 提供。结构化校验失败时重试 1 次；仍失败进入安全澄清。当前 `Interpretation` 是现行 Proposal 边界；若未来切换到 `ConversationCommand`，应按新版本契约演进，不复活旧 checkpoint Adapter。
 
 ### 7.2 ContextAssembler：上下文是投影，不是控制流
 
@@ -466,24 +481,19 @@ sequenceDiagram
 
 为控制上下文长度，短期保留最近少量原始轮次，较老对话生成可重建摘要；涉及约束、选择、锁定、计划和订单的内容必须进入结构化状态，不能只存在摘要文本中。记忆通过 `MemoryService.recall(...)` 形成有 scope 的 `MemoryContext` 后才可注入；“存在于记忆库”不等于“本轮模型有权看到”。每个上下文字段记录来源、版本和截断原因，以支持回放和泄露检查。
 
-### 7.3 Enrichment Service 与时间模型
+### 7.3 请求编译与时间模型
 
-Enrichment 是确定性 Module，按顺序执行：
+当前 CREATE 请求链由确定性组件共同完成：
 
-1. 合并本轮显式约束、已确认会话约束和允许使用的 `MemoryContext`。
-2. 将相对日期、时间段和模糊距离映射为规则化值。
-3. 获取当前时间、授权位置和地理编码；天气在确定日期、地点和时段后于规划召回前并行获取。
-4. 根据能力与场景填入可默认字段。
-5. 产出 `Assumption[]` 和字段来源，不静默覆盖用户值。
+1. Router 产生受限 `Interpretation`/Wire Proposal，不直接生成执行请求。
+2. `EnrichmentService` 规范化地点、预算、人数、距离等非时间字段，补默认值和来源，并输出初始 `RequestPatch`。
+3. `RequestPatchProposalCompiler` 将日期和 `TimeProposal` 编译进同一 Patch；显式无法规范化的硬字段保留为 `ClarificationIssue`。
+4. `ConstraintEngine` 原子应用 Patch、检查跨字段冲突并递增 revision；`RequestReadinessPolicy` 检查地点、日期和完整时间窗等 Planner 必需字段。
+5. 有阻塞 Issue 时由 `QuestionPolicy` 生成确定性 `QuestionDecision` 并 interrupt；否则 Planner 只读取最终 `PlanRequest`。
 
-时间不再只有一个模糊 `time_window`。目标 `TimeConstraintSet` 区分：
+所有路径共用轻量时间契约：`PlanningWindow(date, start_at, end_at)`。每个值保留来源；开始/结束边界另有显式 `start_kind = trip_start | departure` 与 `end_kind = trip_end | return_deadline`。这不是完整 Temporal AST，也不把每种时间关系抽象成通用约束语言。
 
-- `departure_at`：明确出发时刻，例如“14:30 出发”。
-- `available_from / available_until`：用户可用范围，Planner 可在其中选择出发时刻。
-- `duration_minutes`：可玩时长，不等于结束时刻。
-- `return_by`：包含返程的最晚到达出发地时刻。
-
-“下午两点半出发”必须保留为精确 `departure_at=14:30`，不能被放宽成整个下午；“下午有空”才映射为可用时间窗。`departure_at + duration` 可以推导计划上界，显式 `return_by` 仍独立作为 Hard Constraint。多个时间锚点相互冲突时进入 Gate，不通过取最宽范围静默消解。迁移期间可把 `TimeConstraintSet` 编译为现有 `NormalizedConstraints.time_window`，但不能丢失原始语义与来源。
+有限 `TimeProposal` 保留 target（trip/departure/return）、precision（exact/period）、clock/period 与 evidence。它保证不同作用域不会仅靠前端或 `rule_id` 猜测：例如“早上出去玩”形成整体时段，“早上出发”约束出发动作并可能要求补具体时刻，“晚上八点前回来”形成 return deadline。未提时间使用有来源、可见、可编辑的默认窗口，不因此反问。自然语言补充和顶部栏结构化编辑最终也写同一个 `PlanningWindow`。
 
 示例规则：
 
@@ -498,11 +508,11 @@ Enrichment 是确定性 Module，按顺序执行：
 
 规则必须有 `rule_id` 和版本号，便于回放与评测。
 
-### 7.4 CapabilityRegistry、QuestionGate 与停止规则
+### 7.4 CapabilityRegistry、QuestionPolicy 与停止规则
 
-`CapabilityRegistry` 是代码拥有的能力合同，声明支持的 `operation + subject`、必需字段、允许的只读工具、是否有副作用、确认级别和输出 schema。模型不能通过生成一个新能力名称扩展权限；`CapabilityRouter` 只路由已注册且通过 schema、权限与资源归属校验的命令。
+`CapabilityRegistry` / `CapabilityRouter` 是完整多能力目标架构的一部分，声明支持的 `operation + subject`、必需字段、允许的只读工具、副作用和确认级别。当前 S-CORE2 交付的是规划与修改主链，并未交付 Inquiry/Execution 等完整能力路由子图。
 
-`QuestionGate` 根据当前能力合同决定阻塞缺口，每轮最多问一个最重要问题。代码决定是否必须询问、合法输入范围和默认值边界；可选 LLM `QuestionComposer` 只优化文案和合法选项排序，失败时使用模板。
+当前反问不由旧 `QuestionGate` 或模型文案决定：编译器、`ConstraintEngine` 和 `RequestReadinessPolicy` 产生结构化 Issue；确定性 `QuestionPolicy` 在当前交互条件下决定是否阻断并使用模板。QuestionPolicy 不再读取 RawConstraints/用户原文以二次解析约束，也不调用 LLM `QuestionComposer`。待问 Issue 绑定 `request_revision`，合法回答或顶部栏 Patch 更新后，旧 Issue 失效；字段回复只允许更新待补字段。
 
 必须反问的典型情况：
 
@@ -511,13 +521,15 @@ Enrichment 是确定性 Module，按顺序执行：
 - 预订动作缺少准确人数。
 - 年龄限制资源需要儿童年龄，但该年龄未知。
 - 修改或取消命令无法唯一确定目标。
-- 时间或地点存在多个不可安全消解的解释。
+- 用户明确提出的时间或地点无法安全解析，且没有可执行默认。
 
 通常不反问的情况：
 
 - 普通规划缺少预算、距离或交通方式，可使用透明 Assumption。
 - 只影响排序、不影响安全和可行性的软偏好。
 - 天气、路线、当前时间等可通过已注册 Provider 获得的信息。
+
+旧的 `TimeConstraintSet`、`NormalizedConstraints` 和 `QuestionGate` 可在 M1/M2 历史材料中出现，但不应作为现行领域类型、Planner 入参或反问实现名称。
 
 模型可以在受限循环中提议 `REQUEST_CAPABILITY`、`ASK_USER`、`CONTINUE` 或 `FINISH`。Harness 只有在输出 schema 有效、没有阻塞缺口、任务已有满足完成合同的结果且不存在待确认副作用时才接受 `FINISH`；达到最大轮数、调用/时间/token 预算、连续无进展或 Provider 熔断时由 Harness 强制停止并返回结构化降级或问题。系统总体策略仍是“能以透明假设继续就继续，只有不可逆、不可行或高歧义时才打断”。
 

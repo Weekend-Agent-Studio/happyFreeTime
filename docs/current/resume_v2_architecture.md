@@ -1,6 +1,6 @@
 # Resume V2 当前架构
 
-_Resume V2 当前实现快照；核对日期：2026-10-04。S-CORE2A–E 在 `codex/s-core2-request-engine` 上完成，尚未合并 main；本文件描述该分支的实现。发布 tag 仍是冻结评测基线。_
+_Resume V2 当前实现快照；核对日期：2026-10-05。S-CORE2A–E 在 `codex/s-core2-request-engine` 上完成，尚未合并 main；本文件描述该分支的实现。发布 tag 仍是冻结评测基线。_
 
 ---
 
@@ -12,7 +12,7 @@ _Resume V2 当前实现快照；核对日期：2026-10-04。S-CORE2A–E 在 `co
 - 评测代码提交：db8603b，是发布 tag 的祖先；
 - 36 条人工复核 Frozen Fixture；
 - S-CORE1A/B/C 的代码、自动测试和阶段报告；其评测代码提交 `52fd353` 的正式结果见 [S-CORE1C 报告](../status/s_core1c_release_20261002.md)。
-- S-CORE2A–E 的代码、测试和本次验收报告；该分支基于已合并 S-CORE1 的 `origin/main@26df327`，仍需单独 PR。冻结 tag 的历史指标仍只对应旧提交。
+- S-CORE2A–E 的代码、测试和本次验收报告；该分支基于已合并 S-CORE1 的 `origin/main@26df327`，尚未合并 main。冻结 tag 的历史指标仍只对应旧提交。
 
 如果本文与根 README、代码或自动测试冲突，以代码和测试为准。目标架构、长期记忆、真实执行、Saga 和 MCP 演进见 canonical/architecture_v2.md，不能从目标设计推断为当前能力。
 
@@ -37,15 +37,19 @@ flowchart TB
     input([👤 User request]) --> api[🌐 FastAPI application]
 
     subgraph graph_control["⚙️ Stateful graph"]
-        api --> turn[🧠 TurnInterpreter or DemoRouter]
-        turn --> compile[⚙️ Enrichment + Proposal Compilers]
+        api --> turn[🧠 Router / DemoRouter]
+        turn --> compile[⚙️ compile_request: Enrichment + Proposal Compiler]
         compile --> engine{🧭 ConstraintEngine}
-        engine -->|NeedsClarification| policy[❓ QuestionPolicy]
+        engine -->|NeedsClarification| policy[❓ ReadinessPolicy / QuestionPolicy]
         policy --> pause[🔒 Interrupt and SQLite checkpoint]
-        pause --> input
-        engine -->|Resolved| policy
-        policy -->|ready| intent[🧠 PlanningIntent adapter]
+        pause --> reply
+        engine -->|Resolved| ready[✅ RequestReadinessPolicy]
+        ready -->|ready| intent[🧠 PlanningIntent projection]
         engine -->|Conflict| conflict[⚠️ Structured conflict]
+        topbar[顶部栏 typed Patch] --> patch[apply_request_patch]
+        reply[字段级反问回答] --> patch
+        turn -->|constraint update| patch
+        patch --> engine
     end
 
     subgraph planning_core["⚙️ Planning core"]
@@ -67,7 +71,7 @@ Graph 只编排有状态分支、反问恢复和有限决策；普通过滤、�
 
 ## 🧠 语义入口与状态边界
 
-### TurnInterpreter
+### Router 与 Interpretation
 
 真实 Router 输出受限的 Wire Proposal，主要包括：
 
@@ -78,7 +82,7 @@ Graph 只编排有状态分支、反问恢复和有限决策；普通过滤、�
 
 模型不能输出真实资源 ID、应用已经知道的方案 ID、路线价格营业库存等外部事实，也不能生成可以绕过权限和状态校验的执行命令。
 
-Wire Proposal 由 Harness 编译为内部领域对象。旧 Interpretation 字段仍保留部分兼容能力，但不应理解为模型直接拥有整个领域状态。
+受限 Wire Proposal 经 Router Adapter 形成内部 `Interpretation`；它是当前解释/编译边界，不是旧 checkpoint 的读取 Adapter，也不等于模型直接拥有整个领域状态。
 
 ### PlanRequest、RequestPatch 与 QuestionPolicy
 
@@ -161,8 +165,8 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 
 - Frozen C0–C4 使用同一份 36 条 reviewed Interpretation；C0/C1 为 34/36，C2/C3/C4 为 36/36；各冻结变体硬约束 7/7、冲突归因 4/4、修改链路 10/10；
 - C4 Advisor 结构有效 27/27，接受 23/27，其余 4 次按规则安全回退；
-- Live B0/B3 分别为 26/36 和 28/36；硬约束均 6/6、冲突归因均 4/4。这是一次实时模型诊断，不代表通用或生产成功率，B3 也有模型波动；
-- S-CORE2 Clarification Eval 24/24 子案例通过；端到端前端浏览器用例覆盖条件保存/重规划和从顶部栏解决反问，具体 runner 收尾限制见报告；
+- Live B0/B3 原始诊断分别为 26/36 和 28/36；两者来自 `b4d4312 + dirty worktree`，未在最终 `922474e` 重跑，不是最终 HEAD 的可复现指标，也不代表通用或生产成功率；
+- S-CORE2 Clarification Eval 24/24 子案例通过；Playwright 13 passed、1 skipped，Vite 进程改为 in-process setup/close 后 runner 退出码为 0；
 - Hybrid Retrieval 的历史正式 Recall@5 为 0.537，Rule baseline 为 0.240；Advisor 接受结果经过 Plan/Evidence/Fact ID grounding，失败时安全回退；
 - BGE 冷启动延迟与稳态延迟分开记录。
 
@@ -196,4 +200,4 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 
 ## 🎓 学习建议
 
-先读根 README 和发布报告建立当前系统概念；再读本文；随后按一次请求流向阅读 TurnInterpreter → Proposal/Enrichment Compiler → ConstraintEngine → QuestionPolicy/Readiness → PlanningIntent → PlanSpecCompiler → PlanningService → Provider/Verifier → Persistence。自然语言、顶栏、反问三种入口的 Patch 最终汇入同一个 PlanRequest。
+先读根 README 和发布报告建立当前系统概念；再读本文；随后对照自然语言、顶部栏和字段反问三种入口，沿 `RequestPatch → ConstraintEngine → PlanRequest` 阅读，再看 `RequestReadinessPolicy / QuestionPolicy → PlanningIntent → PlanSpecCompiler → PlanningService → Provider / Verifier → Persistence`。

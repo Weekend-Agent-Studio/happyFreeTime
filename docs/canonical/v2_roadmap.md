@@ -2,9 +2,9 @@
 
 > 目标：以 5 个核心里程碑和 2 个桥接切片完成可信规划、产品体验、受约束智能、可控记忆、可修改、可执行、可观测、可评测的闭环 | 状态：当前路线图基线；实际完成情况以根目录 `README.md` 为准 | 更新：2026-10-04
 
-> 历史注记：本路线图在 S-CORE1A/B/C 之前编写。M2 的 `PlanSkeleton` 与早期 PlanningIntent 结构字段描述的是当时设计，不是当前实现；当前 Planner 结构契约见 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
+> 历史注记：本路线图包含 M1/M2 的阶段快照和早期目标。旧 `NormalizedConstraints`、`QuestionGate`、`TimeConstraintSet` 与 M2 `PlanSkeleton` 仅描述当时设计，不是当前运行时契约；当前请求/时间机制见下方增补和[当前架构](../current/resume_v2_architecture.md)，Planner 结构契约见 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
 
-> 当前实现增补（2026-10-04）：S-CORE2A–E 已在 `codex/s-core2-request-engine` 完成，尚待 PR。`PlanRequest + RequestPatch + ConstraintEngine` 已统一自然语言创建、约束补充、反问恢复与顶部栏条件编辑；`PlanningWindow + TimeProposal` 已落地，默认值可见、可编辑，**没有完整 Temporal AST**。S-SIR1（统一 PlanningWindow/轻量时间提案）与 S-SIR1B（可见条件栏/字段反问）由 S-CORE2B–D 覆盖；S-SIR2–S-SIR5 仍按真实语义缺口分项评估，不属于本次完成范围。实现与验收证据见 [S-CORE2E 验收报告](../status/s_core2e_release_20261004.md)。
+> 当前实现增补（2026-10-04）：S-CORE2A–E 已在 `codex/s-core2-request-engine` 完成，尚未合并 main。`PlanRequest + RequestPatch + ConstraintEngine` 已统一自然语言创建、约束补充、反问恢复与顶部栏条件编辑；`PlanningWindow + TimeProposal` 已落地，默认值可见、可编辑，**没有完整 Temporal AST**。S-SIR1（统一 PlanningWindow/轻量时间提案）与 S-SIR1B（可见条件栏/字段反问）由 S-CORE2B–D 覆盖；S-SIR2–S-SIR5 仍按真实语义缺口分项评估，不属于本次完成范围。实现与验收证据见 [S-CORE2E 验收报告](../status/s_core2e_release_20261004.md)。
 
 ---
 
@@ -50,6 +50,8 @@ flowchart LR
 
 ## 3. M1 核心入口
 
+> 本节保留 M1 当时的设计与验收口径；其中 `NormalizedConstraints`、Enrichment/Gate 流程已由 S-CORE2 的 `PlanRequest`、`ConstraintEngine` 与 `QuestionPolicy` 替代。
+
 **目标：** 用户输入一句自然语言后，系统通过 Router -> Enrichment -> Gate 生成一组结构化约束，并能给出一个本地估算的双站计划或一个必要反问。
 
 建议周期：3-5 个有效开发日。
@@ -60,7 +62,7 @@ flowchart LR
 
 **Domain**
 
-- 定义 `ActorContext`、`Interpretation`、`RawConstraints`、`NormalizedConstraints`。
+- 当时的请求契约：`ActorContext`、`Interpretation`、`RawConstraints`、`NormalizedConstraints`；当前唯一规划请求是 `PlanRequest`。
 - 定义 `ConstraintValue`、`Assumption`、`QuestionDecision`。
 - 定义最小 `Stop`、`RouteLeg`、`Plan`、`AgentEvent`。
 - 定义领域错误和 ResponseEnvelope。
@@ -182,7 +184,7 @@ flowchart LR
 
 **目标：** 不改变 Planner 可行性语义，把已经可信的结构化结果呈现为“家庭管家在帮我安排”，而不是调试控制台或约束报表。
 
-**实现检查点（2026-08-31，Demo World V1）：** 作品演示默认使用 `DemoCatalog`，仍保持 `Catalog.recall(NormalizedConstraints) -> CatalogResult` seam 和可切回的 `SnapshotCatalog`。它以 200 条 OSM 名称/类别/坐标锚点叠加版本化、固定种子的商业模拟世界；模拟价格、营业、亲子和天气适配真实进入 Catalog 剪枝、Planner 评分和 Verifier，而图片、评分、评论、画廊和文案经独立 `PoiPresentation` 按 `resource_id` 进入 API/SQLite 会话快照。这里的可信含义是约束、路线、状态与修复可解释可复现，不把模拟商业数据伪装为实时商户事实。默认 UI 使用一次克制的数据模式提示；已有 Wikimedia 图片保留归属，无图为明确的类别示意图。
+**实现检查点（2026-08-31，Demo World V1）：** 作品演示默认使用 `DemoCatalog`；当时的 `Catalog.recall(NormalizedConstraints) -> CatalogResult` seam 已在 S-CORE2 收敛为 `Catalog.recall(PlanRequest) -> CatalogResult`，并保留可切回的 `SnapshotCatalog`。它以 200 条 OSM 名称/类别/坐标锚点叠加版本化、固定种子的商业模拟世界；模拟价格、营业、亲子和天气适配真实进入 Catalog 剪枝、Planner 评分和 Verifier，而图片、评分、评论、画廊和文案经独立 `PoiPresentation` 按 `resource_id` 进入 API/SQLite 会话快照。这里的可信含义是约束、路线、状态与修复可解释可复现，不把模拟商业数据伪装为实时商户事实。默认 UI 使用一次克制的数据模式提示；已有 Wikimedia 图片保留归属，无图为明确的类别示意图。
 
 建议周期：2-4 个有效开发日；必须在 M2 验收后进入，不与餐时、返程、多样化和 M2 eval 并行抢占主线。
 
@@ -212,6 +214,8 @@ flowchart LR
 
 ## 5. M3 对话控制、受约束语义规划与可修改体验
 
+> 本节是 M3 的总体路线与尚未完成能力清单。请求更新、字段反问和时间输入中原先规划给 M3-A 的部分已由 S-CORE2A–E 先行交付；其余 Inquiry/Explanation、长期记忆和通用能力路由仍是后续目标。
+
 **目标：** 用户可以用开放自然语言创建、查询、解释和定向修改方案；LLM 的结构化决策能够实质改变检索方向、计划结构或可行方案排序，同时所有事实、硬约束、预算、终止和副作用继续受 Harness 控制。
 
 建议周期：8-12 个有效开发日，按 M3-A、M3-B、M3-C 三个可独立回归的纵向切片推进，不一次性替换 M2 主链路。
@@ -220,13 +224,13 @@ flowchart LR
 
 **M3-A：对话控制与上下文基础**
 
-- 定义 `ConversationCommand`、`TargetReference`、`ConstraintPatch`、`QuestionSpec`、`SessionSnapshot`、`DecisionContext`、`InformationNeed` 和 `AgentDecision`。
-- 将 `RouterExtractor` 渐进演进为单一 `TurnInterpreter`；迁移期使用 Adapter 兼容旧 `Interpretation`，不串联两次重复语义抽取。
+- 定义 `ConversationCommand`、`TargetReference`、方案修改用 `ConstraintPatch`、`ClarificationIssue` / `QuestionDecision`、`SessionSnapshot`、`DecisionContext`、`InformationNeed` 和 `AgentDecision`；规划请求增量更新已另由 `RequestPatch` 统一。
+- 将 `RouterExtractor` 渐进演进为单一 `TurnInterpreter`，不串联两次重复语义抽取；当前 S-CORE2 的内部 `Interpretation` 是 Router 提案边界，不承担旧 checkpoint 兼容。
 - 建立代码拥有的 `StateMerger` 与 `CapabilityRegistry`；按 `operation + subject + target + patch` 路由到 Inquiry、Planning、Explanation 或后续 Execution 能力。
 - 增加 `ContextAssembler`，按节点用途只注入最新输入、相关会话摘要、当前约束/Plan Version/锁定、授权 MemoryContext 和已获得观察；记录来源、版本、截断和 token 预算。
-- 把 `departure_at`、可用时间窗、`duration_minutes` 和 `return_by` 分开建模；支持“14:30 精确出发”，冲突时间锚点进入 Gate。
+- 把精确出发、可用时间窗、`duration_minutes` 和最晚返程分开表达；S-CORE2 已用带 `start_kind/end_kind` 的 `PlanningWindow` 与轻量 `TimeProposal` 覆盖该范围，不扩展成完整 Temporal AST。
 - 先实现无副作用的查询与解释最小闭环，例如查目标时段天气、解释首选理由；界面结构化操作直接产生命令，不经过 LLM。
-- `QuestionGate` 按 Capability Contract 判断阻塞字段，`QuestionComposer` 只可优化文案和合法选项排序。
+- 当前请求反问由编译器/Readiness Policy 产生结构化 `ClarificationIssue`，再由确定性 `QuestionPolicy` 决定是否阻断并使用模板文案；不调用 `QuestionComposer`。该请求路径已由 S-CORE2A–E 落地。
 
 **M3-B：定向修改与版本差异**
 

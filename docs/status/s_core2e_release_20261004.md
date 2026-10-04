@@ -1,6 +1,6 @@
 # S-CORE2E：统一约束路径清理与发布验收
 
-> 分支：`codex/s-core2-request-engine`；基于 `origin/main@26df327`；本报告记录 S-CORE2A–E 的分支验收，不代表已合并 `main`。日期：2026-10-04。
+> 分支：`codex/s-core2-request-engine`；基于 `origin/main@26df327`；S-CORE2E 实现切片最终代码提交为 `922474e`。本报告记录该分支验收，不代表已合并 `main`。初版验收：2026-10-04；收尾复验：2026-10-05。
 
 ## 结果摘要
 
@@ -26,7 +26,7 @@ S-SIR backlog 状态：S-SIR0 已完成；S-SIR1 与 S-SIR1B 的范围由 S-CORE
 - 前端 Vitest：36/36 通过。
 - 前端 TypeScript 检查与 Vite 构建：通过。
 - `compileall` 与 `git diff --check`：通过。
-- Playwright：桌面与移动项目中 13 个用例报告通过、1 个移动端固定布局用例按项目配置跳过；全部测试主体已执行。Windows 上 Playwright 在最后一个用例后未正常退出并卡在 teardown，需 Ctrl-C 收尾，因此命令退出码不是干净的 0；不将其记为完整 runner 通过。UI 覆盖了 When 保存后单独确认重规划、反问卡跳到 When 并通过同一 request state 解决、方案选择刷新恢复；API/Graph 全套回归覆盖 request revision、clarification resume、规划和会话恢复。
+- Playwright：初始 `webServer` 子进程方案在 Windows 上完成测试后卡在进程树 teardown。改为 Playwright `globalSetup` 中直接启动 Vite，并在返回的 teardown 中调用 `server.close()` 后，完整运行 **13 passed、1 skipped，退出码 0**。UI 覆盖 When 保存后单独确认重规划、反问卡跳到 When 并通过同一 request state 解决、方案选择刷新恢复；API/Graph 全套回归覆盖 request revision、clarification resume、规划和会话恢复。
 
 ## 冻结与 Live 评测
 
@@ -42,14 +42,16 @@ S-SIR backlog 状态：S-SIR0 已完成；S-SIR1 与 S-SIR1B 的范围由 S-CORE
 
 C0/C1 的 34/36 不构成 S-CORE2 退化：这是 Rule-only / 非 Hybrid 语义召回表现；C2/C3/C4 达到或高于冻结发布门槛。Hybrid BGE 冷启动约 78.1s（排除在稳态延迟外）；本轮稳态 Retrieval P50/P95 为 143/211ms。
 
-Live Router 单次诊断：
+Live Router 单次诊断（仅供诊断，不作为最终 HEAD 的可复现指标）：
+
+> B0 与 B3 的原始报告都记录在 `b4d4312` 且 `dirty=True`；S-CORE2E 实现切片随后收敛至 `922474e`，没有在该提交上重跑 Live。为避免把脏工作树单次模型结果误写成发布成绩，以下数字只保留作波动诊断，Frozen C0–C4 才是本切片的发布评测依据。原始产物：[B0](../../artifacts/evals/S-CORE2E_B0_20261004/report.md) · [B3](../../artifacts/evals/S-CORE2E_B3_20261004/report.md)。
 
 | Variant | Task success | Hard constraints | Conflict diagnosis | Notes |
 | --- | ---: | ---: | ---: | --- |
 | B0 downstream Rule | 26/36 | 6/6 | 4/4 | 与前次观察 26/36 一致 |
 | B3 Hybrid + grounded Advisor | 28/36 | 6/6 | 4/4 | Advisor 接受 16/20；较前次 30/36 低 2 条，属于单次实时模型波动，不能作为稳定退化或提升结论 |
 
-Frozen 和 Live 指标不可混用为通用生产成功率。评测在每个 LLM 变体只运行一次、调用有上限；sandbox 首次 C1 尝试因网络限制发生安全 fallback，正式 C1 数字来自获准联网后的干净重跑。
+Frozen 和 Live 指标不可混用为通用生产成功率。评测在每个 LLM 变体只运行一次、调用有上限；sandbox 首次 C1 尝试因网络限制发生安全 fallback，正式 C1 数字来自获准联网后的干净重跑。Live B0/B3 未在最终 HEAD 重跑，不作为代码可复现性或 S-CORE2E 发布门槛结论。
 
 ## 已知边界与 PR 前检查
 

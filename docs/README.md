@@ -120,13 +120,13 @@ archive/ 下的旧 Router 设计和 V1 Mock/迁移说明只用于追溯。原始
 推荐按以下模块顺序学习：
 
 ```text
-TurnInterpreter / DemoRouter
+自然语言：Router → Enrichment / RequestPatchProposalCompiler ─┐
+顶部栏：typed RequestPatch ───────────────────────────────────┼→ ConstraintEngine
+反问回答：字段级 RequestPatch ────────────────────────────────┘
         ↓
-Enrichment 与 Constraint Patch
+RequestReadinessPolicy / QuestionPolicy → interrupt/resume
         ↓
-QuestionGate 与 interrupt/resume
-        ↓
-PlanningIntent 与 PlanSpecCompiler
+PlanRequest → PlanningIntent 与 PlanSpecCompiler
         ↓
 Catalog / Hybrid Retrieval / Beam Search
         ↓
@@ -137,7 +137,7 @@ Plan Version / PlanDiff / SQLite
 评测、Grounding 与降级
 ```
 
-每学完一层，至少做一次小实验：读一个测试、修改一个输入、观察 Trace 或运行一条离线回归。学习文档中的回答只有在能回指代码、测试或报告时，才升级为面试结论。
+上面是当前请求主链。旧的 M1/M2 学习笔记保留当时的 `NormalizedConstraints`、Enrichment/Gate 术语，用来说明架构演进，不应当作当前接口。每学完一层，至少做一次小实验：读一个测试、修改一个输入、观察运行诊断或运行一条离线回归。学习文档中的回答只有在能回指代码、测试或报告时，才升级为面试结论。
 
 ## ✍️ 维护规则
 

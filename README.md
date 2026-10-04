@@ -41,18 +41,23 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 ```mermaid
 flowchart LR
     accTitle: Resume V2 Planning Flow
-    accDescr: Natural language enters a stateful graph, passes semantic interpretation and deterministic enrichment, then goes through bounded planning, provider verification, grounded presentation, and persistence.
+    accDescr: Natural language, structured condition edits, and clarification replies converge on one versioned PlanRequest before deterministic planning and provider verification.
 
     user[👤 User] --> ui[🌐 React workspace]
     ui --> api[🌐 FastAPI]
 
-    subgraph conversation["⚙️ Conversation control"]
-        api --> interpreter[🧠 TurnInterpreter]
-        interpreter --> enrich[⚙️ Enrichment]
-        enrich --> gate{Need input?}
-        gate -->|yes| interrupt[🔒 Interrupt and checkpoint]
-        interrupt --> ui
-        gate -->|no| intent[🧠 PlanningIntent]
+    subgraph conversation["⚙️ Stateful request control"]
+        api --> router[🧠 Router / DemoRouter]
+        router --> compile[⚙️ Enrichment + Proposal Compiler]
+        compile --> engine{🧭 ConstraintEngine}
+        engine -->|Resolved| ready[✅ ReadinessPolicy]
+        engine -->|Needs clarification| policy[❓ QuestionPolicy]
+        ready -->|ready| intent[🧠 PlanningIntent]
+        policy --> interrupt[🔒 Interrupt and checkpoint]
+        topbar[Top bar typed Patch] --> patch[RequestPatch]
+        reply[Field-scoped clarification reply] --> patch
+        router -->|constraint update| patch
+        patch --> engine
     end
 
     subgraph planning["⚙️ Deterministic planning"]
@@ -164,7 +169,7 @@ pnpm run build
 - [Wire Proposal 与 CommandCompiler](docs/interview/07_从万能Interpretation到受约束WireProposal与CommandCompiler.md)：结构化输出和 Harness 重构专题。
 - [V2 长期路线图](docs/canonical/v2_roadmap.md)：未来路线图，不代表当前能力。
 
-推荐学习顺序：先看 README 和发布报告，建立当前系统概念；再读当前架构文档；随后按一次请求流向阅读 `TurnInterpreter → Enrichment → QuestionGate → PlanningService → Provider/Verifier → Persistence`；最后阅读面试材料和历史设计。
+推荐学习顺序：先看 README 和发布报告，建立当前系统概念；再读当前架构文档；随后对照自然语言、顶部栏 typed Patch 与字段反问三种入口，阅读共同的 `RequestPatch → ConstraintEngine → PlanRequest` 主链，再看 `RequestReadinessPolicy / QuestionPolicy → PlanningService → Provider / Verifier → Persistence`；最后阅读面试材料和历史设计。旧文档里的 `NormalizedConstraints`、`QuestionGate` 是 S-CORE2 前的历史契约，不是当前 Planner 输入。
 
 ## ⚠️ 当前边界
 

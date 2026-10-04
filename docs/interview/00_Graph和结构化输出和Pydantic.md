@@ -2,6 +2,8 @@
 
 _M1 基础学习笔记 · 内容需持续以当前代码和测试校准_
 
+> 本文的基础示例保留 M1 阶段的学习语境。当前请求状态已由 S-CORE2A–E 收敛：Router Proposal 经 `RequestPatch → ConstraintEngine → PlanRequest`，反问由结构化 Issue + `QuestionPolicy` 管理；下方旧 `NormalizedConstraints`、`QuestionGate` 示例已按当前契约修订或标为历史。
+
 ---
 
 你现在混在一起的是三个不同层面的概念：
@@ -45,8 +47,11 @@ LangGraph里有一个共享的 `State`。每个节点：
 class GraphState(TypedDict, total=False):
     user_input: str
     interpretation: Interpretation
-    constraints: NormalizedConstraints
-    question: QuestionDecision
+    active_request: PlanRequest
+    pending_patch: RequestPatch
+    pending_issues: tuple[ClarificationIssue, ...]
+    pending_issue: QuestionDecision
+    conflict: ConstraintConflict
     plans: list[Plan]
 ```
 
@@ -58,12 +63,17 @@ def router_node(state: GraphState):
     return {"interpretation": result}
 ```
 
-Enrichment节点：
+请求编译节点（简化示意）：
 
 ```
-def enrichment_node(state: GraphState):
-    constraints = enrich(state["interpretation"])
-    return {"constraints": constraints}
+def compile_request_node(state: GraphState):
+    patch = compile_proposal(state["interpretation"])
+    outcome = constraint_engine.apply(state.get("active_request", PlanRequest()), patch)
+    if isinstance(outcome, ResolvedRequest):
+        return {"active_request": outcome.request, "pending_patch": patch}
+    if isinstance(outcome, NeedsClarification):
+        return {"active_request": outcome.request, "pending_issues": (outcome.issue,)}
+    return {"conflict": outcome.conflict}
 ```
 
 Graph运行过程中，State逐渐变化：
@@ -80,17 +90,18 @@ Graph运行过程中，State逐渐变化：
     "interpretation": Interpretation(...)
 }
 
-# Enrichment之后
+# compile_request之后
 {
     "user_input": "...",
     "interpretation": Interpretation(...),
-    "constraints": NormalizedConstraints(...)
+    "active_request": PlanRequest(...),
+    "pending_patch": RequestPatch(...)
 }
 
-# Gate之后
+# gate之后
 {
     ...,
-    "question": QuestionDecision(should_ask=False)
+    "pending_issue": QuestionDecision(need_question=False)
 }
 
 # Planner之后
@@ -226,11 +237,11 @@ Interpretation / RawConstraints
 EnvironmentContext
 表示系统获得的当前时间、位置和天气
 
-NormalizedConstraints
+PlanRequest
 表示综合用户输入、环境、记忆和默认规则后，最终采用什么约束
 
-QuestionDecision
-表示这些约束是否足够，以及要不要反问
+ClarificationIssue / QuestionDecision
+Issue 表达缺什么；QuestionPolicy 决定是否反问以及如何用模板呈现
 
 Plan
 表示 Planner 最终生成的业务方案
@@ -247,7 +258,7 @@ Plan
 数据来源：对象中的值最初来自哪里
 ```
 
-例如 `NormalizedConstraints` 由 Enrichment节点统一创建，但其中：
+例如 `PlanRequest` 由 ConstraintEngine 根据 Patch 统一更新，但其中：
 
 ```
 date：来自用户“明天”
@@ -266,7 +277,7 @@ class ConstraintValue(BaseModel):
     raw_text: str | None = None
 ```
 
-这不代表五个节点同时写 `constraints`。更推荐由 Enrichment统一组装，避免多个节点争用同一个 State 字段。
+这不代表五个入口各自维护一份请求状态。自然语言、顶部栏与字段反问只产生不同 Patch，最终由同一个 ConstraintEngine 更新 `active_request`，避免多个节点争用或重复合并同一个 State 字段。
 
 如果多个节点确实写同一个字段：
 
