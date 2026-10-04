@@ -308,6 +308,10 @@ export type PlanningContextField = {
 
 export type PlanningContextSummary = {
   request_revision: number;
+  planned_request_revision: number | null;
+  has_active_plan: boolean;
+  plan_stale: boolean;
+  ready_for_planning: boolean;
   where: PlanningContextField;
   when: {
     date: PlanningContextField;
@@ -323,6 +327,8 @@ export type PlanningContextSummary = {
 };
 
 export type FieldEdit<T> = { operation: "set"; value: T } | { operation: "clear" };
+export type PreferenceCategory = "preferences" | "diet_tags" | "scene_tags" | "avoid";
+export type PreferenceTag = { category: PreferenceCategory; value: string };
 export type PlanningContextPatch = {
   base_revision: number;
   where?: FieldEdit<string>;
@@ -338,12 +344,12 @@ export type PlanningContextPatch = {
     members?: FieldEdit<string[]>;
   };
   budget?: { mode: "unlimited" } | { mode: "per_person"; amount: number; strict: boolean };
-  preferences?: { add?: string[]; remove?: string[] };
+  preferences?: { add?: PreferenceTag[]; remove?: PreferenceTag[] };
 };
 
 export type AgentResponse = {
   /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
-  status: "completed" | "needs_input";
+  status: "completed" | "needs_input" | "context_saved";
   reply: string;
   question: {
     field: string | null;

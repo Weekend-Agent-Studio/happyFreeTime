@@ -84,12 +84,42 @@ export async function updatePlanningContext(
   return body.data;
 }
 
+export async function replanPlanningContext(
+  sessionId: string,
+  requestId: string,
+): Promise<AgentResponse> {
+  const response = await fetch(`/api/sessions/${sessionId}/planning-context/replan`, {
+    method: "POST",
+    headers: { ...USER_HEADER, "Content-Type": "application/json" },
+    body: JSON.stringify({ request_id: requestId }),
+  });
+  const body = await readJson<{ data: AgentResponse }>(response);
+  return body.data;
+}
+
 export async function listSessions(limit = 5): Promise<SessionSummary[]> {
   const response = await fetch(`/api/sessions?limit=${limit}`, {
     headers: USER_HEADER,
   });
   const body = await readJson<{ data: { sessions: SessionSummary[] } }>(response);
   return body.data.sessions;
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const response = await fetch(`/api/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { ...USER_HEADER, "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  await readJson<{ data: { session_id: string; title: string } }>(response);
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const response = await fetch(`/api/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: USER_HEADER,
+  });
+  await readJson<{ data: { deleted: boolean } }>(response);
 }
 
 export async function getSession(sessionId: string): Promise<SessionView> {

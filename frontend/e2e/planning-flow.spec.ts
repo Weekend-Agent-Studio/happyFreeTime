@@ -5,6 +5,10 @@ const response = {
   reply: "已生成方案",
   planning_context: {
     request_revision: 1,
+    planned_request_revision: 1,
+    has_active_plan: true,
+    plan_stale: false,
+    ready_for_planning: true,
     where: { value: { city: "北京市", district: "朝阳区", address: "北京市朝阳区", latitude: 39.9, longitude: 116.4 }, display_value: "北京市朝阳区", source: "default", editable: true, status: "assumed" },
     when: {
       date: { value: "2026-08-15", display_value: "2026-08-15", source: "user", editable: true, status: "resolved" },
@@ -168,10 +172,11 @@ test("selection persists across refresh and clears after a new plan", async ({ p
   await expect(page.getByText("已选择这个方案")).toHaveCount(0);
 });
 
-test("When topbar submits a typed patch and refreshes its displayed value from the response", async ({ page }) => {
+test("When edits save without replanning until the user confirms", async ({ page }) => {
   let revision = 1;
   let savedDate = "2026-08-15";
   let submittedPatch: Record<string, unknown> | null = null;
+  let replanSubmitted = false;
   await page.route("**/api/sessions/offline-session/planning-context", async (route) => {
     submittedPatch = route.request().postDataJSON().patch;
     const patch = submittedPatch as { base_revision: number; when?: { date?: { operation: string; value?: string } } };
@@ -179,6 +184,17 @@ test("When topbar submits a typed patch and refreshes its displayed value from t
     savedDate = patch.when?.date?.value ?? savedDate;
     const nextContext = structuredClone(response.planning_context);
     nextContext.request_revision = revision;
+    nextContext.planned_request_revision = 1;
+    nextContext.plan_stale = true;
+    nextContext.when.date.value = savedDate;
+    nextContext.when.date.display_value = savedDate;
+    await route.fulfill({ json: { data: { ...response, status: "context_saved", reply: "", plans: [], planning_context: nextContext } } });
+  });
+  await page.route("**/api/sessions/offline-session/planning-context/replan", async (route) => {
+    replanSubmitted = true;
+    const nextContext = structuredClone(response.planning_context);
+    nextContext.request_revision = revision;
+    nextContext.planned_request_revision = revision;
     nextContext.when.date.value = savedDate;
     nextContext.when.date.display_value = savedDate;
     await route.fulfill({ json: { data: { ...response, planning_context: nextContext } } });
@@ -191,7 +207,7 @@ test("When topbar submits a typed patch and refreshes its displayed value from t
 
   await page.getByRole("button", { name: "修改When" }).click();
   await page.getByLabel("日期").fill("2026-08-16");
-  await page.getByRole("button", { name: "保存并重新规划" }).click();
+  await page.getByRole("button", { name: "保存条件" }).click();
 
   await expect.poll(() => submittedPatch).not.toBeNull();
   expect(submittedPatch).toMatchObject({
@@ -199,6 +215,10 @@ test("When topbar submits a typed patch and refreshes its displayed value from t
     when: { date: { operation: "set", value: "2026-08-16" } },
   });
   await expect(page.getByRole("button", { name: /When.*2026-08-16/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+  expect(replanSubmitted).toBe(false);
+  await page.getByRole("button", { name: "按新条件重新规划" }).click();
+  await expect.poll(() => replanSubmitted).toBe(true);
 });
 
 test("clarification card opens When and resolves through the same topbar request state", async ({ page }) => {
@@ -238,8 +258,8 @@ test("clarification card opens When and resolves through the same topbar request
   await expect(page.getByText("早上大概几点出发？")).toBeVisible();
   await page.getByRole("button", { name: "去顶部修改" }).click();
   await expect(page.getByRole("dialog", { name: "When" })).toBeVisible();
-  await page.getByLabel("开始时间").fill("09:30");
-  await page.getByRole("button", { name: "保存并重新规划" }).click();
+  await page.getByLabel("出发时间").fill("09:30");
+  await page.getByRole("button", { name: "确认并继续" }).click();
 
   await expect.poll(() => submittedPatch).not.toBeNull();
   expect(submittedPatch).toMatchObject({

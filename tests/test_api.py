@@ -879,6 +879,55 @@ class ApiTest(unittest.TestCase):
         self.assertIn("已筛出 3 个可行方案", sessions[0]["last_message_preview"])
         self.assertNotEqual(sessions[0]["session_id"], hidden_empty_session)
 
+    def test_session_title_can_be_renamed_and_owned_session_deleted(self) -> None:
+        session_id = self._create_session()
+        created = self._send_message(session_id, "今天下午出去玩")
+        self.assertEqual(created.status_code, 200, created.text)
+
+        renamed = self.client.patch(
+            f"/api/sessions/{session_id}",
+            headers=self.headers,
+            json={"title": "  和朋友的周末  "},
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertEqual(renamed.json()["data"]["title"], "和朋友的周末")
+        self.assertEqual(self._session_view(session_id)["title"], "和朋友的周末")
+
+        invalid_title = self.client.patch(
+            f"/api/sessions/{session_id}",
+            headers=self.headers,
+            json={"title": "   "},
+        )
+        self.assertEqual(invalid_title.status_code, 422)
+
+        other_user_headers = {"X-User-Id": "someone-else"}
+        self.assertEqual(
+            self.client.patch(
+                f"/api/sessions/{session_id}",
+                headers=other_user_headers,
+                json={"title": "偷改标题"},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/api/sessions/{session_id}", headers=other_user_headers
+            ).status_code,
+            404,
+        )
+
+        deleted = self.client.delete(
+            f"/api/sessions/{session_id}", headers=self.headers
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertTrue(deleted.json()["data"]["deleted"])
+        self.assertEqual(
+            self.client.get(
+                f"/api/sessions/{session_id}", headers=self.headers
+            ).status_code,
+            404,
+        )
+
     def test_message_exposes_route_source_and_verified_timeline(self) -> None:
         session_id = self._create_session()
 
@@ -1364,7 +1413,7 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(all("meal-a" not in {stop["resource_id"] for stop in plan["stops"]} for plan in plans))
         self.assertTrue(any([stop["resource_id"] for stop in plan["stops"]] == ["activity-a", "meal-b"] for plan in plans))
 
-    def test_planning_context_patch_replans_without_recording_a_fake_user_turn(self) -> None:
+    def test_planning_context_patch_saves_as_stale_until_explicit_replan(self) -> None:
         session_id = self._create_session()
         first = self._send_message(session_id, "今天下午出去玩")
         self.assertEqual(first.status_code, 200, first.text)
@@ -1385,10 +1434,32 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(updated.status_code, 200, updated.text)
         body = updated.json()["data"]
-        self.assertEqual(body["status"], "completed")
-        self.assertTrue(body["plans"])
+        self.assertEqual(body["status"], "context_saved")
+        self.assertFalse(body["plans"])
         self.assertEqual(body["planning_context"]["when"]["date"]["value"], "2026-08-16")
         self.assertEqual(body["planning_context"]["request_revision"], old_revision + 1)
+        self.assertTrue(body["planning_context"]["plan_stale"])
+        self.assertEqual(body["planning_context"]["planned_request_revision"], old_revision)
+
+        stale_view = self._session_view(session_id)
+        self.assertEqual(stale_view["planning_context"]["request_revision"], old_revision + 1)
+        self.assertTrue(stale_view["planning_context"]["plan_stale"])
+        self.assertTrue(stale_view["plans"])
+
+        replanned = self.client.post(
+            f"/api/sessions/{session_id}/planning-context/replan",
+            headers=self.headers,
+            json={"request_id": uuid.uuid4().hex},
+        )
+        self.assertEqual(replanned.status_code, 200, replanned.text)
+        replanned_body = replanned.json()["data"]
+        self.assertEqual(replanned_body["status"], "completed")
+        self.assertTrue(replanned_body["plans"])
+        self.assertFalse(replanned_body["planning_context"]["plan_stale"])
+        self.assertEqual(
+            replanned_body["planning_context"]["planned_request_revision"],
+            old_revision + 1,
+        )
 
         view = self._session_view(session_id)
         self.assertEqual(
@@ -1547,13 +1618,16 @@ class ApiTest(unittest.TestCase):
                             "members": {"operation": "set", "value": ["朋友"]},
                         },
                         "budget": {"mode": "per_person", "amount": 9999, "strict": False},
-                        "preferences": {"add": ["清淡"]},
+                        "preferences": {"add": [{"category": "diet_tags", "value": "清淡"}]},
                     },
                 },
             )
 
             self.assertEqual(updated.status_code, 200, updated.text)
-            next_context = updated.json()["data"]["planning_context"]
+            saved_body = updated.json()["data"]
+            self.assertEqual(saved_body["status"], "context_saved")
+            self.assertFalse(saved_body["plans"])
+            next_context = saved_body["planning_context"]
             self.assertEqual(next_context["request_revision"], context["request_revision"] + 1)
             self.assertEqual(next_context["where"]["value"]["address"], "北京市朝阳区国贸")
             self.assertEqual(next_context["when"]["date"]["value"], "2026-08-16")
@@ -1565,7 +1639,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(next_context["budget"]["value"], {
                 "mode": "per_person", "amount": 9999, "strict": False,
             })
-            self.assertEqual(next_context["preferences"]["value"]["preferences"], ["清淡"])
+            self.assertEqual(next_context["preferences"]["value"]["diet_tags"], ["清淡"])
 
 
 if __name__ == "__main__":

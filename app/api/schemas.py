@@ -79,16 +79,27 @@ class BudgetEdit(BaseModel):
         return self
 
 
+class PreferenceTagEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    category: Literal["preferences", "diet_tags", "scene_tags", "avoid"]
+    value: str = Field(min_length=1, max_length=120)
+
+
 class PreferencesEdit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    add: list[str] = Field(default_factory=list, max_length=20)
-    remove: list[str] = Field(default_factory=list, max_length=20)
+    add: list[PreferenceTagEdit] = Field(default_factory=list, max_length=20)
+    remove: list[PreferenceTagEdit] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def validate_changes(self) -> "PreferencesEdit":
-        normalized_add = {item.strip() for item in self.add if item.strip()}
-        normalized_remove = {item.strip() for item in self.remove if item.strip()}
+        normalized_add = {
+            (item.category, item.value.strip()) for item in self.add if item.value.strip()
+        }
+        normalized_remove = {
+            (item.category, item.value.strip()) for item in self.remove if item.value.strip()
+        }
         if not normalized_add and not normalized_remove:
             raise ValueError("preferences edit must add or remove a value")
         if normalized_add.intersection(normalized_remove):
@@ -152,6 +163,10 @@ class PlanningContextSummary(BaseModel):
     budget: PlanningContextField
     preferences: PlanningContextField
     pending_field: str | None = None
+    planned_request_revision: int | None = Field(default=None, ge=0)
+    has_active_plan: bool = False
+    plan_stale: bool = False
+    ready_for_planning: bool = False
 
 
 class ResponseEnvelope(BaseModel, Generic[T]):
@@ -171,6 +186,10 @@ class MessageRequest(BaseModel):
     # natural-language clients remain valid.
     conversation_command: ConversationCommand | None = None
     planning_context_patch: PlanningContextPatch | None = None
+    # Internal UI workflow flags. A context save persists the new PlanRequest
+    # without planning; a separate action can replan that saved request.
+    defer_planning: bool = False
+    replan_current_request: bool = False
 
     @model_validator(mode="after")
     def validate_action_shape(self) -> "MessageRequest":
@@ -184,7 +203,17 @@ class MessageRequest(BaseModel):
         )
         if actions > 1:
             raise ValueError("only one structured action may be submitted per request")
+        if self.defer_planning and self.planning_context_patch is None:
+            raise ValueError("defer_planning requires a planning context patch")
+        if self.replan_current_request and actions:
+            raise ValueError("replan_current_request cannot be combined with another action")
         return self
+
+
+class CurrentRequestReplanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=8, max_length=64)
 
 
 class SessionSummaryResponse(BaseModel):
@@ -196,6 +225,12 @@ class SessionSummaryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_message_preview: str
+
+
+class SessionTitleUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=120)
 
 
 class SessionMessageResponse(BaseModel):

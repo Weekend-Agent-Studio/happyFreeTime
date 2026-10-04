@@ -15,6 +15,7 @@ from langgraph.types import Command
 from app.api.schemas import (
     AgentResponse,
     ConstraintSummaryItem,
+    CurrentRequestReplanRequest,
     MessageRequest,
     PlanningContextField,
     PlanningContextPatch,
@@ -25,6 +26,7 @@ from app.api.schemas import (
     ResponseEnvelope,
     SessionMessageResponse,
     SessionSummaryResponse,
+    SessionTitleUpdateRequest,
 )
 from app.domain.constraints import (
     ActorContext,
@@ -52,6 +54,7 @@ from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
 from app.services.candidate_retriever import CandidateRetriever
+from app.services.request_readiness import RequestReadinessPolicy
 from app.services.planning_intent import PlanningIntentProvider
 from app.services.recommendation_advisor import (
     RecommendationAdvisor,
@@ -104,6 +107,8 @@ def project_planning_context(
     request: PlanRequest | None,
     *,
     pending_field: str | None = None,
+    planned_request_revision: int | None = None,
+    has_active_plan: bool = False,
 ) -> PlanningContextSummary:
     """Build the UI summary only from the canonical request and current issue."""
     active = request or PlanRequest()
@@ -188,6 +193,13 @@ def project_planning_context(
             pending=pending_field in {"preferences", "diet_tags", "scene_tags", "avoid"},
         ),
         pending_field=pending_field,
+        planned_request_revision=planned_request_revision,
+        has_active_plan=has_active_plan,
+        plan_stale=has_active_plan and planned_request_revision != active.revision,
+        ready_for_planning=(
+            RequestReadinessPolicy().first_issue(active) is None
+            and not (active.strict_budget and active.budget_per_person is None)
+        ),
     )
 
 
@@ -320,13 +332,16 @@ def compile_planning_context_patch(
             set_fields["strict_budget"] = patch.budget.strict
 
     if patch.preferences is not None:
-        additions = tuple(patch.preferences.add)
-        removals = tuple(patch.preferences.remove)
-        if additions:
-            add_to_fields["preferences"] = additions
-        if removals:
-            for field_name in ("preferences", "diet_tags", "scene_tags", "avoid"):
-                remove_from_fields[field_name] = removals
+        for operation, target in (
+            (patch.preferences.add, add_to_fields),
+            (patch.preferences.remove, remove_from_fields),
+        ):
+            grouped: dict[str, list[str]] = {}
+            for item in operation:
+                value = item.value.strip()
+                if value:
+                    grouped.setdefault(item.category, []).append(value)
+            target.update({field: tuple(values) for field, values in grouped.items()})
 
     request_patch = RequestPatch(
         base_revision=patch.base_revision,
@@ -409,6 +424,33 @@ def create_app(
             identity_type=IdentityType.DEMO,
         )
 
+    def planning_context_for_session(
+        user_id: str,
+        session_id: str,
+        request: PlanRequest,
+        *,
+        pending_field: str | None = None,
+        just_planned: bool = False,
+    ) -> PlanningContextSummary:
+        snapshot = repository.get_session_snapshot(user_id, session_id)
+        has_active_plan = bool(snapshot and snapshot.active_plan_version_id)
+        planned_request = (
+            repository.active_constraints(user_id, session_id)
+            if has_active_plan
+            else None
+        )
+        planned_revision = (
+            request.revision
+            if just_planned
+            else planned_request.get("revision") if planned_request else None
+        )
+        return project_planning_context(
+            request,
+            pending_field=pending_field,
+            planned_request_revision=planned_revision,
+            has_active_plan=has_active_plan or just_planned,
+        )
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -467,6 +509,34 @@ def create_app(
             }
         )
 
+    @app.patch("/api/sessions/{session_id}")
+    def update_session_title(
+        session_id: str,
+        payload: SessionTitleUpdateRequest,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[dict[str, str]]:
+        session = repository.update_session_title(
+            user_id=x_user_id,
+            session_id=session_id,
+            title=payload.title,
+        )
+        if session is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        return ResponseEnvelope(data={"session_id": session.id, "title": session.title})
+
+    @app.delete("/api/sessions/{session_id}")
+    def delete_session(
+        session_id: str,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[dict[str, bool]]:
+        if repository.get_session(x_user_id, session_id) is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        if not repository.delete_session(user_id=x_user_id, session_id=session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+        configurable = checkpoint_config(session_id)["configurable"]
+        checkpointer.delete_thread(configurable["thread_id"])
+        return ResponseEnvelope(data={"deleted": True})
+
     @app.get("/api/sessions/{session_id}")
     def get_session(
         session_id: str,
@@ -514,7 +584,9 @@ def create_app(
                 ),
                 "selected_plan_id": snapshot.selected_plan_id if snapshot else None,
                 "active_constraints": repository.active_constraints(x_user_id, session_id),
-                "planning_context": project_planning_context(
+                "planning_context": planning_context_for_session(
+                    x_user_id,
+                    session_id,
                     active_request,
                     pending_field=pending_field,
                 ).model_dump(mode="json"),
@@ -569,6 +641,7 @@ def create_app(
             if pending_snapshot.next and pending_snapshot.interrupts
             else None
         )
+
         pending_values = getattr(pending_snapshot, "values", None) or {}
         active_value = pending_values.get("active_request")
         if active_value is None:
@@ -578,6 +651,20 @@ def create_app(
             else PlanRequest.model_validate(active_value) if active_value is not None
             else PlanRequest()
         )
+        if request.replan_current_request:
+            if pending_interrupt is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="当前有待回答的问题，请先完成或取消反问再重新规划。",
+                )
+            if (
+                RequestReadinessPolicy().first_issue(active_request) is not None
+                or (active_request.strict_budget and active_request.budget_per_person is None)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="规划条件还不完整，请先补齐必需条件。",
+                )
         compiled_context_patch: RequestPatch | None = None
         context_patch_issues: tuple[ClarificationIssue, ...] = ()
         if request.planning_context_patch is not None:
@@ -686,7 +773,10 @@ def create_app(
                 session_id=session_id,
                 request_id=request.request_id,
                 content=request_content,
-                record_user_message=request.planning_context_patch is None,
+                record_user_message=(
+                    request.planning_context_patch is None
+                    and not request.replan_current_request
+                ),
             )
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -774,6 +864,8 @@ def create_app(
                         "selected_plan": selected_plan,
                         "request_patch_override": compiled_context_patch,
                         "request_patch_issues": context_patch_issues,
+                        "defer_planning": request.defer_planning,
+                        "replan_current_request": False,
                     },
                     config=config,
                 )
@@ -834,10 +926,6 @@ def create_app(
                     ),
                     None,
                 )
-                active_constraints_payload = repository.active_constraints(
-                    x_user_id,
-                    session_id,
-                )
                 result = graph.invoke(
                     {
                         "user_input": request.content,
@@ -848,14 +936,10 @@ def create_app(
                             if session_snapshot is not None
                             else None
                         ),
-                        "active_request": (
-                            PlanRequest.model_validate(
-                                active_constraints_payload
-                            )
-                            if active_constraints_payload is not None
-                            else None
-                        ),
+                        "active_request": active_request,
                         "selected_plan": selected_plan,
+                        "defer_planning": False,
+                        "replan_current_request": request.replan_current_request,
                         # A structured UI command is already validated at the
                         # HTTP boundary.  Passing it as an explicit Graph input
                         # keeps the natural-language interpreter out of this
@@ -890,7 +974,9 @@ def create_app(
                     warnings=[],
                     poi_presentations=[],
                     runtime_decisions=runtime_decisions,
-                    planning_context=project_planning_context(
+                    planning_context=planning_context_for_session(
+                        x_user_id,
+                        session_id,
                         current_request,
                         pending_field=question.get("field") if isinstance(question, dict) else None,
                     ),
@@ -911,6 +997,12 @@ def create_app(
             reply = interpretation.reply if interpretation else ""
             plans = candidate_set.plans if candidate_set else []
             conflict = candidate_set.conflict if candidate_set else None
+            context_saved = (
+                request.planning_context_patch is not None
+                and request.defer_planning
+                and not plans
+                and conflict is None
+            )
             effective_constraints = (
                 result.get("active_request")
             )
@@ -1001,8 +1093,8 @@ def create_app(
                 ]
 
             response = AgentResponse(
-                status="completed",
-                reply=reply,
+                status="context_saved" if context_saved else "completed",
+                reply="" if context_saved else reply,
                 assumptions=_dump_assumptions(result),
                 constraint_summary=_dump_constraint_summary(result),
                 plans=[plan.model_dump(mode="json") for plan in plans],
@@ -1199,7 +1291,12 @@ def create_app(
                     if recommendation_advice is not None
                     else None
                 ),
-                planning_context=project_planning_context(effective_constraints),
+                planning_context=planning_context_for_session(
+                    x_user_id,
+                    session_id,
+                    effective_constraints,
+                    just_planned=bool(plans),
+                ),
             )
             repository.complete_planning_run(
                 user_id=x_user_id,
@@ -1207,7 +1304,7 @@ def create_app(
                 planning_run_id=run.planning_run_id,
                 status="completed",
                 response=response.model_dump(mode="json"),
-                assistant_content=reply,
+                assistant_content="" if context_saved else reply,
                 plans=plans,
                 plan_version_id=plan_version_id,
                 normalized_constraints_json=normalized_constraints_json,
@@ -1234,6 +1331,23 @@ def create_app(
                 request_id=request.request_id,
                 content="顶部条件更新",
                 planning_context_patch=request.patch,
+                defer_planning=True,
+            ),
+            x_user_id,
+        )
+
+    @app.post("/api/sessions/{session_id}/planning-context/replan")
+    def replan_saved_context(
+        session_id: str,
+        request: CurrentRequestReplanRequest,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[AgentResponse]:
+        return send_message(
+            session_id,
+            MessageRequest(
+                request_id=request.request_id,
+                content="按当前保存的规划条件重新规划",
+                replan_current_request=True,
             ),
             x_user_id,
         )

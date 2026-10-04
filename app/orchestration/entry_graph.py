@@ -166,6 +166,8 @@ class EntryState(TypedDict, total=False):
     conversation_command_override: ConversationCommand | None
     request_patch_override: RequestPatch | None
     request_patch_issues: tuple[ClarificationIssue, ...]
+    defer_planning: bool
+    replan_current_request: bool
     runtime_decisions: tuple[RuntimeDecision, ...]
     clarification_resolution: str | None
     pending_modification: PendingModification | None
@@ -558,6 +560,7 @@ def build_entry_graph(
         changed = bool(outcome.changed_fields)
         return {
             "active_request": outcome.request,
+            "candidate_set": None,
             "pending_issue": None,
             "pending_patch": None,
             "pending_issues": (),
@@ -585,6 +588,23 @@ def build_entry_graph(
                 patch,
                 state.get("request_patch_issues", ()),
             ),
+        }
+
+    def replan_current_request_node(state: EntryState) -> dict[str, object]:
+        if state.get("active_request") is None:
+            raise ValueError("replan_current_request requires an active PlanRequest")
+        return {
+            "interpretation": Interpretation(
+                primary_intent=Intent.REFINE_PLAN,
+                intent_scores={Intent.REFINE_PLAN: 1.0},
+                reply="正在按已保存的规划条件重新生成方案。",
+            ),
+            "candidate_set": None,
+            "pending_issue": None,
+            "pending_patch": None,
+            "pending_issues": (),
+            "mutation_kind": "constraint_patch",
+            "ready_for_planning": True,
         }
 
     def patch_resolves_issue(
@@ -1052,6 +1072,7 @@ def build_entry_graph(
     graph = StateGraph(EntryState)
     graph.add_node("router", router_node)
     graph.add_node("apply_request_patch", apply_request_patch_node)
+    graph.add_node("replan_current_request", replan_current_request_node)
     graph.add_node("compile_patch", compile_patch_node)
     graph.add_node("modify_plan", modify_plan_node)
     graph.add_node("enrichment", enrichment_node)
@@ -1061,9 +1082,14 @@ def build_entry_graph(
     graph.add_node("planning", planning_node)
     graph.add_conditional_edges(
         START,
-        lambda state: "apply_request_patch" if state.get("request_patch_override") is not None else "router",
-        {"apply_request_patch": "apply_request_patch", "router": "router"},
+        route_after_start,
+        {
+            "apply_request_patch": "apply_request_patch",
+            "replan_current_request": "replan_current_request",
+            "router": "router",
+        },
     )
+    graph.add_edge("replan_current_request", "planning")
     graph.add_conditional_edges(
         "apply_request_patch",
         route_after_patch,
@@ -1247,6 +1273,8 @@ def route_after_patch(state: EntryState) -> str:
     if state.get("mutation_kind") == "constraint_patch":
         if state.get("pending_issue") is not None:
             return "ask_question"
+        if state.get("defer_planning", False):
+            return END
         return "planning"
     if state.get("mutation_kind") == "constraint_patch_conflict":
         return END
@@ -1254,6 +1282,14 @@ def route_after_patch(state: EntryState) -> str:
     if question is not None and question.need_question:
         return "ask_question"
     return END
+
+
+def route_after_start(state: EntryState) -> str:
+    if state.get("request_patch_override") is not None:
+        return "apply_request_patch"
+    if state.get("replan_current_request", False):
+        return "replan_current_request"
+    return "router"
 
 
 def route_after_modify(state: EntryState) -> str:

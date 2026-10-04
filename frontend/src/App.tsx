@@ -4,6 +4,7 @@ import {
   Bus,
   CalendarDays,
   Car,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -21,8 +22,10 @@ import {
   Info,
   Map as MapIcon,
   MapPin,
+  MoreHorizontal,
   Navigation,
   PanelRight,
+  Pencil,
   Plus,
   ReceiptText,
   Route,
@@ -33,11 +36,12 @@ import {
   Star,
   Store,
   Tag,
+  Trash2,
   Utensils,
   X,
 } from "lucide-react";
 
-import { createSession, getSession, listSessions, selectPlan, sendMessage, updatePlanningContext } from "./api";
+import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessage, updatePlanningContext } from "./api";
 import { AmapPlanMap } from "./AmapPlanMap";
 import { clarificationSection, PlanningContextBar, type ContextSection } from "./PlanningContextBar";
 import type {
@@ -201,8 +205,14 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
 }
 
 function responsesFromSession(view: SessionView): AgentResponse[] {
-  if (view.response_history?.length) return view.response_history.map(normalizeAgentResponse);
-  if (view.latest_response) return [normalizeAgentResponse(view.latest_response)];
+  const history = (view.response_history ?? [])
+    .map(normalizeAgentResponse)
+    .filter((response) => response.status !== "context_saved");
+  if (history.length) return history;
+  if (view.latest_response) {
+    const latest = normalizeAgentResponse(view.latest_response);
+    if (latest.status !== "context_saved") return [latest];
+  }
   if (!view.plans.length) return [];
   return [{
     status: "completed", reply: "", question: null, assumptions: [], constraint_summary: [],
@@ -679,6 +689,11 @@ function App() {
       const nextResponse = await updatePlanningContext(activeSession, patch, crypto.randomUUID());
       setFailedRequest(null);
       setNewRequestMode(false);
+      if (nextResponse.status === "context_saved") {
+        setPlanningContext(nextResponse.planning_context ?? null);
+        await refreshRecentSessions();
+        return;
+      }
       setResponse(nextResponse);
       setPlanningContext(nextResponse.planning_context ?? null);
       if (nextResponse.plans.length) {
@@ -701,6 +716,41 @@ function App() {
       await refreshRecentSessions();
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "规划条件更新失败";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function replanContext() {
+    if (loading || restoring) return;
+    if (!sessionId) throw new Error("请先保存规划条件");
+    setLoading(true);
+    setError("");
+    try {
+      const nextResponse = await replanPlanningContext(sessionId, crypto.randomUUID());
+      setFailedRequest(null);
+      setResponse(nextResponse);
+      setPlanningContext(nextResponse.planning_context ?? null);
+      if (nextResponse.plans.length) {
+        activePlanVersionIdRef.current = nextResponse.plan_version_id ?? null;
+        setInspectedResponse(nextResponse);
+        setSelectedPlanId(null);
+        setReplacementDraft(null);
+        setViewedPlanId(nextResponse.plans[0].plan_id);
+        setFocusedLegIndex(null);
+        setRightTab("trip");
+      }
+      const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
+      if (assistantText || nextResponse.plans.length || nextResponse.conflict) {
+        setMessages((current) => [...current, {
+          id: crypto.randomUUID(), role: "assistant", content: assistantText ?? "", response: nextResponse,
+        }]);
+      }
+      await refreshRecentSessions();
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "重新规划失败，请稍后重试";
       setError(message);
       throw new Error(message);
     } finally {
@@ -756,6 +806,17 @@ function App() {
     setError("");
     setHistoryOpen(false);
     updateSessionUrl(null);
+  }
+
+  async function renameHistorySession(targetSessionId: string, title: string) {
+    await renameSession(targetSessionId, title);
+    setRecentSessions((current) => current.map((item) => item.session_id === targetSessionId ? { ...item, title } : item));
+  }
+
+  async function deleteHistorySession(targetSessionId: string) {
+    await deleteSession(targetSessionId);
+    setRecentSessions((current) => current.filter((item) => item.session_id !== targetSessionId));
+    if (sessionIdRef.current === targetSessionId) resetSession();
   }
 
   const openRouteOnMap = useCallback((legIndex: number) => {
@@ -835,26 +896,23 @@ function App() {
       <a className="skip-link" href="#main-content">跳到主要内容</a>
 
       <aside className="session-sidebar" aria-label="会话导航">
-        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} />
+        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} />
       </aside>
 
+      <AppHeader
+        sessionTitle={recentSessions.find((item) => item.session_id === sessionId)?.title ?? "周末规划"}
+        context={planningContext}
+        busy={loading || restoring}
+        externalOpen={contextFocus}
+        onExternalOpenHandled={() => setContextFocus(null)}
+        onSave={updateContext}
+        onReplan={replanContext}
+        inspectorAvailable={Boolean(inspectorPlan)}
+        onOpenHistory={() => setHistoryOpen(true)}
+        onOpenInspector={() => setMobileDetailOpen(true)}
+      />
+
       <main className="workspace" id="main-content">
-        <header className="mobile-topbar">
-          <Brand compact />
-          <div>
-            <button type="button" onClick={() => setHistoryOpen(true)} aria-label="打开历史会话"><History size={19} /></button>
-            <button type="button" onClick={() => setMobileDetailOpen(true)} aria-label="打开方案详情" disabled={!inspectorPlan}><PanelRight size={19} /></button>
-          </div>
-        </header>
-
-        <PlanningContextBar
-          context={planningContext}
-          busy={loading || restoring}
-          externalOpen={contextFocus}
-          onExternalOpenHandled={() => setContextFocus(null)}
-          onSave={updateContext}
-        />
-
         <section className="conversation" aria-live="polite" ref={conversationRef}>
           {messages.length === 0 ? <EmptyConversation onSelect={(suggestion) => void submit(suggestion)} /> : (
             <div className="message-list">
@@ -921,7 +979,7 @@ function App() {
       </button>
 
       <MobileSheet open={historyOpen} onOpenChange={setHistoryOpen} title="历史会话" description="查看或继续之前的完整规划对话。">
-        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} compact />
+        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} compact />
       </MobileSheet>
 
       <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前方案的行程、地图、订单与可信依据。">
@@ -935,29 +993,92 @@ function Brand({ compact = false }: { compact?: boolean }) {
   return <div className={`brand-block ${compact ? "compact" : ""}`}><span className="brand-mark"><Compass size={20} aria-hidden="true" /></span><span><strong>HappyFreeTime</strong>{compact ? null : <small>周末管家</small>}</span></div>;
 }
 
-function SessionNavigation({ recentSessions, sessionId, onNew, onOpen, compact = false }: {
+function AppHeader({ sessionTitle, context, busy, externalOpen, onExternalOpenHandled, onSave, onReplan, inspectorAvailable, onOpenHistory, onOpenInspector }: {
+  sessionTitle: string;
+  context: PlanningContextSummary | null;
+  busy: boolean;
+  externalOpen: ContextSection | null;
+  onExternalOpenHandled: () => void;
+  onSave: (patch: PlanningContextPatch) => Promise<void>;
+  onReplan: () => Promise<void>;
+  inspectorAvailable: boolean;
+  onOpenHistory: () => void;
+  onOpenInspector: () => void;
+}) {
+  return <header className="app-header">
+    <div className="app-header-title"><span title={sessionTitle}>{sessionTitle}</span></div>
+    <PlanningContextBar context={context} busy={busy} externalOpen={externalOpen} onExternalOpenHandled={onExternalOpenHandled} onSave={onSave} onReplan={onReplan} />
+    <div className="app-header-mobile-actions">
+      <button type="button" onClick={onOpenHistory} aria-label="打开历史会话"><History size={19} /></button>
+      <button type="button" onClick={onOpenInspector} aria-label="打开方案详情" disabled={!inspectorAvailable}><PanelRight size={19} /></button>
+    </div>
+  </header>;
+}
+
+function SessionNavigation({ recentSessions, sessionId, onNew, onOpen, onRename, onDelete, compact = false }: {
   recentSessions: SessionSummary[];
   sessionId: string | null;
   onNew: () => void;
   onOpen: (sessionId: string) => void;
+  onRename: (sessionId: string, title: string) => Promise<void>;
+  onDelete: (sessionId: string) => Promise<void>;
   compact?: boolean;
 }) {
+  const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [managingSessions, setManagingSessions] = useState(false);
+
+  async function saveTitle(sessionId: string) {
+    const title = titleDraft.trim();
+    if (!title || !recentSessions.some((item) => item.session_id === sessionId)) return;
+    try {
+      await onRename(sessionId, title);
+      setRenamingSessionId(null);
+      setActionError("");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "重命名失败");
+    }
+  }
+
+  async function removeSession(session: SessionSummary) {
+    if (!window.confirm(`删除“${session.title}”？会话消息和方案也会一起删除，且无法恢复。`)) return;
+    try {
+      await onDelete(session.session_id);
+      setMenuSessionId(null);
+      setActionError("");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "删除会话失败");
+    }
+  }
+
   return (
     <div className={`session-navigation ${compact ? "compact" : ""}`}>
       {!compact ? <Brand /> : null}
       <button className="new-session-button" type="button" aria-label="新建规划" onClick={onNew}><Plus size={18} aria-hidden="true" />新建出游方案</button>
       <div className="sidebar-section-label">历史会话</div>
       <div className="session-history-list">
-        {recentSessions.map((session) => (
-          <button className={`session-row ${session.session_id === sessionId ? "active" : ""}`} type="button" key={session.session_id} aria-current={session.session_id === sessionId ? "page" : undefined} onClick={() => onOpen(session.session_id)}>
+        {recentSessions.map((session) => <div className={`session-row-shell ${managingSessions ? "managing" : ""}`} key={session.session_id} onContextMenu={(event) => { event.preventDefault(); setMenuSessionId(session.session_id); setActionError(""); }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuSessionId(null); }}>
+          {renamingSessionId === session.session_id ? <form className="session-rename-form" onSubmit={(event) => { event.preventDefault(); void saveTitle(session.session_id); }}>
+            <input autoFocus aria-label="规划名称" maxLength={120} value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setRenamingSessionId(null); }} />
+            <button type="submit" aria-label="保存名称" disabled={!titleDraft.trim()}><Check size={15} /></button>
+            <button type="button" aria-label="取消重命名" onClick={() => setRenamingSessionId(null)}><X size={15} /></button>
+          </form> : <button className={`session-row ${session.session_id === sessionId ? "active" : ""}`} type="button" aria-current={session.session_id === sessionId ? "page" : undefined} onClick={() => onOpen(session.session_id)}>
             <span><strong>{session.title}</strong><small>{session.last_message_preview || statusLabel(session.status)}</small></span>
             <time>{new Date(session.updated_at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}</time>
-          </button>
-        ))}
+          </button>}
+          <button className="session-more" type="button" aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuSessionId === session.session_id} onClick={() => { setActionError(""); setMenuSessionId((current) => current === session.session_id ? null : session.session_id); }}><MoreHorizontal size={17} /></button>
+          {menuSessionId === session.session_id ? <div className="session-actions-menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => { setTitleDraft(session.title); setRenamingSessionId(session.session_id); setMenuSessionId(null); }}><Pencil size={14} />重命名</button>
+            <button type="button" role="menuitem" className="danger" onClick={() => void removeSession(session)}><Trash2 size={14} />删除规划</button>
+          </div> : null}
+        </div>)}
         {!recentSessions.length ? <p className="session-history-empty">完成一次规划后，会话和方案会保留在这里。</p> : null}
       </div>
+      {actionError ? <p className="session-action-error" role="alert">{actionError}</p> : null}
       <div className="sidebar-spacer" />
-      <button className="sidebar-utility" type="button"><ReceiptText size={17} />管理会话</button>
+      <button className={`sidebar-utility ${managingSessions ? "active" : ""}`} type="button" aria-pressed={managingSessions} onClick={() => setManagingSessions((current) => !current)}><ReceiptText size={17} />{managingSessions ? "完成管理" : "管理会话"}</button>
       <button className="sidebar-utility" type="button"><Settings2 size={17} />设置</button>
     </div>
   );
@@ -1114,26 +1235,38 @@ function PlanCard({ plan, recommended = false, presentations, index, warning, re
         {heroStop ? <StopImage stop={heroStop} variant="hero" /> : <div className="stop-image hero placeholder"><ImageIcon size={22} /></div>}
         <div className="plan-visual-scrim" />
         <span className="plan-rank">方案 {index + 1}</span>
-        <div className="plan-title"><span>{strategyLabel(plan.strategy)}</span><h3>{plan.title}</h3></div>
+        <div className="plan-title"><span>{strategyLabel(plan.strategy)}</span><h3 title={plan.title}>{plan.title}</h3></div>
         {recommended ? <span className="recommended-badge">最推荐</span> : null}
       </div>
       <div className="plan-card-body">
-        <div className="plan-metrics"><span><Clock3 size={15} />{Math.floor(plan.total_duration_minutes / 60)} 小时 {plan.total_duration_minutes % 60 || ""}{plan.total_duration_minutes % 60 ? " 分" : ""}</span><span title="地点费用，不含交通" aria-label={`地点费用，不含交通：${planPriceLabel(plan)}`}><CircleDollarSign size={15} />{planPriceLabel(plan)} · 地点费用，不含交通</span><span><Route size={15} />{totalDistance(plan).toFixed(1)} km</span></div>
-        <div className={`plan-notice ${warning?.degraded ? "degraded" : ""}`} aria-label={warning ? "方案待确认信息" : undefined}><Info size={15} />{notice}</div>
+        <div className="plan-metrics">
+          <span><Clock3 size={17} aria-hidden="true" />{Math.floor(plan.total_duration_minutes / 60)} 小时 {plan.total_duration_minutes % 60 || ""}{plan.total_duration_minutes % 60 ? " 分" : ""}</span>
+          <span className="plan-metric-price" title="地点费用，不含交通" aria-label={`地点费用，不含交通：${planPriceLabel(plan)}`}><CircleDollarSign size={17} aria-hidden="true" />{planPriceLabel(plan)} · 地点费用，不含交通</span>
+          <span><Route size={17} aria-hidden="true" />{totalDistance(plan).toFixed(1)} km</span>
+        </div>
+        <div className={`plan-notice ${warning?.degraded ? "degraded" : ""} ${warning ? "flagged" : ""}`} aria-label={warning ? "方案待确认信息" : undefined}><Info size={16} aria-hidden="true" />{notice}</div>
         <div className="compact-itinerary">
-          {plan.stops.map((stop, stopIndex) => (
-            <div className="compact-stop" key={stop.resource_id}>
+          {plan.stops.map((stop, stopIndex) => {
+            const presentation = presentations.find((item) => item.resource_id === stop.resource_id);
+            const extra = presentation
+              ? [presentation.category_label, presentation.business_area, `演示评分 ${presentation.demo_rating.toFixed(1)}`]
+              : [stop.category_tags[0], priceLabel(stop)].filter(Boolean);
+            return <div className="compact-stop" key={stop.resource_id}>
               <span className="compact-marker">{stopIndex + 1}</span>
-              <span><strong>{stop.name}</strong><small>{stop.start} · {stop.role === "meal" || stop.type === "restaurant" ? "餐饮" : "活动"}</small></span>
+              <span className="compact-stop-copy">
+                <strong>{stop.name}</strong>
+                <small>{stop.start}–{stop.end} · {stop.duration_minutes} 分钟</small>
+                <small className="compact-stop-detail">{extra.filter(Boolean).join(" · ")}</small>
+              </span>
               {plan.route_legs[stopIndex + 1] && stopIndex < plan.stops.length - 1 ? <span className="compact-route"><RouteModeIcon mode={plan.route_legs[stopIndex + 1].mode} />{routeModeLabel(plan.route_legs[stopIndex + 1].mode)} {plan.route_legs[stopIndex + 1].duration_minutes} 分钟</span> : null}
-            </div>
-          ))}
+            </div>;
+          })}
         </div>
         {returnConstraint && returnLeg ? <div className="return-meta">预计 {returnLeg.end} 到家 · 目标 {displayConstraint(returnConstraint)}</div> : null}
-        <div className="route-source"><Navigation size={14} />路线来源：{[...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))].join(" / ") || "待查询"}</div>
+        <div className="route-source"><Navigation size={15} aria-hidden="true" />路线来源：{[...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))].join(" / ") || "待查询"}</div>
         <div className="plan-card-actions">
           <button className="plan-select" type="button" onClick={onChoose} aria-pressed={selected} aria-label={`选择${plan.title}`}>{selected ? "已选择这个方案" : "选择这个方案"}</button>
-          <button className="plan-view" type="button" onClick={onView} aria-pressed={viewed} aria-label={`查看${plan.title}`}>{viewed ? "正在查看" : "查看详情"}<ChevronRight size={16} /></button>
+          <button className="plan-view" type="button" onClick={onView} aria-pressed={viewed} aria-label={`查看${plan.title}`}>{viewed ? "正在查看" : "查看详情"}<ChevronRight size={17} /></button>
         </div>
         {viewed && showMobileDetails ? <MobilePlanExpansion plan={plan} presentations={presentations} canReplace={selected} onReplaceStop={onReplaceStop} onOpenInspector={onOpenInspector} onOpenRoute={onOpenRoute} /> : null}
       </div>
@@ -1145,21 +1278,32 @@ function MobilePlanExpansion({ plan, presentations, canReplace, onReplaceStop, o
   return <div className="mobile-plan-expansion"><div className="mobile-route-list">{plan.route_legs.map((leg, index) => { const kind = index === 0 ? "start" : index >= plan.stops.length ? "return" : "next"; return <RouteSummary key={`${leg.destination_name}-${index}`} leg={leg} label={kind === "start" ? "出发" : kind === "return" ? "返程" : "下一程"} actionLabel={routeActionLabel(leg, kind)} onClick={() => onOpenRoute(index)} />; })}</div><div className="mobile-poi-list">{plan.stops.map((stop, index) => <PoiDisclosure key={stop.resource_id} stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} canReplace={canReplace} onReplace={() => onReplaceStop(plan, index)} />)}</div><button className="open-inspector-button" type="button" onClick={onOpenInspector}>打开完整行程与地图<ChevronRight size={16} /></button></div>;
 }
 
+function InspectorViewPicker({ activeTab, onTabChange }: { activeTab: InspectorTab; onTabChange: (tab: InspectorTab) => void }) {
+  const labels: Record<InspectorTab, string> = { trip: "行程", map: "地图", orders: "订单", evidence: "依据" };
+  const icons: Record<InspectorTab, ReactNode> = {
+    trip: <CalendarDays size={16} aria-hidden="true" />,
+    map: <MapIcon size={16} aria-hidden="true" />,
+    orders: <ReceiptText size={16} aria-hidden="true" />,
+    evidence: <ShieldCheck size={16} aria-hidden="true" />,
+  };
+  return <div className="detail-view-nav" role="group" aria-label="方案详情视图">
+    {(Object.keys(labels) as InspectorTab[]).map((tab) => <button type="button" key={tab} aria-pressed={activeTab === tab} className={activeTab === tab ? "active" : ""} onClick={() => onTabChange(tab)}>
+      {icons[tab]}<span>{labels[tab]}</span>
+    </button>)}
+  </div>;
+}
+
 function Inspector({ response, plan, selectedPlanId, activeTab, activeLegIndex, onTabChange, onMapRoute, onTimelineRoute, onReplaceStop }: { response: AgentResponse | null; plan?: Plan; selectedPlanId: string | null; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
   const advice = plan ? planAdviceFor(response?.recommendation_advice, plan.plan_id) : undefined;
   return (
     <div className="inspector">
-      <div className="detail-tabs" role="tablist" aria-label="详情视图"><TabButton icon={<CalendarDays size={16} />} label="行程" active={activeTab === "trip"} onClick={() => onTabChange("trip")} /><TabButton icon={<MapIcon size={16} />} label="地图" active={activeTab === "map"} onClick={() => onTabChange("map")} /><TabButton icon={<ReceiptText size={16} />} label="订单" active={activeTab === "orders"} onClick={() => onTabChange("orders")} /><TabButton icon={<ShieldCheck size={16} />} label="依据" active={activeTab === "evidence"} onClick={() => onTabChange("evidence")} /></div>
+      <div className="inspector-view-switcher"><InspectorViewPicker activeTab={activeTab} onTabChange={onTabChange} /></div>
        {activeTab === "trip" ? <TripPanel plan={plan} advice={advice} presentations={response?.poi_presentations ?? []} canReplace={Boolean(plan && selectedPlanId === plan.plan_id && response?.plan_version_id)} onReplaceStop={onReplaceStop} activeLegIndex={activeLegIndex} onSelectRoute={onMapRoute} /> : null}
       {activeTab === "map" ? <MapPanel plan={plan} activeLegIndex={activeLegIndex} onSelectRoute={onTimelineRoute} /> : null}
       {activeTab === "orders" ? <OrdersPanel /> : null}
       {activeTab === "evidence" ? <EvidencePanel response={response} plan={plan} /> : null}
     </div>
   );
-}
-
-function TabButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
-  return <button type="button" role="tab" aria-selected={active} className={active ? "active" : ""} onClick={onClick}>{icon}<span>{label}</span></button>;
 }
 
 function RecommendationSummary({ plan, advice }: { plan: Plan; advice?: PlanAdvice }) {
