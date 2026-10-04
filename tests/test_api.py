@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from app.api.application import create_app
-from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole
+from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole, TimeProposal, TimeScope
 from app.domain.providers import (
     AvailabilityStatus,
     GeoPoint,
@@ -35,21 +35,30 @@ from tests.test_native_planning import candidate
 from app.domain.catalog import ResourceType
 
 
+def _trip_period(scope: TimeScope, evidence: str) -> TimeProposal:
+    return TimeProposal(target="trip", precision="period", period=scope, evidence=evidence)
+
+
+def _exact_time(target: str, clock: str, evidence: str) -> TimeProposal:
+    return TimeProposal(target=target, precision="exact", clock=clock, evidence=evidence)
+
+
 class RuleRouter:
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         if "只安排一家晚饭" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    _trip_period(TimeScope.EVENING, "晚上"),
+                    _exact_time("return", "22:00", "晚上十点前回家"),
+                ),
                 raw_constraints=RawConstraints(
                     date_text="明天",
-                    time_text="晚上",
                     exact_stop_count=1,
                     required_stop_roles=(StopRole.DINNER,),
                     budget_text="人均150",
                     budget_per_person=150,
-                    return_by_text="晚上十点前回家",
-                    return_by="22:00",
                 ),
                 evidence_map={"exact_stop_count": "只安排一家", "required_stop_roles": "晚饭"},
             )
@@ -57,20 +66,21 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    _exact_time("departure", "14:30", "下午两点半准时出发"),
+                    _exact_time("return", "18:00", "18:00 前回家"),
+                ),
                 raw_constraints=RawConstraints(
                     date_text="明天",
-                    time_text="下午",
-                    departure_at_text="下午两点半准时出发",
-                    return_by_text="18:00 前回家",
                 ),
             )
         if "约会" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     adults=2,
                     preferences=["轻松", "甜品"],
                     scene_tags=["约会"],
@@ -83,9 +93,9 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="人均100",
                     budget_per_person=100,
                     strict_budget=True,
@@ -95,9 +105,9 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="人均200",
                     budget_per_person=200,
                     strict_budget=True,
@@ -107,11 +117,12 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    _trip_period(TimeScope.AFTERNOON, "下午"),
+                    _exact_time("return", "23:00", "最晚23:00到家"),
+                ),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
-                    return_by_text="最晚23:00到家",
-                    return_by="23:00",
                     total_distance_text="全程不超过50公里",
                     total_distance_km=50,
                 ),
@@ -120,9 +131,9 @@ class RuleRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="别超预算",
                     strict_budget=True,
                 ),
@@ -130,7 +141,8 @@ class RuleRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
-            raw_constraints=RawConstraints(date_text="今天", time_text="下午"),
+            time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
+            raw_constraints=RawConstraints(date_text="今天"),
         )
 
 
@@ -139,9 +151,9 @@ class LocationRuleRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
+            time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
             raw_constraints=RawConstraints(
                 date_text="今天",
-                time_text="下午",
                 location_text="国贸",
             ),
         )
@@ -867,6 +879,55 @@ class ApiTest(unittest.TestCase):
         self.assertIn("已筛出 3 个可行方案", sessions[0]["last_message_preview"])
         self.assertNotEqual(sessions[0]["session_id"], hidden_empty_session)
 
+    def test_session_title_can_be_renamed_and_owned_session_deleted(self) -> None:
+        session_id = self._create_session()
+        created = self._send_message(session_id, "今天下午出去玩")
+        self.assertEqual(created.status_code, 200, created.text)
+
+        renamed = self.client.patch(
+            f"/api/sessions/{session_id}",
+            headers=self.headers,
+            json={"title": "  和朋友的周末  "},
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertEqual(renamed.json()["data"]["title"], "和朋友的周末")
+        self.assertEqual(self._session_view(session_id)["title"], "和朋友的周末")
+
+        invalid_title = self.client.patch(
+            f"/api/sessions/{session_id}",
+            headers=self.headers,
+            json={"title": "   "},
+        )
+        self.assertEqual(invalid_title.status_code, 422)
+
+        other_user_headers = {"X-User-Id": "someone-else"}
+        self.assertEqual(
+            self.client.patch(
+                f"/api/sessions/{session_id}",
+                headers=other_user_headers,
+                json={"title": "偷改标题"},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/api/sessions/{session_id}", headers=other_user_headers
+            ).status_code,
+            404,
+        )
+
+        deleted = self.client.delete(
+            f"/api/sessions/{session_id}", headers=self.headers
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertTrue(deleted.json()["data"]["deleted"])
+        self.assertEqual(
+            self.client.get(
+                f"/api/sessions/{session_id}", headers=self.headers
+            ).status_code,
+            404,
+        )
+
     def test_message_exposes_route_source_and_verified_timeline(self) -> None:
         session_id = self._create_session()
 
@@ -1146,6 +1207,7 @@ class ApiTest(unittest.TestCase):
                 "content": "人均200",
                 "clarification_reply": {
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "人均200",
                 },
@@ -1166,6 +1228,7 @@ class ApiTest(unittest.TestCase):
                 "content": "人均200",
                 "clarification_reply": {
                     "clarification_id": "stale-clarification",
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "人均200",
                 },
@@ -1190,6 +1253,7 @@ class ApiTest(unittest.TestCase):
                 "content": "取消本轮",
                 "clarification_reply": {
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "cancel",
                 },
             },
@@ -1235,6 +1299,7 @@ class ApiTest(unittest.TestCase):
                     "content": "人均200",
                     "clarification_reply": {
                         "clarification_id": question["clarification_id"],
+                        "request_revision": question["request_revision"],
                         "action": "answer",
                         "value": "人均200",
                     },
@@ -1351,6 +1416,234 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(plans)
         self.assertTrue(all("meal-a" not in {stop["resource_id"] for stop in plan["stops"]} for plan in plans))
         self.assertTrue(any([stop["resource_id"] for stop in plan["stops"]] == ["activity-a", "meal-b"] for plan in plans))
+
+    def test_planning_context_patch_saves_as_stale_until_explicit_replan(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩")
+        self.assertEqual(first.status_code, 200, first.text)
+        first_body = first.json()["data"]
+        self.assertEqual(first_body["planning_context"]["when"]["start_at"]["source"], "derived")
+        old_revision = first_body["planning_context"]["request_revision"]
+
+        updated = self.client.patch(
+            f"/api/sessions/{session_id}/planning-context",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "patch": {
+                    "base_revision": old_revision,
+                    "when": {"date": {"operation": "set", "value": "2026-08-16"}},
+                },
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        body = updated.json()["data"]
+        self.assertEqual(body["status"], "context_saved")
+        self.assertFalse(body["plans"])
+        self.assertEqual(body["planning_context"]["when"]["date"]["value"], "2026-08-16")
+        self.assertEqual(body["planning_context"]["request_revision"], old_revision + 1)
+        self.assertTrue(body["planning_context"]["plan_stale"])
+        self.assertEqual(body["planning_context"]["planned_request_revision"], old_revision)
+
+        stale_view = self._session_view(session_id)
+        self.assertEqual(stale_view["planning_context"]["request_revision"], old_revision + 1)
+        self.assertTrue(stale_view["planning_context"]["plan_stale"])
+        self.assertTrue(stale_view["plans"])
+
+        replanned = self.client.post(
+            f"/api/sessions/{session_id}/planning-context/replan",
+            headers=self.headers,
+            json={"request_id": uuid.uuid4().hex},
+        )
+        self.assertEqual(replanned.status_code, 200, replanned.text)
+        replanned_body = replanned.json()["data"]
+        self.assertEqual(replanned_body["status"], "completed")
+        self.assertTrue(replanned_body["plans"])
+        self.assertFalse(replanned_body["planning_context"]["plan_stale"])
+        self.assertEqual(
+            replanned_body["planning_context"]["planned_request_revision"],
+            old_revision + 1,
+        )
+
+        view = self._session_view(session_id)
+        self.assertEqual(
+            [message["content"] for message in view["messages"] if message["role"] == "user"],
+            ["今天下午出去玩"],
+        )
+
+    def test_planning_context_patch_resolves_pending_clarification_and_invalidates_old_question(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩，别超预算")
+        self.assertEqual(first.status_code, 200, first.text)
+        question = first.json()["data"]["question"]
+        self.assertEqual(question["field"], "budget_per_person")
+        context = first.json()["data"]["planning_context"]
+
+        updated = self.client.patch(
+            f"/api/sessions/{session_id}/planning-context",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "patch": {
+                    "base_revision": context["request_revision"],
+                    "budget": {"mode": "per_person", "amount": 2000, "strict": False},
+                },
+            },
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        body = updated.json()["data"]
+        self.assertEqual(body["status"], "completed")
+        self.assertIsNone(body["question"])
+        self.assertTrue(body["plans"])
+        self.assertEqual(body["planning_context"]["budget"]["value"]["amount"], 2000)
+
+        stale_reply = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "content": "人均150",
+                "clarification_reply": {
+                    "clarification_id": question["clarification_id"],
+                    "action": "answer",
+                    "value": "人均150",
+                    "request_revision": context["request_revision"],
+                },
+            },
+        )
+        self.assertEqual(stale_reply.status_code, 409, stale_reply.text)
+
+    def test_when_context_patch_resumes_ambiguous_departure_without_losing_create_patch(self) -> None:
+        app = create_app(
+            database_path=Path(self.temp_dir.name) / "planning-context-departure-resume.db",
+            router=DemoRouter(),
+            environment_provider=lambda _: self.environment,
+            weather_provider=ReplayWeatherProvider(
+                store=self.replay_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+        )
+        with TestClient(app) as client:
+            session_id = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            first = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={"request_id": uuid.uuid4().hex, "content": "今天早上出发出去玩"},
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+            first_body = first.json()["data"]
+            self.assertEqual(first_body["question"]["field"], "departure_at")
+            context = first_body["planning_context"]
+
+            updated = client.patch(
+                f"/api/sessions/{session_id}/planning-context",
+                headers=self.headers,
+                json={
+                    "request_id": uuid.uuid4().hex,
+                    "patch": {
+                        "base_revision": context["request_revision"],
+                        "when": {"start_at": {"operation": "set", "value": "09:30"}},
+                    },
+                },
+            )
+
+            self.assertEqual(updated.status_code, 200, updated.text)
+            body = updated.json()["data"]
+            self.assertEqual(body["status"], "completed")
+            self.assertTrue(body["plans"])
+            self.assertIsNone(body["question"])
+            self.assertEqual(body["planning_context"]["when"]["date"]["value"], "2026-08-15")
+            self.assertEqual(body["planning_context"]["when"]["start_at"]["value"], "09:30")
+            self.assertEqual(body["planning_context"]["when"]["start_kind"], "departure")
+
+    def test_planning_context_patch_rejects_stale_revision_without_mutation(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩")
+        context = first.json()["data"]["planning_context"]
+        stale = self.client.patch(
+            f"/api/sessions/{session_id}/planning-context",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "patch": {
+                    "base_revision": context["request_revision"] - 1,
+                    "budget": {"mode": "per_person", "amount": 100, "strict": False},
+                },
+            },
+        )
+        self.assertEqual(stale.status_code, 409, stale.text)
+        self.assertEqual(
+            self._session_view(session_id)["planning_context"]["request_revision"],
+            context["request_revision"],
+        )
+
+    def test_planning_context_patch_updates_all_five_typed_sections(self) -> None:
+        app = create_app(
+            database_path=Path(self.temp_dir.name) / "planning-context-all-fields.db",
+            router=RuleRouter(),
+            environment_provider=lambda _: self.environment,
+            weather_provider=ReplayWeatherProvider(
+                store=self.replay_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+            geocoding_provider=MockGeocodingProvider.from_locations(
+                {("北京市", "国贸"): (39.9087, 116.4615, "朝阳区", "110105", "北京市朝阳区国贸")}
+            ),
+        )
+        with TestClient(app) as client:
+            session_id = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            first = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={"request_id": uuid.uuid4().hex, "content": "今天下午出去玩"},
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+            context = first.json()["data"]["planning_context"]
+
+            updated = client.patch(
+                f"/api/sessions/{session_id}/planning-context",
+                headers=self.headers,
+                json={
+                    "request_id": uuid.uuid4().hex,
+                    "patch": {
+                        "base_revision": context["request_revision"],
+                        "where": {"operation": "set", "value": "国贸"},
+                        "when": {
+                            "date": {"operation": "set", "value": "2026-08-16"},
+                            "start_at": {"operation": "set", "value": "09:30"},
+                            "end_at": {"operation": "set", "value": "17:00"},
+                        },
+                        "who": {
+                            "adults": 2,
+                            "children": 1,
+                            "child_age": {"operation": "set", "value": 6},
+                            "members": {"operation": "set", "value": ["朋友"]},
+                        },
+                        "budget": {"mode": "per_person", "amount": 9999, "strict": False},
+                        "preferences": {"add": [{"category": "diet_tags", "value": "清淡"}]},
+                    },
+                },
+            )
+
+            self.assertEqual(updated.status_code, 200, updated.text)
+            saved_body = updated.json()["data"]
+            self.assertEqual(saved_body["status"], "context_saved")
+            self.assertFalse(saved_body["plans"])
+            next_context = saved_body["planning_context"]
+            self.assertEqual(next_context["request_revision"], context["request_revision"] + 1)
+            self.assertEqual(next_context["where"]["value"]["address"], "北京市朝阳区国贸")
+            self.assertEqual(next_context["when"]["date"]["value"], "2026-08-16")
+            self.assertEqual(next_context["when"]["start_at"]["value"], "09:30")
+            self.assertEqual(next_context["when"]["end_at"]["value"], "17:00")
+            self.assertEqual(next_context["who"]["value"], {
+                "adults": 2, "children": 1, "child_age": 6, "members": ["朋友"],
+            })
+            self.assertEqual(next_context["budget"]["value"], {
+                "mode": "per_person", "amount": 9999, "strict": False,
+            })
+            self.assertEqual(next_context["preferences"]["value"]["diet_tags"], ["清淡"])
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import PlanRequest
 from app.domain.planning import Plan, PlanDiff
 from app.domain.providers import WeatherFact
 from app.domain.semantics import EvidenceRef, SemanticRequest
@@ -22,7 +22,7 @@ class RecommendationAdviceRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    constraints: NormalizedConstraints
+    constraints: PlanRequest
     semantic_request: SemanticRequest = SemanticRequest()
     verified_plans: tuple[Plan, ...] = Field(min_length=1, max_length=3)
     retrieval_evidence: tuple[EvidenceRef, ...] = ()

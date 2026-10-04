@@ -23,12 +23,12 @@ from app.domain.catalog import (
     ViolationCode,
 )
 from app.domain.providers import GeoPoint
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import PlanRequest
 from app.services.opening_hours import opening_hours_overlap, parse_basic_intervals
 
 
 class Catalog(Protocol):
-    def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
+    def recall(self, constraints: PlanRequest) -> CatalogResult:
         ...
 
 
@@ -40,7 +40,7 @@ class InMemoryCatalog:
     def __init__(self, candidates: list[StopCandidate]) -> None:
         self._candidates = [candidate.model_copy(deep=True) for candidate in candidates]
 
-    def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
+    def recall(self, constraints: PlanRequest) -> CatalogResult:
         kept: list[StopCandidate] = []
         violations: list[ConstraintViolation] = []
         warnings: list[CatalogWarning] = []
@@ -63,7 +63,7 @@ class LocalFixtureCatalog:
             or Path(__file__).resolve().parents[2] / "data" / "fixtures" / "v1"
         )
 
-    def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
+    def recall(self, constraints: PlanRequest) -> CatalogResult:
         source_payload = _read_json(self._data_dir / "catalog_sources.json")
         candidates: list[StopCandidate] = []
         for filename, resource_type in (
@@ -87,7 +87,7 @@ class SnapshotCatalog:
         self._candidates = self._load()
         self._delegate = InMemoryCatalog(self._candidates)
 
-    def recall(self, constraints: NormalizedConstraints) -> CatalogResult:
+    def recall(self, constraints: PlanRequest) -> CatalogResult:
         return self._delegate.recall(constraints)
 
     def load_candidates(self) -> list[StopCandidate]:
@@ -168,7 +168,7 @@ class SnapshotCatalog:
 
 def _violations_for(
     candidate: StopCandidate,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> list[ConstraintViolation]:
     violations: list[ConstraintViolation] = []
     party = constraints.party.value if constraints.party else None
@@ -230,12 +230,13 @@ def _violations_for(
                 )
             )
 
-    if constraints.date and constraints.time_window:
+    planning_window = constraints.planning_window
+    if planning_window.date and planning_window.clock_bounds:
         weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
-            constraints.date.value.weekday()
+            planning_window.date.value.weekday()
         ]
         hours = candidate.open_hours.get(weekday)
-        window = constraints.time_window.value
+        window = planning_window.clock_bounds
         if hours and not _overlaps(hours, window.start, window.end):
             violations.append(
                 _violation(
@@ -269,7 +270,7 @@ def _violations_for(
 
 def _warnings_for(
     candidate: StopCandidate,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> list[CatalogWarning]:
     warnings: list[CatalogWarning] = []
     party = constraints.party.value if constraints.party else None
@@ -282,9 +283,10 @@ def _warnings_for(
                 "该地点没有可靠的儿童适用性信息，请出发前确认。",
             )
         )
-    if constraints.date and constraints.time_window:
+    planning_window = constraints.planning_window
+    if planning_window.date and planning_window.clock_bounds:
         weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
-            constraints.date.value.weekday()
+            planning_window.date.value.weekday()
         ]
         hours = candidate.open_hours.get(weekday)
         if not hours or parse_basic_intervals(hours) is None:

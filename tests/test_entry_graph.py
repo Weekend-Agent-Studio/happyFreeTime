@@ -16,6 +16,8 @@ from app.domain.constraints import (
     Interpretation,
     RawConstraints,
     StopRole,
+    TimeProposal,
+    TimeScope,
 )
 from app.orchestration.entry_graph import (
     build_entry_graph,
@@ -28,7 +30,14 @@ from app.providers.geocoding import MockGeocodingProvider
 from app.services.catalog import InMemoryCatalog
 from app.services.router_extractor import RouterContext
 from app.domain.planning import PlanSlotProposal, PlanStructureProposal
+from app.domain.planning import ConstraintConflict
 from tests.test_planning import planning_constraints
+
+
+def _afternoon() -> TimeProposal:
+    return TimeProposal(
+        target="trip", precision="period", period=TimeScope.AFTERNOON, evidence="下午"
+    )
 
 
 class FollowUpRouter:
@@ -41,9 +50,9 @@ class FollowUpRouter:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
                 intent_scores={Intent.PLAN_OUTING: 0.99},
+                time_proposals=(_afternoon(),),
                 raw_constraints=RawConstraints(
                     date_text="今天",
-                    time_text="下午",
                     budget_text="人均200",
                     budget_per_person=200,
                     strict_budget=True,
@@ -52,9 +61,9 @@ class FollowUpRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 0.99},
+            time_proposals=(_afternoon(),),
             raw_constraints=RawConstraints(
                 date_text="今天",
-                time_text="下午",
                 budget_text="千万别超预算",
                 strict_budget=True,
             ),
@@ -66,8 +75,9 @@ class ExplicitLocationRouter:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
+            time_proposals=(_afternoon(),),
             raw_constraints=RawConstraints(
-                date_text="今天", time_text="下午", location_text="不存在地标"
+                date_text="今天", location_text="不存在地标"
             ),
         )
 
@@ -78,7 +88,7 @@ class EntryGraphTest(unittest.TestCase):
             checkpoint_config("session-1"),
             {
                 "configurable": {
-                    "thread_id": "planner-core1b-v3:session-1",
+                    "thread_id": "planner-core2e-v1:session-1",
                 }
             },
         )
@@ -92,6 +102,17 @@ class EntryGraphTest(unittest.TestCase):
         restored = serializer.loads_typed(encoded)
 
         self.assertEqual(restored, proposal)
+
+    def test_constraint_conflict_is_checkpoint_serializable(self) -> None:
+        conflict = ConstraintConflict(
+            code="DEPARTURE_NOT_BEFORE_RETURN_BY",
+            message="出发时间必须早于返程时间。",
+            fields=["departure_at", "return_by"],
+        )
+        serializer = checkpoint_serializer()
+        restored = serializer.loads_typed(serializer.dumps_typed(conflict))
+
+        self.assertEqual(restored, conflict)
 
     def test_active_plan_time_supplement_is_not_misclassified_as_replacement(self) -> None:
         interpretation = DemoRouter().interpret(
@@ -164,18 +185,20 @@ class EntryGraphTest(unittest.TestCase):
                 "user_input": "改成早上出发",
                 "actor": actor,
                 "has_plans": True,
-                "active_constraints": planning_constraints(),
+                "active_request": planning_constraints(),
             },
             config=config,
         )
         question = first["__interrupt__"][0].value
         self.assertEqual(question["field"], "departure_at")
-        self.assertEqual(question["continuation"], "patch_constraints")
+        self.assertEqual(question["issue_kind"], "constraint")
+        self.assertEqual(question["request_revision"], 0)
 
         resumed = graph.invoke(
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "早上九点",
                 }
@@ -183,7 +206,10 @@ class EntryGraphTest(unittest.TestCase):
             config=config,
         )
         self.assertNotIn("__interrupt__", resumed)
-        self.assertEqual(resumed["planning_constraints"].departure_at.value, "09:00")
+        self.assertEqual(
+            resumed["active_request"].planning_window.start_at.value,
+            "09:00",
+        )
 
     def test_demo_departure_period_patch_uses_the_shared_resume_contract(self) -> None:
         environment = EnvironmentContext(
@@ -212,7 +238,7 @@ class EntryGraphTest(unittest.TestCase):
                 "user_input": "补充一下，早上出发",
                 "actor": actor,
                 "has_plans": True,
-                "active_constraints": planning_constraints(),
+                "active_request": planning_constraints(),
             },
             config=config,
         )
@@ -223,6 +249,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": "answer",
                     "value": "早上九点",
                 }
@@ -231,7 +258,10 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         self.assertNotIn("__interrupt__", resumed)
-        self.assertEqual(resumed["planning_constraints"].departure_at.value, "09:00")
+        self.assertEqual(
+            resumed["active_request"].planning_window.start_at.value,
+            "09:00",
+        )
 
     def test_refine_plan_without_resolved_command_asks_without_planning(self) -> None:
         class UnresolvedModificationRouter:
@@ -276,12 +306,11 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            result["modification_question"].field,
+            result["pending_issue"].field,
             "conversation_command",
         )
-        self.assertTrue(result["modification_question"].need_question)
+        self.assertTrue(result["pending_issue"].need_question)
         self.assertIsNone(result["candidate_set"])
-        self.assertIsNone(result["plan_diff"])
         self.assertEqual(result["plan_diffs"], ())
 
     def test_replace_without_selected_plan_asks_before_planning(self) -> None:
@@ -311,13 +340,13 @@ class EntryGraphTest(unittest.TestCase):
                 "actor": actor,
                 "has_plans": True,
                 "active_plan_version_id": "version-1",
-                "active_constraints": None,
+                "active_request": None,
                 "selected_plan": None,
             },
             config={"configurable": {"thread_id": actor.session_id}},
         )
 
-        self.assertEqual(result["modification_question"].field, "selected_plan_id")
+        self.assertEqual(result["pending_issue"].field, "selected_plan_id")
         self.assertIsNone(result["candidate_set"])
 
     def test_unresolvable_explicit_location_interrupts_without_falling_back_to_default(self) -> None:
@@ -364,6 +393,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": ClarificationAction.USE_DEFAULT.value,
                 }
             ),
@@ -371,12 +401,55 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertTrue(final["ready_for_planning"])
         self.assertEqual(
-            final["enrichment"].constraints.location.source.value,
+            final["active_request"].location.source.value,
             "system_context",
         )
-        self.assertTrue(
-            any(item.rule_id == "clarification.default.location.v1" for item in final["enrichment"].assumptions)
+        default_assumption = next(
+            item for item in final["assumptions"]
+            if item.rule_id == "clarification.default.location.v1"
         )
+        self.assertEqual(default_assumption.value, environment.default_location)
+
+    def test_stale_clarification_revision_is_rejected(self) -> None:
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user", session_id="session-stale-clarification",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=ExplicitLocationRouter(),
+            environment_provider=lambda _: environment,
+            geocoding_provider=MockGeocodingProvider.from_locations({}),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+        first = graph.invoke(
+            {"user_input": "不存在地标今天下午出去玩", "actor": actor},
+            config=config,
+        )
+        question = first["__interrupt__"][0].value
+
+        resumed = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"] + 1,
+                    "action": ClarificationAction.ANSWER.value,
+                    "value": "朝阳公园",
+                }
+            ),
+            config=config,
+        )
+
+        self.assertEqual(resumed["clarification_resolution"], "stale_rejected")
+        self.assertEqual(resumed["candidate_set"].conflict.code, "STALE_CLARIFICATION_REVISION")
+        self.assertIsNone(resumed["pending_issue"])
+        self.assertFalse(resumed["ready_for_planning"])
 
     def test_invalid_clarification_reaches_cap_without_repeating_free_text_forever(self) -> None:
         environment = EnvironmentContext(
@@ -406,6 +479,7 @@ class EntryGraphTest(unittest.TestCase):
                 Command(
                     resume={
                         "clarification_id": current["clarification_id"],
+                        "request_revision": current["request_revision"],
                         "action": ClarificationAction.ANSWER.value,
                         "value": "?",
                     }
@@ -443,6 +517,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": ClarificationAction.CANCEL.value,
                 }
             ),
@@ -462,15 +537,17 @@ class EntryGraphTest(unittest.TestCase):
                     return Interpretation(
                         primary_intent=Intent.PLAN_OUTING,
                         intent_scores={Intent.PLAN_OUTING: 1.0},
+                        time_proposals=(_afternoon(),),
                         raw_constraints=RawConstraints(
-                            date_text="今天", time_text="下午", location_text="不存在地标",
+                            date_text="今天", location_text="不存在地标",
                             preferences=["旧偏好"],
                         ),
                     )
                 return Interpretation(
                     primary_intent=Intent.PLAN_OUTING,
                     intent_scores={Intent.PLAN_OUTING: 1.0},
-                    raw_constraints=RawConstraints(date_text="今天", time_text="下午"),
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(date_text="今天"),
                 )
 
         environment = EnvironmentContext(
@@ -499,6 +576,7 @@ class EntryGraphTest(unittest.TestCase):
             Command(
                 resume={
                     "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
                     "action": ClarificationAction.NEW_REQUEST.value,
                     "value": "新需求今天下午看展",
                 }
@@ -541,11 +619,22 @@ class EntryGraphTest(unittest.TestCase):
         self.assertEqual(snapshot.next, ("ask_question",))
         self.assertEqual(snapshot.interrupts[0].value["field"], "budget_per_person")
 
-        final_result = graph.invoke(Command(resume="人均200"), config=config)
+        question = snapshot.interrupts[0].value
+        final_result = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.ANSWER.value,
+                    "value": "人均200",
+                    "request_revision": question["request_revision"],
+                }
+            ),
+            config=config,
+        )
 
         self.assertTrue(final_result["ready_for_planning"])
         self.assertEqual(
-            final_result["enrichment"].constraints.budget_per_person.value,
+            final_result["active_request"].budget_per_person.value,
             200,
         )
         # The answer is projected onto the pending field and resumes at
@@ -632,9 +721,9 @@ class EntryGraphTest(unittest.TestCase):
                 return Interpretation(
                     primary_intent=Intent.CHECK_WEATHER,
                     intent_scores={Intent.CHECK_WEATHER: 1.0},
+                    time_proposals=(_afternoon(),),
                     raw_constraints=RawConstraints(
                         date_text="今天",
-                        time_text="下午",
                         preferences=["下雨就安排室内活动"],
                         scene_tags=["室内"],
                     ),
@@ -678,9 +767,9 @@ class EntryGraphTest(unittest.TestCase):
                 return Interpretation(
                     primary_intent=Intent.PLAN_OUTING,
                     intent_scores={Intent.PLAN_OUTING: 0.99},
+                    time_proposals=(_afternoon(),),
                     raw_constraints=RawConstraints(
                         date_text="今天",
-                        time_text="下午",
                         max_distance_text="别太远",
                     ),
                 )
@@ -745,11 +834,10 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         self.assertTrue(result["ready_for_planning"])
-        self.assertEqual(result["enrichment"].constraints.date.value, date(2026, 8, 12))
-        self.assertEqual(
-            result["enrichment"].constraints.time_window.value.model_dump(),
-            {"start": "18:00", "end": "22:00"},
-        )
+        window = result["active_request"].planning_window
+        self.assertEqual(window.date.value.isoformat(), "2026-08-12")
+        self.assertEqual(window.start_at.value, "18:00")
+        self.assertEqual(window.end_at.value, "22:00")
         self.assertTrue(result["candidate_set"].plans)
 
     def test_runtime_decisions_distinguish_demo_router_and_rule_planning(self) -> None:
@@ -811,10 +899,21 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertEqual(first_result["__interrupt__"][0].value["field"], "return_by")
 
-        final_result = graph.invoke(Command(resume="18:00"), config=config)
+        question = first_result["__interrupt__"][0].value
+        final_result = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "action": ClarificationAction.ANSWER.value,
+                    "value": "18:00",
+                    "request_revision": question["request_revision"],
+                }
+            ),
+            config=config,
+        )
 
         self.assertTrue(final_result["ready_for_planning"])
-        self.assertFalse(final_result["question_decision"].need_question)
+        self.assertIsNone(final_result["pending_issue"])
         self.assertTrue(final_result["candidate_set"].plans)
         self.assertTrue(
             all(
@@ -849,10 +948,26 @@ class EntryGraphTest(unittest.TestCase):
             config={"configurable": {"thread_id": actor.session_id}},
         )
 
-        self.assertEqual(result["__interrupt__"][0].value["field"], "date")
+        question = result["__interrupt__"][0].value
+        self.assertEqual(question["field"], "date")
         self.assertEqual(
-            result["__interrupt__"][0].value["rule_id"],
+            question["rule_id"],
             "question.date.unresolved.v1",
+        )
+        resumed = graph.invoke(
+            Command(
+                resume={
+                    "clarification_id": question["clarification_id"],
+                    "request_revision": question["request_revision"],
+                    "action": ClarificationAction.USE_DEFAULT.value,
+                }
+            ),
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+        self.assertTrue(resumed["ready_for_planning"])
+        self.assertEqual(
+            resumed["active_request"].planning_window.date.value.isoformat(),
+            "2026-08-15",
         )
 
 

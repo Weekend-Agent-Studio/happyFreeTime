@@ -67,6 +67,70 @@ class SessionRepository:
                 )
             )
 
+    def update_session_title(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        title: str,
+    ) -> SessionRecord | None:
+        with self._session_factory.begin() as database:
+            record = database.scalar(
+                select(SessionRecord).where(
+                    SessionRecord.id == session_id,
+                    SessionRecord.user_id == user_id,
+                )
+            )
+            if record is None:
+                return None
+            record.title = title
+            record.updated_at = utc_now()
+        return record
+
+    def delete_session(self, *, user_id: str, session_id: str) -> bool:
+        """Delete one owned session and its relational history atomically."""
+        with self._session_factory.begin() as database:
+            record = database.scalar(
+                select(SessionRecord).where(
+                    SessionRecord.id == session_id,
+                    SessionRecord.user_id == user_id,
+                )
+            )
+            if record is None:
+                return False
+            database.execute(
+                delete(SessionSnapshotRecord).where(
+                    SessionSnapshotRecord.session_id == session_id,
+                    SessionSnapshotRecord.user_id == user_id,
+                )
+            )
+            database.execute(
+                delete(PlanVersionRecord).where(
+                    PlanVersionRecord.session_id == session_id,
+                    PlanVersionRecord.user_id == user_id,
+                )
+            )
+            database.execute(
+                delete(PlanRecord).where(
+                    PlanRecord.session_id == session_id,
+                    PlanRecord.user_id == user_id,
+                )
+            )
+            database.execute(
+                delete(PlanningRunRecord).where(
+                    PlanningRunRecord.session_id == session_id,
+                    PlanningRunRecord.user_id == user_id,
+                )
+            )
+            database.execute(
+                delete(MessageRecord).where(
+                    MessageRecord.session_id == session_id,
+                    MessageRecord.user_id == user_id,
+                )
+            )
+            database.delete(record)
+        return True
+
     def add_message(
         self,
         *,
@@ -154,8 +218,9 @@ class SessionRepository:
         session_id: str,
         request_id: str,
         content: str,
+        record_user_message: bool = True,
     ) -> PlanningRunStart:
-        """Create one logical run and user message, or resume its stored outcome."""
+        """Create one logical run, optionally recording a natural-language user turn."""
         if self.get_session(user_id, session_id) is None:
             raise LookupError("session not found")
         now = utc_now()
@@ -203,19 +268,20 @@ class SessionRepository:
                 updated_at=now,
             )
             database.add(planning_run)
-            database.add(
-                MessageRecord(
-                    id=uuid.uuid4().hex,
-                    user_id=user_id,
-                    session_id=session_id,
-                    role="user",
-                    content=content,
-                    created_at=now,
+            if record_user_message:
+                database.add(
+                    MessageRecord(
+                        id=uuid.uuid4().hex,
+                        user_id=user_id,
+                        session_id=session_id,
+                        role="user",
+                        content=content,
+                        created_at=now,
+                    )
                 )
-            )
             session = database.get(SessionRecord, session_id)
             if session is not None:
-                if session.title == "新规划":
+                if record_user_message and session.title == "新规划":
                     session.title = _session_title(content)
                 session.status = "running"
                 session.updated_at = now

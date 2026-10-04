@@ -6,7 +6,13 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.domain.constraints import ActorContext, IdentityType, Interpretation
+from app.domain.constraints import (
+    ActorContext,
+    IdentityType,
+    Interpretation,
+    PlanRequest,
+    TimeProposal,
+)
 from app.domain.evaluation import EvalCase, EvalOutcome, EvalReport, ExpectedOutcome
 from app.domain.providers import (
     GeoPoint,
@@ -21,9 +27,16 @@ from app.domain.providers import (
 from app.providers.availability import MockAvailabilityProvider
 from app.services.catalog import SnapshotCatalog
 from app.services.enrichment import EnrichmentService, EnvironmentContext
+from app.services.constraint_engine import (
+    ConflictedRequest,
+    ConstraintEngine,
+    NeedsClarification,
+    ResolvedRequest,
+)
 from app.services.opening_hours import visit_fits_opening_hours
 from app.services.planning import PlanningService
-from app.services.question_gate import GateContext, NeedQuestionGate
+from app.services.question_policy import QuestionPolicyContext, QuestionPolicy
+from app.services.request_patch_compiler import RequestPatchProposalCompiler
 
 
 HARD_CONSTRAINT_RATE_THRESHOLD = 0.95
@@ -32,7 +45,18 @@ HARD_CONSTRAINT_RATE_THRESHOLD = 0.95
 def load_cases(path: Path) -> list[EvalCase]:
     """从 JSON 加载并通过 Pydantic 校验评测用例。"""
     raw_cases = json.loads(path.read_text(encoding="utf-8"))
-    return [EvalCase.model_validate(case) for case in raw_cases]
+    return [EvalCase.model_validate(_adapt_legacy_smoke_case(case)) for case in raw_cases]
+
+
+def _adapt_legacy_smoke_case(payload: dict) -> dict:
+    """Translate the old declarative smoke vocabulary at the eval boundary only."""
+    from app.evaluation.temporal_fixture_adapter import adapt_legacy_temporal_payload
+
+    adapted = dict(payload)
+    raw, proposals = adapt_legacy_temporal_payload(adapted.get("raw_constraints", {}))
+    adapted["raw_constraints"] = raw
+    adapted["time_proposals"] = proposals
+    return adapted
 
 
 def _fixture_interpretation(case: EvalCase) -> Interpretation:
@@ -62,16 +86,11 @@ def _fixture_interpretation(case: EvalCase) -> Interpretation:
         raw.absolute_date,
         evidence_value=raw.date_text,
     )
-    add("time_scope", raw.time_scope, evidence_value=raw.time_text)
-    add(
-        "explicit_time_window",
-        raw.explicit_time_window,
-        evidence_value=raw.time_text,
-    )
     return Interpretation(
         primary_intent=case.intent,
         intent_scores={case.intent: 1.0},
         raw_constraints=raw,
+        time_proposals=case.time_proposals,
         evidence_map=evidence,
         extraction_confidence=confidence,
     )
@@ -86,7 +105,9 @@ def run_smoke_cases(
     这不是最终质量评测：它不测真实 Router 抽取准确率，也不评价推荐主观质量；
     它用于快速发现默认规则、反问字段或冲突语义的回归。
     """
-    gate = NeedQuestionGate()
+    question_policy = QuestionPolicy()
+    request_compiler = RequestPatchProposalCompiler()
+    constraint_engine = ConstraintEngine()
     catalog = SnapshotCatalog()
     actor = ActorContext(
         user_id="eval-user",
@@ -104,7 +125,24 @@ def run_smoke_cases(
         enrichment_service = EnrichmentService(geocoding_provider=geocoding_provider)
         interpretation = _fixture_interpretation(case)
         enrichment = enrichment_service.enrich(interpretation, actor, environment)
-        decision = gate.decide(interpretation, enrichment, GateContext())
+        compilation = request_compiler.compile(
+            interpretation,
+            enrichment.request_patch,
+            environment,
+        )
+        applied = constraint_engine.apply(
+            PlanRequest(),
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        issue = applied.issue if isinstance(applied, NeedsClarification) else None
+        request = applied.request if isinstance(applied, ResolvedRequest) else PlanRequest()
+        decision = question_policy.decide(
+            case.intent,
+            request,
+            QuestionPolicyContext(selected_plan_index=interpretation.selected_plan_index),
+            issue=issue,
+        )
 
         # 每个用例只关心一个稳定的外部结果：需要提问、生成方案或返回冲突。
         # 这样内部算法可以重构，而评测仍围绕用户可观察行为。
@@ -115,10 +153,18 @@ def run_smoke_cases(
                 and decision.field == case.expected_question_field
             )
             details = f"question_field={decision.field}"
+        elif isinstance(applied, ConflictedRequest):
+            actual = ExpectedOutcome.CONFLICT
+            passed = (
+                case.expected_outcome == actual
+                and applied.conflict.code == case.expected_conflict_code
+                and set(case.expected_conflict_fields).issubset(applied.conflict.fields)
+            )
+            details = f"conflict_code={applied.conflict.code}; conflict_fields={applied.conflict.fields}"
         else:
             recalled_resources = {
                 candidate.resource_id: candidate
-                for candidate in catalog.recall(enrichment.constraints).candidates
+                for candidate in catalog.recall(request).candidates
             }
             planner = PlanningService(
                 catalog=catalog,
@@ -144,7 +190,7 @@ def run_smoke_cases(
                     else None
                 ),
             )
-            candidate_set = planner.plan(enrichment.constraints)
+            candidate_set = planner.plan(request)
             if enrichment.geocoding_fact is not None:
                 candidate_set = candidate_set.model_copy(
                     update={
@@ -160,7 +206,7 @@ def run_smoke_cases(
                     case,
                     candidate_set,
                     recalled_resources,
-                    enrichment.constraints.date.value.weekday(),
+                    request.planning_window.date.value.weekday(),
                 )
                 passed = case.expected_outcome == actual and postconditions_passed
                 details = f"plans={len(candidate_set.plans)}; {postcondition_details}"

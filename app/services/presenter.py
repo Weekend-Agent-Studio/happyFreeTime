@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from app.domain.constraints import NormalizedConstraints
+from app.domain.constraints import PlanRequest
 from app.domain.planning import CandidateSet, Plan
 
 
 def present_candidate_set(
     candidate_set: CandidateSet,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> str:
     """Explain only facts already carried by a verified candidate set.
 
@@ -26,9 +26,10 @@ def present_candidate_set(
         for index, plan in enumerate(candidate_set.plans, start=1)
     )
     constraint_summaries: list[str] = []
-    if constraints.return_by is not None:
+    return_deadline = constraints.planning_window.explicit_return_deadline
+    if return_deadline is not None:
         constraint_summaries.append(
-            f"均已包含返程，并在 {constraints.return_by.value} 前到家"
+            f"均已包含返程，并在 {return_deadline.value} 前到家"
         )
     if constraints.total_distance_km is not None:
         constraint_summaries.append(

@@ -15,7 +15,7 @@ from typing import Protocol
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from app.domain.constraints import NormalizedConstraints, StopRole
+from app.domain.constraints import PlanRequest, StopRole
 from app.domain.semantics import (
     EvidenceRef,
     SOFT_OBJECTIVE_ALIASES,
@@ -48,14 +48,14 @@ class StructuredPlanningModel(Protocol):
 
 
 class PlanningIntentProvider(Protocol):
-    def decide(self, constraints: NormalizedConstraints) -> PlanningIntentDecision:
+    def decide(self, constraints: PlanRequest) -> PlanningIntentDecision:
         ...
 
 
 class RuleBasedPlanningIntentProvider:
     """当前确定性规则的唯一实现，作为默认基线和安全回退。"""
 
-    def decide(self, constraints: NormalizedConstraints) -> PlanningIntentDecision:
+    def decide(self, constraints: PlanRequest) -> PlanningIntentDecision:
         return PlanningIntentDecision(
             intent=build_rule_based_planning_intent(constraints),
             source="rule_based",
@@ -85,7 +85,7 @@ class LlmPlanningIntentProvider:
         self._prompt_version = prompt_version
         self._model_name = model_name
 
-    def decide(self, constraints: NormalizedConstraints) -> PlanningIntentDecision:
+    def decide(self, constraints: PlanRequest) -> PlanningIntentDecision:
         baseline = self._fallback.decide(constraints)
         if not _should_call_model(constraints):
             return baseline
@@ -200,7 +200,7 @@ class LlmPlanningIntentProvider:
 
 
 def build_rule_based_planning_intent(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> PlanningIntent:
     """Build soft semantics only; structure comes from constraints or Proposal."""
     preferences = {
@@ -218,13 +218,26 @@ def build_rule_based_planning_intent(
         "不累",
     }:
         pace = PlanPace.RELAXED
-    elif preferences & {"丰富", "充实", "多玩几个", "尽量多"}:
+    elif (
+        preferences & {"丰富", "充实", "多玩几个", "尽量多"}
+        or _is_all_day_request(constraints)
+    ):
         pace = PlanPace.FULL
     else:
         pace = PlanPace.BALANCED
     return PlanningIntent(
         pace=pace,
         semantic_request=_build_rule_semantic_request(constraints),
+    )
+
+
+def _is_all_day_request(constraints: PlanRequest) -> bool:
+    """Recognize the compiled all-day window without inventing user preference text."""
+
+    window = constraints.planning_window
+    return any(
+        bound is not None and bound.rule_id == "time.trip.all_day.v1"
+        for bound in (window.start_at, window.end_at)
     )
 
 
@@ -284,7 +297,7 @@ def _model_timeout_seconds() -> float:
 _model_failure_reason = model_failure_reason
 
 
-def _member_evidence(constraints: NormalizedConstraints) -> tuple[str, ...]:
+def _member_evidence(constraints: PlanRequest) -> tuple[str, ...]:
     """Read relationship phrases from the normalized party profile, if any."""
 
     if constraints.party is None:
@@ -292,7 +305,7 @@ def _member_evidence(constraints: NormalizedConstraints) -> tuple[str, ...]:
     return tuple(item.strip() for item in constraints.party.value.members if item.strip())
 
 
-def _should_call_model(constraints: NormalizedConstraints) -> bool:
+def _should_call_model(constraints: PlanRequest) -> bool:
     if (
         constraints.exact_stop_count is not None
         and constraints.exact_stop_count.value == 1
@@ -457,7 +470,7 @@ def _merge_role_queries(
 
 
 def _build_rule_semantic_request(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
 ) -> SemanticRequest:
     """Translate known semantic evidence to finite objectives while retaining text."""
 
@@ -542,7 +555,7 @@ def _safe_contract_code(error: Exception, fallback: str) -> str:
 
 
 def _build_context(
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     baseline: PlanningIntent,
 ) -> str:
     context = {
@@ -551,11 +564,23 @@ def _build_context(
         "diet_tags": constraints.diet_tags,
         "scene_tags": constraints.scene_tags,
         "avoid": constraints.avoid,
-        "time_window": (
-            constraints.time_window.value.model_dump(mode="json")
-            if constraints.time_window is not None
-            else None
-        ),
+        "planning_window": {
+            "date": (
+                constraints.planning_window.date.value.isoformat()
+                if constraints.planning_window.date is not None
+                else None
+            ),
+            "start_at": (
+                constraints.planning_window.start_at.value
+                if constraints.planning_window.start_at is not None
+                else None
+            ),
+            "end_at": (
+                constraints.planning_window.end_at.value
+                if constraints.planning_window.end_at is not None
+                else None
+            ),
+        },
         "exact_stop_count": (
             constraints.exact_stop_count.value
             if constraints.exact_stop_count is not None

@@ -10,6 +10,8 @@ __pycache__/
 venv/
 .venv/
 test/
+!frontend/src/test/
+!frontend/src/test/setup.ts
 .claude/
 frontend/node_modules/
 frontend/dist/

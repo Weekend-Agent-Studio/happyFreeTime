@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app.domain.constraints import GeoLocation
+from app.domain.constraints import GeoLocation, TimeProposal, TimeScope
 from app.domain.evaluation import EvalCase, ExpectedOutcome
 from app.evaluation.smoke import load_cases, run_smoke_cases
 from app.services.enrichment import EnvironmentContext
@@ -54,7 +54,15 @@ class SmokeEvalTest(unittest.TestCase):
         case = EvalCase.model_validate({
             "case_id": "return-postconditions",
             "intent": "plan_outing",
-            "raw_constraints": {"return_by_text": "最晚23:00到家"},
+            "raw_constraints": {},
+            "time_proposals": [
+                {
+                    "target": "return",
+                    "precision": "exact",
+                    "clock": "23:00",
+                    "evidence": "最晚23:00到家",
+                }
+            ],
             "expected_outcome": ExpectedOutcome.PLAN,
             "expected_plan_facts": {
                 "return_to_origin": True,
@@ -75,7 +83,15 @@ class SmokeEvalTest(unittest.TestCase):
         case = EvalCase.model_validate({
             "case_id": "broken-return-postcondition",
             "intent": "plan_outing",
-            "raw_constraints": {"return_by_text": "最晚23:00到家"},
+            "raw_constraints": {},
+            "time_proposals": [
+                {
+                    "target": "return",
+                    "precision": "exact",
+                    "clock": "23:00",
+                    "evidence": "最晚23:00到家",
+                }
+            ],
             "expected_outcome": ExpectedOutcome.PLAN,
             "expected_plan_facts": {"return_to_origin": False},
             "tags": ["hard_constraint"],
@@ -105,7 +121,15 @@ class SmokeEvalTest(unittest.TestCase):
             EvalCase.model_validate({
                 "case_id": "night-opening-boundary",
                 "intent": "plan_outing",
-                "raw_constraints": {"time_text": "晚上"},
+                "raw_constraints": {},
+                "time_proposals": [
+                    TimeProposal(
+                        target="trip",
+                        precision="period",
+                        period=TimeScope.EVENING,
+                        evidence="晚上",
+                    ).model_dump(mode="json")
+                ],
                 "expected_outcome": ExpectedOutcome.PLAN,
                 "expected_plan_facts": {"opening_hours_valid": True},
                 "tags": ["hard_constraint"],

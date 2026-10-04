@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -14,22 +15,36 @@ from langgraph.types import Command
 from app.api.schemas import (
     AgentResponse,
     ConstraintSummaryItem,
+    CurrentRequestReplanRequest,
     MessageRequest,
+    PlanningContextField,
+    PlanningContextPatch,
+    PlanningContextSummary,
+    PlanningContextWhen,
+    PlanningContextUpdateRequest,
     PlanVersionSummary,
     ResponseEnvelope,
     SessionMessageResponse,
     SessionSummaryResponse,
+    SessionTitleUpdateRequest,
 )
 from app.domain.constraints import (
     ActorContext,
     ClarificationAction,
+    ClarificationIssue,
     CommandOperation,
+    ConstraintSource,
+    ConstraintValue,
+    GeoLocation,
     IdentityType,
-    NormalizedConstraints,
+    PartyProfile,
+    PlanRequest,
+    RequestPatch,
 )
 from app.domain.planning import Plan
 from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
 from app.domain.providers import WeatherFact
+from app.domain.providers import GeocodeRequest, GeocodeResolution
 from app.domain.semantics import SemanticRequest
 from app.domain.runtime import RuntimeDecision
 from app.providers.weather import WeatherProvider
@@ -39,6 +54,7 @@ from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
 from app.services.candidate_retriever import CandidateRetriever
+from app.services.request_readiness import RequestReadinessPolicy
 from app.services.planning_intent import PlanningIntentProvider
 from app.services.recommendation_advisor import (
     RecommendationAdvisor,
@@ -55,6 +71,287 @@ from app.orchestration.entry_graph import (
 )
 from app.persistence.database import Database
 from app.persistence.repositories import SessionRepository
+
+
+def _context_source(source: ConstraintSource | None) -> str:
+    if source in {
+        ConstraintSource.USER_EXPLICIT,
+        ConstraintSource.USER_INFERRED,
+        ConstraintSource.SESSION_CONFIRMED,
+        ConstraintSource.MEMORY,
+    }:
+        return "user"
+    if source in {ConstraintSource.DERIVED, ConstraintSource.REAL_TOOL}:
+        return "derived"
+    return "default"
+
+
+def _context_field(
+    value: object = None,
+    *,
+    source: ConstraintSource | None = None,
+    display: str | None = None,
+    pending: bool = False,
+) -> PlanningContextField:
+    present = value is not None
+    mapped_source = _context_source(source)
+    return PlanningContextField(
+        value=value,
+        display_value=display or (str(value) if present else "未设置"),
+        source=mapped_source,
+        status=("pending" if pending else "resolved" if present and mapped_source != "default" else "assumed"),
+    )
+
+
+def project_planning_context(
+    request: PlanRequest | None,
+    *,
+    pending_field: str | None = None,
+    planned_request_revision: int | None = None,
+    has_active_plan: bool = False,
+) -> PlanningContextSummary:
+    """Build the UI summary only from the canonical request and current issue."""
+    active = request or PlanRequest()
+    window = active.planning_window
+    location = active.location
+    party = active.party
+    budget = active.budget_per_person
+    pending_where = pending_field == "location"
+    pending_start = pending_field in {"time_window", "departure_at"}
+    pending_end = pending_field in {"time_window", "return_by"}
+    pending_date = pending_field == "date"
+
+    date_value = window.date.value if window.date else None
+    start_value = window.start_at.value if window.start_at else None
+    end_value = window.end_at.value if window.end_at else None
+    party_value = party.value if party else PartyProfile()
+    preferences = {
+        "preferences": list(active.preferences),
+        "diet_tags": list(active.diet_tags),
+        "scene_tags": list(active.scene_tags),
+        "avoid": list(active.avoid),
+    }
+    preference_values = list(dict.fromkeys(
+        value
+        for values in preferences.values()
+        for value in values
+    ))
+    return PlanningContextSummary(
+        request_revision=active.revision,
+        where=_context_field(
+            location.value.model_dump(mode="json") if location else None,
+            source=location.source if location else None,
+            display=location.value.address if location else None,
+            pending=pending_where,
+        ),
+        when=PlanningContextWhen(
+            date=_context_field(
+                date_value.isoformat() if date_value else None,
+                source=window.date.source if window.date else None,
+                display=date_value.isoformat() if date_value else None,
+                pending=pending_date,
+            ),
+            start_at=_context_field(
+                start_value,
+                source=window.start_at.source if window.start_at else None,
+                display=start_value,
+                pending=pending_start,
+            ),
+            end_at=_context_field(
+                end_value,
+                source=window.end_at.source if window.end_at else None,
+                display=end_value,
+                pending=pending_end,
+            ),
+            start_kind=window.start_kind,
+            end_kind=window.end_kind,
+        ),
+        who=_context_field(
+            party_value.model_dump(mode="json"),
+            source=party.source if party else None,
+            display=(
+                f"{party_value.adults} 位成人 · {party_value.children} 位儿童"
+                + (f"（{party_value.child_age} 岁）" if party_value.child_age is not None else "")
+            ),
+            pending=pending_field in {"party", "child_age"},
+        ),
+        budget=_context_field(
+            {
+                "mode": "per_person" if budget else "unlimited",
+                "amount": budget.value if budget else None,
+                "strict": active.strict_budget,
+            },
+            source=budget.source if budget else None,
+            display=(f"人均 ¥{budget.value}" if budget else "不限")
+                + (" · 严格" if budget and active.strict_budget else ""),
+            pending=pending_field == "budget_per_person",
+        ),
+        preferences=_context_field(
+            preferences,
+            source=(ConstraintSource.USER_EXPLICIT if preference_values else None),
+            display="、".join(preference_values) if preference_values else "未设置",
+            pending=pending_field in {"preferences", "diet_tags", "scene_tags", "avoid"},
+        ),
+        pending_field=pending_field,
+        planned_request_revision=planned_request_revision,
+        has_active_plan=has_active_plan,
+        plan_stale=has_active_plan and planned_request_revision != active.revision,
+        ready_for_planning=(
+            RequestReadinessPolicy().first_issue(active) is None
+            and not (active.strict_budget and active.budget_per_person is None)
+        ),
+    )
+
+
+def compile_planning_context_patch(
+    patch: PlanningContextPatch,
+    *,
+    request: PlanRequest,
+    geocoding_provider: GeocodingProvider | None,
+    environment: object,
+    pending_field: str | None = None,
+) -> tuple[RequestPatch, tuple[ClarificationIssue, ...]]:
+    """Translate closed UI DTOs into the server-only atomic RequestPatch."""
+    set_fields: dict[str, object] = {}
+    clear_fields: list[str] = []
+    add_to_fields: dict[str, tuple[str, ...]] = {}
+    remove_from_fields: dict[str, tuple[str, ...]] = {}
+    issues: list[ClarificationIssue] = []
+
+    if patch.where is not None:
+        if patch.where.operation == "clear":
+            clear_fields.append("location")
+        else:
+            location_text = (patch.where.value or "").strip()
+            if not location_text:
+                issues.append(ClarificationIssue(
+                    field="location", code="LOCATION_TEXT_REQUIRED",
+                    reason="location_text_is_empty", expected_value_type="location",
+                    request_revision=patch.base_revision,
+                ))
+            elif geocoding_provider is None:
+                issues.append(ClarificationIssue(
+                    field="location", code="LOCATION_GEOCODER_UNAVAILABLE",
+                    reason="location_provider_unavailable", expected_value_type="location",
+                    request_revision=patch.base_revision,
+                ))
+            else:
+                city = (
+                    request.location.value.city if request.location is not None
+                    else environment.default_location.city if getattr(environment, "default_location", None)
+                    else None
+                )
+                try:
+                    fact = geocoding_provider.geocode(GeocodeRequest(location_text=location_text, city=city))
+                except Exception:
+                    fact = None
+                if fact is None or fact.resolution != GeocodeResolution.RESOLVED or fact.point is None:
+                    resolution = fact.resolution.value if fact is not None else "provider_error"
+                    issues.append(ClarificationIssue(
+                        field="location", code=f"LOCATION_{resolution.upper()}",
+                        reason="location_must_resolve_to_one_place", expected_value_type="location",
+                        request_revision=patch.base_revision,
+                    ))
+                else:
+                    set_fields["location"] = ConstraintValue(
+                        value=GeoLocation(
+                            city=fact.city or city or "",
+                            district=fact.district or "",
+                            address=fact.address or location_text,
+                            latitude=fact.point.latitude,
+                            longitude=fact.point.longitude,
+                            adcode=fact.adcode,
+                        ),
+                        source=ConstraintSource.USER_EXPLICIT,
+                        raw_text=location_text,
+                        rule_id="planning_context.where.v1",
+                    )
+
+    if patch.when is not None:
+        for field_name, edit in (
+            ("planning_window.date", patch.when.date),
+            ("planning_window.start_at", patch.when.start_at),
+            ("planning_window.end_at", patch.when.end_at),
+        ):
+            if edit is None:
+                continue
+            if edit.operation == "clear":
+                clear_fields.append(field_name)
+                if field_name.endswith("start_at"):
+                    set_fields["planning_window.start_kind"] = "trip_start"
+                if field_name.endswith("end_at"):
+                    set_fields["planning_window.end_kind"] = "trip_end"
+                continue
+            raw_value = edit.value
+            if field_name.endswith("date"):
+                raw_value = raw_value
+            kind_field = None
+            if field_name.endswith("start_at"):
+                kind_field = "planning_window.start_kind"
+                kind_value = "departure" if pending_field == "departure_at" else request.planning_window.start_kind
+            elif field_name.endswith("end_at"):
+                kind_field = "planning_window.end_kind"
+                kind_value = "return_deadline" if pending_field == "return_by" else request.planning_window.end_kind
+            if kind_field is not None:
+                set_fields[kind_field] = kind_value
+            set_fields[field_name] = ConstraintValue(
+                value=raw_value,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=str(raw_value),
+                rule_id=f"planning_context.{field_name}.v1",
+            )
+
+    if patch.who is not None:
+        current = request.party.value if request.party else PartyProfile()
+        adults = patch.who.adults if patch.who.adults is not None else current.adults
+        children = patch.who.children if patch.who.children is not None else current.children
+        child_age = current.child_age
+        members = list(current.members)
+        if patch.who.child_age is not None:
+            child_age = patch.who.child_age.value if patch.who.child_age.operation == "set" else None
+        if patch.who.members is not None:
+            members = list(patch.who.members.value or []) if patch.who.members.operation == "set" else []
+        set_fields["party"] = ConstraintValue(
+            value=PartyProfile(adults=adults, children=children, child_age=child_age, members=members),
+            source=ConstraintSource.USER_EXPLICIT,
+            raw_text="顶部同行人设置",
+            rule_id="planning_context.who.v1",
+        )
+
+    if patch.budget is not None:
+        if patch.budget.mode == "unlimited":
+            clear_fields.append("budget_per_person")
+            set_fields["strict_budget"] = False
+        else:
+            set_fields["budget_per_person"] = ConstraintValue(
+                value=patch.budget.amount,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=f"人均预算 {patch.budget.amount}",
+                rule_id="planning_context.budget.v1",
+            )
+            set_fields["strict_budget"] = patch.budget.strict
+
+    if patch.preferences is not None:
+        for operation, target in (
+            (patch.preferences.add, add_to_fields),
+            (patch.preferences.remove, remove_from_fields),
+        ):
+            grouped: dict[str, list[str]] = {}
+            for item in operation:
+                value = item.value.strip()
+                if value:
+                    grouped.setdefault(item.category, []).append(value)
+            target.update({field: tuple(values) for field, values in grouped.items()})
+
+    request_patch = RequestPatch(
+        base_revision=patch.base_revision,
+        set_fields=set_fields,
+        clear_fields=tuple(clear_fields),
+        add_to_fields=add_to_fields,
+        remove_from_fields=remove_from_fields,
+        source=ConstraintSource.USER_EXPLICIT,
+    )
+    return request_patch, tuple(issues)
 
 
 def create_app(
@@ -127,6 +424,33 @@ def create_app(
             identity_type=IdentityType.DEMO,
         )
 
+    def planning_context_for_session(
+        user_id: str,
+        session_id: str,
+        request: PlanRequest,
+        *,
+        pending_field: str | None = None,
+        just_planned: bool = False,
+    ) -> PlanningContextSummary:
+        snapshot = repository.get_session_snapshot(user_id, session_id)
+        has_active_plan = bool(snapshot and snapshot.active_plan_version_id)
+        planned_request = (
+            repository.active_constraints(user_id, session_id)
+            if has_active_plan
+            else None
+        )
+        planned_revision = (
+            request.revision
+            if just_planned
+            else planned_request.get("revision") if planned_request else None
+        )
+        return project_planning_context(
+            request,
+            pending_field=pending_field,
+            planned_request_revision=planned_revision,
+            has_active_plan=has_active_plan or just_planned,
+        )
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -185,6 +509,34 @@ def create_app(
             }
         )
 
+    @app.patch("/api/sessions/{session_id}")
+    def update_session_title(
+        session_id: str,
+        payload: SessionTitleUpdateRequest,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[dict[str, str]]:
+        session = repository.update_session_title(
+            user_id=x_user_id,
+            session_id=session_id,
+            title=payload.title,
+        )
+        if session is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        return ResponseEnvelope(data={"session_id": session.id, "title": session.title})
+
+    @app.delete("/api/sessions/{session_id}")
+    def delete_session(
+        session_id: str,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[dict[str, bool]]:
+        if repository.get_session(x_user_id, session_id) is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        if not repository.delete_session(user_id=x_user_id, session_id=session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+        configurable = checkpoint_config(session_id)["configurable"]
+        checkpointer.delete_thread(configurable["thread_id"])
+        return ResponseEnvelope(data={"deleted": True})
+
     @app.get("/api/sessions/{session_id}")
     def get_session(
         session_id: str,
@@ -194,6 +546,25 @@ def create_app(
         if session is None:
             raise HTTPException(status_code=404, detail="session not found")
         snapshot = repository.get_session_snapshot(x_user_id, session_id)
+        graph_snapshot = graph.get_state(checkpoint_config(session_id))
+        graph_values = getattr(graph_snapshot, "values", None) or {}
+        request_value = graph_values.get("active_request")
+        if request_value is None:
+            request_value = repository.active_constraints(x_user_id, session_id)
+        active_request = (
+            request_value if isinstance(request_value, PlanRequest)
+            else PlanRequest.model_validate(request_value) if request_value is not None
+            else PlanRequest()
+        )
+        pending_value = (
+            graph_snapshot.interrupts[0].value
+            if graph_snapshot.next and graph_snapshot.interrupts
+            else graph_values.get("pending_issue")
+        )
+        pending_field = (
+            pending_value.get("field") if isinstance(pending_value, dict)
+            else getattr(pending_value, "field", None)
+        )
         return ResponseEnvelope(
             data={
                 "session_id": session.id,
@@ -213,6 +584,12 @@ def create_app(
                 ),
                 "selected_plan_id": snapshot.selected_plan_id if snapshot else None,
                 "active_constraints": repository.active_constraints(x_user_id, session_id),
+                "planning_context": planning_context_for_session(
+                    x_user_id,
+                    session_id,
+                    active_request,
+                    pending_field=pending_field,
+                ).model_dump(mode="json"),
                 "plan_versions": [
                     PlanVersionSummary(
                         plan_version_id=version.id,
@@ -264,6 +641,66 @@ def create_app(
             if pending_snapshot.next and pending_snapshot.interrupts
             else None
         )
+        if pending_interrupt is not None and (
+            not isinstance(pending_interrupt, dict)
+            or not pending_interrupt.get("clarification_id")
+            or pending_interrupt.get("request_revision") is None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="当前会话的旧反问状态已失效，请新建规划会话后继续。",
+            )
+
+        pending_values = getattr(pending_snapshot, "values", None) or {}
+        active_value = pending_values.get("active_request")
+        if active_value is None:
+            active_value = repository.active_constraints(x_user_id, session_id)
+        active_request = (
+            active_value if isinstance(active_value, PlanRequest)
+            else PlanRequest.model_validate(active_value) if active_value is not None
+            else PlanRequest()
+        )
+        if request.replan_current_request:
+            if pending_interrupt is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="当前有待回答的问题，请先完成或取消反问再重新规划。",
+                )
+            if (
+                RequestReadinessPolicy().first_issue(active_request) is not None
+                or (active_request.strict_budget and active_request.budget_per_person is None)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="规划条件还不完整，请先补齐必需条件。",
+                )
+        compiled_context_patch: RequestPatch | None = None
+        context_patch_issues: tuple[ClarificationIssue, ...] = ()
+        if request.planning_context_patch is not None:
+            if request.planning_context_patch.base_revision != active_request.revision:
+                raise HTTPException(
+                    status_code=409,
+                    detail="规划条件已更新，请刷新后再修改顶部条件。",
+                )
+            pending_revision = (
+                pending_interrupt.get("request_revision")
+                if isinstance(pending_interrupt, dict)
+                else None
+            )
+            if pending_revision is not None and pending_revision != active_request.revision:
+                raise HTTPException(
+                    status_code=409,
+                    detail="当前反问已过期，请先刷新会话后再修改条件。",
+                )
+
+        request_content = request.content
+        if request.planning_context_patch is not None:
+            request_content = "[planning-context]" + json.dumps(
+                request.planning_context_patch.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
         if request.clarification_reply is not None:
             if pending_interrupt is None:
                 raise HTTPException(
@@ -279,6 +716,19 @@ def create_app(
                 raise HTTPException(
                     status_code=409,
                     detail="反问已更新，请使用当前问题的选项或重新输入",
+                )
+            pending_revision = (
+                pending_interrupt.get("request_revision")
+                if isinstance(pending_interrupt, dict)
+                else None
+            )
+            if (
+                pending_revision is not None
+                and request.clarification_reply.request_revision != pending_revision
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="规划条件已更新，请基于当前条件重新回答",
                 )
 
         # Validate structured replacement anchors before creating a planning
@@ -330,7 +780,11 @@ def create_app(
                 user_id=x_user_id,
                 session_id=session_id,
                 request_id=request.request_id,
-                content=request.content,
+                content=request_content,
+                record_user_message=(
+                    request.planning_context_patch is None
+                    and not request.replan_current_request
+                ),
             )
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -341,26 +795,75 @@ def create_app(
 
         try:
             actor = actor_for(x_user_id, session_id)
+            if request.planning_context_patch is not None:
+                compiled_context_patch, context_patch_issues = compile_planning_context_patch(
+                    request.planning_context_patch,
+                    request=active_request,
+                    geocoding_provider=geocoding_provider,
+                    environment=environment_provider(actor),
+                    pending_field=(
+                        pending_interrupt.get("field")
+                        if isinstance(pending_interrupt, dict)
+                        else None
+                    ),
+                )
             # checkpoint 中存在未完成 interrupt，说明本条消息是上一问题的答案；
             # 否则将它作为新一轮用户目标调用 Graph。前端无需理解 Graph 状态机。
             snapshot = graph.get_state(config)
             if snapshot.next and snapshot.interrupts:
-                if request.clarification_reply is not None:
+                if compiled_context_patch is not None:
+                    resume_value = {
+                        "kind": "planning_context_patch",
+                        "clarification_id": pending_interrupt["clarification_id"],
+                        "request_revision": request.planning_context_patch.base_revision,
+                        "request_patch": compiled_context_patch.model_dump(mode="json"),
+                        "request_patch_issues": [
+                            issue.model_dump(mode="json") for issue in context_patch_issues
+                        ],
+                    }
+                elif request.clarification_reply is not None:
                     resume_value: object = request.clarification_reply.model_dump(mode="json")
                 else:
-                    # Compatibility for the old input box: plain text is an
-                    # answer to the exact pending field, not a new full Router
-                    # turn and not a concatenation with the old request.
+                    # Free-text answers are bound to the current field issue;
+                    # they do not start another Router turn.
                     resume_value = {
-                        "clarification_id": (
-                            pending_interrupt.get("clarification_id", "legacy")
-                            if isinstance(pending_interrupt, dict)
-                            else "legacy"
-                        ),
+                        "clarification_id": pending_interrupt["clarification_id"],
                         "action": ClarificationAction.ANSWER.value,
                         "value": request.content,
+                        "request_revision": pending_interrupt["request_revision"],
                     }
                 result = graph.invoke(Command(resume=resume_value), config=config)
+            elif compiled_context_patch is not None:
+                session_snapshot = repository.get_session_snapshot(x_user_id, session_id)
+                active_plan_payloads = repository.list_plans(x_user_id, session_id)
+                selected_plan = next(
+                    (
+                        Plan.model_validate(plan)
+                        for plan in active_plan_payloads
+                        if session_snapshot is not None
+                        and plan.get("plan_id") == session_snapshot.selected_plan_id
+                    ),
+                    None,
+                )
+                result = graph.invoke(
+                    {
+                        "actor": actor,
+                        "user_input": request.content,
+                        "active_request": active_request,
+                        "has_plans": bool(active_plan_payloads),
+                        "active_plan_version_id": (
+                            session_snapshot.active_plan_version_id
+                            if session_snapshot is not None
+                            else None
+                        ),
+                        "selected_plan": selected_plan,
+                        "request_patch_override": compiled_context_patch,
+                        "request_patch_issues": context_patch_issues,
+                        "defer_planning": request.defer_planning,
+                        "replan_current_request": False,
+                    },
+                    config=config,
+                )
             else:
                 session_snapshot = repository.get_session_snapshot(
                     x_user_id,
@@ -418,10 +921,6 @@ def create_app(
                     ),
                     None,
                 )
-                active_constraints_payload = repository.active_constraints(
-                    x_user_id,
-                    session_id,
-                )
                 result = graph.invoke(
                     {
                         "user_input": request.content,
@@ -432,14 +931,10 @@ def create_app(
                             if session_snapshot is not None
                             else None
                         ),
-                        "active_constraints": (
-                            NormalizedConstraints.model_validate(
-                                active_constraints_payload
-                            )
-                            if active_constraints_payload is not None
-                            else None
-                        ),
+                        "active_request": active_request,
                         "selected_plan": selected_plan,
+                        "defer_planning": False,
+                        "replan_current_request": request.replan_current_request,
                         # A structured UI command is already validated at the
                         # HTTP boundary.  Passing it as an explicit Graph input
                         # keeps the natural-language interpreter out of this
@@ -455,6 +950,14 @@ def create_app(
             runtime_decisions = _dump_runtime_decisions(result, current)
             if current.next and current.interrupts:
                 question = current.interrupts[0].value
+                current_request_value = (getattr(current, "values", None) or {}).get("active_request")
+                current_request = (
+                    current_request_value
+                    if isinstance(current_request_value, PlanRequest)
+                    else PlanRequest.model_validate(current_request_value)
+                    if current_request_value is not None
+                    else active_request
+                )
                 response = AgentResponse(
                     status="needs_input",
                     question=question,
@@ -466,6 +969,12 @@ def create_app(
                     warnings=[],
                     poi_presentations=[],
                     runtime_decisions=runtime_decisions,
+                    planning_context=planning_context_for_session(
+                        x_user_id,
+                        session_id,
+                        current_request,
+                        pending_field=question.get("field") if isinstance(question, dict) else None,
+                    ),
                 )
                 repository.complete_planning_run(
                     user_id=x_user_id,
@@ -478,45 +987,29 @@ def create_app(
                 )
                 return ResponseEnvelope(data=response)
 
-            modification_question = result.get("modification_question")
-            if modification_question is not None and modification_question.need_question:
-                question = modification_question.model_dump(mode="json")
-                response = AgentResponse(
-                    status="needs_input",
-                    question=question,
-                    reply=modification_question.question,
-                    conversation_command=(
-                        result["interpretation"].conversation_command.model_dump(
-                            mode="json"
-                        )
-                        if result.get("interpretation") is not None
-                        and result["interpretation"].conversation_command is not None
-                        else None
-                    ),
-                    runtime_decisions=runtime_decisions,
-                )
-                repository.complete_planning_run(
-                    user_id=x_user_id,
-                    session_id=session_id,
-                    planning_run_id=run.planning_run_id,
-                    status="needs_input",
-                    response=response.model_dump(mode="json"),
-                    assistant_content=modification_question.question,
-                    plans=[],
-                )
-                return ResponseEnvelope(data=response)
-
             interpretation = result.get("interpretation")
             candidate_set = result.get("candidate_set")
             reply = interpretation.reply if interpretation else ""
             plans = candidate_set.plans if candidate_set else []
             conflict = candidate_set.conflict if candidate_set else None
-            effective_constraints = (
-                result.get("planning_constraints")
-                or (result["enrichment"].constraints
-                if result.get("enrichment") is not None
-                else result.get("active_constraints"))
+            context_saved = (
+                request.planning_context_patch is not None
+                and request.defer_planning
+                and not plans
+                and conflict is None
             )
+            effective_constraints = (
+                result.get("active_request")
+            )
+            if effective_constraints is None:
+                current_request_value = (getattr(current, "values", None) or {}).get("active_request")
+                effective_constraints = (
+                    current_request_value
+                    if isinstance(current_request_value, PlanRequest)
+                    else PlanRequest.model_validate(current_request_value)
+                    if current_request_value is not None
+                    else active_request
+                )
             if plans:
                 reply = present_candidate_set(
                     candidate_set,
@@ -527,11 +1020,6 @@ def create_app(
 
             plan_version_id = uuid.uuid4().hex if plans else None
             raw_plan_diffs = result.get("plan_diffs") or ()
-            # Checkpoints created before the candidate-level contract may only
-            # expose one ``plan_diff``.  Read it for compatibility, but every
-            # newly produced response is serialized through ``plan_diffs``.
-            if not raw_plan_diffs and result.get("plan_diff") is not None:
-                raw_plan_diffs = (result["plan_diff"],)
             plan_diffs = list(raw_plan_diffs)
             interpretation_command = (
                 interpretation.conversation_command
@@ -554,7 +1042,6 @@ def create_app(
                     for diff in plan_diffs
                 ]
                 reply = _modification_reply(plan_diffs)
-            enrichment = result.get("enrichment")
             normalized_constraints_json = (
                 effective_constraints.model_dump_json()
                 if plans and effective_constraints is not None
@@ -595,8 +1082,8 @@ def create_app(
                 ]
 
             response = AgentResponse(
-                status="completed",
-                reply=reply,
+                status="context_saved" if context_saved else "completed",
+                reply="" if context_saved else reply,
                 assumptions=_dump_assumptions(result),
                 constraint_summary=_dump_constraint_summary(result),
                 plans=[plan.model_dump(mode="json") for plan in plans],
@@ -772,18 +1259,17 @@ def create_app(
                     and interpretation.conversation_command is not None
                     else None
                 ),
-                # ``plan_diff`` is intentionally left empty for new responses;
-                # old persisted responses remain readable by AgentResponse.  A
-                # legacy natural-language command that still uses the original
-                # ConstraintPatch gets the old convenience field as well; the
-                # new structured criterion path never aliases a candidate diff.
+                # Keep the singular convenience view for a route-objective
+                # replacement; candidate-aligned details remain in plan_diffs.
                 plan_diff=(
                     plan_diffs[0].model_dump(mode="json")
                     if (
                         plan_diffs
                         and interpretation_command is not None
-                        and interpretation_command.constraint_patch.prefer_shorter_travel
-                        and not interpretation_command.replacement_criteria
+                        and any(
+                            criterion.kind == "route_objective"
+                            for criterion in interpretation_command.replacement_criteria
+                        )
                     )
                     else None
                 ),
@@ -793,6 +1279,12 @@ def create_app(
                     if recommendation_advice is not None
                     else None
                 ),
+                planning_context=planning_context_for_session(
+                    x_user_id,
+                    session_id,
+                    effective_constraints,
+                    just_planned=bool(plans),
+                ),
             )
             repository.complete_planning_run(
                 user_id=x_user_id,
@@ -800,7 +1292,7 @@ def create_app(
                 planning_run_id=run.planning_run_id,
                 status="completed",
                 response=response.model_dump(mode="json"),
-                assistant_content=reply,
+                assistant_content="" if context_saved else reply,
                 plans=plans,
                 plan_version_id=plan_version_id,
                 normalized_constraints_json=normalized_constraints_json,
@@ -815,14 +1307,48 @@ def create_app(
             )
             raise
 
+    @app.patch("/api/sessions/{session_id}/planning-context")
+    def update_planning_context(
+        session_id: str,
+        request: PlanningContextUpdateRequest,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[AgentResponse]:
+        return send_message(
+            session_id,
+            MessageRequest(
+                request_id=request.request_id,
+                content="顶部条件更新",
+                planning_context_patch=request.patch,
+                defer_planning=True,
+            ),
+            x_user_id,
+        )
+
+    @app.post("/api/sessions/{session_id}/planning-context/replan")
+    def replan_saved_context(
+        session_id: str,
+        request: CurrentRequestReplanRequest,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> ResponseEnvelope[AgentResponse]:
+        return send_message(
+            session_id,
+            MessageRequest(
+                request_id=request.request_id,
+                content="按当前保存的规划条件重新规划",
+                replan_current_request=True,
+            ),
+            x_user_id,
+        )
+
     return app
 
 
 def _dump_assumptions(result: dict) -> list[dict]:
-    enrichment = result.get("enrichment")
-    if enrichment is None:
-        return []
-    return [item.model_dump(mode="json") for item in enrichment.assumptions]
+    assumptions = result.get("assumptions") or ()
+    return [
+        item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+        for item in assumptions
+    ]
 
 
 def _dump_runtime_decisions(result: dict, snapshot: object | None = None) -> list[dict]:
@@ -891,20 +1417,47 @@ def _modification_reply(plan_diffs: list) -> str:
 
 def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
     """把规划实际使用的约束转换成稳定的前端摘要。"""
-    enrichment = result.get("enrichment")
     constraints = (
-        result.get("planning_constraints")
-        or (enrichment.constraints if enrichment is not None else None)
-        or result.get("active_constraints")
+        result.get("active_request")
     )
     if constraints is None:
         return []
     summary = []
+    planning_window = getattr(constraints, "planning_window", None)
+    if planning_window is not None:
+        for field, constraint, value in (
+            ("date", planning_window.date, planning_window.date.value.isoformat() if planning_window.date else None),
+            ("time_window", planning_window.start_at, (
+                {
+                    "start": planning_window.start_at.value,
+                    "end": planning_window.end_at.value,
+                }
+                if planning_window.start_at and planning_window.end_at
+                else None
+            )),
+            ("departure_at", planning_window.explicit_departure, (
+                planning_window.explicit_departure.value
+                if planning_window.explicit_departure
+                else None
+            )),
+            ("return_by", planning_window.explicit_return_deadline, (
+                planning_window.explicit_return_deadline.value
+                if planning_window.explicit_return_deadline
+                else None
+            )),
+        ):
+            if constraint is not None and value is not None:
+                summary.append(
+                    ConstraintSummaryItem(
+                        field=field,
+                        value=value,
+                        source=constraint.source,
+                        evidence=constraint.raw_text,
+                        confidence=constraint.confidence,
+                        rule_id=constraint.rule_id,
+                    )
+                )
     for field in (
-        "date",
-        "time_scope",
-        "time_window",
-        "departure_at",
         "exact_stop_count",
         "required_stop_roles",
         "duration_minutes",
@@ -912,7 +1465,6 @@ def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
         "party",
         "budget_per_person",
         "max_distance_km",
-        "return_by",
         "total_distance_km",
     ):
         constraint = getattr(constraints, field)

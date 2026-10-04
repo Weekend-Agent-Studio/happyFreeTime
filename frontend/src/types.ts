@@ -295,17 +295,68 @@ export type ClarificationOption = {
 export type ClarificationReply = {
   clarification_id: string;
   action: ClarificationAction;
+  request_revision: number;
   value?: string | null;
+};
+
+export type PlanningContextField = {
+  value: unknown;
+  display_value: string;
+  source: "user" | "derived" | "default";
+  editable: boolean;
+  status: "resolved" | "assumed" | "pending";
+};
+
+export type PlanningContextSummary = {
+  request_revision: number;
+  planned_request_revision: number | null;
+  has_active_plan: boolean;
+  plan_stale: boolean;
+  ready_for_planning: boolean;
+  where: PlanningContextField;
+  when: {
+    date: PlanningContextField;
+    start_at: PlanningContextField;
+    end_at: PlanningContextField;
+    start_kind: "trip_start" | "departure";
+    end_kind: "trip_end" | "return_deadline";
+  };
+  who: PlanningContextField;
+  budget: PlanningContextField;
+  preferences: PlanningContextField;
+  pending_field: string | null;
+};
+
+export type FieldEdit<T> = { operation: "set"; value: T } | { operation: "clear" };
+export type PreferenceCategory = "preferences" | "diet_tags" | "scene_tags" | "avoid";
+export type PreferenceTag = { category: PreferenceCategory; value: string };
+export type PlanningContextPatch = {
+  base_revision: number;
+  where?: FieldEdit<string>;
+  when?: {
+    date?: FieldEdit<string>;
+    start_at?: FieldEdit<string>;
+    end_at?: FieldEdit<string>;
+  };
+  who?: {
+    adults?: number;
+    children?: number;
+    child_age?: FieldEdit<number>;
+    members?: FieldEdit<string[]>;
+  };
+  budget?: { mode: "unlimited" } | { mode: "per_person"; amount: number; strict: boolean };
+  preferences?: { add?: PreferenceTag[]; remove?: PreferenceTag[] };
 };
 
 export type AgentResponse = {
   /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
-  status: "completed" | "needs_input";
+  status: "completed" | "needs_input" | "context_saved";
   reply: string;
   question: {
     field: string | null;
     question: string;
     severity: string;
+    request_revision: number;
     rule_id?: string;
     clarification_id?: string | null;
     attempt?: number;
@@ -335,6 +386,7 @@ export type AgentResponse = {
   plan_diff?: PlanDiff | null;
   plan_diffs?: PlanDiff[];
   recommendation_advice?: RecommendationAdvice | null;
+  planning_context?: PlanningContextSummary | null;
 };
 
 export type ChatMessage = {
@@ -370,6 +422,7 @@ export type SessionView = {
   active_plan_version_id?: string | null;
   selected_plan_id?: string | null;
   active_constraints?: unknown;
+  planning_context?: PlanningContextSummary | null;
   plan_versions?: Array<{
     plan_version_id: string;
     planning_run_id: string;

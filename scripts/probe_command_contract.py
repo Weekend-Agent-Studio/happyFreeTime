@@ -105,8 +105,11 @@ def main() -> int:
                 "operation": command.operation.value if command is not None else None,
                 "target_fields": target_fields,
                 "locked_target_fields": locked_target_fields,
-                "prefer_shorter_travel": (
-                    command.constraint_patch.prefer_shorter_travel
+                "has_route_objective": (
+                    any(
+                        criterion.kind == "route_objective"
+                        for criterion in command.replacement_criteria
+                    )
                     if command is not None
                     else None
                 ),
@@ -153,7 +156,10 @@ def _matches_expectation(
         return (
             target.role is not None
             and target.role.value == "activity"
-            and command.constraint_patch.prefer_shorter_travel
+            and any(
+                criterion.kind == "route_objective"
+                for criterion in command.replacement_criteria
+            )
             and any(
                 item.resource_type is not None
                 and item.resource_type.value == "restaurant"

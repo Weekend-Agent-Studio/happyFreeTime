@@ -4,7 +4,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.constraints import Intent, RawConstraints
+from app.domain.constraints import Intent, RawConstraints, TimeProposal
 from app.domain.providers import AvailabilityStatus, GeocodeResolution
 
 
@@ -82,6 +82,7 @@ class EvalCase(BaseModel):
     case_id: str
     intent: Intent
     raw_constraints: RawConstraints
+    time_proposals: tuple[TimeProposal, ...] = ()
     expected_outcome: ExpectedOutcome
     expected_question_field: str | None = None
     expected_conflict_code: str | None = None

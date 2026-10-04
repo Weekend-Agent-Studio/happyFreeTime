@@ -1,4 +1,4 @@
-import type { AgentResponse, ClarificationReply, ConversationCommand, SessionSummary, SessionView, WebMapConfig } from "./types";
+import type { AgentResponse, ClarificationReply, ConversationCommand, PlanningContextPatch, SessionSummary, SessionView, WebMapConfig } from "./types";
 
 // M1 使用固定 Demo 用户，但后端所有数据仍按 user_id 隔离。接入匿名身份或
 // 登录后，只需在这一层替换身份获取方式，业务组件不需要散落认证逻辑。
@@ -70,12 +70,56 @@ export async function sendMessage(
   return body.data;
 }
 
+export async function updatePlanningContext(
+  sessionId: string,
+  patch: PlanningContextPatch,
+  requestId: string,
+): Promise<AgentResponse> {
+  const response = await fetch(`/api/sessions/${sessionId}/planning-context`, {
+    method: "PATCH",
+    headers: { ...USER_HEADER, "Content-Type": "application/json" },
+    body: JSON.stringify({ request_id: requestId, patch }),
+  });
+  const body = await readJson<{ data: AgentResponse }>(response);
+  return body.data;
+}
+
+export async function replanPlanningContext(
+  sessionId: string,
+  requestId: string,
+): Promise<AgentResponse> {
+  const response = await fetch(`/api/sessions/${sessionId}/planning-context/replan`, {
+    method: "POST",
+    headers: { ...USER_HEADER, "Content-Type": "application/json" },
+    body: JSON.stringify({ request_id: requestId }),
+  });
+  const body = await readJson<{ data: AgentResponse }>(response);
+  return body.data;
+}
+
 export async function listSessions(limit = 5): Promise<SessionSummary[]> {
   const response = await fetch(`/api/sessions?limit=${limit}`, {
     headers: USER_HEADER,
   });
   const body = await readJson<{ data: { sessions: SessionSummary[] } }>(response);
   return body.data.sessions;
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const response = await fetch(`/api/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { ...USER_HEADER, "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  await readJson<{ data: { session_id: string; title: string } }>(response);
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const response = await fetch(`/api/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: USER_HEADER,
+  });
+  await readJson<{ data: { deleted: boolean } }>(response);
 }
 
 export async function getSession(sessionId: string): Promise<SessionView> {

@@ -38,7 +38,7 @@ class TurnInterpreterTest(unittest.TestCase):
             command.locked_targets[0].resource_type,
             ResourceType.RESTAURANT,
         )
-        self.assertTrue(command.constraint_patch.prefer_shorter_travel)
+        self.assertEqual(command.replacement_criteria[0].kind, "route_objective")
         self.assertEqual(command.evidence["replace"], "活动换近一点")
         self.assertEqual(command.evidence["keep"], "餐厅保留")
         self.assertIsNone(command.target.resource_id)

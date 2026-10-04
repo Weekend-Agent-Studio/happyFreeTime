@@ -13,12 +13,15 @@ from app.domain.constraints import (
     Intent,
     Interpretation,
     RawConstraints,
+    RouteObjective,
     StopRole,
     TargetReference,
+    TimeProposal,
+    TimeScope,
 )
 from app.domain.runtime import RuntimeDecision
 from app.services.enrichment import TemporalCompiler
-from app.services.constraint_patch import ConstraintPatchCompiler
+from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.router_extractor import RouterContext
 
 
@@ -105,7 +108,7 @@ class DemoRouter:
                             raw_text="餐厅",
                         ),
                     ),
-                    constraint_patch=ConstraintPatch(prefer_shorter_travel=True),
+                    replacement_criteria=(RouteObjective(),),
                     evidence={
                         "replace": "活动换近一点",
                         "keep": "餐厅保留",
@@ -133,10 +136,9 @@ class DemoRouter:
                 ),
             )
 
-        # A follow-up that adds a constraint to the selected plan is compiled
-        # by the same bounded proposal adapter used by the patch compiler.  No
-        # Graph or clarification service scans the message independently.
-        patch = ConstraintPatchCompiler.proposal_from_text(
+        # Keep deterministic text interpretation inside this Demo Router;
+        # downstream services receive the same bounded wire proposal as the LLM.
+        patch = self.patch_proposal_from_text(
             text,
             has_plans=context.has_plans,
         )
@@ -173,8 +175,10 @@ class DemoRouter:
                     conversation_command=ConversationCommand(
                         operation=CommandOperation.REPLACE,
                         target=target,
-                        constraint_patch=ConstraintPatch(
-                            prefer_shorter_travel=any(value in text for value in ("近一点", "近点", "更近")),
+                        replacement_criteria=(
+                            (RouteObjective(),)
+                            if any(value in text for value in ("近一点", "近点", "更近"))
+                            else ()
                         ),
                         evidence={"target": raw_target},
                     ),
@@ -188,7 +192,7 @@ class DemoRouter:
             )
 
         # 普通创建请求仍由这一组有限规则抽取；字段级反问恢复不会把答案
-        # 拼回这里，而是由 ClarificationResolver 直接投影到待补字段。
+        # 拼回这里；Graph 会把回答编译成字段级 RequestPatch 并交给 ConstraintEngine。
         budget_match = re.search(
             r"(?:人均|每人)\s*"
             r"(?:(?:最多|不超过|至多|不超|严格控制在|控制在|约|大约)\s*)?"
@@ -209,20 +213,43 @@ class DemoRouter:
         ) = TemporalCompiler.extract_date(text)
         if date_text is None:
             date_text = TemporalCompiler.extract_unresolved_date_text(text)
-        time_text, time_scope, explicit_time_window = TemporalCompiler.extract_time(text)
         departure_match = re.search(
             r"(?:(?:上午|早上|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
             r"\s*(?:准时\s*)?(?:出发|离开)",
             text,
         )
-        departure_period = TemporalCompiler.extract_departure_period(text)
-        # ``time_scope`` describes the whole outing.  A period attached only
-        # to “出发/出门” must remain a departure hint; it is not a 09:00–12:00
-        # trip window.  Keep the historical fuzzy scope when an exact clock is
-        # present so old callers can still inspect the broad evidence, while
-        # Enrichment gives the exact departure precedence.
-        if departure_period is not None and departure_match is None:
-            time_scope = None
+        departure_period_match = re.search(
+            r"(?:上午|早上|下午|晚上|夜里|夜间).{0,8}(?:出发|出门|离开)|"
+            r"(?:出发|出门|离开).{0,8}(?:上午|早上|下午|晚上|夜里|夜间)",
+            text,
+        )
+        time_proposals: list[TimeProposal] = []
+        if departure_match:
+            departure_clock = TemporalCompiler.normalize_clock_text(
+                departure_match.group(0)
+            )
+            if departure_clock:
+                time_proposals.append(
+                    TimeProposal(
+                        target="departure",
+                        precision="exact",
+                        clock=departure_clock,
+                        evidence=departure_match.group(0),
+                    )
+                )
+        elif departure_period_match:
+            departure_period = TemporalCompiler.extract_departure_period(
+                departure_period_match.group(0)
+            )
+            if departure_period is not None:
+                time_proposals.append(
+                    TimeProposal(
+                        target="departure",
+                        precision="period",
+                        period=departure_period,
+                        evidence=departure_period_match.group(0),
+                    )
+                )
         dinner_only_match = re.search(
             r"(?P<exclusive>(?:只|仅|就)(?:安排|去|吃))"
             r"(?:一(?:家|顿)|个)?(?:餐厅)?(?:吃)?(?P<dinner>晚饭|晚餐)",
@@ -421,32 +448,85 @@ class DemoRouter:
         )
         vague_return_by_match = re.search(
             r"(?:晚饭|午饭|天黑|晚上)\s*前后"
-            r"(?:一定要|要|得)?\s*(?:到家|回家|回来)",
+            r"(?:一定(?:要)?|要|得)?\s*(?:到家|回家|回来)",
             text,
         )
         effective_return_by_text_match = return_by_text_match or vague_return_by_match
-        return_by_match = re.search(
-            r"(?:最晚|最迟|不晚于|在)\s*(\d{1,2})[:：](\d{2})"
-            r"\s*(?:点|点钟)?\s*(?:前|之前)?\s*(?:到家|回家|回来)",
-            text,
-        ) or re.search(
-            r"(\d{1,2})[:：](\d{2})\s*(?:前|之前)\s*(?:到家|回家|回来)",
-            text,
+        return_clock_match = (
+            re.search(
+                r"(?:(?:上午|早上|中午|下午|晚上|夜里|夜间)\s*)?"
+                r"(?:\d{1,2}[:：]\d{2}|[零〇一二两三四五六七八九十]+点"
+                r"(?:半|[零〇一二三四五六七八九十]+分?)?)",
+                effective_return_by_text_match.group(0),
+            )
+            if effective_return_by_text_match
+            else None
         )
         # Graph 恢复时会把原请求和答案拼接。裸 ``18:00`` 只有在原请求
         # 已明确出现“最晚…回家”语义时，才可作为返程 deadline，避免把普通
         # 时间表达误当成返程约束。
         resumed_return_by_match = (
             re.search(r"(?:^|\n)用户补充：\s*(\d{1,2})[:：](\d{2})\s*$", text)
-            if effective_return_by_text_match and not return_by_match
+            if effective_return_by_text_match and not return_clock_match
             else None
         )
-        return_clock_match = return_by_match or resumed_return_by_match
-        return_by = (
-            f"{int(return_clock_match.group(1)):02d}:{int(return_clock_match.group(2)):02d}"
+        return_clock = (
+            TemporalCompiler.normalize_clock_text(return_clock_match.group(0))
             if return_clock_match
+            else TemporalCompiler.normalize_clock_text(resumed_return_by_match.group(1))
+            if resumed_return_by_match
             else None
         )
+        if effective_return_by_text_match:
+            return_evidence = effective_return_by_text_match.group(0)
+            if return_clock:
+                time_proposals.append(
+                    TimeProposal(
+                        target="return",
+                        precision="exact",
+                        clock=return_clock,
+                        evidence=return_evidence,
+                    )
+                )
+            else:
+                period = (
+                    TimeScope.AFTERNOON
+                    if "午饭" in return_evidence
+                    else TimeScope.EVENING
+                )
+                time_proposals.append(
+                    TimeProposal(
+                        target="return",
+                        precision="period",
+                        period=period,
+                        evidence=return_evidence,
+                    )
+                )
+
+        trip_text = text
+        for matched in (departure_match, departure_period_match, effective_return_by_text_match):
+            if matched is not None:
+                trip_text = trip_text.replace(matched.group(0), " ", 1)
+        trip_time_text, trip_scope, trip_window = TemporalCompiler.extract_time(trip_text)
+        if trip_time_text and trip_window is not None:
+            time_proposals.append(
+                TimeProposal(
+                    target="trip",
+                    precision="exact",
+                    clock=trip_window.start,
+                    end_clock=trip_window.end,
+                    evidence=trip_time_text,
+                )
+            )
+        elif trip_time_text and trip_scope is not None:
+            time_proposals.append(
+                TimeProposal(
+                    target="trip",
+                    precision="period",
+                    period=trip_scope,
+                    evidence=trip_time_text,
+                )
+            )
         total_distance_match = re.search(
             r"((?:全程|总路程|总距离)\s*(?:不超过|不超|最多|至多|≤)?\s*"
             r"(\d+(?:\.\d+)?)\s*(?:公里|km))",
@@ -464,11 +544,6 @@ class DemoRouter:
             weekday=weekday,
             week_offset=week_offset,
             absolute_date=absolute_date,
-            time_text=time_text,
-            time_scope=time_scope,
-            explicit_time_window=explicit_time_window,
-            departure_period=departure_period,
-            departure_at_text=(departure_match.group(0) if departure_match else None),
             exact_stop_count=(
                 1
                 if single_stop_role is not None
@@ -493,12 +568,6 @@ class DemoRouter:
             max_distance_text=distance_text,
             preferences=preferences,
             scene_tags=["约会"] if "约会" in text else [],
-            return_by_text=(
-                effective_return_by_text_match.group(0)
-                if effective_return_by_text_match
-                else None
-            ),
-            return_by=return_by,
             total_distance_text=(
                 total_distance_match.group(1) if total_distance_match else None
             ),
@@ -513,11 +582,6 @@ class DemoRouter:
                 "weekday": date_text if weekday is not None else None,
                 "week_offset": date_text if week_offset is not None else None,
                 "absolute_date": date_text if absolute_date is not None else None,
-                "time_text": time_text,
-                "time_scope": time_text if time_scope is not None else None,
-                "explicit_time_window": time_text if explicit_time_window is not None else None,
-                "departure_period": time_text if departure_period is not None else None,
-                "departure_at_text": departure_match.group(0) if departure_match else None,
                 "exact_stop_count": (
                     single_stop_match.group("exclusive")
                     if single_stop_match
@@ -538,11 +602,6 @@ class DemoRouter:
                     if require_availability_confirmation
                     else None
                 ),
-                "return_by_text": (
-                    effective_return_by_text_match.group(0)
-                    if effective_return_by_text_match
-                    else None
-                ),
                 "total_distance_km": (
                     total_distance_match.group(1) if total_distance_match else None
                 ),
@@ -553,12 +612,88 @@ class DemoRouter:
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
             raw_constraints=raw,
+            time_proposals=tuple(time_proposals),
             extraction_confidence={
                 field: 0.85 if field == "party" else 1.0
                 for field in evidence
             },
             evidence_map=evidence,
             inferred_fields={"party"} if party_evidence else set(),
+        )
+
+    @staticmethod
+    def patch_proposal_from_text(text: str, *, has_plans: bool) -> ConstraintPatch | None:
+        """Build the bounded patch proposal used by the offline Demo Router."""
+        if not has_plans:
+            return None
+        value = text.strip()
+        if not value or any(
+            marker in value
+            for marker in ("换站", "换这站", "换个", "换活动", "换晚餐", "替换", "更换")
+        ):
+            return None
+        if "保留" in value and any(marker in value for marker in ("活动", "晚餐", "晚饭", "餐厅")):
+            return None
+        date_text, _, _, _, _ = TemporalCompiler.extract_date(value)
+        time_text, scope, explicit_window = TemporalCompiler.extract_time(value)
+        departure_period = TemporalCompiler.extract_departure_period(value)
+        departure = None
+        clock_like = re.search(
+            r"(?:\d{1,2}[:：]\d{1,2}|[零〇一二两三四五六七八九十]+点(?:半|[零〇一二两三四五六七八九十]+分?)?)",
+            value,
+        )
+        if re.search(r"出发|出门|离开", value) and clock_like and TemporalCompiler.normalize_clock_text(value):
+            departure = value
+            time_text = None
+        return_by = value if re.search(r"回家|到家|回来", value) else None
+        strict_budget: bool | None = None
+        budget = None
+        if "预算不限" in value or "不设预算" in value:
+            strict_budget = False
+        elif "预算" in value or "人均" in value or "每人" in value:
+            budget = value
+            strict_budget = True
+        max_distance = value if re.search(r"(?:公里|千米|km|KM)", value) else None
+        location_match = re.search(r"从(?P<location>[^，,。；;]{2,30})(?:出发|出门)", value)
+        location = location_match.group("location") if location_match else None
+        preferences = tuple(
+            label
+            for keyword, label in (("安静", "安静"), ("聊天", "适合聊天"), ("浪漫", "浪漫"), ("轻松", "轻松"), ("不累", "不累"))
+            if keyword in value
+        )
+        diet_tags = tuple(
+            label for keyword, label in (("少辣", "少辣"), ("清淡", "清淡"))
+            if keyword in value
+        )
+        avoid = ("博物馆",) if "不要博物馆" in value else ()
+        has_patch_marker = any(
+            marker in value
+            for marker in ("补充", "忘了说", "对了", "另外", "再加", "重新规划", "改到", "改成", "改为")
+        )
+        if not (
+            has_patch_marker or date_text or departure or departure_period or return_by
+            or budget or strict_budget is not None or location or preferences or diet_tags
+            or avoid or max_distance or scope is not None or explicit_window is not None
+        ):
+            return None
+        return ConstraintPatch(
+            date_text=date_text,
+            return_by_text=return_by,
+            departure_at_text=departure,
+            departure_period=departure_period,
+            time_window_text=(
+                value
+                if time_text and departure is None and departure_period is None and return_by is None
+                else None
+            ),
+            location_text=location,
+            budget_text=budget,
+            max_distance_text=max_distance,
+            preferences=preferences,
+            diet_tags=diet_tags,
+            avoid=avoid,
+            strict_budget=strict_budget,
+            clear_fields=("budget_per_person", "strict_budget") if strict_budget is False else (),
         )
 
     def interpret_with_runtime(

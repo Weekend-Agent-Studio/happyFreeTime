@@ -7,8 +7,10 @@ import type { AgentResponse, Plan } from "./types";
 
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
+  deleteSession: vi.fn(),
   getSession: vi.fn(),
   listSessions: vi.fn(),
+  renameSession: vi.fn(),
   sendMessage: vi.fn(),
   selectPlan: vi.fn(),
 }));
@@ -84,9 +86,13 @@ describe("planning workspace", () => {
     window.history.replaceState({}, "", "/");
     api.listSessions.mockReset();
     api.createSession.mockReset();
+    api.deleteSession.mockReset();
+    api.renameSession.mockReset();
     api.sendMessage.mockReset();
     api.selectPlan.mockReset();
     api.listSessions.mockResolvedValue([]);
+    api.deleteSession.mockResolvedValue(undefined);
+    api.renameSession.mockResolvedValue(undefined);
     api.createSession.mockResolvedValue("session-test");
     api.sendMessage.mockResolvedValue(response);
     api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
@@ -95,6 +101,8 @@ describe("planning workspace", () => {
   it("switches plans and keeps timeline, map rows, and RouteLeg indices aligned", async () => {
     const user = userEvent.setup();
     render(<App />);
+    expect(document.querySelector(".app-header-title")).toHaveTextContent("周末规划");
+    expect(document.querySelector(".app-header-title")).not.toHaveTextContent("HappyFreeTime");
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
@@ -104,13 +112,56 @@ describe("planning workspace", () => {
     expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }));
-    expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "地图" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("测试地图，当前路线 0")).toBeInTheDocument();
-    expect(screen.getByText("本地估算")).toBeInTheDocument();
+    // Route source now also appears on each candidate card, so scope this
+    // assertion to the map row the test is actually about.
+    expect(screen.getByRole("button", { name: /出发地 → 展览/ })).toHaveTextContent("本地估算");
 
     await user.click(screen.getByRole("button", { name: /展览 → 晚餐/ }));
-    expect(screen.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "行程" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("adds POI context to plan cards and supports renaming and deleting history", async () => {
+    const user = userEvent.setup();
+    api.listSessions.mockResolvedValue([{
+      session_id: "history-to-manage",
+      title: "周末出游规划",
+      status: "completed",
+      created_at: "2026-10-04T00:00:00Z",
+      updated_at: "2026-10-04T01:00:00Z",
+      last_message_preview: "已生成方案",
+    }]);
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      poi_presentations: response.plans.flatMap((item) => item.stops.map((stop) => presentation(stop.resource_id, stop.name))),
+    });
+    render(<App />);
+
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    expect(await screen.findAllByText(/朝阳区 · 演示评分 4\.6/)).not.toHaveLength(0);
+
+    await screen.findByText("周末出游规划");
+    const sessionRow = document.querySelector<HTMLButtonElement>(".session-row-shell .session-row");
+    expect(sessionRow).not.toBeNull();
+    fireEvent.contextMenu(sessionRow!);
+    await user.click(screen.getByRole("menuitem", { name: "重命名" }));
+    const titleInput = screen.getByRole("textbox", { name: "规划名称" });
+    await user.clear(titleInput);
+    await user.type(titleInput, "周末晚餐安排");
+    await user.click(screen.getByRole("button", { name: "保存名称" }));
+    await waitFor(() => expect(api.renameSession).toHaveBeenCalledWith("history-to-manage", "周末晚餐安排"));
+    expect(await screen.findByRole("button", { name: /周末晚餐安排/ })).toBeInTheDocument();
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "更多会话操作" }));
+    await user.click(screen.getByRole("menuitem", { name: "删除规划" }));
+    await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("history-to-manage"));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(await screen.findByText("完成一次规划后，会话和方案会保留在这里。")).toBeInTheDocument();
+    confirmSpy.mockRestore();
   });
 
   it("shows total party place fees without transport and preserves price uncertainty", async () => {
@@ -600,7 +651,7 @@ describe("planning workspace", () => {
     const questionResponse: Partial<AgentResponse> = {
       status: "needs_input",
       reply: "",
-      question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+      question: { field: "budget", question: "预算是多少？", severity: "blocking", request_revision: 0 },
       plans: [],
       conflict: null,
       plan_version_id: null,
@@ -685,7 +736,7 @@ describe("planning workspace", () => {
       .mockResolvedValueOnce({
         status: "needs_input",
         reply: "",
-        question: { field: "budget", question: "预算是多少？", severity: "blocking" },
+        question: { field: "budget", question: "预算是多少？", severity: "blocking", request_revision: 0 },
         assumptions: [], constraint_summary: [], plans: [], conflict: null,
         provider_facts: [], catalog_violations: [], catalog_warnings: [], warnings: [], poi_presentations: [],
       });
@@ -718,6 +769,7 @@ describe("planning workspace", () => {
         field: "location",
         question: "我还不能确定这个位置，能提供更具体的地点或地标吗？",
         severity: "blocking",
+        request_revision: 0,
         clarification_id: "clarification-location-1",
         attempt: 0,
         max_attempts: 2,
@@ -741,6 +793,7 @@ describe("planning workspace", () => {
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
       clarification_id: "clarification-location-1",
+      request_revision: 0,
       action: "use_default",
       value: null,
     });
@@ -779,6 +832,7 @@ describe("planning workspace", () => {
         field: "location",
         question: "请补充地点",
         severity: "blocking",
+        request_revision: 0,
         clarification_id: "clarification-location-2",
         options: [{ id: "new-request", label: "开始新需求", action: "new_request" }],
       },
@@ -794,6 +848,7 @@ describe("planning workspace", () => {
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
       clarification_id: "clarification-location-2",
+      request_revision: 0,
       action: "new_request",
       value: "今天下午去看展",
     });

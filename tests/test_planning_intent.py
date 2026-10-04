@@ -31,7 +31,11 @@ from app.services.planning_intent import (
     build_default_planning_intent_provider,
 )
 from tests.test_native_planning import candidate
-from tests.test_planning import FixedReplayRouteProvider, planning_constraints
+from tests.test_planning import (
+    FixedReplayRouteProvider,
+    planning_constraints,
+    with_planning_window,
+)
 
 
 class SequencePlanningModel:
@@ -68,12 +72,12 @@ def relaxed_proposal(**overrides: object) -> dict[str, object]:
 
 
 def dinner_only_constraints():
-    return planning_constraints(budget=150, time_end="22:00").model_copy(
+    return with_planning_window(
+        planning_constraints(budget=150, time_end="22:00"),
+        start="18:00",
+        end="22:00",
+    ).model_copy(
         update={
-            "time_window": ConstraintValue[TimeWindow](
-                value=TimeWindow(start="18:00", end="22:00"),
-                source=ConstraintSource.USER_INFERRED,
-            ),
             "exact_stop_count": ConstraintValue[int](
                 value=1,
                 source=ConstraintSource.USER_EXPLICIT,
@@ -93,12 +97,12 @@ def single_role_constraints(role: StopRole):
         StopRole.ACTIVITY: TimeWindow(start="14:00", end="18:00"),
         StopRole.LUNCH: TimeWindow(start="11:30", end="14:00"),
     }[role]
-    return planning_constraints(time_end=window.end).model_copy(
+    return with_planning_window(
+        planning_constraints(time_end=window.end),
+        start=window.start,
+        end=window.end,
+    ).model_copy(
         update={
-            "time_window": ConstraintValue[TimeWindow](
-                value=window,
-                source=ConstraintSource.USER_INFERRED,
-            ),
             "exact_stop_count": ConstraintValue[int](
                 value=1,
                 source=ConstraintSource.USER_EXPLICIT,
@@ -151,14 +155,12 @@ class PlanningIntentProviderTest(unittest.TestCase):
         )
 
     def test_llm_structure_and_role_queries_project_to_separate_contracts(self) -> None:
-        constraints = planning_constraints(time_end="22:00").model_copy(
-            update={
-                "preferences": ["纪念日", "适合聊天"],
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="11:00", end="22:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                ),
-            }
+        constraints = with_planning_window(
+            planning_constraints(time_end="22:00"),
+            start="11:00",
+            end="22:00",
+        ).model_copy(
+            update={"preferences": ["纪念日", "适合聊天"]}
         )
         baseline = RuleBasedPlanningIntentProvider().decide(constraints).intent
         evidence = [item.evidence_id for item in baseline.semantic_request.evidence]
@@ -546,20 +548,6 @@ class PlanningIntentProviderTest(unittest.TestCase):
             def decide(self, _: object) -> PlanningIntentDecision:
                 raise AssertionError("hard conflict must fail before intent model")
 
-        invalid_time = planning_constraints(time_end="18:00").model_copy(
-            update={
-                "preferences": ["有新鲜感"],
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="14:00", end="18:00"),
-                    source=ConstraintSource.USER_EXPLICIT,
-                    rule_id="time.explicit_range.v1",
-                ),
-                "departure_at": ConstraintValue[str](
-                    value="13:30",
-                    source=ConstraintSource.USER_EXPLICIT,
-                ),
-            }
-        )
         invalid_structure = planning_constraints(time_end="22:00").model_copy(
             update={
                 "preferences": ["有新鲜感"],
@@ -577,7 +565,6 @@ class PlanningIntentProviderTest(unittest.TestCase):
         )
 
         for constraints, expected_code in (
-            (invalid_time, "DEPARTURE_OUTSIDE_TIME_WINDOW"),
             (invalid_structure, "UNSUPPORTED_PLAN_STRUCTURE"),
         ):
             with self.subTest(expected_code=expected_code):
@@ -720,18 +707,16 @@ class PlanningIntentProviderTest(unittest.TestCase):
                 ),
             ]
         )
-        constraints = planning_constraints(
-            budget=1_000,
-            max_distance_km=30,
-            time_end="21:00",
+        constraints = with_planning_window(
+            planning_constraints(
+                budget=1_000,
+                max_distance_km=30,
+                time_end="21:00",
+            ),
+            start="09:00",
+            end="21:00",
         ).model_copy(
-            update={
-                "time_window": ConstraintValue[TimeWindow](
-                    value=TimeWindow(start="09:00", end="21:00"),
-                    source=ConstraintSource.USER_INFERRED,
-                ),
-                "preferences": ["慢慢走"],
-            }
+            update={"preferences": ["慢慢走"]}
         )
         rule_result = PlanningService(
             catalog=catalog,

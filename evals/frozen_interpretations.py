@@ -17,6 +17,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.constraints import Interpretation
+from app.evaluation.temporal_fixture_adapter import adapt_legacy_interpretation_payload
 from app.domain.runtime import RuntimeDecision
 
 
@@ -90,6 +91,14 @@ def load_frozen_interpretations(
         raise FrozenFixtureError("fixture_set_missing", "frozen fixture set is missing")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        # Reviewed v1 files remain hash-pinned and unchanged on disk. Translate
+        # their retired temporal raw fields only at this evaluation boundary.
+        for fixture in payload.get("fixtures", []):
+            interpretation = fixture.get("interpretation")
+            if isinstance(interpretation, dict):
+                fixture["interpretation"] = adapt_legacy_interpretation_payload(
+                    interpretation
+                )
         fixture_set = FrozenInterpretationSet.model_validate(payload)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         # Do not expose parser text or fixture contents to the evaluator.

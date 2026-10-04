@@ -3,6 +3,25 @@ import { expect, test } from "@playwright/test";
 const response = {
   status: "completed",
   reply: "已生成方案",
+  planning_context: {
+    request_revision: 1,
+    planned_request_revision: 1,
+    has_active_plan: true,
+    plan_stale: false,
+    ready_for_planning: true,
+    where: { value: { city: "北京市", district: "朝阳区", address: "北京市朝阳区", latitude: 39.9, longitude: 116.4 }, display_value: "北京市朝阳区", source: "default", editable: true, status: "assumed" },
+    when: {
+      date: { value: "2026-08-15", display_value: "2026-08-15", source: "user", editable: true, status: "resolved" },
+      start_at: { value: "14:00", display_value: "14:00", source: "derived", editable: true, status: "resolved" },
+      end_at: { value: "18:00", display_value: "18:00", source: "derived", editable: true, status: "resolved" },
+      start_kind: "trip_start",
+      end_kind: "trip_end",
+    },
+    who: { value: { adults: 1, children: 0, child_age: null, members: [] }, display_value: "1 位成人 · 0 位儿童", source: "default", editable: true, status: "assumed" },
+    budget: { value: { mode: "unlimited", amount: null, strict: false }, display_value: "不限", source: "default", editable: true, status: "assumed" },
+    preferences: { value: { preferences: [], diet_tags: [], scene_tags: [], avoid: [] }, display_value: "未设置", source: "default", editable: true, status: "assumed" },
+    pending_field: null,
+  },
   question: null,
   assumptions: [],
   constraint_summary: [],
@@ -38,7 +57,7 @@ const response = {
 };
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/sessions", async (route) => {
+  await page.route(/\/api\/sessions(?:\?[^/]*)?$/, async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({ json: { data: { sessions: [] } } });
       return;
@@ -151,4 +170,102 @@ test("selection persists across refresh and clears after a new plan", async ({ p
   await page.getByLabel("描述你的空闲时间和偏好").fill("再来一轮");
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByText("已选择这个方案")).toHaveCount(0);
+});
+
+test("When edits save without replanning until the user confirms", async ({ page }) => {
+  let revision = 1;
+  let savedDate = "2026-08-15";
+  let submittedPatch: Record<string, unknown> | null = null;
+  let replanSubmitted = false;
+  await page.route("**/api/sessions/offline-session/planning-context", async (route) => {
+    submittedPatch = route.request().postDataJSON().patch;
+    const patch = submittedPatch as { base_revision: number; when?: { date?: { operation: string; value?: string } } };
+    revision = patch.base_revision + 1;
+    savedDate = patch.when?.date?.value ?? savedDate;
+    const nextContext = structuredClone(response.planning_context);
+    nextContext.request_revision = revision;
+    nextContext.planned_request_revision = 1;
+    nextContext.plan_stale = true;
+    nextContext.when.date.value = savedDate;
+    nextContext.when.date.display_value = savedDate;
+    await route.fulfill({ json: { data: { ...response, status: "context_saved", reply: "", plans: [], planning_context: nextContext } } });
+  });
+  await page.route("**/api/sessions/offline-session/planning-context/replan", async (route) => {
+    replanSubmitted = true;
+    const nextContext = structuredClone(response.planning_context);
+    nextContext.request_revision = revision;
+    nextContext.planned_request_revision = revision;
+    nextContext.when.date.value = savedDate;
+    nextContext.when.date.display_value = savedDate;
+    await route.fulfill({ json: { data: { ...response, planning_context: nextContext } } });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+
+  await page.getByRole("button", { name: "修改When" }).click();
+  await page.getByLabel("日期").fill("2026-08-16");
+  await page.getByRole("button", { name: "保存条件" }).click();
+
+  await expect.poll(() => submittedPatch).not.toBeNull();
+  expect(submittedPatch).toMatchObject({
+    base_revision: 1,
+    when: { date: { operation: "set", value: "2026-08-16" } },
+  });
+  await expect(page.getByRole("button", { name: /When.*2026-08-16/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+  expect(replanSubmitted).toBe(false);
+  await page.getByRole("button", { name: "按新条件重新规划" }).click();
+  await expect.poll(() => replanSubmitted).toBe(true);
+});
+
+test("clarification card opens When and resolves through the same topbar request state", async ({ page }) => {
+  const pendingResponse = structuredClone(response);
+  pendingResponse.status = "needs_input";
+  pendingResponse.reply = "";
+  pendingResponse.plans = [];
+  pendingResponse.question = {
+    field: "departure_at",
+    question: "早上大概几点出发？",
+    severity: "blocking",
+    request_revision: 4,
+    clarification_id: "clarification-departure-1",
+    options: [{ id: "use-default", label: "使用默认", action: "use_default" }],
+  };
+  pendingResponse.planning_context.request_revision = 4;
+  pendingResponse.planning_context.pending_field = "departure_at";
+  let submittedPatch: Record<string, unknown> | null = null;
+
+  await page.route("**/api/sessions/offline-session/messages", (route) =>
+    route.fulfill({ json: { data: pendingResponse } }),
+  );
+  await page.route("**/api/sessions/offline-session/planning-context", async (route) => {
+    submittedPatch = route.request().postDataJSON().patch;
+    const nextContext = structuredClone(response.planning_context);
+    nextContext.request_revision = 5;
+    nextContext.pending_field = null;
+    nextContext.when.start_at = {
+      value: "09:30", display_value: "09:30", source: "user", editable: true, status: "resolved",
+    };
+    nextContext.when.start_kind = "departure";
+    await route.fulfill({ json: { data: { ...response, planning_context: nextContext } } });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天早上出发出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.getByText("早上大概几点出发？")).toBeVisible();
+  await page.getByRole("button", { name: "去顶部修改" }).click();
+  await expect(page.getByRole("dialog", { name: "When" })).toBeVisible();
+  await page.getByLabel("出发时间").fill("09:30");
+  await page.getByRole("button", { name: "确认并继续" }).click();
+
+  await expect.poll(() => submittedPatch).not.toBeNull();
+  expect(submittedPatch).toMatchObject({
+    base_revision: 4,
+    when: { start_at: { operation: "set", value: "09:30" } },
+  });
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
 });

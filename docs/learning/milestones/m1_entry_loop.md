@@ -2,6 +2,8 @@
 
 _持续更新中的学习文档；主要链路已完成，学习与缺口复盘尚未完成 · 最后更新：2026-08-20_
 
+> 历史切片记录（2026-08）。本文的 `NormalizedConstraints`、旧 `QuestionGate` 和 V1/V2 DTO Adapter 描述的是 M1 当时实现，不是当前运行时契约；S-CORE2A–E 已统一为 `RequestPatch → ConstraintEngine → PlanRequest`，见[当前架构](../../current/resume_v2_architecture.md)。
+
 ---
 
 > **当前状态：** 已学习约束来源、interrupt/resume、Planning、API/持久化、React 与测试评测六个切片，并完成 GET Session 恢复数据测试实验。下一步进行闭卷链路图和完整答辩。浏览器刷新恢复已确认是 M1 缺口，不能再把后端可恢复等同于端到端可恢复。

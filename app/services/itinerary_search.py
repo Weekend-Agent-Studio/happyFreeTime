@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from app.domain.catalog import StopCandidate
-from app.domain.constraints import NormalizedConstraints, StopRole
+from app.domain.constraints import PlanRequest, StopRole
 from app.domain.providers import GeoPoint
 from app.services.itinerary_scheduler import TimelineScheduler
 from app.services.opening_hours import visit_fits_opening_hours
@@ -65,7 +65,7 @@ def bounded_beam_search(
     *,
     role_pools: Sequence[Sequence[StopCandidate]],
     roles: tuple[StopRole, ...],
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     origin: GeoPoint,
     semantic_scores: dict[str, float] | None = None,
     config: BeamSearchConfig | None = None,
@@ -306,7 +306,7 @@ def _state_rank(
 
 def _opening_penalty(
     candidate: StopCandidate,
-    constraints: NormalizedConstraints,
+    constraints: PlanRequest,
     scheduled_stop: object,
 ) -> int:
     """Return a soft penalty for an estimated visit outside known hours.
@@ -317,10 +317,11 @@ def _opening_penalty(
     the actual hard result.
     """
 
-    if not constraints.date or not candidate.open_hours:
+    planning_window = constraints.planning_window
+    if not planning_window.date or not candidate.open_hours:
         return 0
     weekday = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[
-        constraints.date.value.weekday()
+        planning_window.date.value.weekday()
     ]
     hours = candidate.open_hours.get(weekday)
     if not hours:
@@ -340,18 +341,22 @@ def _count(values: dict[str, int], key: str) -> None:
     values[key] = values.get(key, 0) + 1
 
 
-def _planning_start_minutes(constraints: NormalizedConstraints) -> int:
+def _planning_start_minutes(constraints: PlanRequest) -> int:
     value = (
-        constraints.departure_at.value
-        if constraints.departure_at is not None
-        else constraints.time_window.value.start
+        constraints.planning_window.start_at.value
+        if constraints.planning_window.start_at is not None
+        else "00:00"
     )
     hour, minute = (int(part) for part in value.split(":"))
     return hour * 60 + minute
 
 
-def _maximum_planning_minutes(constraints: NormalizedConstraints, start_minutes: int) -> int:
-    end = constraints.time_window.value.end
+def _maximum_planning_minutes(constraints: PlanRequest, start_minutes: int) -> int:
+    end = (
+        constraints.planning_window.end_at.value
+        if constraints.planning_window.end_at is not None
+        else "23:59"
+    )
     hour, minute = (int(part) for part in end.split(":"))
     available = hour * 60 + minute - start_minutes
     if constraints.duration_minutes is not None:

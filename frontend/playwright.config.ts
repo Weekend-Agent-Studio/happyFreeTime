@@ -7,14 +7,10 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.resolve(".playwright-browsers");
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
+  globalSetup: "./e2e/global-setup.ts",
   use: {
     baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
-  },
-  webServer: {
-    command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: false,
   },
   projects: [
     { name: "desktop-chromium", use: { ...devices["Desktop Chrome"], channel: "chrome" } },

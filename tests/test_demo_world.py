@@ -12,7 +12,8 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
     GeoLocation,
-    NormalizedConstraints,
+    PlanRequest,
+    PlanningWindow,
     PartyProfile,
     TimeWindow,
 )
@@ -26,10 +27,19 @@ from app.services.plan_verifier import PlanVerifier
 from scripts.build_demo_world import ANCHORS, build
 
 
-def constraints(*, budget: int = 1_000, time_window: TimeWindow | None = None) -> NormalizedConstraints:
-    return NormalizedConstraints(
-        date=ConstraintValue(value=date(2026, 8, 15), source=ConstraintSource.USER_EXPLICIT),
-        time_window=ConstraintValue(value=time_window or TimeWindow(start="14:00", end="18:00"), source=ConstraintSource.USER_EXPLICIT),
+def constraints(*, budget: int = 1_000, time_window: TimeWindow | None = None) -> PlanRequest:
+    return PlanRequest(
+        planning_window=PlanningWindow(
+            date=ConstraintValue(value=date(2026, 8, 15), source=ConstraintSource.USER_EXPLICIT),
+            start_at=ConstraintValue(
+                value=(time_window or TimeWindow(start="14:00", end="18:00")).start,
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+            end_at=ConstraintValue(
+                value=(time_window or TimeWindow(start="14:00", end="18:00")).end,
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+        ),
         location=ConstraintValue(value=GeoLocation(city="北京市", district="朝阳区", address="北京市朝阳区", latitude=39.9219, longitude=116.4436), source=ConstraintSource.SYSTEM_CONTEXT),
         party=ConstraintValue(value=PartyProfile(adults=2), source=ConstraintSource.USER_EXPLICIT),
         budget_per_person=ConstraintValue(value=budget, source=ConstraintSource.USER_EXPLICIT),
@@ -62,7 +72,7 @@ class DemoWorldTest(unittest.TestCase):
 
     def test_catalog_preserves_anchor_id_name_and_coordinate_but_uses_demo_pruning_fields(self) -> None:
         catalog = DemoCatalog()
-        all_candidates = catalog.recall(NormalizedConstraints()).candidates
+        all_candidates = catalog.recall(PlanRequest()).candidates
         anchor = next(item for item in json.loads(ANCHORS.read_text(encoding="utf-8"))["records"] if item["resource_id"] == all_candidates[0].resource_id)
         candidate = all_candidates[0]
         self.assertEqual(candidate.resource_id, anchor["resource_id"])
@@ -77,7 +87,7 @@ class DemoWorldTest(unittest.TestCase):
 
     def test_different_types_use_template_appropriate_details_and_verifier_checks_hours(self) -> None:
         catalog = DemoCatalog()
-        candidates = catalog.recall(NormalizedConstraints()).candidates
+        candidates = catalog.recall(PlanRequest()).candidates
         activity = next(item for item in candidates if item.resource_type.value == "activity" and not DemoWorld().present_many([item.resource_id])[0].indoor)
         restaurant = next(item for item in candidates if item.resource_type.value == "restaurant")
         activity_detail, restaurant_detail = DemoWorld().present_many([activity.resource_id, restaurant.resource_id])

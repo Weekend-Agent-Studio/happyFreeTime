@@ -1,6 +1,8 @@
 # 从万能 Interpretation 到受约束 Wire Proposal：一次评测驱动的语义入口重构
 
-_HappyFreeTime 面试复盘 · 对应提交 `4455cdc`、`d478ac4`、`d7b21ba` · 2026-09-20_
+_HappyFreeTime 面试复盘 · 对应提交 `4455cdc`、`d478ac4`、`d7b21ba` · 历史切片说明更新于 2026-10-04_
+
+> 本文主体记录 2026-09-20 的 Wire Proposal 切片，不代表所有当时保留的 checkpoint/API 兼容仍存在。S-CORE2E 已移除旧开发 checkpoint 读取兼容；当前自然语言、顶部栏和反问的约束更新均通过 `RequestPatch → ConstraintEngine → PlanRequest`，细节见[当前架构](../current/resume_v2_architecture.md)与[S-CORE2E 验收报告](../status/s_core2e_release_20261004.md)。
 
 ---
 
@@ -29,7 +31,7 @@ ConversationCommand + Action     获得应用状态后：系统允许做什么
 - `resource_id`、Plan ID、Plan Version ID 和置信授权不再出现在模型 Wire Schema 中。
 - 创建规划不再要求无意义的 `create command`。
 - 不完整但合法的修改目标不再导致整轮失败，而是安全降级为反问。
-- Graph、Planner、API、数据库和既有 checkpoint 领域对象保持兼容，没有为了重构重新搭一套系统。
+- 该切片当时保留 Graph/API 领域对象以控制迁移范围；后续 S-CORE2E 对开发 checkpoint 做了有意版本断开，不再为旧本地会话增加 Adapter。业务会话与消息记录没有因此被删除。
 
 真实 DeepSeek 小型诊断从重构中段的 6/8 最终成功，收口到 8/8 首次结构化成功、8 次 Provider attempt、0 fallback。这个数字只证明本轮 Wire Contract 诊断目标已达到，**不是正式产品成功率，也不能直接写入简历指标**。
 
@@ -450,9 +452,14 @@ Compiler 生成内部领域对象，Graph 再进入 Enrichment、Question Gate �
         "raw_text": "餐厅"
       }
     ],
-    "constraint_patch": {
-      "prefer_shorter_travel": true
-    }
+    "replacement_criteria": [
+      {
+        "kind": "route_objective",
+        "metric": "total_route_distance",
+        "direction": "decrease",
+        "strength": "required"
+      }
+    ]
   }
 }
 ```

@@ -1,8 +1,10 @@
 # HappyFreeTime 三阶段架构演进：从 ReAct 原型到受约束规划 Agent
 
-_面试讲稿与追问题库 · 区分历史事实、当前实现和待验证目标 · 架构主叙事更新于 2026-10-02_
+_面试讲稿与追问题库 · 区分历史事实、当前实现和待验证目标 · 架构主叙事更新于 2026-10-04_
 
 > 当前规划结构已在 S-CORE1A/B/C 三个切片中继续收敛：唯一可执行结构为 `PlanSpec`；模型只输出一个 `PlanStructureProposal v3`，Harness 投影软语义并用 `PlanSpecCompiler` 编译结构。下方 2026-09-05 的问题表与个别“当前限制”是当时的阶段快照，不代表现在仍未实现；当前细节见[规划结构收敛面试说明](08_PlanSpecCompiler与结构提案收敛.md)和[当前架构](../current/resume_v2_architecture.md)。
+
+> S-CORE2A–E（2026-10-04，尚未合并 main）进一步把自然语言、顶部条件栏和反问恢复收敛为 `RequestPatch → ConstraintEngine → PlanRequest`；Planner 只消费执行就绪请求。时间仅使用带字段来源的 `PlanningWindow` 与轻量 `TimeProposal`，不声称支持完整 Temporal AST。默认值可见且可编辑；是否阻断由确定性 `QuestionPolicy` 决定，模型不裁决硬约束或执行。
 
 ---
 
@@ -12,7 +14,7 @@ _面试讲稿与追问题库 · 区分历史事实、当前实现和待验证目
 
 HappyFreeTime 经历了三次架构思考。第一阶段用 `IntentAgent → SlotAgent → PlannerAgent → ExecutorAgent` 验证 LangGraph、工具调用和中断恢复，但把时间、位置、天气等必需步骤也交给模型循环，调用慢、状态松散，方案事实缺少独立校验。第二阶段把系统重构为 `Router → Enrichment → Gate → Planning`：模型负责理解语言，确定性 Provider、Planner、Verifier 和 Repair Contract 负责事实、搜索与硬约束，建立了可回放的可信基线。这个版本可靠，但又暴露出相反问题——模型几乎不影响实际方案，精确时间、单站晚饭、模糊偏好和局部修改都容易退化成关键词或固定分支。
 
-第三阶段因此不是恢复全流程 ReAct，而是在可信内核外增加状态化对话控制，在规划内部增加受约束的语义决策：模型通过一个 `PlanStructureProposal v3` 表达有证据的软目标、角色查询和受限结构；Harness 投影为 `PlanningIntent`、编译为 `PlanSpec`，并继续掌握硬约束、事实、搜索预算、Verifier 和副作用。核心不是“增加几个 Agent”，而是把自治权放在模型真正有优势且可验证的决策 Seam 上。
+第三阶段因此不是恢复全流程 ReAct，而是在可信内核外增加状态化对话控制，在规划内部增加受约束的语义决策：模型通过一个 `PlanStructureProposal v3` 表达有证据的软目标、角色查询和受限结构；Harness 投影为 `PlanningIntent`、编译为 `PlanSpec`，并继续掌握硬约束、事实、搜索预算、Verifier 和副作用。S-CORE2 再把创建、后补条件、字段反问和顶部栏编辑统一落到同一个版本化 `PlanRequest`；三类入口共享 ConstraintEngine，交互策略只消费结构化 Issue。核心不是“增加几个 Agent”，而是把自治权放在模型真正有优势且可验证的决策 Seam 上。
 
 ### 面试时最重要的三句话
 
@@ -97,7 +99,7 @@ V2 将主链重构为 [Router → Enrichment → Gate → Planning](../../app/or
 
 ## 🔍 为什么当时的 V2 仍需要调整（2026-09-05 阶段快照）
 
-下表记录的是第三阶段早期的问题假设。多个项目切片后来已经补齐其中能力；不要把表中的“当前限制”直接当作今天的实现状态。
+下表记录的是 2026-09-05 的第三阶段早期问题假设。多个项目切片后来已经补齐其中能力；不要把表中的“当前限制”直接当作今天的实现状态。
 
 V2 解决了“可信不可信”，却还没有充分解决“懂不懂用户”和“能不能自然修改”。这不是一个抽象的“LLM 参与太少”问题，而是可以从当前契约和反例中定位的能力缺口。
 
@@ -112,9 +114,9 @@ V2 解决了“可信不可信”，却还没有充分解决“懂不懂用户�
 
 这些结论有三种证据来源：
 
-1. **契约证据：** 当前 [RawConstraints / Interpretation / NormalizedConstraints](../../app/domain/constraints.py) 中没有 `departure_at`、结构化 Patch 和 locks。
-2. **控制流证据：** 当前 [Entry Graph](../../app/orchestration/entry_graph.py) 只有三个规划意图进入 Planner，尚无 Inquiry、Explanation 和 Execution 的稳定子图。
-3. **算法证据：** 当前 [PlanningService](../../app/services/planning.py) 使用四个显式骨架、规则构造 `PlanningIntent` 和标签匹配；这些机制可复现，但无法天然获得开放语义相似度。
+1. **契约证据（当时）：** 该快照中的 `RawConstraints / Interpretation / NormalizedConstraints` 尚无 `departure_at`、统一结构化 Patch 和 locks；S-CORE2 后 Planner 使用 `PlanRequest`，时间使用 `PlanningWindow`。
+2. **控制流证据（当时）：** 当时的 [Entry Graph](../../app/orchestration/entry_graph.py) 只有三个规划意图进入 Planner，尚无 Inquiry、Explanation 和 Execution 的稳定子图；此项是目标子图设想，不应误读为 S-CORE2 的交付内容。
+3. **算法证据（当时）：** 当时的 [PlanningService](../../app/services/planning.py) 使用显式骨架、规则构造 `PlanningIntent` 和标签匹配；后续 S-CORE1 收敛为 `PlanSpec`，并引入受约束语义检索。当前实现见[架构快照](../current/resume_v2_architecture.md)。
 
 因此，架构调整不是因为“Agent 更潮”，而是因为新增需求已经在多个位置重复制造同一种压力：Intent 枚举膨胀、上下文不足、固定骨架不适配、关键词召回脆弱、修改没有局部性。继续增加 if/else 能解决个别示例，却会降低 Locality，让同一语义在 Router、Planner、前端和测试中被重复编码。
 

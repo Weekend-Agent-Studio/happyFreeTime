@@ -2,6 +2,8 @@
 
 _代码切片与个人学习状态分开维护 · 2026-08-26_
 
+> 历史切片记录（2026-08）。本文的 `NormalizedConstraints` 接口与当时的时间/约束流程用于解释 M2 基线；当前 Planner 输入已收敛为 `PlanRequest`，见[当前架构](../../current/resume_v2_architecture.md)。
+
 ## 当前状态
 
 代码已完成 M2 的 A-F 与最终可信规划收口。D4 补齐餐时锚点（`LUNCH/DINNER` 到店窗口）、`return_by` 的返程段存在/终点/截止校验与独立 `total_distance_km` 全程距离校验；Graph 可以把“最晚十八点回家”后的 `18:00` 在同会话恢复。E 从不超过 24 个 Route Leg 的可行候选池中按 POI 重叠、成本和路程贪心选出最多 3 个差异方案，Unknown 价格不参与 `low_cost`。F 已有 RouteLeg 索引联动、Vitest/RTL 和离线桌面/375px Playwright 主路径。GeocodingProvider 使显式位置只在得到规范化事实后进入 Planner；AvailabilityProvider 用受预算的批量请求验证 finalist，verified unavailable 才淘汰，Unknown/陈旧/降级只告警。统一 Repair Contract 按归因处理 availability、营业、单段路线和返程超时：同一 root chain 最多两次替换，完成后重建路线、复查可用性并执行完整 Verifier；无法可靠归因的失败转向独立 finalist，天气仍在组合前剪枝。19 条声明式 smoke 已覆盖地点解析、动态可用性 warning/替补与路线 repair。学习状态仍为 `L0 未开始`，因为尚未完成用户复述、变体实验或独立修改测试。
