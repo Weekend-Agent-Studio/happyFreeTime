@@ -744,7 +744,9 @@ def create_app(
             )
             supersedes_version_id = (
                 result.get("active_plan_version_id")
-                if plans and (plan_diffs or result.get("mutation_kind") == "constraint_patch")
+                if plans and (
+                    plan_diffs or result.get("workflow_outcome") == "constraint_patch"
+                )
                 else None
             )
             if plan_diffs and plan_version_id is not None:

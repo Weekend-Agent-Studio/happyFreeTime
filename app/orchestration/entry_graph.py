@@ -213,10 +213,9 @@ class TurnResultState(TypedDict, total=False):
     ready_for_planning: bool
     condition_requests_plan: bool
     # Explicit workflow result consumed by conditional edges.  The old
-    # mutation/ready fields remain response diagnostics, not route inputs.
+    # ready field remains a response diagnostic, not a route input.
     workflow_route: str | None
     workflow_outcome: str | None
-    mutation_kind: str | None
 
 
 class EntryState(
@@ -317,9 +316,7 @@ def build_entry_graph(
                 if previous_interpretation is not None
                 else None
             ),
-            last_system_outcome=(
-                state.get("workflow_outcome") or state.get("mutation_kind")
-            ),
+            last_system_outcome=state.get("workflow_outcome"),
         )
         structured_command = state.get("conversation_command_override")
         if structured_command is not None:
@@ -382,7 +379,6 @@ def build_entry_graph(
             "pending_modification": None,
             "workflow_route": None,
             "workflow_outcome": None,
-            "mutation_kind": None,
         }
 
     def route_after_router(state: EntryState) -> str:

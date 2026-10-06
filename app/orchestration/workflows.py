@@ -93,9 +93,6 @@ class WorkflowResult:
         result["workflow_route"] = self.route.value
         if self.outcome is not None:
             result["workflow_outcome"] = self.outcome.value
-            # Kept as a response/observability projection while callers
-            # migrate to workflow_outcome; no route reads this field.
-            result.setdefault("mutation_kind", self.outcome.value)
         return result
 
 
