@@ -37,6 +37,7 @@ from app.domain.constraints import (
 from app.domain.catalog import ResourceType
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.domain.runtime import RuntimeDecision
+from app.domain.decision_context import DecisionContext
 from app.services.model_errors import model_failure_reason
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
@@ -146,6 +147,9 @@ class RouterContext(BaseModel):
     has_plans: bool = False
     has_selected_plan: bool = False
     previous_intent: Intent | None = None
+    # Bounded session projection for semantic reference resolution. Existing
+    # adapters may omit it while they use the older boolean context fields.
+    decision_context: DecisionContext | None = None
 
 
 DEFAULT_MODEL_TIMEOUT_SECONDS = 15
@@ -445,6 +449,8 @@ class TurnInterpreter:
             lines.append("用户已经显式选择当前版本中的一个方案。")
         if context.previous_intent is not None:
             lines.append(f"上一轮主要意图：{context.previous_intent.value}")
+        if context.decision_context is not None:
+            lines.extend(context.decision_context.prompt_lines())
         return "\n".join(lines)
 
 

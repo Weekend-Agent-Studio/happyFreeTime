@@ -92,6 +92,7 @@ from app.domain.providers import (
     WeatherFact,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.decision_context import DecisionContextBuilder
 from app.domain.semantics import (
     EvidenceRef,
     SemanticQuery,
@@ -261,6 +262,21 @@ def build_entry_graph(
             )
         else:
             environment = environment_provider(actor)
+            previous_interpretation = state.get("interpretation")
+            decision_context = DecisionContextBuilder.build(
+                request=state.get("active_request"),
+                selected_plan=state.get("selected_plan"),
+                active_plan_version_id=state.get("active_plan_version_id"),
+                pending_issue=state.get("pending_issue"),
+                pending_modification=state.get("pending_modification"),
+                has_plans=state.get("has_plans", False),
+                previous_intent=(
+                    previous_interpretation.primary_intent
+                    if previous_interpretation is not None
+                    else None
+                ),
+                last_system_outcome=state.get("mutation_kind"),
+            )
             interpretation, runtime_decision = _interpret_with_runtime(
                 router,
                 state["user_input"],
@@ -270,10 +286,11 @@ def build_entry_graph(
                     has_plans=state.get("has_plans", False),
                     has_selected_plan=state.get("selected_plan") is not None,
                     previous_intent=(
-                        state["interpretation"].primary_intent
-                        if state.get("interpretation")
+                        previous_interpretation.primary_intent
+                        if previous_interpretation
                         else None
                     ),
+                    decision_context=decision_context,
                 ),
             )
         # 这些派生值只属于当前解释轮次。反问恢复或用户修改需求时必须清空，
