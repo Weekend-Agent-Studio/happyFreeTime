@@ -88,7 +88,7 @@ class EntryGraphTest(unittest.TestCase):
             checkpoint_config("session-1"),
             {
                 "configurable": {
-                    "thread_id": "planner-core2e-v1:session-1",
+                    "thread_id": "planner-core3e-v1:session-1",
                 }
             },
         )
