@@ -31,6 +31,11 @@ def adapt_legacy_interpretation_payload(payload: dict[str, Any]) -> dict[str, An
     """Convert an old serialized Interpretation without changing its source file."""
     adapted = deepcopy(payload)
     raw, proposals = adapt_legacy_temporal_payload(adapted.get("raw_constraints", {}))
+    # Frozen v1 fixtures used one ambiguous location field.  Keep the source
+    # files hash-pinned, but translate that retired evaluation shape at the
+    # loader seam so the production Router contract can stay scope-explicit.
+    if "location_text" in raw:
+        raw["origin_text"] = raw.pop("location_text")
     adapted["raw_constraints"] = raw
     if not adapted.get("time_proposals"):
         adapted["time_proposals"] = proposals
@@ -146,6 +151,8 @@ def adapt_legacy_temporal_payload(
 
     for field in _LEGACY_TIME_FIELDS:
         raw.pop(field, None)
+    if "location_text" in raw:
+        raw["origin_text"] = raw.pop("location_text")
     return raw, proposals
 
 

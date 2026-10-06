@@ -634,6 +634,8 @@ def build_entry_graph(
         fields = patch.set_fields
         if issue.field == "location":
             return fields.get("location") is not None
+        if issue.field == "planning_area":
+            return fields.get("planning_area") is not None
         if issue.field == "date":
             return fields.get("planning_window.date") is not None
         if issue.field == "departure_at":
@@ -1182,16 +1184,24 @@ def _prepare_question_decision(decision: QuestionDecision) -> QuestionDecision:
 
 def _clarification_options(field: str | None) -> tuple[ClarificationOption, ...]:
     options: list[ClarificationOption] = []
-    if field in {"location", "date", "time_window", "departure_at", "max_distance_km", "total_distance_km"}:
+    if field in {"location", "planning_area", "date", "time_window", "departure_at", "max_distance_km", "total_distance_km"}:
         option_id = "use-default-location" if field == "location" else f"use-default-{field}"
-        label = "使用默认出发地" if field == "location" else "按系统默认处理"
-        options.append(
-            ClarificationOption(
-                id=option_id,
-                label=label,
-                action=ClarificationAction.USE_DEFAULT,
+        if field == "location":
+            options.append(
+                ClarificationOption(
+                    id=option_id,
+                    label="使用默认出发地",
+                    action=ClarificationAction.USE_DEFAULT,
+                )
             )
-        )
+        elif field != "planning_area":
+            options.append(
+                ClarificationOption(
+                    id=option_id,
+                    label="按系统默认处理",
+                    action=ClarificationAction.USE_DEFAULT,
+                )
+            )
     if field == "constraint_patch":
         options.extend(
             (

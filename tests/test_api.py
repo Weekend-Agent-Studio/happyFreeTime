@@ -154,7 +154,7 @@ class LocationRuleRouter:
             time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
             raw_constraints=RawConstraints(
                 date_text="今天",
-                location_text="国贸",
+                origin_text="国贸",
             ),
         )
 

@@ -143,7 +143,10 @@ departure/exact、clock=09:00；“晚上八点前回来”是 return/exact、cl
 分别对应 today/tomorrow 加 trip/evening；“一整天/全天”对应 trip/all_day。
 
 保留用户明确的站数、角色、距离、预算、同行人、偏好、饮食、场景和避开条件，并用
-evidence_map 记录需要追溯的字段。普通“约会”不推断成人数量；严格预算不编造金额。
+evidence_map 记录需要追溯的字段。地点必须区分作用域：从某处出发填写
+raw_constraints.origin_text；希望在某区域活动填写 planning_area_text；“就在北京安排”
+不能静默变成精确出发点。普通“约会”不推断成人数量；严格预算不编造金额。
+距离表达保留原文，不把“附近/别太远”改写成用户未说过的精确路线事实。
 已有方案时，预算、返程时间、少辣、安静等补充使用 patch_constraints；只有明确替换某站
 时使用 replace_stop。模糊目标可以只填 raw_text，系统会安全反问。
 """

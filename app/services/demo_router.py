@@ -204,6 +204,16 @@ class DemoRouter:
             (phrase for phrase in ("步行可达", "附近", "别太远") if phrase in text),
             None,
         )
+        origin_match = re.search(
+            r"(?:从|由)(?P<origin>[^，,。；;]{2,30})(?:出发|出门|离开)",
+            text,
+        )
+        planning_area_match = re.search(
+            r"(?:在|去)(?P<area>[^，,。；;]{2,20})(?:玩|安排|活动|逛)",
+            text,
+        )
+        origin_text = origin_match.group("origin") if origin_match else None
+        planning_area_text = planning_area_match.group("area") if planning_area_match else None
         (
             date_text,
             date_reference,
@@ -565,6 +575,8 @@ class DemoRouter:
             ),
             strict_budget=strict_budget,
             require_availability_confirmation=require_availability_confirmation,
+            origin_text=origin_text,
+            planning_area_text=planning_area_text,
             max_distance_text=distance_text,
             preferences=preferences,
             scene_tags=["约会"] if "约会" in text else [],
@@ -602,6 +614,8 @@ class DemoRouter:
                     if require_availability_confirmation
                     else None
                 ),
+                "origin_text": origin_text,
+                "planning_area_text": planning_area_text,
                 "total_distance_km": (
                     total_distance_match.group(1) if total_distance_match else None
                 ),
@@ -654,8 +668,13 @@ class DemoRouter:
             budget = value
             strict_budget = True
         max_distance = value if re.search(r"(?:公里|千米|km|KM)", value) else None
-        location_match = re.search(r"从(?P<location>[^，,。；;]{2,30})(?:出发|出门)", value)
-        location = location_match.group("location") if location_match else None
+        origin_match = re.search(r"(?:从|由)(?P<origin>[^，,。；;]{2,30})(?:出发|出门|离开)", value)
+        planning_area_match = re.search(
+            r"(?:在|去)(?P<area>[^，,。；;]{2,20})(?:玩|安排|活动|逛)",
+            value,
+        )
+        origin = origin_match.group("origin") if origin_match else None
+        planning_area = planning_area_match.group("area") if planning_area_match else None
         preferences = tuple(
             label
             for keyword, label in (("安静", "安静"), ("聊天", "适合聊天"), ("浪漫", "浪漫"), ("轻松", "轻松"), ("不累", "不累"))
@@ -672,8 +691,9 @@ class DemoRouter:
         )
         if not (
             has_patch_marker or date_text or departure or departure_period or return_by
-            or budget or strict_budget is not None or location or preferences or diet_tags
-            or avoid or max_distance or scope is not None or explicit_window is not None
+            or budget or strict_budget is not None or origin or preferences or diet_tags
+            or avoid or max_distance or planning_area
+            or scope is not None or explicit_window is not None
         ):
             return None
         return ConstraintPatch(
@@ -686,7 +706,8 @@ class DemoRouter:
                 if time_text and departure is None and departure_period is None and return_by is None
                 else None
             ),
-            location_text=location,
+            origin_text=origin,
+            planning_area_text=planning_area,
             budget_text=budget,
             max_distance_text=max_distance,
             preferences=preferences,

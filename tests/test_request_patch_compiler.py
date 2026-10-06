@@ -176,7 +176,7 @@ class RequestPatchCompilerTest(unittest.TestCase):
             primary_intent=Intent.PLAN_OUTING,
             intent_scores={Intent.PLAN_OUTING: 1.0},
             raw_constraints=RawConstraints(
-                location_text="我公司附近",
+                origin_text="我公司附近",
                 max_distance_text="别跑得太远",
             ),
         )

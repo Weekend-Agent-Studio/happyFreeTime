@@ -22,6 +22,15 @@ class DemoRouterTest(unittest.TestCase):
         self.assertEqual(result.raw_constraints.budget_per_person, 150)
         self.assertEqual(result.raw_constraints.max_distance_text, "别太远")
 
+    def test_keeps_origin_and_planning_area_scopes_separate(self) -> None:
+        result = self.router.interpret(
+            "从望京出发，想在朝阳玩",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.origin_text, "望京")
+        self.assertEqual(result.raw_constraints.planning_area_text, "朝阳")
+
     def test_follow_up_budget_is_extracted_from_combined_turn(self) -> None:
         result = self.router.interpret(
             "今天下午出去玩，别超预算\n用户补充：人均200",

@@ -177,7 +177,12 @@ class ConstraintPatch(BaseModel):
     # a clock; the compiler then asks for the exact departure time.
     departure_period: TimeScope | None = None
     time_window_text: str | None = None
-    location_text: str | None = None
+    # ``origin_text`` is the route's starting point.  It is intentionally
+    # distinct from ``planning_area_text``: saying "from Wangjing" does not
+    # mean the user wants every stop inside Wangjing, and saying "play in
+    # Chaoyang" does not move the route origin there.
+    origin_text: str | None = None
+    planning_area_text: str | None = None
     budget_text: str | None = None
     max_distance_text: str | None = None
     total_distance_text: str | None = None
@@ -380,7 +385,11 @@ class RawConstraints(BaseModel):
     exact_stop_count: int | None = Field(default=None, ge=1, le=4)
     required_stop_roles: tuple[StopRole, ...] = ()
     duration_minutes: int | None = Field(default=None, gt=0)
-    location_text: str | None = None
+    # Keep the semantic scope selected by the Router until the request
+    # compiler resolves it.  A single ambiguous ``location_text`` field made
+    # origin and destination-area requests indistinguishable downstream.
+    origin_text: str | None = None
+    planning_area_text: str | None = None
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
     child_age: int | None = Field(default=None, ge=0, le=17)
@@ -606,8 +615,16 @@ class PlanRequest(BaseModel):
     planning_window: PlanningWindow = Field(default_factory=PlanningWindow)
     duration_minutes: ConstraintValue[int] | None = None
     location: ConstraintValue[GeoLocation] | None = None
+    # Optional search center for the requested activity area.  The route still
+    # starts at ``location``; Catalog consumes this value only when recalling
+    # nearby candidates, so it is not an inert semantic field.
+    planning_area: ConstraintValue[GeoLocation] | None = None
     party: ConstraintValue[PartyProfile] | None = None
     budget_per_person: ConstraintValue[int] | None = None
+    # The current product contract intentionally treats one user-facing
+    # distance limit as both the candidate-recall envelope and the per-leg
+    # route bound.  ``total_distance_km`` remains the separate whole-route
+    # constraint; split fields only when the UI exposes distinct semantics.
     max_distance_km: ConstraintValue[float] | None = None
     preferences: list[str] = Field(default_factory=list)
     diet_tags: list[str] = Field(default_factory=list)

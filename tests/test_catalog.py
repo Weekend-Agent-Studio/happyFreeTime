@@ -205,6 +205,29 @@ class CatalogTest(unittest.TestCase):
             all(item.source.verification_status == VerificationStatus.UNVERIFIED for item in result.candidates)
         )
 
+    def test_planning_area_is_used_as_recall_center_without_moving_route_origin(self) -> None:
+        request = constraints().model_copy(
+            update={
+                "max_distance_km": ConstraintValue[float](
+                    value=1,
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+                "planning_area": ConstraintValue[GeoLocation](
+                    value=GeoLocation(
+                        city="北京市",
+                        district="朝阳区",
+                        address="朝阳区",
+                        latitude=39.92,
+                        longitude=116.60,
+                    ),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+            }
+        )
+        result = InMemoryCatalog([candidate("inside-area", longitude=116.60)]).recall(request)
+
+        self.assertEqual([item.resource_id for item in result.candidates], ["inside-area"])
+
     def test_local_fixture_candidates_expose_honest_source_metadata(self) -> None:
         unconstrained = constraints().model_copy(
             update={

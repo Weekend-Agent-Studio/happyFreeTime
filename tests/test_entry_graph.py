@@ -77,7 +77,7 @@ class ExplicitLocationRouter:
             intent_scores={Intent.PLAN_OUTING: 1.0},
             time_proposals=(_afternoon(),),
             raw_constraints=RawConstraints(
-                date_text="今天", location_text="不存在地标"
+                date_text="今天", origin_text="不存在地标"
             ),
         )
 
@@ -539,7 +539,7 @@ class EntryGraphTest(unittest.TestCase):
                         intent_scores={Intent.PLAN_OUTING: 1.0},
                         time_proposals=(_afternoon(),),
                         raw_constraints=RawConstraints(
-                            date_text="今天", location_text="不存在地标",
+                            date_text="今天", origin_text="不存在地标",
                             preferences=["旧偏好"],
                         ),
                     )

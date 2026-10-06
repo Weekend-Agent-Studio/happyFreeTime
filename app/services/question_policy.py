@@ -85,6 +85,10 @@ class QuestionPolicy:
                 else "你希望从哪里出发？可以输入小区、地铁站或附近地标。",
                 "question.location.unresolved.v1",
             ),
+            "planning_area": (
+                "你希望主要在哪个区域活动？可以输入商圈、街道或地标。",
+                "question.planning_area.unresolved.v1",
+            ),
             "date": ("你具体想安排在哪一天？可以直接告诉我日期或说今天、明天。", "question.date.unresolved.v1"),
             "time_window": ("你希望大约几点开始、几点结束？", "question.time_window.required.v1"),
             "departure_at": ("你希望早上/下午/晚上大概几点出发？请给一个具体时间。", "question.departure_at.unresolved.v1"),

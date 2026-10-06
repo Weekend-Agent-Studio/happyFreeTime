@@ -115,8 +115,10 @@ class RequestPatchProposalCompiler:
         raw = interpretation.raw_constraints
         normalized = base_patch.set_fields
         unresolved: list[tuple[str, str, str, str]] = []
-        if raw.location_text and normalized.get("location") is None:
-            unresolved.append(("location", "LOCATION_REQUIRES_RESOLUTION", "location", "explicit_location_not_resolved"))
+        if raw.origin_text and normalized.get("location") is None:
+            unresolved.append(("location", "LOCATION_REQUIRES_RESOLUTION", "location", "explicit_origin_not_resolved"))
+        if raw.planning_area_text and normalized.get("planning_area") is None:
+            unresolved.append(("planning_area", "PLANNING_AREA_REQUIRES_RESOLUTION", "location", "explicit_planning_area_not_resolved"))
         if raw.max_distance_text and normalized.get("max_distance_km") is None:
             unresolved.append(("max_distance_km", "MAX_DISTANCE_REQUIRES_NUMBER", "number", "explicit_max_distance_not_resolved"))
         if raw.total_distance_text and normalized.get("total_distance_km") is None:

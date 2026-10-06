@@ -92,6 +92,30 @@ class RouterExtractorTest(unittest.TestCase):
                     }
                 }
             )
+        with self.assertRaises(ValueError):
+            TurnProposal.model_validate(
+                {
+                    "act": {
+                        "kind": "create_plan",
+                        "raw_constraints": {"location_text": "望京"},
+                    }
+                }
+            )
+
+    def test_location_semantics_are_explicit_in_turn_wire_contract(self) -> None:
+        proposal = TurnProposal.model_validate(
+            {
+                "act": {
+                    "kind": "create_plan",
+                    "raw_constraints": {
+                        "origin_text": "望京",
+                        "planning_area_text": "朝阳",
+                    },
+                }
+            }
+        )
+        self.assertEqual(proposal.act.raw_constraints.origin_text, "望京")
+        self.assertEqual(proposal.act.raw_constraints.planning_area_text, "朝阳")
 
     def test_create_and_patch_compile_to_request_actions(self) -> None:
         create = TurnCompiler.compile(

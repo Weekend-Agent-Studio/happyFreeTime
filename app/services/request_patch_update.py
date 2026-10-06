@@ -138,28 +138,33 @@ class RequestPatchUpdateCompiler:
             else:
                 updates["total_distance_km"] = self._value(distance, proposal.total_distance_text, "total_distance.patch.v1")
 
-        if proposal.location_text:
+        for raw_text, field, rule_id in (
+            (proposal.origin_text, "location", "location.patch.geocoded.v1"),
+            (proposal.planning_area_text, "planning_area", "planning_area.patch.geocoded.v1"),
+        ):
+            if not raw_text:
+                continue
             if self._geocoding_provider is None:
-                issues.append(self._issue("location", base.revision))
-            else:
-                geocoding_fact = self._geocoding_provider.geocode(
-                    GeocodeRequest(
-                        location_text=proposal.location_text,
-                        city=(base.location.value.city if base.location is not None else environment.default_location.city),
-                    )
+                issues.append(self._issue(field, base.revision))
+                continue
+            geocoding_fact = self._geocoding_provider.geocode(
+                GeocodeRequest(
+                    location_text=raw_text,
+                    city=(base.location.value.city if base.location is not None else environment.default_location.city),
                 )
-                if geocoding_fact.resolution != GeocodeResolution.RESOLVED or geocoding_fact.point is None:
-                    issues.append(self._issue("location", base.revision))
-                else:
-                    location = GeoLocation(
-                        city=geocoding_fact.city or environment.default_location.city,
-                        district=geocoding_fact.district or "",
-                        address=geocoding_fact.address or proposal.location_text,
-                        latitude=geocoding_fact.point.latitude,
-                        longitude=geocoding_fact.point.longitude,
-                        adcode=geocoding_fact.adcode,
-                    )
-                    updates["location"] = self._value(location, proposal.location_text, "location.patch.geocoded.v1")
+            )
+            if geocoding_fact.resolution != GeocodeResolution.RESOLVED or geocoding_fact.point is None:
+                issues.append(self._issue(field, base.revision))
+                continue
+            location = GeoLocation(
+                city=geocoding_fact.city or environment.default_location.city,
+                district=geocoding_fact.district or "",
+                address=geocoding_fact.address or raw_text,
+                latitude=geocoding_fact.point.latitude,
+                longitude=geocoding_fact.point.longitude,
+                adcode=geocoding_fact.adcode,
+            )
+            updates[field] = self._value(location, raw_text, rule_id)
 
         if proposal.preferences:
             add_to_fields["preferences"] = proposal.preferences
@@ -237,6 +242,7 @@ class RequestPatchUpdateCompiler:
             "departure_at": ("DEPARTURE_TIME_REQUIRES_CLOCK", "clock"),
             "return_by": ("RETURN_TIME_REQUIRES_CLOCK", "clock"),
             "location": ("LOCATION_REQUIRES_RESOLUTION", "location"),
+            "planning_area": ("PLANNING_AREA_REQUIRES_RESOLUTION", "location"),
             "budget_per_person": ("BUDGET_AMOUNT_REQUIRED", "integer"),
             "max_distance_km": ("MAX_DISTANCE_REQUIRES_NUMBER", "number"),
             "total_distance_km": ("TOTAL_DISTANCE_REQUIRES_NUMBER", "number"),
