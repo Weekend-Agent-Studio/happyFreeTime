@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from app.api.application import create_app
+from app.api.schemas import MessageRequest
 from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole, TimeProposal, TimeScope
 from app.domain.providers import (
     AvailabilityStatus,
@@ -289,6 +290,22 @@ class ApiTest(unittest.TestCase):
         return self.client.get(
             f"/api/sessions/{session_id}", headers=self.headers
         ).json()["data"]
+
+    def test_planning_application_runs_without_http_route(self):
+        app = self.client.app
+        session = app.state.session_repository.create_session(
+            user_id="application-test-user",
+            identity_type="demo",
+        )
+        response = app.state.planning_turn_application.handle(
+            session_id=session.id,
+            user_id="application-test-user",
+            request=MessageRequest(
+                request_id="application-test-request",
+                content="今天下午出去玩",
+            ),
+        )
+        self.assertIn(response.status, {"completed", "needs_input"})
 
     def test_selection_starts_empty_then_restores_after_select(self) -> None:
         session_id = self._create_session()
