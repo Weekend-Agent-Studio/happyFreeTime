@@ -1,6 +1,6 @@
 # HappyFreeTime V2 总体架构设计（目标）
 
-> 状态：已确认的 V2 目标设计 | 更新日期：2026-09-04 | 适用范围：后续架构、接口、数据模型和实施决策 | 当前实现进展以根目录 `README.md` 和自动测试为准
+> 状态：已确认的 V2 目标设计 | 更新日期：2026-10-06 | 适用范围：后续架构、接口、数据模型和实施决策 | 当前实现进展以根目录 `README.md`、[当前架构](../current/resume_v2_architecture.md) 和自动测试为准
 
 ---
 
@@ -10,11 +10,11 @@
 
 ### 当前状态判读
 
-| 内容 | 冻结发布 tag / S-CORE2 分支状态 |
+| 内容 | 当前实现状态 |
 | --- | --- |
 | Graph、反问恢复、Enrichment、Provider、Planner、Verifier | 已实现 |
 | Wire Proposal、PlanSpecCompiler、Beam、Hybrid Retrieval、Grounded Advisor | 已实现并纳入发布评测 |
-| PlanRequest、RequestPatch、ConstraintEngine、PlanningWindow、顶部五栏与字段反问 | S-CORE2A–E 已在分支实现；尚未合并 main |
+| PlanRequest、RequestPatch、ConstraintEngine、PlanningWindow、顶部五栏与字段反问 | S-CORE2A–E 已实现；S-CORE3A–G 在当前开发分支完成收敛，发布状态以冻结提交为准 |
 | 真实订单、预订、叫车、Saga | 目标设计，未实现 |
 | 长期记忆、Memory Influence、可删除画像 | 目标设计，未实现 |
 | ToolBroker、MCP Client/Server Adapter | 目标设计，未接入主链 |
@@ -22,7 +22,7 @@
 
 本文后续章节描述目标边界、接口演进和取舍；出现“应支持”“目标形态”“后续”时，不得当作当前能力。
 
-> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。S-CORE2A–E 又在 `codex/s-core2-request-engine` 上完成约束与反问收敛（尚未合并 main）：自然语言、顶部栏与反问统一进入 `PlanRequest / RequestPatch / ConstraintEngine`；时间使用带来源的 `PlanningWindow` 和轻量 `TimeProposal`，不建设完整 Temporal AST；`QuestionPolicy` 确定性决策，旧开发 checkpoint 明确失效。本文的 `QuestionGate`、`NormalizedConstraints`、`TimeConstraintSet` 等旧名称均属目标草案或历史快照，不是当前接口。详见 [当前架构](../current/resume_v2_architecture.md)、[S-CORE2E 验收报告](../status/s_core2e_release_20261004.md) 与 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
+> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。S-CORE2A–E 完成约束与反问收敛：自然语言、顶部栏与反问统一进入 `PlanRequest / RequestPatch / ConstraintEngine`；时间使用带来源的 `PlanningWindow` 和轻量 `TimeProposal`，不建设完整 Temporal AST；`QuestionPolicy` 确定性决策，旧开发 checkpoint 明确失效。S-CORE3A–G 又将自然语言收敛为 `DecisionContext → TurnProposal → TurnCompiler → CompiledNextAction`，并把 Graph、Application、状态所有权和旧入口清理写入当前架构。当前执行链仍保留内部 `Interpretation` 投影与 `ConversationCommand` 替换契约，因为它们被 Planner/Modification/评测实际消费；它们不是模型动作判别字段，也不是旧 checkpoint 兼容层。本文的 `QuestionGate`、`NormalizedConstraints`、`TimeConstraintSet` 等旧名称均属目标草案或历史快照，不是当前接口。详见 [当前架构](../current/resume_v2_architecture.md)、[S-CORE3G 发布记录](../status/s_core3g_release_20261006.md) 与 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
 
 当本文档与早期的 [`mock_design.md`](../archive/v1/mock_design.md)、[`router_extractor_design_v2_draft.md`](../archive/router/router_extractor_design_v2_draft.md) 或实验代码冲突时，以本文档为准。早期文档保留为设计演进记录，不再作为实现契约。
 

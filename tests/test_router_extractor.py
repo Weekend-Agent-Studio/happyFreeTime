@@ -37,7 +37,7 @@ from app.domain.turn import (
 from app.services import router_extractor as router_extractor_module
 from app.services.router_extractor import (
     RouterContext,
-    RouterExtractor,
+    TurnInterpreter,
     build_default_turn_interpreter,
 )
 
@@ -55,7 +55,7 @@ class FakeStructuredModel:
         return response
 
 
-class RouterExtractorTest(unittest.TestCase):
+class TurnInterpreterTest(unittest.TestCase):
     def test_production_builder_uses_turn_proposal_schema(self) -> None:
         with patch.dict(
             "os.environ",
@@ -281,7 +281,7 @@ class RouterExtractorTest(unittest.TestCase):
                 }
             ]
         )
-        result, runtime = RouterExtractor(model).interpret_with_runtime(
+        result, runtime = TurnInterpreter(model).interpret_with_runtime(
             "把那个地方换一下",
             RouterContext(
                 current_date=date(2026, 8, 12),
@@ -291,7 +291,7 @@ class RouterExtractorTest(unittest.TestCase):
         )
         self.assertIsInstance(result, Interpretation)
         self.assertEqual(runtime.diagnostic_code, "target_resolution_required")
-        compiled, _ = RouterExtractor._validate_with_diagnostic(
+        compiled, _ = TurnInterpreter._validate_with_diagnostic(
             {"act": {"kind": "replace_stop", "target": {"raw_text": "活动"}}},
             has_selected_plan=True,
         )
@@ -312,7 +312,7 @@ class RouterExtractorTest(unittest.TestCase):
                 }
             ]
         )
-        result, runtime = RouterExtractor(model, model_name="fake-model").interpret_with_runtime(
+        result, runtime = TurnInterpreter(model, model_name="fake-model").interpret_with_runtime(
             "明天出去玩",
             RouterContext(current_date=date(2026, 9, 11)),
         )
@@ -324,7 +324,7 @@ class RouterExtractorTest(unittest.TestCase):
 
     def test_prompt_contains_bounded_context_without_provider_facts(self) -> None:
         model = FakeStructuredModel([TurnProposal(act=ChitchatProposal())])
-        RouterExtractor(model).interpret(
+        TurnInterpreter(model).interpret(
             "你好",
             RouterContext(current_date=date(2026, 8, 12)),
         )
@@ -336,7 +336,7 @@ class RouterExtractorTest(unittest.TestCase):
 
     def test_retries_once_then_returns_safe_clarification(self) -> None:
         model = FakeStructuredModel([{"invalid": True}, {"still_invalid": True}])
-        result, runtime = RouterExtractor(model).interpret_with_runtime(
+        result, runtime = TurnInterpreter(model).interpret_with_runtime(
             "随便安排一下",
             RouterContext(current_date=date(2026, 8, 12)),
         )
@@ -348,7 +348,7 @@ class RouterExtractorTest(unittest.TestCase):
 
     def test_classifies_provider_failure_without_retry(self) -> None:
         model = FakeStructuredModel([ConnectionError("connection refused")])
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
+        _, runtime = TurnInterpreter(model).interpret_with_runtime(
             "明天出去玩",
             RouterContext(current_date=date(2026, 8, 12)),
         )
@@ -362,7 +362,7 @@ class RouterExtractorTest(unittest.TestCase):
                 {"primary_intent": "plan_outing", "inferred_fields": ["party"]},
             ]
         )
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
+        _, runtime = TurnInterpreter(model).interpret_with_runtime(
             "明天和对象约会",
             RouterContext(current_date=date(2026, 8, 12)),
         )
@@ -378,7 +378,7 @@ class RouterExtractorTest(unittest.TestCase):
                 {"raw": raw, "parsed": None, "parsing_error": ValueError("parser")},
             ]
         )
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
+        _, runtime = TurnInterpreter(model).interpret_with_runtime(
             "明天出去玩",
             RouterContext(current_date=date(2026, 8, 12)),
         )

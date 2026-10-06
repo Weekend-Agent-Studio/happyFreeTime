@@ -41,7 +41,7 @@ from app.services.recommendation_advisor import (
 from app.services.poi_presentation import EmptyPoiPresentationProvider, PoiPresentationProvider
 from app.orchestration.entry_graph import (
     EnvironmentProvider,
-    Router,
+    TurnInterpreter,
     build_entry_graph,
     checkpoint_config,
     checkpoint_serializer,
@@ -53,7 +53,7 @@ from app.persistence.repositories import SessionRepository
 def create_app(
     *,
     database_path: Path,
-    router: Router,
+    router: TurnInterpreter,
     environment_provider: EnvironmentProvider,
     weather_provider: WeatherProvider | None = None,
     route_provider: RouteProvider | None = None,

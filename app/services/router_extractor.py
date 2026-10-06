@@ -636,9 +636,6 @@ def _repair_hint(diagnostic: StructuredOutputDiagnostic) -> str:
     return "；".join(parts)
 
 
-RouterExtractor = TurnInterpreter
-
-
 def build_default_turn_interpreter() -> TurnInterpreter:
     """根据环境变量创建 OpenAI 兼容的生产 TurnInterpreter。"""
     model_name = os.getenv("MODEL_NAME", "deepseek-v4-flash")
@@ -662,9 +659,6 @@ def build_default_turn_interpreter() -> TurnInterpreter:
         ),
         model_name=model_name,
     )
-
-
-build_default_router_extractor = build_default_turn_interpreter
 
 
 def _elapsed_ms(started_at: float) -> int:

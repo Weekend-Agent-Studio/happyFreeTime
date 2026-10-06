@@ -165,10 +165,6 @@ class TurnInterpreter(Protocol):
         ...
 
 
-# Compatibility name for existing composition roots and third-party callers.
-Router = TurnInterpreter
-
-
 class DurableSessionState(TypedDict, total=False):
     """Persisted session facts and the currently selected plan snapshot."""
 
