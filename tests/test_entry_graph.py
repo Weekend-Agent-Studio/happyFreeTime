@@ -307,7 +307,7 @@ class EntryGraphTest(unittest.TestCase):
 
         self.assertEqual(
             result["pending_issue"].field,
-            "conversation_command",
+            "target_reference",
         )
         self.assertTrue(result["pending_issue"].need_question)
         self.assertIsNone(result["candidate_set"])

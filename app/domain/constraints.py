@@ -47,6 +47,7 @@ class Intent(str, Enum):
     REFINE_PLAN = "refine_plan"
     EXECUTE_PLAN = "execute_plan"
     CANCEL_EXECUTION = "cancel_execution"
+    QUERY_PLAN = "query_plan"
     CHITCHAT = "chitchat"
     CLARIFY = "clarify"
 

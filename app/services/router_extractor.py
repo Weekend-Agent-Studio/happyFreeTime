@@ -1,8 +1,9 @@
 """使用真实 LLM 的语义入口。
 
-TurnInterpreter 只把自然语言转换成 Interpretation，不负责查询天气、解析日期、
-补默认值或生成方案。这个职责限制让一次 LLM 调用更稳定，也使后续确定性逻辑
-可以脱离模型单独测试。
+TurnInterpreter 只把自然语言转换成受限的 ``TurnProposal``，再由确定性的
+``TurnCompiler`` 投影为领域 Interpretation 和 CompiledNextAction；它不负责查询
+天气、解析日期、补默认值或生成方案。这个职责限制让一次 LLM 调用更稳定，也使
+后续确定性逻辑可以脱离模型单独测试。
 """
 
 from __future__ import annotations
@@ -18,26 +19,24 @@ from typing import Protocol
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.domain.constraints import (
-    CommandOperation,
-    ConstraintPatch,
-    ConversationCommand,
     Intent,
     Interpretation,
-    RawConstraints,
-    ReplacementCriterion,
-    StopRole,
     STRUCTURED_OUTPUT_RULE_CODES,
-    TargetReference,
-    TimeProposal,
-    TimeScope,
 )
-from app.domain.catalog import ResourceType
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.domain.runtime import RuntimeDecision
 from app.domain.decision_context import DecisionContext
+from app.domain.turn import (
+    CompiledNextAction,
+    NeedsClarification,
+    NoAction,
+    TurnCompilation,
+    TurnCompiler,
+    TurnProposal,
+)
 from app.services.model_errors import model_failure_reason
 from app.services.model_usage import ModelTokenUsage, TokenUsageAccumulator
 
@@ -64,50 +63,25 @@ _INFERRED_FIELD_DIAGNOSTIC_CODES = frozenset(
     }
 )
 
-WIRE_SCHEMA_VERSION = "llm-interpretation-proposal.v1"
-PROMPT_VERSION = "turn-interpreter.v2"
+WIRE_SCHEMA_VERSION = "turn-proposal.v1"
+PROMPT_VERSION = "turn-interpreter.v3"
 
 
-class ConversationTargetProposal(BaseModel):
-    """Model-facing target reference without application-owned resource ids."""
+@dataclass(frozen=True)
+class TurnInterpreterResult:
+    """One interpreted turn plus its compiled action and safe diagnostics.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    role: StopRole | None = None
-    resource_type: ResourceType | None = None
-    stop_index: int | None = Field(default=None, ge=0)
-    raw_text: str = Field(min_length=1)
-
-
-class ConversationCommandProposal(BaseModel):
-    """Small model wire contract for a user action.
-
-    Session/version anchors and model confidence are deliberately absent.  The
-    deterministic compiler adds only the legacy defaults needed by the
-    internal ``ConversationCommand`` object; authorization remains downstream.
+    ``__iter__`` keeps the existing two-value observation seam usable by
+    offline evaluators while the Graph consumes the explicit ``action`` field.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    interpretation: Interpretation
+    action: CompiledNextAction
+    runtime: RuntimeDecision
 
-    operation: CommandOperation
-    target: ConversationTargetProposal | None = None
-    locked_targets: tuple[ConversationTargetProposal, ...] = ()
-    constraint_patch: ConstraintPatch = Field(default_factory=ConstraintPatch)
-    replacement_criteria: tuple[ReplacementCriterion, ...] = ()
-    evidence: dict[str, str] = Field(default_factory=dict)
-
-
-class LlmInterpretationProposal(BaseModel):
-    """Provider-only structured output contract for the live TurnInterpreter."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    primary_intent: Intent
-    raw_constraints: RawConstraints = Field(default_factory=RawConstraints)
-    time_proposals: tuple[TimeProposal, ...] = ()
-    selected_plan_index: int | None = Field(default=None, ge=0)
-    conversation_command: ConversationCommandProposal | None = None
-    evidence_map: dict[str, str] = Field(default_factory=dict)
+    def __iter__(self):
+        yield self.interpretation
+        yield self.runtime
 
 
 @dataclass(frozen=True)
@@ -132,12 +106,6 @@ class _StructuredOutputValidationError(ValueError):
         self.diagnostic = diagnostic
 
 
-@dataclass(frozen=True)
-class _ProposalCompileResult:
-    interpretation: Interpretation
-    diagnostic: StructuredOutputDiagnostic | None = None
-
-
 class RouterContext(BaseModel):
     """允许注入 Prompt 的稳定上下文，不包含天气、POI 等工具结果。"""
     model_config = ConfigDict(extra="forbid")
@@ -157,88 +125,32 @@ DEFAULT_MODEL_TIMEOUT_SECONDS = 15
 
 SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 
-你只负责：
-1. 识别用户的主要意图。
-2. 从用户原话中抽取规划约束，保留原始表达。
-3. 为需要追溯的结构化事实记录简短证据片段。
-4. 只有自然语言修改请求才写 conversation_command proposal；创建规划主要由
-   primary_intent 和 raw_constraints 表达。
+只输出一个 TurnProposal，必须包含 act.kind，kind 只能是：create_plan、
+patch_constraints、replace_stop、check_weather、query_plan、chitchat。kind 是本轮
+唯一动作判别字段；不要输出 primary_intent、refine_plan、operation、conversation_command、
+intent_scores、confidence、reply、方案/版本/资源 ID。
 
-输出要求：只返回一个合法的 JSON 对象，不要返回 Markdown 代码围栏、解释文字或
-JSON 对象之外的内容。字段缺失时使用 schema 允许的默认值、null 或空数组；不要
-为了凑字段编造信息。
+create_plan 填写 raw_constraints、time_proposals、evidence_map；patch_constraints 只
+填写本轮新增或清除的 constraint_patch；replace_stop 填写 target、可选 locked_targets、
+replacement_criteria 和 evidence；check_weather 保留天气及可能触发规划的条件；query_plan
+填写原文 query；chitchat 不添加业务事实。
 
- - conversation_command 如需填写，必须是嵌套 JSON 对象而不是 JSON 字符串；其
-  operation、target、locked_targets 和 constraint_patch 按 Schema 的对象/数组
- 结构填写。创建规划不要输出 create command；没有修改命令时填写 null。不要输出会话、
-  方案版本、方案资源 ID 或 confidence 字段。
+未明确表达的信息保持为空，不填默认值，不调用工具，不生成地点、价格、库存或路线事实。
+日期和时间必须保留原文证据：date_reference 只在原文支持时填写；时间只写入
+time_proposals，并带 target（trip/departure/return）、precision（exact/period）和 evidence。
+“早上出去玩”是 trip/morning；“早上出发”是 departure/morning；“早上九点出发”是
+departure/exact、clock=09:00；“晚上八点前回来”是 return/exact、clock=20:00；“今晚/明晚”
+分别对应 today/tomorrow 加 trip/evening；“一整天/全天”对应 trip/all_day。
 
-可用意图：plan_outing、find_activity、check_weather、refine_plan、execute_plan、cancel_execution、chitchat。
-
-约束：
-- 未明确表达的信息保持为空，不填系统默认值。
- - 不计算最终日历日期，也不猜模糊时间；为可识别的日期表达填写有限的
-   date_reference（today/tomorrow/day_after_tomorrow/weekday/absolute），并继续保留
-   date_text 作为原文证据。weekday 需要同时填写 weekday；“下周”填写 week_offset=1，
-   “本周/这周”填写 week_offset=0，普通“周六”不填写 week_offset。absolute 必须填写
-   ISO 格式 absolute_date。无法可靠归类时只保留 date_text，等待 Enrichment/Gate。
- - 时间统一填写在 time_proposals，不再写入 raw_constraints。每个 proposal 必须带
-   target（trip/departure/return）、precision（exact/period）和原文 evidence。
- - “今晚”应同时将日期理解为 today，并填写 target=trip、precision=period、period=evening；
-   “明晚”对应 tomorrow + evening。不要把单独的“晚上”推断成今天。
- - “一整天”“全天”“从早到晚”填写 target=trip、precision=period、period=all_day。
- - “早上出去玩”是 trip/morning；“早上出发”是 departure/morning，不能当作整体上午窗口。
- - “早上九点出发”是 departure/exact、clock=09:00；“晚上八点前回来”是
-   return/exact、clock=20:00。模糊但明确作用于出发/返程的时段填写 period，Harness 会反问精确钟点。
- - 明确的整体时间范围（例如“10:00–16:00”）填写 target=trip、precision=exact、
-   clock=10:00、end_clock=16:00。精确出发和返程只填写 clock。
- - 模糊的“晚饭前后”“有空时”不能编译成精确钟点；若用户将其作为必须回家的期限，
-   表达为 return/period，并保留该短语作为 evidence。
- - 日期字段 date_reference、weekday、week_offset、absolute_date 只在用户原话支持时填写；
-   对应 evidence_map 必须提供。日期无法可靠分类时只保留 date_text，由 Harness 反问。
-   “全程不超过 10 公里”要保留 total_distance_text 并填写 total_distance_km。不要把
-   全程距离写入 max_distance_km，后者表示单段/召回距离。
-- 对“只安排一家晚饭”“就吃个晚饭”这类同时表达排他和晚餐的请求，填写
-  exact_stop_count=1、required_stop_roles=["dinner"]；分别在 evidence_map 中保留
-  exact_stop_count 的排他短语和 required_stop_roles 的晚餐短语。没有排他语义时，
-  不要从“想吃晚饭”“晚饭后散步”等表达推断一站行程。
-- 对“只安排一个活动”“只看一个展，不安排吃饭”这类明确单站活动请求，填写
-  exact_stop_count=1、required_stop_roles=["activity"]；对“只安排一顿午饭”“就吃个午餐”
-  填写 exact_stop_count=1、required_stop_roles=["lunch"]。只有排他语义明确时才填写
-  exact_stop_count，保留
-  对应原话证据；不要把普通的“安排活动/吃午饭”误判成单站。
-- 当用户明确要求多个角色（例如“安排活动和晚饭”“先逛展再吃午饭”）时，填写
-  required_stop_roles，按用户提及顺序保留 activity、lunch、dinner 或 meal；普通
-  “安排 A 和 B”没有排他语义时不要填写 exact_stop_count。若用户说“只/仅/就安排
-  A 和 B”，这表示恰好这些角色，exact_stop_count 填写为角色数量。dinner/lunch
-  是具体饭食角色，后续 PlanSpecCompiler 可以把它们绑定到现有通用 meal 结构，
-  不要为此编造新的 POI 或骨架。
-- 不调用工具，不生成地点、价格、库存、路线等事实。
-- “餐厅保留，只把活动换近一点”输出 operation=replace，target.role=activity，
-  locked_targets 中使用 resource_type=restaurant，replacement_criteria 中使用
-  {kind: route_objective, metric: total_route_distance, direction: decrease, strength: required}。
-  只保留用户语言引用，不猜测 resource_id；若无法确定 role、resource_type 或 stop_index，
-  仍可只填写 target.raw_text，有限解析和对象锁定由 Harness 完成，无法唯一解析时由系统反问。
-- 当会话已有 active plan 且用户是在补充“最晚几点回家、预算、少辣、安静”等约束时，
-  输出 operation=patch_constraints，不要重新生成 create command；只填写
-  constraint_patch 中对应的原始文本或偏好数组（date_text、time_window_text、
-  departure_at_text、return_by_text、location_text、budget_text、距离文本、
-  preferences/diet_tags/avoid、必要时 clear_fields）。该命令由 Harness 基于 active
-  constraints 重新规划，模型不得输出规范化日期、坐标、路线或资源事实；不要为了
-  “补充”而输出 replace，只有明确指出要替换某一站时才使用 replace。
-- “严格控制预算”“千万别超预算”等表达令 strict_budget=true；只有明确金额才填写 budget_per_person。
-- 只有用户明确要求“确认有位”“必须可预约”等动态库存确认时，才填写
-  require_availability_confirmation=true；普通的“想去某餐厅/景点”保持 false。
-- 有儿童时尽量提取 children 和 child_age；不能确定时保持为空。
-- 不输出 inferred_fields、extraction_confidence、intent_scores、reply 或
-  requires_clarification。不要从普通“约会”推断准确成人数量；“和女朋友”“带父母”
-  可以保留 members，但人数由后续 Harness 决定。
-- 只有真正闲聊才输出 chitchat。解析不确定不等于闲聊。
+保留用户明确的站数、角色、距离、预算、同行人、偏好、饮食、场景和避开条件，并用
+evidence_map 记录需要追溯的字段。普通“约会”不推断成人数量；严格预算不编造金额。
+已有方案时，预算、返程时间、少辣、安静等补充使用 patch_constraints；只有明确替换某站
+时使用 replace_stop。模糊目标可以只填 raw_text，系统会安全反问。
 """
 
 
 class TurnInterpreter:
-    """将一轮用户输入转换成通过 Pydantic 校验的 Interpretation。
+    """将一轮用户输入转换成校验过的 TurnProposal 和执行动作。
 
     首次结构化输出失败时只重试一次；第二次仍失败则返回显式澄清意图，避免
     未校验的字典继续流入 Graph。这里重试的是“输出格式”，不是业务规划。
@@ -249,14 +161,13 @@ class TurnInterpreter:
         self._model_name = model_name
 
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
-        interpretation, _ = self.interpret_with_runtime(user_input, context)
-        return interpretation
+        return self.interpret_with_runtime(user_input, context).interpretation
 
     def interpret_with_runtime(
         self,
         user_input: str,
         context: RouterContext,
-    ) -> tuple[Interpretation, RuntimeDecision]:
+    ) -> TurnInterpreterResult:
         started_at = perf_counter()
         messages: list[object] = [
             SystemMessage(content=SYSTEM_PROMPT),
@@ -278,7 +189,10 @@ class TurnInterpreter:
             )
 
         try:
-            interpretation, compile_diagnostic = self._validate_with_diagnostic(raw_result)
+            compilation, compile_diagnostic = self._validate_with_diagnostic(
+                raw_result,
+                has_selected_plan=context.has_selected_plan,
+            )
         except Exception as error:
             diagnostic = _diagnostic_from_exception(error, raw_result)
             # Only a response that was received but failed local decoding gets
@@ -288,7 +202,7 @@ class TurnInterpreter:
                 *messages,
                 HumanMessage(
                     content=(
-                        "上一次输出未通过结构校验。请严格返回合法 JSON 格式的 LlmInterpretationProposal 结构，"
+                        "上一次输出未通过结构校验。请严格返回合法 JSON 格式的 TurnProposal 结构，"
                         "不要补充解释。错误类型：invalid_output；"
                         + _repair_hint(diagnostic)
                     )
@@ -308,7 +222,10 @@ class TurnInterpreter:
                     token_usage=token_usage.total,
                 )
             try:
-                interpretation, compile_diagnostic = self._validate_with_diagnostic(raw_retry)
+                compilation, compile_diagnostic = self._validate_with_diagnostic(
+                    raw_retry,
+                    has_selected_plan=context.has_selected_plan,
+                )
             except Exception as error:
                 if token_usage.attempt_count < 2:
                     token_usage.record_unknown()
@@ -321,13 +238,18 @@ class TurnInterpreter:
                     diagnostic=diagnostic,
                 )
 
-        return interpretation, self._runtime_decision(
+        runtime = self._runtime_decision(
             adapter="llm",
             model_invoked=True,
             attempts=attempts,
             diagnostic=compile_diagnostic,
             latency_ms=_elapsed_ms(started_at),
             token_usage=token_usage.total,
+        )
+        return TurnInterpreterResult(
+            interpretation=compilation.interpretation,
+            action=compilation.action,
+            runtime=runtime,
         )
 
     def _clarification_with_runtime(
@@ -338,15 +260,17 @@ class TurnInterpreter:
         fallback_reason: str,
         token_usage: ModelTokenUsage,
         diagnostic: StructuredOutputDiagnostic | None = None,
-    ) -> tuple[Interpretation, RuntimeDecision]:
-        return (
-            Interpretation(
-                primary_intent=Intent.CLARIFY,
-                intent_scores={Intent.CLARIFY: 1.0},
-                requires_clarification=True,
-                reply="我还不能可靠理解这个需求，请换一种方式重新描述一下。",
-            ),
-            self._runtime_decision(
+    ) -> TurnInterpreterResult:
+        interpretation = Interpretation(
+            primary_intent=Intent.CLARIFY,
+            intent_scores={Intent.CLARIFY: 1.0},
+            requires_clarification=True,
+            reply="我还不能可靠理解这个需求，请换一种方式重新描述一下。",
+        )
+        return TurnInterpreterResult(
+            interpretation=interpretation,
+            action=NoAction(reason="unsupported"),
+            runtime=self._runtime_decision(
                 adapter="fallback",
                 model_invoked=True,
                 attempts=attempts,
@@ -389,13 +313,15 @@ class TurnInterpreter:
 
     @staticmethod
     def _validate(result: object) -> Interpretation:
-        interpretation, _ = TurnInterpreter._validate_with_diagnostic(result)
-        return interpretation
+        compilation, _ = TurnInterpreter._validate_with_diagnostic(result)
+        return compilation.interpretation
 
     @staticmethod
     def _validate_with_diagnostic(
         result: object,
-    ) -> tuple[Interpretation, StructuredOutputDiagnostic | None]:
+        *,
+        has_selected_plan: bool = False,
+    ) -> tuple[TurnCompilation, StructuredOutputDiagnostic | None]:
         if isinstance(result, dict) and (
             "parsed" in result or "parsing_error" in result
         ):
@@ -410,12 +336,32 @@ class TurnInterpreter:
                 raise _StructuredOutputValidationError(
                     _diagnose_structured_response(result.get("raw"), None)
                 )
-            return TurnInterpreter._validate_with_diagnostic(parsed)
+            return TurnInterpreter._validate_with_diagnostic(
+                parsed,
+                has_selected_plan=has_selected_plan,
+            )
         if isinstance(result, Interpretation):
-            return result, None
-        if isinstance(result, LlmInterpretationProposal):
-            compiled = _compile_llm_interpretation_proposal(result)
-            return compiled.interpretation, compiled.diagnostic
+            compiled = TurnCompiler.from_interpretation(
+                result,
+                has_selected_plan=has_selected_plan,
+            )
+            return compiled, None
+        if isinstance(result, TurnProposal):
+            compilation = TurnCompiler.compile(
+                result,
+                has_selected_plan=has_selected_plan,
+            )
+            diagnostic = (
+                StructuredOutputDiagnostic(
+                    code="target_resolution_required",
+                    paths=("act.target",),
+                    error_types=("target_not_unique",),
+                )
+                if isinstance(compilation.action, NeedsClarification)
+                and compilation.action.field == "target_reference"
+                else None
+            )
+            return compilation, diagnostic
         if isinstance(result, str):
             try:
                 result = json.loads(result)
@@ -426,15 +372,28 @@ class TurnInterpreter:
                         error_types=("json_invalid",),
                     )
                 ) from error
-        result = _normalize_interpretation_wire_value(result)
+        result = _normalize_turn_wire_value(result)
         try:
-            proposal = LlmInterpretationProposal.model_validate(result)
+            proposal = TurnProposal.model_validate(result)
         except ValidationError as error:
             raise _StructuredOutputValidationError(
                 _diagnose_pydantic_validation(error)
             ) from error
-        compiled = _compile_llm_interpretation_proposal(proposal)
-        return compiled.interpretation, compiled.diagnostic
+        compilation = TurnCompiler.compile(
+            proposal,
+            has_selected_plan=has_selected_plan,
+        )
+        diagnostic = (
+            StructuredOutputDiagnostic(
+                code="target_resolution_required",
+                paths=("act.target",),
+                error_types=("target_not_unique",),
+            )
+            if isinstance(compilation.action, NeedsClarification)
+            and compilation.action.field == "target_reference"
+            else None
+        )
+        return compilation, diagnostic
 
     @staticmethod
     def _build_context(user_input: str, context: RouterContext) -> str:
@@ -452,192 +411,6 @@ class TurnInterpreter:
         if context.decision_context is not None:
             lines.extend(context.decision_context.prompt_lines())
         return "\n".join(lines)
-
-
-_TARGET_ROLE_ALIASES = {
-    "活动": StopRole.ACTIVITY,
-    "活动站": StopRole.ACTIVITY,
-    "景点": StopRole.ACTIVITY,
-    "展览": StopRole.ACTIVITY,
-    "展": StopRole.ACTIVITY,
-    "晚饭": StopRole.DINNER,
-    "晚餐": StopRole.DINNER,
-    "午饭": StopRole.LUNCH,
-    "午餐": StopRole.LUNCH,
-    "用餐": StopRole.MEAL,
-}
-_TARGET_RESOURCE_ALIASES = {
-    "餐厅": ResourceType.RESTAURANT,
-    "饭店": ResourceType.RESTAURANT,
-}
-_TARGET_INDEX_ALIASES = {
-    "第一站": 0,
-    "第1站": 0,
-    "第二站": 1,
-    "第2站": 1,
-    "第三站": 2,
-    "第3站": 2,
-    "第四站": 3,
-    "第4站": 3,
-}
-
-
-def compile_conversation_command_proposal(
-    proposal: ConversationCommandProposal | None,
-) -> ConversationCommand | None:
-    """Compile a model action proposal into the existing domain command.
-
-    The constructed object is always the existing ConversationCommand domain
-    object; no session or version anchor is accepted from the model.
-    """
-
-    command, _ = _compile_conversation_command_proposal(proposal)
-    return command
-
-
-def _compile_conversation_command_proposal(
-    proposal: ConversationCommandProposal | None,
-    *,
-    primary_intent: Intent | None = None,
-) -> tuple[ConversationCommand | None, StructuredOutputDiagnostic | None]:
-    if proposal is None:
-        return None, None
-
-    if proposal.operation == CommandOperation.CREATE and primary_intent in {
-        Intent.PLAN_OUTING,
-        Intent.FIND_ACTIVITY,
-    }:
-        return None, StructuredOutputDiagnostic(
-            code="command_ignored_for_plan",
-            paths=("conversation_command",),
-            error_types=("command_ignored_for_plan",),
-        )
-
-    target, target_error = _compile_target_reference(proposal.target)
-    if target_error is not None:
-        return None, StructuredOutputDiagnostic(
-            code="target_resolution_required",
-            paths=("conversation_command.target",),
-            error_types=(target_error,),
-        )
-    if proposal.operation == CommandOperation.REPLACE and target is None:
-        return None, StructuredOutputDiagnostic(
-            code="target_resolution_required",
-            paths=("conversation_command.target",),
-            error_types=("target_missing",),
-        )
-
-    locked_targets: list[TargetReference] = []
-    for item in proposal.locked_targets:
-        resolved, item_error = _compile_target_reference(item)
-        if item_error is not None or resolved is None:
-            return None, StructuredOutputDiagnostic(
-                code="target_resolution_required",
-                paths=("conversation_command.locked_targets",),
-                error_types=(item_error or "target_missing",),
-            )
-        locked_targets.append(resolved)
-
-    return (
-        ConversationCommand(
-            operation=proposal.operation,
-            target=target,
-            locked_targets=tuple(locked_targets),
-            constraint_patch=proposal.constraint_patch,
-            replacement_criteria=proposal.replacement_criteria,
-            evidence=dict(proposal.evidence),
-        ),
-        None,
-    )
-
-
-def _compile_target_reference(
-    target: ConversationTargetProposal | None,
-) -> tuple[TargetReference | None, str | None]:
-    if target is None:
-        return None, None
-    if (
-        target.role is not None
-        or target.resource_type is not None
-        or target.stop_index is not None
-    ):
-        return (
-            TargetReference(
-                role=target.role,
-                resource_type=target.resource_type,
-                stop_index=target.stop_index,
-                raw_text=target.raw_text,
-            ),
-            None,
-        )
-
-    normalized = re.sub(r"\s+", "", target.raw_text).strip("，。！？；：")
-    if normalized in _TARGET_ROLE_ALIASES:
-        return (
-            TargetReference(role=_TARGET_ROLE_ALIASES[normalized], raw_text=target.raw_text),
-            None,
-        )
-    if normalized in _TARGET_RESOURCE_ALIASES:
-        return (
-            TargetReference(
-                resource_type=_TARGET_RESOURCE_ALIASES[normalized],
-                raw_text=target.raw_text,
-            ),
-            None,
-        )
-    if normalized in _TARGET_INDEX_ALIASES:
-        return (
-            TargetReference(
-                stop_index=_TARGET_INDEX_ALIASES[normalized],
-                raw_text=target.raw_text,
-            ),
-            None,
-        )
-    return None, "target_not_unique"
-
-
-def compile_llm_interpretation_proposal(
-    proposal: LlmInterpretationProposal,
-) -> Interpretation:
-    """Build the legacy domain Interpretation deterministically.
-
-    ``intent_scores`` and the remaining legacy response fields are adapter
-    defaults, not claims made by the model.  In particular, no inferred fields
-    or confidence values are manufactured here.
-    """
-
-    return _compile_llm_interpretation_proposal(proposal).interpretation
-
-
-def _compile_llm_interpretation_proposal(
-    proposal: LlmInterpretationProposal,
-) -> _ProposalCompileResult:
-    command, diagnostic = _compile_conversation_command_proposal(
-        proposal.conversation_command,
-        primary_intent=proposal.primary_intent,
-    )
-    unresolved_target = None
-    if command is None and proposal.conversation_command is not None:
-        target = proposal.conversation_command.target
-        if target is not None:
-            unresolved_target = target.raw_text
-    return _ProposalCompileResult(
-        interpretation=Interpretation(
-            primary_intent=proposal.primary_intent,
-            intent_scores={proposal.primary_intent: 1.0},
-            raw_constraints=proposal.raw_constraints,
-            time_proposals=proposal.time_proposals,
-            selected_plan_index=proposal.selected_plan_index,
-            target_reference=unresolved_target,
-            conversation_command=command,
-            extraction_confidence={},
-            evidence_map=dict(proposal.evidence_map),
-            inferred_fields=set(),
-            reply="",
-            requires_clarification=False,
-        ),
-        diagnostic=diagnostic,
-    )
 
 
 def classify_structured_output_failure(
@@ -738,35 +511,28 @@ def _safe_inferred_field_path(entry: Mapping[str, object], error_type: str) -> s
     return f"inferred_fields.{field}"
 
 
-def _normalize_interpretation_wire_value(result: object) -> object:
-    """Normalize one provider quirk without widening the domain contract.
-
-    Some OpenAI-compatible providers serialize the nested command object as a
-    JSON string even though the outer tool arguments are an object.  Decode
-    exactly that field once; the resulting value still goes through the
-    unchanged Interpretation and ConversationCommand validators.
-    Plain text, malformed JSON and non-object JSON remain invalid.
-    """
+def _normalize_turn_wire_value(result: object) -> object:
+    """Normalize one provider quirk without widening the domain contract."""
 
     if not isinstance(result, Mapping):
         return result
-    command = result.get("conversation_command")
-    if not isinstance(command, str):
+    act = result.get("act")
+    if not isinstance(act, str):
         return result
     try:
-        decoded = json.loads(command)
+        decoded = json.loads(act)
     except json.JSONDecodeError as error:
         raise _StructuredOutputValidationError(
             StructuredOutputDiagnostic(
                 code="invalid_json_arguments",
-                paths=("conversation_command",),
+                paths=("act",),
                 error_types=("json_invalid",),
             )
         ) from error
     if decoded is not None and not isinstance(decoded, Mapping):
         return result
     normalized = dict(result)
-    normalized["conversation_command"] = decoded
+    normalized["act"] = decoded
     return normalized
 
 
@@ -880,7 +646,7 @@ def build_default_turn_interpreter() -> TurnInterpreter:
     )
     return TurnInterpreter(
         llm.with_structured_output(
-            structured_output_schema(model_name, LlmInterpretationProposal),
+            structured_output_schema(model_name, TurnProposal),
             method="function_calling",
             include_raw=True,
         ),

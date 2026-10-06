@@ -125,11 +125,21 @@ from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.constraint_engine import (
     ConflictedRequest,
     ConstraintEngine,
-    NeedsClarification,
+    NeedsClarification as ConstraintNeedsClarification,
     ResolvedRequest,
 )
 from app.services.request_patch_compiler import RequestPatchProposalCompiler
-from app.services.router_extractor import RouterContext
+from app.services.router_extractor import RouterContext, TurnInterpreterResult
+from app.domain.turn import (
+    AnswerQuery,
+    ApplyRequestPatch,
+    CompiledNextAction,
+    ModifySelectedPlan,
+    NeedsClarification as ActionNeedsClarification,
+    NoAction,
+    TurnCompiler,
+    intent_for_action,
+)
 
 
 class TurnInterpreter(Protocol):
@@ -151,6 +161,7 @@ class EntryState(TypedDict, total=False):
     user_input: str
     actor: ActorContext
     interpretation: Interpretation | None
+    next_action: CompiledNextAction | None
     assumptions: tuple[Assumption, ...]
     geocoding_fact: GeocodingFact | None
     active_request: PlanRequest | None
@@ -251,6 +262,11 @@ def build_entry_graph(
                     structured_command.operation != CommandOperation.REPLACE
                 ),
             )
+            compilation = TurnCompiler.from_interpretation(
+                interpretation,
+                has_selected_plan=state.get("selected_plan") is not None,
+            )
+            action = compilation.action
             runtime_decision = RuntimeDecision(
                 stage="turn_interpreter",
                 adapter="bypassed",
@@ -277,7 +293,7 @@ def build_entry_graph(
                 ),
                 last_system_outcome=state.get("mutation_kind"),
             )
-            interpretation, runtime_decision = _interpret_with_runtime(
+            turn_result = _interpret_with_runtime(
                 router,
                 state["user_input"],
                 RouterContext(
@@ -293,10 +309,14 @@ def build_entry_graph(
                     decision_context=decision_context,
                 ),
             )
+            interpretation = turn_result.interpretation
+            action = turn_result.action
+            runtime_decision = turn_result.runtime
         # 这些派生值只属于当前解释轮次。反问恢复或用户修改需求时必须清空，
         # 否则新请求可能误用上一轮的假设、Gate 决策或候选方案。
         return {
             "interpretation": interpretation,
+            "next_action": action,
             "assumptions": (),
             "geocoding_fact": None,
             "pending_patch": None,
@@ -314,73 +334,48 @@ def build_entry_graph(
         }
 
     def route_after_router(state: EntryState) -> str:
-        """闲聊和无法可靠理解的输入直接结束，不浪费后续规划计算。"""
-        interpretation = state["interpretation"]
-        intent = interpretation.primary_intent
-        if intent in {Intent.CHITCHAT, Intent.CLARIFY}:
-            return END
-        if intent == Intent.CHECK_WEATHER:
-            return "compile_request"
-        command = state["interpretation"].conversation_command
-        if command is not None and command.operation == CommandOperation.PATCH_CONSTRAINTS:
-            return "compile_patch"
-        if intent == Intent.REFINE_PLAN or (
-            command is not None
-            and command.operation in {
-                CommandOperation.REPLACE,
-            }
-        ):
+        """Route only on the compiled action, never on model intent fields."""
+        action = state.get("next_action")
+        if isinstance(action, ApplyRequestPatch):
+            return "compile_patch" if action.mode == "update" else "compile_request"
+        if isinstance(action, ModifySelectedPlan):
             return "modify_plan"
-        return "compile_request"
+        if isinstance(action, ActionNeedsClarification):
+            return "modify_plan" if action.issue_kind in {"target", "selection"} else "compile_patch"
+        if isinstance(action, AnswerQuery):
+            return "compile_request" if action.query_kind == "weather" else END
+        return END
 
     def modify_plan_node(state: EntryState) -> dict[str, object]:
-        interpretation = state["interpretation"]
-        command = interpretation.conversation_command
-        if command is None or command.operation != CommandOperation.REPLACE:
-            if interpretation.target_reference:
-                question = _prepare_question_decision(
-                    QuestionDecision(
-                        need_question=True,
-                        field="target_reference",
-                        question="要替换哪一站？可以输入“活动”“晚餐”或“第二站”。",
-                        severity="blocking",
-                        issue_kind="target",
-                        request_revision=(
-                            state["active_request"].revision
-                            if state.get("active_request") is not None
-                            else 0
-                        ),
-                        rule_id="question.target_reference.v1",
-                    )
-                )
-                return {
-                    "pending_issue": question,
-                    "pending_modification": PendingModification(
-                        target_raw_text=interpretation.target_reference,
-                        evidence=interpretation.evidence_map,
-                    ),
-                }
-            question = _prepare_question_decision(
-                    QuestionDecision(
-                        need_question=True,
-                        field="conversation_command",
-                        question="要替换哪一站？可以输入“活动”“晚餐”或“第二站”。",
-                        severity="blocking",
-                        issue_kind="target",
-                        request_revision=(
-                            state["active_request"].revision
-                            if state.get("active_request") is not None
-                            else 0
-                        ),
-                        rule_id="question.target_reference.v1",
-                )
-            )
-            return {
-                "pending_issue": question,
-                "pending_modification": PendingModification(),
-            }
-        selected_plan = state.get("selected_plan")
+        action = state.get("next_action")
         active_constraints = state.get("active_request")
+        if isinstance(action, ActionNeedsClarification):
+            field = action.field
+            if field == "selected_plan_id":
+                question_text = "请先选择一个方案，再告诉我要保留和替换哪一站。"
+                issue_kind = "selection"
+                rule_id = "question.selected_plan.v1"
+            else:
+                field = "target_reference"
+                question_text = "要替换哪一站？可以输入“活动”“晚餐”或“第二站”。"
+                issue_kind = "target"
+                rule_id = "question.target_reference.v1"
+            return {
+                "pending_issue": _prepare_question_decision(QuestionDecision(
+                    need_question=True,
+                    field=field,
+                    question=question_text,
+                    severity="blocking",
+                    issue_kind=issue_kind,
+                    request_revision=active_constraints.revision if active_constraints else 0,
+                    rule_id=rule_id,
+                )),
+                "pending_modification": action.pending_modification or PendingModification(),
+            }
+        if not isinstance(action, ModifySelectedPlan):
+            raise ValueError("modify_plan requires a compiled modification action")
+        command = action.command
+        selected_plan = state.get("selected_plan")
         if selected_plan is None:
             return {
                 "pending_issue": _prepare_question_decision(QuestionDecision(
@@ -446,10 +441,12 @@ def build_entry_graph(
 
     def compile_patch_node(state: EntryState) -> dict[str, object]:
         """Compile one PATCH_CONSTRAINTS proposal before re-entering planning."""
-        command = state["interpretation"].conversation_command
+        action = state.get("next_action")
         active_constraints = state.get("active_request")
-        if command is None or command.operation != CommandOperation.PATCH_CONSTRAINTS:
-            raise ValueError("compile_patch requires PATCH_CONSTRAINTS")
+        if not isinstance(action, ApplyRequestPatch) or action.mode != "update":
+            raise ValueError("compile_patch requires an update action")
+        if action.constraint_patch is None:
+            raise ValueError("compile_patch requires a constraint patch")
         if active_constraints is None:
             question = _prepare_question_decision(
                 QuestionDecision(
@@ -468,7 +465,7 @@ def build_entry_graph(
         actor = state["actor"]
         compilation = request_patch_update_compiler.compile_update_proposal(
             base=active_constraints,
-            proposal=command.constraint_patch,
+            proposal=action.constraint_patch,
             actor=actor,
             environment=environment_provider(actor),
         )
@@ -477,10 +474,10 @@ def build_entry_graph(
             compilation.patch,
             issues=compilation.issues,
         )
-        if isinstance(outcome, NeedsClarification):
+        if isinstance(outcome, ConstraintNeedsClarification):
             prepared = _prepare_question_decision(
                 question_policy.decide(
-                    state["interpretation"].primary_intent,
+                    intent_for_action(action),
                     outcome.request or active_constraints,
                     QuestionPolicyContext(
                         has_plans=state.get("has_plans", False),
@@ -532,7 +529,7 @@ def build_entry_graph(
     ) -> dict[str, object]:
         """Apply a typed UI edit through the same Engine as Router/Patch paths."""
         outcome = constraint_engine.apply(request, patch, issues=issues)
-        if isinstance(outcome, NeedsClarification):
+        if isinstance(outcome, ConstraintNeedsClarification):
             candidate = outcome.request or request
             if (
                 existing_decision is not None
@@ -696,11 +693,11 @@ def build_entry_graph(
             "geocoding_fact": enrichment.geocoding_fact,
             "condition_requests_plan": compilation.condition_requests_plan,
         }
-        if isinstance(outcome, NeedsClarification):
+        if isinstance(outcome, ConstraintNeedsClarification):
             issues = compilation.issues or (outcome.issue,)
             question = _prepare_question_decision(
                 question_policy.decide(
-                    state["interpretation"].primary_intent,
+                    intent_for_action(state["next_action"]),
                     outcome.request or PlanRequest(),
                     QuestionPolicyContext(
                         has_plans=state.get("has_plans", False),
@@ -739,8 +736,9 @@ def build_entry_graph(
         existing_issue = state.get("pending_issue")
         if existing_issue is not None and existing_issue.need_question:
             return {"ready_for_planning": False}
+        action = state.get("next_action")
         decision = question_policy.decide(
-            state["interpretation"].primary_intent,
+            intent_for_action(action),
             state.get("active_request") or PlanRequest(),
             QuestionPolicyContext(
                 has_plans=state.get("has_plans", False),
@@ -749,14 +747,11 @@ def build_entry_graph(
         )
         # 只有真正需要产出/修改方案的意图才能进入 Planner。天气查询、执行和
         # 取消等意图即使字段完整，也不应错误触发双站规划。
-        planning_intents = {
-            Intent.PLAN_OUTING,
-            Intent.FIND_ACTIVITY,
-            Intent.REFINE_PLAN,
-        }
+        planning_request = isinstance(action, ApplyRequestPatch) and action.mode == "create"
         weather_condition_planning = (
-            state["interpretation"].primary_intent == Intent.CHECK_WEATHER
-            and state.get("condition_requests_plan", False)
+            isinstance(action, AnswerQuery)
+            and action.query_kind == "weather"
+            and action.condition_requests_plan
         )
         return {
             "pending_issue": (
@@ -777,8 +772,7 @@ def build_entry_graph(
                 not decision.need_question
                 and not (state.get("candidate_set") and state["candidate_set"].conflict)
                 and (
-                    state["interpretation"].primary_intent in planning_intents
-                    or weather_condition_planning
+                    planning_request or weather_condition_planning
                 )
             ),
         }
@@ -994,12 +988,12 @@ def build_entry_graph(
                 issues=remaining_issues,
             )
             trace_status = ClarificationResolution.RESOLVED
-            if isinstance(result, NeedsClarification):
+            if isinstance(result, ConstraintNeedsClarification):
                 issue = result.issue
                 remaining_issues = remaining_issues or (issue,)
                 next_question = _prepare_question_decision(
                     question_policy.decide(
-                        state["interpretation"].primary_intent,
+                        intent_for_action(state.get("next_action")),
                         result.request or request,
                         QuestionPolicyContext(
                             has_plans=state.get("has_plans", False),
@@ -1403,6 +1397,11 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             StopType,
             WeatherFact,
             RuntimeDecision,
+            ApplyRequestPatch,
+            ModifySelectedPlan,
+            AnswerQuery,
+            NoAction,
+            ActionNeedsClarification,
             ClarificationAction,
             ClarificationOption,
             ClarificationReply,
@@ -1421,20 +1420,41 @@ def _interpret_with_runtime(
     router: TurnInterpreter,
     user_input: str,
     context: RouterContext,
-) -> tuple[Interpretation, RuntimeDecision]:
-    """Use an adapter's optional runtime-aware seam without breaking old fakes."""
+) -> TurnInterpreterResult:
+    """Normalize real and deterministic Routers at the compiled-action seam."""
 
     interpret_with_runtime = getattr(router, "interpret_with_runtime", None)
     if callable(interpret_with_runtime):
-        return interpret_with_runtime(user_input, context)
-    return router.interpret(user_input, context), RuntimeDecision(
-        stage="turn_interpreter",
-        adapter="custom",
-        model_invoked=False,
-        model_name=None,
-        attempts=0,
-        fallback_reason=None,
-        latency_ms=None,
+        result = interpret_with_runtime(user_input, context)
+        if isinstance(result, TurnInterpreterResult):
+            return result
+        interpretation, runtime = result
+        compilation = TurnCompiler.from_interpretation(
+            interpretation,
+            has_selected_plan=context.has_selected_plan,
+        )
+        return TurnInterpreterResult(
+            interpretation=compilation.interpretation,
+            action=compilation.action,
+            runtime=runtime,
+        )
+    interpretation = router.interpret(user_input, context)
+    compilation = TurnCompiler.from_interpretation(
+        interpretation,
+        has_selected_plan=context.has_selected_plan,
+    )
+    return TurnInterpreterResult(
+        interpretation=compilation.interpretation,
+        action=compilation.action,
+        runtime=RuntimeDecision(
+            stage="turn_interpreter",
+            adapter="custom",
+            model_invoked=False,
+            model_name=None,
+            attempts=0,
+            fallback_reason=None,
+            latency_ms=None,
+        ),
     )
 
 
