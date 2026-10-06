@@ -70,6 +70,22 @@ Graph 负责节点、路由、interrupt/resume 和 checkpoint；紧密的检索�
 - 旧提交、冻结 Fixture 和历史报告，用于版本对比和可追溯性；
 - `Plan.skeleton_id` 等稳定输出字段，它们现在只承载 PlanSpec ID，不代表旧 Skeleton 模型仍存在。
 
-## 验证口径
+## 最终验证（5ea7341）
 
-本记录只收口架构与文档，不把尚未在本提交上执行的 Live B0/B3 或真实 LLM C1/C3/C4 结果写成发布指标。最终发布前仍应在干净提交上执行后端、前端、编译检查、Frozen C0–C4、B0/B3 和重点手工 E2E，并在报告中分开记录冷启动与稳态延迟。
+本次在干净提交上完成后端、前端和完整 C/B 评测。报告目录均位于 `artifacts/evals/`，不保存原始模型响应或密钥：
+
+| 变体 | 任务成功 | 必需断言 | 硬约束 | 关键说明 |
+|---|---:|---:|---:|---|
+| C0 Rule + Rule | 34/36 | 206/208 | 7/7 | 两条已知 Rule 语义证据缺口 |
+| C1 LLM Intent + Rule | 34/36 | 198/200 | 7/7 | PlanningIntent 17/17，无 fallback |
+| C2 Rule + Hybrid | 36/36 | 208/208 | 7/7 | Hybrid 补齐两条语义证据 |
+| C3 LLM Intent + Hybrid | 36/36 | 208/208 | 7/7 | PlanningIntent 17/17，无 fallback |
+| C4 + Advisor | 36/36 | 208/208 | 7/7 | Advisor 23/27 接受，4 次安全回退 |
+| B0 Live Router | 28/36 | 174/196 | 6/6 | Router 36 次，1 次结构化回退 |
+| B3 Live Router + Advisor | 29/36 | 174/196 | 6/6 | Advisor 17/22 接受，5 次安全回退 |
+
+所有 Frozen C0–C4 的冲突诊断为 4/4，修改链路均为 9–10/10，目标替换、锁定站点保持和 PlanDiff 均通过。C4 Advisor 接受样本的 Plan ID、Fact/Evidence grounding 为 100%；`understood_need_grounding` 仍显示为 0/23，因为当前 V2 Advisor 合同已不再让模型输出 `understood_needs`，该旧指标不应作为质量结论。
+
+延迟分开记录：C3 BGE 冷启动约 34.8 秒、稳态检索约 P50/P95 197/483ms；C4 Advisor P50/P95 2588/3286ms，端到端 P50/P95 3090/9971ms；B3 端到端 P50/P95 2555/12903ms。Live 成功率受真实 Router 输出波动影响，不能与 Frozen 结果合并成生产成功率。
+
+工程验证：后端 444 passed；前端 Vitest 36 passed，TypeScript 检查和 Vite build 通过；Python 编译与 `git diff --check` 通过。前端验证使用主工作树已安装依赖的临时 Junction，验证后已移除。
