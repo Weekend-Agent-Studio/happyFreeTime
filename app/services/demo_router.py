@@ -20,9 +20,10 @@ from app.domain.constraints import (
     TimeScope,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.turn import TurnCompiler
 from app.services.enrichment import TemporalCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
-from app.services.router_extractor import RouterContext
+from app.services.router_extractor import RouterContext, TurnInterpreterResult
 
 
 def _parse_budget_amount(value: str) -> int | None:
@@ -721,15 +722,24 @@ class DemoRouter:
         self,
         user_input: str,
         context: RouterContext,
-    ) -> tuple[Interpretation, RuntimeDecision]:
+    ) -> TurnInterpreterResult:
         started_at = perf_counter()
         interpretation = self.interpret(user_input, context)
-        return interpretation, RuntimeDecision(
-            stage="turn_interpreter",
-            adapter="demo_rule",
-            model_invoked=False,
-            model_name=None,
-            attempts=0,
-            fallback_reason=None,
-            latency_ms=max(0, round((perf_counter() - started_at) * 1000)),
+        compilation = TurnCompiler.from_interpretation(
+            interpretation,
+            context=context.decision_context,
+            has_selected_plan=context.has_selected_plan,
+        )
+        return TurnInterpreterResult(
+            interpretation=compilation.interpretation,
+            action=compilation.action,
+            runtime=RuntimeDecision(
+                stage="turn_interpreter",
+                adapter="demo_rule",
+                model_invoked=False,
+                model_name=None,
+                attempts=0,
+                fallback_reason=None,
+                latency_ms=max(0, round((perf_counter() - started_at) * 1000)),
+            ),
         )

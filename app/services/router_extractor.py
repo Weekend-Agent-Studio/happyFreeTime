@@ -195,6 +195,7 @@ class TurnInterpreter:
             compilation, compile_diagnostic = self._validate_with_diagnostic(
                 raw_result,
                 has_selected_plan=context.has_selected_plan,
+                decision_context=context.decision_context,
             )
         except Exception as error:
             diagnostic = _diagnostic_from_exception(error, raw_result)
@@ -228,6 +229,7 @@ class TurnInterpreter:
                 compilation, compile_diagnostic = self._validate_with_diagnostic(
                     raw_retry,
                     has_selected_plan=context.has_selected_plan,
+                    decision_context=context.decision_context,
                 )
             except Exception as error:
                 if token_usage.attempt_count < 2:
@@ -324,6 +326,7 @@ class TurnInterpreter:
         result: object,
         *,
         has_selected_plan: bool = False,
+        decision_context: DecisionContext | None = None,
     ) -> tuple[TurnCompilation, StructuredOutputDiagnostic | None]:
         if isinstance(result, dict) and (
             "parsed" in result or "parsing_error" in result
@@ -342,17 +345,20 @@ class TurnInterpreter:
             return TurnInterpreter._validate_with_diagnostic(
                 parsed,
                 has_selected_plan=has_selected_plan,
+                decision_context=decision_context,
             )
         if isinstance(result, Interpretation):
             compiled = TurnCompiler.from_interpretation(
                 result,
                 has_selected_plan=has_selected_plan,
+                context=decision_context,
             )
             return compiled, None
         if isinstance(result, TurnProposal):
             compilation = TurnCompiler.compile(
                 result,
                 has_selected_plan=has_selected_plan,
+                context=decision_context,
             )
             diagnostic = (
                 StructuredOutputDiagnostic(
@@ -385,6 +391,7 @@ class TurnInterpreter:
         compilation = TurnCompiler.compile(
             proposal,
             has_selected_plan=has_selected_plan,
+            context=decision_context,
         )
         diagnostic = (
             StructuredOutputDiagnostic(

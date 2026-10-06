@@ -143,7 +143,21 @@ from app.domain.turn import (
 
 
 class TurnInterpreter(Protocol):
-    """真实 LLM 与离线 Demo Adapter 共同满足的语义解释接口。"""
+    """真实 LLM 与离线 Demo Adapter 共同满足的语义解释接口。
+
+    The runtime path should prefer ``interpret_with_runtime`` because it
+    returns the already compiled ``CompiledNextAction``.  ``interpret`` is
+    retained only for older composition roots and custom adapters that still
+    expose an ``Interpretation`` result.
+    """
+
+    def interpret_with_runtime(
+        self,
+        user_input: str,
+        context: RouterContext,
+    ) -> TurnInterpreterResult | tuple[Interpretation, RuntimeDecision]:
+        ...
+
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         ...
 
@@ -227,45 +241,33 @@ def build_entry_graph(
 
     def router_node(state: EntryState) -> dict[str, object]:
         actor = state["actor"]
+        environment = environment_provider(actor)
+        previous_interpretation = state.get("interpretation")
+        decision_context = DecisionContextBuilder.build(
+            request=state.get("active_request"),
+            selected_plan=state.get("selected_plan"),
+            active_plan_version_id=state.get("active_plan_version_id"),
+            pending_issue=state.get("pending_issue"),
+            pending_modification=state.get("pending_modification"),
+            has_plans=state.get("has_plans", False),
+            previous_intent=(
+                previous_interpretation.primary_intent
+                if previous_interpretation is not None
+                else None
+            ),
+            last_system_outcome=state.get("mutation_kind"),
+        )
         structured_command = state.get("conversation_command_override")
         if structured_command is not None:
             # UI commands already passed Pydantic validation and carry an
             # explicit selected-plan target.  They do not need an LLM round trip;
             # the command still goes through the same service authorization and
             # verification checks as a natural-language command.
-            interpretation = Interpretation(
-                primary_intent=(
-                    Intent.REFINE_PLAN
-                    if structured_command.operation in {
-                        CommandOperation.REPLACE,
-                        CommandOperation.PATCH_CONSTRAINTS,
-                    }
-                    else Intent.CLARIFY
-                ),
-                intent_scores={
-                    (
-                        Intent.REFINE_PLAN
-                        if structured_command.operation in {
-                            CommandOperation.REPLACE,
-                            CommandOperation.PATCH_CONSTRAINTS,
-                        }
-                        else Intent.CLARIFY
-                    ): 1.0
-                },
-                conversation_command=structured_command,
-                reply=(
-                    "正在按选中方案替换一个站点。"
-                    if structured_command.operation == CommandOperation.REPLACE
-                    else "当前结构化操作暂不支持。"
-                ),
-                requires_clarification=(
-                    structured_command.operation != CommandOperation.REPLACE
-                ),
+            compilation = TurnCompiler.compile_command(
+                structured_command,
+                context=decision_context,
             )
-            compilation = TurnCompiler.from_interpretation(
-                interpretation,
-                has_selected_plan=state.get("selected_plan") is not None,
-            )
+            interpretation = compilation.interpretation
             action = compilation.action
             runtime_decision = RuntimeDecision(
                 stage="turn_interpreter",
@@ -277,22 +279,6 @@ def build_entry_graph(
                 latency_ms=0,
             )
         else:
-            environment = environment_provider(actor)
-            previous_interpretation = state.get("interpretation")
-            decision_context = DecisionContextBuilder.build(
-                request=state.get("active_request"),
-                selected_plan=state.get("selected_plan"),
-                active_plan_version_id=state.get("active_plan_version_id"),
-                pending_issue=state.get("pending_issue"),
-                pending_modification=state.get("pending_modification"),
-                has_plans=state.get("has_plans", False),
-                previous_intent=(
-                    previous_interpretation.primary_intent
-                    if previous_interpretation is not None
-                    else None
-                ),
-                last_system_outcome=state.get("mutation_kind"),
-            )
             turn_result = _interpret_with_runtime(
                 router,
                 state["user_input"],
@@ -1441,6 +1427,7 @@ def _interpret_with_runtime(
         interpretation, runtime = result
         compilation = TurnCompiler.from_interpretation(
             interpretation,
+            context=context.decision_context,
             has_selected_plan=context.has_selected_plan,
         )
         return TurnInterpreterResult(
@@ -1451,6 +1438,7 @@ def _interpret_with_runtime(
     interpretation = router.interpret(user_input, context)
     compilation = TurnCompiler.from_interpretation(
         interpretation,
+        context=context.decision_context,
         has_selected_plan=context.has_selected_plan,
     )
     return TurnInterpreterResult(

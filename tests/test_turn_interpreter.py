@@ -4,20 +4,22 @@ from datetime import date
 from app.domain.catalog import ResourceType
 from app.domain.constraints import CommandOperation, Intent, StopRole
 from app.services.demo_router import DemoRouter
-from app.services.router_extractor import RouterContext
+from app.services.router_extractor import RouterContext, TurnInterpreterResult
 
 
 class TurnInterpreterTest(unittest.TestCase):
     def test_demo_interpreter_reports_offline_runtime_adapter(self) -> None:
-        _, runtime = DemoRouter().interpret_with_runtime(
+        result = DemoRouter().interpret_with_runtime(
             "今天下午出去玩",
             RouterContext(current_date=date(2026, 9, 8)),
         )
 
-        self.assertEqual(runtime.stage, "turn_interpreter")
-        self.assertEqual(runtime.adapter, "demo_rule")
-        self.assertFalse(runtime.model_invoked)
-        self.assertEqual(runtime.attempts, 0)
+        self.assertIsInstance(result, TurnInterpreterResult)
+        self.assertEqual(result.runtime.stage, "turn_interpreter")
+        self.assertEqual(result.runtime.adapter, "demo_rule")
+        self.assertFalse(result.runtime.model_invoked)
+        self.assertEqual(result.runtime.attempts, 0)
+        self.assertEqual(result.action.kind, "apply_request_patch")
 
     def test_demo_interpreter_extracts_bounded_keep_and_replace_command(self) -> None:
         interpretation = DemoRouter().interpret(

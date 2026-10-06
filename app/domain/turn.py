@@ -16,6 +16,7 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.catalog import ResourceType
+from app.domain.decision_context import DecisionContext
 from app.domain.constraints import (
     ConstraintPatch,
     ConversationCommand,
@@ -199,8 +200,22 @@ class TurnCompiler:
     """Compile a bounded semantic proposal into one executable action."""
 
     @classmethod
-    def compile(cls, proposal: TurnProposal, *, has_selected_plan: bool) -> TurnCompilation:
+    def compile(
+        cls,
+        proposal: TurnProposal,
+        *,
+        context: DecisionContext | None = None,
+        has_selected_plan: bool | None = None,
+    ) -> TurnCompilation:
+        """Compile one proposal against the bounded state projection.
+
+        ``has_selected_plan`` remains an adapter-only fallback for old unit
+        callers.  Graph/runtime callers pass ``DecisionContext`` so action
+        legality and target bounds are decided here rather than inferred from
+        several independent booleans downstream.
+        """
         act = proposal.act
+        selected_plan = cls._selected_plan_available(context, has_selected_plan)
         if isinstance(act, CreatePlanProposal):
             interpretation = cls._interpretation(
                 intent=Intent.PLAN_OUTING,
@@ -208,6 +223,8 @@ class TurnCompiler:
                 time_proposals=act.time_proposals,
                 evidence_map=act.evidence_map,
             )
+            if not cls._allowed(context, "create_plan"):
+                return cls._unsupported(interpretation)
             return TurnCompilation(
                 interpretation=interpretation,
                 action=ApplyRequestPatch(
@@ -229,6 +246,16 @@ class TurnCompiler:
                 ),
                 evidence_map=act.evidence_map,
             )
+            if context is not None and context.current_request is None:
+                return TurnCompilation(
+                    interpretation=interpretation,
+                    action=NeedsClarification(
+                        field="active_request",
+                        issue_kind="constraint",
+                    ),
+                )
+            if not cls._allowed(context, "patch_constraints"):
+                return cls._unsupported(interpretation)
             return TurnCompilation(
                 interpretation=interpretation,
                 action=ApplyRequestPatch(
@@ -239,7 +266,7 @@ class TurnCompiler:
             )
 
         if isinstance(act, ReplaceStopProposal):
-            command, unresolved = cls._command(act)
+            command, unresolved = cls._command(act, context=context)
             if unresolved is not None:
                 pending = PendingModification(
                     operation="replace",
@@ -268,7 +295,7 @@ class TurnCompiler:
                 conversation_command=command,
                 evidence_map=act.evidence,
             )
-            if not has_selected_plan:
+            if not selected_plan:
                 return TurnCompilation(
                     interpretation=interpretation,
                     action=NeedsClarification(
@@ -284,6 +311,8 @@ class TurnCompiler:
                         ),
                     ),
                 )
+            if not cls._allowed(context, "replace_stop"):
+                return cls._unsupported(interpretation)
             return TurnCompilation(
                 interpretation=interpretation,
                 action=ModifySelectedPlan(command=command),
@@ -296,6 +325,8 @@ class TurnCompiler:
                 time_proposals=act.time_proposals,
                 evidence_map=act.evidence_map,
             )
+            if not cls._allowed(context, "check_weather"):
+                return cls._unsupported(interpretation)
             condition_requests_plan = cls._condition_requests_plan(
                 act.raw_constraints,
                 act.time_proposals,
@@ -311,55 +342,136 @@ class TurnCompiler:
             )
 
         if isinstance(act, QueryPlanProposal):
+            interpretation = cls._interpretation(intent=Intent.QUERY_PLAN)
+            if not cls._allowed(context, "query_plan"):
+                return cls._unsupported(interpretation)
             return TurnCompilation(
-                interpretation=cls._interpretation(intent=Intent.QUERY_PLAN),
+                interpretation=interpretation,
                 action=AnswerQuery(query_kind="plan", query=act.query),
             )
 
+        interpretation = cls._interpretation(intent=Intent.CHITCHAT)
+        if not cls._allowed(context, "chitchat"):
+            return cls._unsupported(interpretation)
         return TurnCompilation(
-            interpretation=cls._interpretation(intent=Intent.CHITCHAT),
+            interpretation=interpretation,
             action=NoAction(reason="chitchat"),
         )
+
+    @classmethod
+    def compile_command(
+        cls,
+        command: ConversationCommand,
+        *,
+        context: DecisionContext | None = None,
+        has_selected_plan: bool | None = None,
+    ) -> TurnCompilation:
+        """Compile an already validated UI command without a legacy projection."""
+
+        selected_plan = cls._selected_plan_available(context, has_selected_plan)
+        operation = command.operation.value
+        intent = (
+            Intent.REFINE_PLAN
+            if operation in {"replace", "patch_constraints"}
+            else Intent.CLARIFY
+        )
+        interpretation = cls._interpretation(
+            intent=intent,
+            conversation_command=command,
+            evidence_map=command.evidence,
+        )
+        if operation == "patch_constraints":
+            if context is not None and context.current_request is None:
+                return TurnCompilation(
+                    interpretation=interpretation,
+                    action=NeedsClarification(
+                        field="active_request",
+                        issue_kind="constraint",
+                    ),
+                )
+            if not cls._allowed(context, "patch_constraints"):
+                return cls._unsupported(interpretation)
+            return TurnCompilation(
+                interpretation=interpretation,
+                action=ApplyRequestPatch(
+                    mode="update",
+                    constraint_patch=command.constraint_patch,
+                    evidence_map=dict(command.evidence),
+                ),
+            )
+        if operation == "replace":
+            if not selected_plan:
+                return TurnCompilation(
+                    interpretation=interpretation,
+                    action=NeedsClarification(
+                        field="selected_plan_id",
+                        issue_kind="selection",
+                        pending_modification=PendingModification(
+                            operation="replace",
+                            target_raw_text=(
+                                command.target.raw_text if command.target else None
+                            ),
+                            locked_targets=command.locked_targets,
+                            constraint_patch=command.constraint_patch,
+                            replacement_criteria=command.replacement_criteria,
+                            evidence=command.evidence,
+                        ),
+                    ),
+                )
+            if not cls._allowed(context, "replace_stop"):
+                return cls._unsupported(interpretation)
+            invalid_target = cls._invalid_command_target(command, context)
+            if invalid_target is not None:
+                return TurnCompilation(
+                    interpretation=interpretation,
+                    action=NeedsClarification(
+                        field="target_reference",
+                        issue_kind="target",
+                        raw_text=invalid_target,
+                        pending_modification=PendingModification(
+                            operation="replace",
+                            target_raw_text=invalid_target,
+                            locked_targets=command.locked_targets,
+                            constraint_patch=command.constraint_patch,
+                            replacement_criteria=command.replacement_criteria,
+                            evidence=command.evidence,
+                        ),
+                    ),
+                )
+            return TurnCompilation(
+                interpretation=interpretation,
+                action=ModifySelectedPlan(command=command),
+            )
+        return cls._unsupported(interpretation)
 
     @classmethod
     def from_interpretation(
         cls,
         interpretation: Interpretation,
         *,
-        has_selected_plan: bool,
+        context: DecisionContext | None = None,
+        has_selected_plan: bool | None = None,
     ) -> TurnCompilation:
         """Project deterministic/offline adapters into the same action seam."""
 
         command = interpretation.conversation_command
-        if command is not None and command.operation.value == "patch_constraints":
-            action: CompiledNextAction = ApplyRequestPatch(
-                mode="update",
-                constraint_patch=command.constraint_patch,
-                evidence_map=dict(interpretation.evidence_map),
+        if command is not None:
+            compiled = cls.compile_command(
+                command,
+                context=context,
+                has_selected_plan=has_selected_plan,
             )
-        elif command is not None and command.operation.value == "replace":
-            action = (
-                ModifySelectedPlan(command=command)
-                if has_selected_plan
-                else NeedsClarification(
-                    field="selected_plan_id",
-                    issue_kind="selection",
-                    pending_modification=PendingModification(
-                        operation="replace",
-                        target_raw_text=command.target.raw_text if command.target else None,
-                        locked_targets=command.locked_targets,
-                        constraint_patch=command.constraint_patch,
-                        replacement_criteria=command.replacement_criteria,
-                        evidence=command.evidence,
-                    ),
-                )
+            return TurnCompilation(
+                interpretation=interpretation,
+                action=compiled.action,
             )
-        elif interpretation.primary_intent == Intent.REFINE_PLAN:
+
+        if interpretation.primary_intent == Intent.REFINE_PLAN:
             # Deterministic/offline adapters may know that a turn is a
             # modification without having resolved a target yet. Preserve
             # that intent as an explicit clarification action instead of
             # silently treating it as chitchat or ending the graph turn.
-            action = NeedsClarification(
+            action: CompiledNextAction = NeedsClarification(
                 field="target_reference",
                 issue_kind="target",
                 raw_text=interpretation.target_reference,
@@ -394,7 +506,62 @@ class TurnCompiler:
             action = AnswerQuery(query_kind="plan")
         else:
             action = NoAction(reason="chitchat")
+        action_name = cls._action_name(action)
+        if action_name is not None and not cls._allowed(context, action_name):
+            action = NoAction(reason="unsupported")
         return TurnCompilation(interpretation=interpretation, action=action)
+
+    @staticmethod
+    def _selected_plan_available(
+        context: DecisionContext | None,
+        fallback: bool | None,
+    ) -> bool:
+        if context is not None:
+            return context.selected_plan is not None
+        return bool(fallback)
+
+    @staticmethod
+    def _allowed(context: DecisionContext | None, action: str) -> bool:
+        if context is None or not context.allowed_actions:
+            return True
+        return action in context.allowed_actions
+
+    @staticmethod
+    def _unsupported(interpretation: Interpretation) -> TurnCompilation:
+        return TurnCompilation(
+            interpretation=interpretation,
+            action=NoAction(reason="unsupported"),
+        )
+
+    @staticmethod
+    def _action_name(action: CompiledNextAction) -> str | None:
+        if isinstance(action, ApplyRequestPatch):
+            return "create_plan" if action.mode == "create" else "patch_constraints"
+        if isinstance(action, ModifySelectedPlan):
+            return "replace_stop"
+        if isinstance(action, AnswerQuery):
+            return "check_weather" if action.query_kind == "weather" else "query_plan"
+        if isinstance(action, NoAction):
+            return "chitchat" if action.reason == "chitchat" else None
+        return None
+
+    @staticmethod
+    def _invalid_command_target(
+        command: ConversationCommand,
+        context: DecisionContext | None,
+    ) -> str | None:
+        if context is None or context.selected_plan is None:
+            return None
+        stop_count = len(context.selected_plan.stops)
+        references = tuple(
+            reference
+            for reference in (command.target, *command.locked_targets)
+            if reference is not None
+        )
+        for reference in references:
+            if reference.stop_index is not None and reference.stop_index >= stop_count:
+                return reference.raw_text
+        return None
 
     @staticmethod
     def _interpretation(
@@ -436,13 +603,15 @@ class TurnCompiler:
     def _command(
         cls,
         proposal: ReplaceStopProposal,
+        *,
+        context: DecisionContext | None = None,
     ) -> tuple[ConversationCommand | None, str | None]:
-        target, unresolved = cls._target(proposal.target)
+        target, unresolved = cls._target(proposal.target, context=context)
         if unresolved is not None:
             return None, unresolved
         locked: list[TargetReference] = []
         for item in proposal.locked_targets:
-            reference, item_unresolved = cls._target(item)
+            reference, item_unresolved = cls._target(item, context=context)
             if item_unresolved is not None or reference is None:
                 return None, item_unresolved or item.raw_text
             locked.append(reference)
@@ -460,7 +629,16 @@ class TurnCompiler:
     @staticmethod
     def _target(
         target: TurnTargetProposal,
+        *,
+        context: DecisionContext | None = None,
     ) -> tuple[TargetReference | None, str | None]:
+        if (
+            target.stop_index is not None
+            and context is not None
+            and context.selected_plan is not None
+            and target.stop_index >= len(context.selected_plan.stops)
+        ):
+            return None, target.raw_text
         if target.role is not None or target.resource_type is not None or target.stop_index is not None:
             return (
                 TargetReference(

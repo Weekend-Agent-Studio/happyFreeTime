@@ -12,6 +12,12 @@ from app.domain.constraints import (
     TimeProposal,
     TimeScope,
 )
+from app.domain.decision_context import (
+    DecisionContext,
+    RequestContextSummary,
+    SelectedPlanContextSummary,
+    StopContextSummary,
+)
 from app.domain.turn import (
     AnswerQuery,
     ApplyRequestPatch,
@@ -20,6 +26,7 @@ from app.domain.turn import (
     CreatePlanProposal,
     ModifySelectedPlan,
     NeedsClarification,
+    NoAction,
     PatchConstraintsProposal,
     ReplaceStopProposal,
     QueryPlanProposal,
@@ -205,6 +212,51 @@ class RouterExtractorTest(unittest.TestCase):
         )
         self.assertIsInstance(no_selection.action, NeedsClarification)
         self.assertEqual(no_selection.action.field, "selected_plan_id")
+
+    def test_compiler_uses_context_allowlist_and_selected_stop_bounds(self) -> None:
+        context = DecisionContext(
+            current_request=RequestContextSummary(revision=2),
+            selected_plan=SelectedPlanContextSummary(
+                stops=(
+                    StopContextSummary(
+                        stop_index=0,
+                        role="activity",
+                        name="安静公园",
+                    ),
+                )
+            ),
+            allowed_actions=("patch_constraints", "replace_stop"),
+        )
+
+        blocked_create = TurnCompiler.compile(
+            TurnProposal(act=CreatePlanProposal()),
+            context=context,
+        )
+        self.assertIsInstance(blocked_create.action, NoAction)
+        self.assertEqual(blocked_create.action.reason, "unsupported")
+
+        out_of_bounds = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(stop_index=1, raw_text="第二站"),
+                )
+            ),
+            context=context,
+        )
+        self.assertIsInstance(out_of_bounds.action, NeedsClarification)
+        self.assertEqual(out_of_bounds.action.field, "target_reference")
+
+    def test_patch_requires_current_request_in_context(self) -> None:
+        compilation = TurnCompiler.compile(
+            TurnProposal(
+                act=PatchConstraintsProposal(
+                    constraint_patch=ConstraintPatch(preferences=("安静",))
+                )
+            ),
+            context=DecisionContext(allowed_actions=("create_plan",)),
+        )
+        self.assertIsInstance(compilation.action, NeedsClarification)
+        self.assertEqual(compilation.action.field, "active_request")
 
     def test_deterministic_refine_adapter_preserves_unresolved_modification(self) -> None:
         compilation = TurnCompiler.from_interpretation(
