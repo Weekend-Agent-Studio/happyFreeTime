@@ -1,4 +1,4 @@
-import type { AgentResponse, ClarificationReply, ConversationCommand, PlanningContextPatch, SessionSummary, SessionView, WebMapConfig } from "./types";
+import type { AgentResponse, ClarificationReply, ConversationCommand, PlanningContextPatch, PlanningRunEvent, SessionSummary, SessionView, WebMapConfig } from "./types";
 
 // M1 使用固定 Demo 用户，但后端所有数据仍按 user_id 隔离。接入匿名身份或
 // 登录后，只需在这一层替换身份获取方式，业务组件不需要散落认证逻辑。
@@ -38,6 +38,20 @@ async function readJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function messagePayload(
+  content: string,
+  requestId: string,
+  conversationCommand?: ConversationCommand,
+  clarificationReply?: ClarificationReply,
+) {
+  return {
+    request_id: requestId,
+    content,
+    ...(conversationCommand ? { conversation_command: conversationCommand } : {}),
+    ...(clarificationReply ? { clarification_reply: clarificationReply } : {}),
+  };
+}
+
 export async function createSession(): Promise<string> {
   // 会话采用懒创建：用户真正发送第一条消息时才写入数据库。
   const response = await fetch("/api/sessions", {
@@ -59,15 +73,69 @@ export async function sendMessage(
   const response = await fetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: { ...USER_HEADER, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      request_id: requestId,
-      content,
-      ...(conversationCommand ? { conversation_command: conversationCommand } : {}),
-      ...(clarificationReply ? { clarification_reply: clarificationReply } : {}),
-    }),
+    body: JSON.stringify(messagePayload(content, requestId, conversationCommand, clarificationReply)),
   });
   const body = await readJson<{ data: AgentResponse }>(response);
   return body.data;
+}
+
+export async function sendMessageStream(
+  sessionId: string,
+  content: string,
+  requestId: string,
+  onProgress: (event: PlanningRunEvent) => void,
+  conversationCommand?: ConversationCommand,
+  clarificationReply?: ClarificationReply,
+): Promise<AgentResponse> {
+  const response = await fetch(`/api/sessions/${sessionId}/messages/stream`, {
+    method: "POST",
+    headers: { ...USER_HEADER, "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify(messagePayload(content, requestId, conversationCommand, clarificationReply)),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(formatErrorDetail(body?.detail, `请求失败 (${response.status})`));
+  }
+  if (!response.body) throw new Error("服务未返回规划进度流");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: AgentResponse | null = null;
+
+  const consumeFrame = (frame: string) => {
+    let eventName = "message";
+    let data = "";
+    for (const line of frame.split("\n")) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      else if (line.startsWith("data:")) data += line.slice(5).trim();
+    }
+    if (!data) return;
+    const payload = JSON.parse(data) as Record<string, unknown>;
+    if (eventName === "progress") {
+      onProgress(payload as unknown as PlanningRunEvent);
+    } else if (eventName === "result") {
+      const envelope = payload as { data?: AgentResponse };
+      if (envelope.data) result = envelope.data;
+    } else if (eventName === "error") {
+      throw new Error(typeof payload.detail === "string" ? payload.detail : "规划执行失败，请稍后重试");
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    let separator = buffer.indexOf("\n\n");
+    while (separator >= 0) {
+      consumeFrame(buffer.slice(0, separator));
+      buffer = buffer.slice(separator + 2);
+      separator = buffer.indexOf("\n\n");
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) consumeFrame(buffer);
+  if (!result) throw new Error("规划服务未返回最终结果");
+  return result;
 }
 
 export async function updatePlanningContext(

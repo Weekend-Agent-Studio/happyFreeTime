@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   listSessions: vi.fn(),
   renameSession: vi.fn(),
   sendMessage: vi.fn(),
+  sendMessageStream: vi.fn(),
   selectPlan: vi.fn(),
 }));
 
@@ -89,12 +90,14 @@ describe("planning workspace", () => {
     api.deleteSession.mockReset();
     api.renameSession.mockReset();
     api.sendMessage.mockReset();
+    api.sendMessageStream.mockReset();
     api.selectPlan.mockReset();
     api.listSessions.mockResolvedValue([]);
     api.deleteSession.mockResolvedValue(undefined);
     api.renameSession.mockResolvedValue(undefined);
     api.createSession.mockResolvedValue("session-test");
     api.sendMessage.mockResolvedValue(response);
+    api.sendMessageStream.mockImplementation((sessionId: string, content: string, requestId: string, _onProgress: unknown, conversationCommand: unknown, clarificationReply: unknown) => api.sendMessage(sessionId, content, requestId, conversationCommand, clarificationReply));
     api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
   });
 

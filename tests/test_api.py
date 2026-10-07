@@ -308,6 +308,21 @@ class ApiTest(unittest.TestCase):
         )
         self.assertIn(response.status, {"completed", "needs_input"})
 
+    def test_streaming_message_returns_progress_and_same_final_response_contract(self) -> None:
+        session_id = self._create_session()
+        response = self.client.post(
+            f"/api/sessions/{session_id}/messages/stream",
+            headers={**self.headers, "Accept": "text/event-stream"},
+            json={"request_id": uuid.uuid4().hex, "content": "今天下午出去玩"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("text/event-stream", response.headers["content-type"])
+        self.assertIn("event: progress", response.text)
+        self.assertIn("event: result", response.text)
+        self.assertIn('"data":{"status":"completed"', response.text)
+        self.assertIn('"run_trace"', response.text)
+
     def test_selection_starts_empty_then_restores_after_select(self) -> None:
         session_id = self._create_session()
         result = self._send_message(session_id, "今天下午出去玩")

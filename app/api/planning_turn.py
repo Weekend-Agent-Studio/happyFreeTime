@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from langgraph.types import Command
 
@@ -31,6 +31,7 @@ from app.domain.runtime import RuntimeDecision
 from app.domain.run_trace import (
     InMemoryRunObserver,
     PlanningRunEventDraft,
+    PlanningRunEvent,
     RunEventStatus,
     RunStage,
 )
@@ -107,7 +108,14 @@ class PlanningTurnApplication:
             has_active_plan=has_active_plan or just_planned,
         )
 
-    def handle(self, *, session_id: str, request: MessageRequest, user_id: str) -> AgentResponse:
+    def handle(
+        self,
+        *,
+        session_id: str,
+        request: MessageRequest,
+        user_id: str,
+        event_sink: Callable[[PlanningRunEvent], None] | None = None,
+    ) -> AgentResponse:
         if self._repository.get_session(user_id, session_id) is None:
             raise PlanningApplicationError(status_code=404, detail="session not found")
 
@@ -270,7 +278,7 @@ class PlanningTurnApplication:
         if not run.should_execute:
             raise PlanningApplicationError(status_code=409, detail="planning run is already in progress")
 
-        run_observer = InMemoryRunObserver(run.planning_run_id)
+        run_observer = InMemoryRunObserver(run.planning_run_id, on_event=event_sink)
         invoke_config = {
             **config,
             "configurable": {

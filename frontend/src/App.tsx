@@ -41,7 +41,7 @@ import {
   X,
 } from "lucide-react";
 
-import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessage, updatePlanningContext } from "./api";
+import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessageStream, updatePlanningContext } from "./api";
 import { AmapPlanMap } from "./AmapPlanMap";
 import { clarificationSection, PlanningContextBar, type ContextSection } from "./PlanningContextBar";
 import type {
@@ -533,6 +533,7 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progressEvent, setProgressEvent] = useState<PlanningRunEvent | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
@@ -677,6 +678,7 @@ function App() {
         : undefined
     );
     setLoading(true);
+    setProgressEvent(null);
     setError("");
     setInput("");
     let activeSession = sessionId;
@@ -699,7 +701,14 @@ function App() {
       const requestId = isRetry ? failedRequest.requestId : crypto.randomUUID();
       if (!isRetry) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
       setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply });
-      const nextResponse = await sendMessage(activeSession, trimmed, requestId, conversationCommand, effectiveClarificationReply);
+      const nextResponse = await sendMessageStream(
+        activeSession,
+        trimmed,
+        requestId,
+        setProgressEvent,
+        conversationCommand,
+        effectiveClarificationReply,
+      );
       setFailedRequest(null);
       setNewRequestMode(false);
       setResponse(nextResponse);
@@ -727,6 +736,7 @@ function App() {
       if (activeSession) await refreshRecentSessions();
     } finally {
       setLoading(false);
+      setProgressEvent(null);
     }
   }
 
@@ -990,7 +1000,7 @@ function App() {
                  onClarificationOption={(option) => message.response?.question && onClarificationOption(option, message.response.question)}
                  onOpenContext={() => openContextForClarification(message.response?.question?.field)}
               />)}
-              {loading ? <ThinkingRow /> : null}
+              {loading ? <ThinkingRow event={progressEvent} /> : null}
               <div ref={conversationEndRef} aria-hidden="true" />
             </div>
           )}
@@ -1212,8 +1222,8 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
   );
 }
 
-function ThinkingRow() {
-  return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>正在处理你的规划请求……</strong></div></div>;
+function ThinkingRow({ event }: { event?: PlanningRunEvent | null }) {
+  return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>{event?.public_message ?? "正在处理你的规划请求……"}</strong></div></div>;
 }
 
 function RecommendationAdvicePanel({ advice, plans }: { advice?: RecommendationAdvice | null; plans: Plan[] }) {

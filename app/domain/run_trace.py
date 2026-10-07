@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal, Protocol
+from typing import Any, Callable, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -164,8 +164,9 @@ class RunObserver(Protocol):
 class InMemoryRunObserver:
     """Collect a bounded trace without putting the observer in Graph State."""
 
-    def __init__(self, run_id: str) -> None:
+    def __init__(self, run_id: str, *, on_event: Callable[[PlanningRunEvent], None] | None = None) -> None:
         self._run_id = run_id
+        self._on_event = on_event
         self._events: list[PlanningRunEvent] = []
 
     def record(self, event: PlanningRunEventDraft) -> PlanningRunEvent:
@@ -178,6 +179,8 @@ class InMemoryRunObserver:
             **event.model_dump(),
         )
         self._events.append(event_value)
+        if self._on_event is not None:
+            self._on_event(event_value)
         return event_value
 
     def snapshot(self) -> PlanningRunTrace:
