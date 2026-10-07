@@ -11,6 +11,7 @@ from app.domain.constraints import (
     StopRole,
 )
 from app.domain.decision_context import DecisionContextBuilder
+from app.domain.decision_context import RequestLifecycle
 from app.domain.planning import Plan, Stop, StopType
 from app.orchestration.entry_graph import build_entry_graph
 from app.services.enrichment import EnvironmentContext
@@ -41,7 +42,7 @@ class DecisionContextTest(unittest.TestCase):
             selected_plan=plan,
             active_plan_version_id="version-secret",
             has_plans=True,
-            previous_intent=Intent.REFINE_PLAN,
+            previous_user_act="patch_constraints",
             last_system_outcome="constraint_patch",
         )
 
@@ -61,14 +62,33 @@ class DecisionContextTest(unittest.TestCase):
             has_plans=True,
         )
 
-        self.assertIn("select_plan", context.allowed_actions)
+        self.assertEqual(context.request_lifecycle, RequestLifecycle.PLANNED)
+        self.assertNotIn("select_plan", context.allowed_actions)
         self.assertNotIn("replace_stop", context.allowed_actions)
         self.assertIn("patch_constraints", context.allowed_actions)
 
     def test_builder_does_not_offer_request_patch_without_current_request(self) -> None:
         context = DecisionContextBuilder.build()
 
+        self.assertEqual(context.request_lifecycle, RequestLifecycle.EMPTY)
         self.assertNotIn("patch_constraints", context.allowed_actions)
+        self.assertNotIn("replace_stop", context.allowed_actions)
+
+    def test_empty_plan_request_is_not_an_active_request(self) -> None:
+        context = DecisionContextBuilder.build(request=PlanRequest())
+
+        self.assertEqual(context.request_lifecycle, RequestLifecycle.EMPTY)
+        self.assertIsNone(context.current_request)
+        self.assertNotIn("patch_constraints", context.allowed_actions)
+
+    def test_non_empty_request_is_a_draft_until_a_plan_exists(self) -> None:
+        context = DecisionContextBuilder.build(
+            request=PlanRequest(preferences=["安静"])
+        )
+
+        self.assertEqual(context.request_lifecycle, RequestLifecycle.DRAFT)
+        self.assertIsNotNone(context.current_request)
+        self.assertIn("patch_constraints", context.allowed_actions)
         self.assertNotIn("replace_stop", context.allowed_actions)
 
     def test_router_context_keeps_context_optional_for_existing_adapters(self) -> None:

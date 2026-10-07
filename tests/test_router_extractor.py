@@ -256,7 +256,56 @@ class TurnInterpreterTest(unittest.TestCase):
             context=DecisionContext(allowed_actions=("create_plan",)),
         )
         self.assertIsInstance(compilation.action, NeedsClarification)
-        self.assertEqual(compilation.action.field, "active_request")
+        self.assertEqual(compilation.action.field, "request_lifecycle")
+        self.assertEqual(compilation.action.issue_kind, "action")
+
+    def test_empty_session_retries_an_illegal_patch_as_create_once(self) -> None:
+        model = FakeStructuredModel(
+            [
+                TurnProposal(
+                    act=PatchConstraintsProposal(
+                        constraint_patch=ConstraintPatch(preferences=("安静",))
+                    )
+                ),
+                TurnProposal(
+                    act=CreatePlanProposal(
+                        raw_constraints=RawConstraints(preferences=["安静"])
+                    )
+                ),
+            ]
+        )
+        result, runtime = TurnInterpreter(model).interpret_with_runtime(
+            "还是安静点吧",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                decision_context=DecisionContext(allowed_actions=("create_plan", "check_weather", "chitchat")),
+            ),
+        )
+
+        self.assertEqual(len(model.calls), 2)
+        self.assertIsInstance(result, Interpretation)
+        self.assertEqual(runtime.attempts, 2)
+        self.assertEqual(runtime.fallback_reason, None)
+
+    def test_empty_session_does_not_silently_convert_repeated_patch(self) -> None:
+        model = FakeStructuredModel(
+            [
+                TurnProposal(act=PatchConstraintsProposal()),
+                TurnProposal(act=PatchConstraintsProposal()),
+            ]
+        )
+        result, runtime = TurnInterpreter(model).interpret_with_runtime(
+            "预算再低一点",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                decision_context=DecisionContext(allowed_actions=("create_plan", "check_weather", "chitchat")),
+            ),
+        )
+
+        self.assertEqual(len(model.calls), 2)
+        self.assertEqual(result.primary_intent, Intent.CLARIFY)
+        self.assertTrue(result.requires_clarification)
+        self.assertEqual(runtime.fallback_reason, "action_not_allowed")
 
     def test_deterministic_refine_adapter_preserves_unresolved_modification(self) -> None:
         compilation = TurnCompiler.from_interpretation(

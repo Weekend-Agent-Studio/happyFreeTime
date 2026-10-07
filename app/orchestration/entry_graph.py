@@ -135,6 +135,7 @@ from app.domain.turn import (
     NoAction,
     TurnCompiler,
     intent_for_action,
+    user_act_kind_for_action,
 )
 from app.orchestration.workflows import (
     ClarificationWorkflow,
@@ -299,7 +300,7 @@ def build_entry_graph(
     def router_node(state: EntryState) -> dict[str, object]:
         actor = state["actor"]
         environment = environment_provider(actor)
-        previous_interpretation = state.get("interpretation")
+        previous_user_act = user_act_kind_for_action(state.get("next_action"))
         decision_context = DecisionContextBuilder.build(
             request=state.get("active_request"),
             selected_plan=state.get("selected_plan"),
@@ -307,11 +308,7 @@ def build_entry_graph(
             pending_issue=state.get("pending_issue"),
             pending_modification=state.get("pending_modification"),
             has_plans=state.get("has_plans", False),
-            previous_intent=(
-                previous_interpretation.primary_intent
-                if previous_interpretation is not None
-                else None
-            ),
+            previous_user_act=previous_user_act,
             last_system_outcome=state.get("workflow_outcome"),
         )
         structured_command = state.get("conversation_command_override")
@@ -344,11 +341,7 @@ def build_entry_graph(
                     timezone=actor.timezone,
                     has_plans=state.get("has_plans", False),
                     has_selected_plan=state.get("selected_plan") is not None,
-                    previous_intent=(
-                        previous_interpretation.primary_intent
-                        if previous_interpretation
-                        else None
-                    ),
+                    previous_user_act=previous_user_act,
                     decision_context=decision_context,
                 ),
             )
@@ -389,6 +382,12 @@ def build_entry_graph(
         if isinstance(action, ModifySelectedPlan):
             return WorkflowRoute.MODIFY_PLAN.value
         if isinstance(action, ActionNeedsClarification):
+            if action.issue_kind == "action":
+                # An illegal action proposal must not enter a patch workflow.
+                # The Router's bounded repair attempt owns recovery; if it
+                # still fails, the interpretation carries the user-facing
+                # rephrase request and the turn ends safely.
+                return WorkflowRoute.END.value
             return (
                 WorkflowRoute.MODIFY_PLAN.value
                 if action.issue_kind in {"target", "selection"}

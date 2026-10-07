@@ -25,6 +25,7 @@ from app.domain.constraints import (
     Intent,
     Interpretation,
     STRUCTURED_OUTPUT_RULE_CODES,
+    UserActKind,
 )
 from app.services.llm_compat import thinking_extra_body, structured_output_schema
 from app.domain.runtime import RuntimeDecision
@@ -53,6 +54,7 @@ STRUCTURED_OUTPUT_DIAGNOSTIC_CODES = (
     "invalid_json_arguments",
     "pydantic_validation_failed",
     "cross_field_contract_failed",
+    "action_not_allowed",
 ) + STRUCTURED_OUTPUT_RULE_CODES
 
 _INFERRED_FIELD_DIAGNOSTIC_CODES = frozenset(
@@ -114,7 +116,7 @@ class RouterContext(BaseModel):
     timezone: str = "Asia/Shanghai"
     has_plans: bool = False
     has_selected_plan: bool = False
-    previous_intent: Intent | None = None
+    previous_user_act: UserActKind | None = None
     # Bounded session projection for semantic reference resolution. Existing
     # adapters may omit it while they use the older boolean context fields.
     decision_context: DecisionContext | None = None
@@ -197,6 +199,14 @@ class TurnInterpreter:
                 has_selected_plan=context.has_selected_plan,
                 decision_context=context.decision_context,
             )
+            if compile_diagnostic is not None and compile_diagnostic.code == "action_not_allowed":
+                return self._repair_disallowed_action(
+                    context=context,
+                    messages=messages,
+                    initial=compilation,
+                    started_at=started_at,
+                    token_usage=token_usage,
+                )
         except Exception as error:
             diagnostic = _diagnostic_from_exception(error, raw_result)
             # Only a response that was received but failed local decoding gets
@@ -255,6 +265,124 @@ class TurnInterpreter:
             interpretation=compilation.interpretation,
             action=compilation.action,
             runtime=runtime,
+        )
+
+    def _repair_disallowed_action(
+        self,
+        *,
+        context: RouterContext,
+        messages: list[object],
+        initial: TurnCompilation,
+        started_at: float,
+        token_usage: TokenUsageAccumulator,
+    ) -> TurnInterpreterResult:
+        """Give an empty session one bounded chance to change patch to create.
+
+        This is an action repair, not a silent conversion: the second model
+        output must explicitly carry ``create_plan``.  If it does not, the
+        compiled result remains an explicit action clarification and never
+        enters the patch workflow.
+        """
+
+        retry_messages = [
+            *messages,
+            HumanMessage(
+                content=(
+                    "当前会话还没有已建立的规划请求，patch_constraints 在这里不允许。"
+                    "请只根据用户原话重新输出 TurnProposal：如果用户是在提出新的规划需求，"
+                    "必须改用 kind=create_plan；不要把 patch_constraints 静默转换成 create_plan。"
+                )
+            ),
+        ]
+        try:
+            raw_retry = self._model.invoke(retry_messages)
+            token_usage.record(raw_retry)
+        except Exception as error:
+            if token_usage.attempt_count < 2:
+                token_usage.record_unknown()
+            return self._action_clarification_with_runtime(
+                initial=initial,
+                started_at=started_at,
+                attempts=2,
+                fallback_reason=model_failure_reason(error),
+                token_usage=token_usage.total,
+            )
+
+        try:
+            compilation, diagnostic = self._validate_with_diagnostic(
+                raw_retry,
+                has_selected_plan=context.has_selected_plan,
+                decision_context=context.decision_context,
+            )
+        except Exception:
+            return self._action_clarification_with_runtime(
+                initial=initial,
+                started_at=started_at,
+                attempts=2,
+                fallback_reason="action_not_allowed",
+                token_usage=token_usage.total,
+            )
+        if diagnostic is not None and diagnostic.code == "action_not_allowed":
+            return self._action_clarification_with_runtime(
+                initial=compilation,
+                started_at=started_at,
+                attempts=2,
+                fallback_reason="action_not_allowed",
+                token_usage=token_usage.total,
+            )
+
+        return TurnInterpreterResult(
+            interpretation=compilation.interpretation,
+            action=compilation.action,
+            runtime=self._runtime_decision(
+                adapter="llm",
+                model_invoked=True,
+                attempts=2,
+                diagnostic=diagnostic,
+                latency_ms=_elapsed_ms(started_at),
+                token_usage=token_usage.total,
+            ),
+        )
+
+    def _action_clarification_with_runtime(
+        self,
+        *,
+        initial: TurnCompilation,
+        started_at: float,
+        attempts: int,
+        fallback_reason: str,
+        token_usage: ModelTokenUsage,
+    ) -> TurnInterpreterResult:
+        interpretation = initial.interpretation.model_copy(
+            update={
+                "primary_intent": Intent.CLARIFY,
+                "intent_scores": {Intent.CLARIFY: 1.0},
+                "requires_clarification": True,
+                "reply": "当前还没有可修改的规划请求，请直接描述你想规划的活动。",
+            }
+        )
+        action = NeedsClarification(
+            field="request_lifecycle",
+            issue_kind="action",
+            raw_text="patch_constraints",
+        )
+        diagnostic = StructuredOutputDiagnostic(
+            code="action_not_allowed",
+            paths=("act.kind",),
+            error_types=("request_lifecycle_empty",),
+        )
+        return TurnInterpreterResult(
+            interpretation=interpretation,
+            action=action,
+            runtime=self._runtime_decision(
+                adapter="fallback",
+                model_invoked=True,
+                attempts=attempts,
+                fallback_reason=fallback_reason,
+                latency_ms=_elapsed_ms(started_at),
+                token_usage=token_usage,
+                diagnostic=diagnostic,
+            ),
         )
 
     def _clarification_with_runtime(
@@ -353,24 +481,14 @@ class TurnInterpreter:
                 has_selected_plan=has_selected_plan,
                 context=decision_context,
             )
-            return compiled, None
+            return compiled, _compilation_diagnostic(compiled)
         if isinstance(result, TurnProposal):
             compilation = TurnCompiler.compile(
                 result,
                 has_selected_plan=has_selected_plan,
                 context=decision_context,
             )
-            diagnostic = (
-                StructuredOutputDiagnostic(
-                    code="target_resolution_required",
-                    paths=("act.target",),
-                    error_types=("target_not_unique",),
-                )
-                if isinstance(compilation.action, NeedsClarification)
-                and compilation.action.field == "target_reference"
-                else None
-            )
-            return compilation, diagnostic
+            return compilation, _compilation_diagnostic(compilation)
         if isinstance(result, str):
             try:
                 result = json.loads(result)
@@ -393,17 +511,7 @@ class TurnInterpreter:
             has_selected_plan=has_selected_plan,
             context=decision_context,
         )
-        diagnostic = (
-            StructuredOutputDiagnostic(
-                code="target_resolution_required",
-                paths=("act.target",),
-                error_types=("target_not_unique",),
-            )
-            if isinstance(compilation.action, NeedsClarification)
-            and compilation.action.field == "target_reference"
-            else None
-        )
-        return compilation, diagnostic
+        return compilation, _compilation_diagnostic(compilation)
 
     @staticmethod
     def _build_context(user_input: str, context: RouterContext) -> str:
@@ -416,8 +524,8 @@ class TurnInterpreter:
             lines.append("会话中已有候选方案。")
         if context.has_selected_plan:
             lines.append("用户已经显式选择当前版本中的一个方案。")
-        if context.previous_intent is not None:
-            lines.append(f"上一轮主要意图：{context.previous_intent.value}")
+        if context.previous_user_act is not None:
+            lines.append(f"上一轮用户动作：{context.previous_user_act}")
         if context.decision_context is not None:
             lines.extend(context.decision_context.prompt_lines())
         return "\n".join(lines)
@@ -435,6 +543,27 @@ def classify_structured_output_failure(
     """
 
     return _diagnostic_from_exception(error, result)
+
+
+def _compilation_diagnostic(
+    compilation: TurnCompilation,
+) -> StructuredOutputDiagnostic | None:
+    action = compilation.action
+    if not isinstance(action, NeedsClarification):
+        return None
+    if action.issue_kind == "action":
+        return StructuredOutputDiagnostic(
+            code="action_not_allowed",
+            paths=("act.kind",),
+            error_types=("request_lifecycle_empty",),
+        )
+    if action.field == "target_reference":
+        return StructuredOutputDiagnostic(
+            code="target_resolution_required",
+            paths=("act.target",),
+            error_types=("target_not_unique",),
+        )
+    return None
 
 
 def _diagnostic_from_exception(

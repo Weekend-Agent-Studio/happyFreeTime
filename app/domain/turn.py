@@ -28,6 +28,7 @@ from app.domain.constraints import (
     TimeProposal,
     Intent,
     Interpretation,
+    UserActKind,
 )
 
 
@@ -156,7 +157,7 @@ class NeedsClarification(BaseModel):
 
     kind: Literal["needs_clarification"] = "needs_clarification"
     field: str = Field(min_length=1)
-    issue_kind: Literal["constraint", "target", "selection"] = "target"
+    issue_kind: Literal["constraint", "target", "selection", "action"] = "target"
     raw_text: str | None = None
     pending_modification: PendingModification | None = None
 
@@ -194,6 +195,20 @@ def intent_for_action(action: CompiledNextAction) -> Intent:
     if isinstance(action, NeedsClarification):
         return Intent.REFINE_PLAN
     return Intent.CHITCHAT
+
+
+def user_act_kind_for_action(action: CompiledNextAction | None) -> UserActKind | None:
+    """Project a compiled action to the bounded UserAct vocabulary."""
+
+    if isinstance(action, ApplyRequestPatch):
+        return "create_plan" if action.mode == "create" else "patch_constraints"
+    if isinstance(action, ModifySelectedPlan):
+        return "replace_stop"
+    if isinstance(action, AnswerQuery):
+        return "check_weather" if action.query_kind == "weather" else "query_plan"
+    if isinstance(action, NoAction) and action.reason == "chitchat":
+        return "chitchat"
+    return None
 
 
 class TurnCompiler:
@@ -246,6 +261,19 @@ class TurnCompiler:
                 ),
                 evidence_map=act.evidence_map,
             )
+            if (
+                context is not None
+                and context.request_lifecycle.value == "empty"
+                and context.current_request is None
+            ):
+                return TurnCompilation(
+                    interpretation=interpretation,
+                    action=NeedsClarification(
+                        field="request_lifecycle",
+                        issue_kind="action",
+                        raw_text="patch_constraints",
+                    ),
+                )
             if context is not None and context.current_request is None:
                 return TurnCompilation(
                     interpretation=interpretation,
@@ -381,6 +409,19 @@ class TurnCompiler:
             evidence_map=command.evidence,
         )
         if operation == "patch_constraints":
+            if (
+                context is not None
+                and context.request_lifecycle.value == "empty"
+                and context.current_request is None
+            ):
+                return TurnCompilation(
+                    interpretation=interpretation,
+                    action=NeedsClarification(
+                        field="request_lifecycle",
+                        issue_kind="action",
+                        raw_text="patch_constraints",
+                    ),
+                )
             if context is not None and context.current_request is None:
                 return TurnCompilation(
                     interpretation=interpretation,

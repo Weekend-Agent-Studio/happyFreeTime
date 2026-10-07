@@ -10,11 +10,17 @@ the full conversation transcript.
 from __future__ import annotations
 
 from datetime import date as Date
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.constraints import Intent, PendingModification, PlanRequest, QuestionDecision
+from app.domain.constraints import (
+    PendingModification,
+    PlanRequest,
+    QuestionDecision,
+    UserActKind,
+)
 from app.domain.planning import Plan
 
 
@@ -139,6 +145,14 @@ class PendingInteractionContext(BaseModel):
         )
 
 
+class RequestLifecycle(StrEnum):
+    """Whether the session has a usable request and/or generated plan."""
+
+    EMPTY = "empty"
+    DRAFT = "draft"
+    PLANNED = "planned"
+
+
 class DecisionContext(BaseModel):
     """Bounded semantic context for one turn.
 
@@ -152,13 +166,16 @@ class DecisionContext(BaseModel):
     current_request: RequestContextSummary | None = None
     selected_plan: SelectedPlanContextSummary | None = None
     pending_interaction: PendingInteractionContext | None = None
-    last_user_act: Intent | None = None
+    request_lifecycle: RequestLifecycle = RequestLifecycle.EMPTY
+    last_user_act: UserActKind | None = None
     last_system_outcome: str | None = None
     allowed_actions: tuple[str, ...] = ()
 
     def prompt_lines(self) -> tuple[str, ...]:
         """Render bounded, non-identifier context for the Router prompt."""
-        lines: list[str] = []
+        lines: list[str] = [
+            f"当前请求生命周期：{self.request_lifecycle.value}"
+        ]
         request = self.current_request
         if request is not None:
             lines.append("当前规划请求摘要：")
@@ -212,7 +229,7 @@ class DecisionContext(BaseModel):
                 lines.append(f"- 可选回答：{'、'.join(pending.options)}")
 
         if self.last_user_act is not None:
-            lines.append(f"上一轮用户动作：{self.last_user_act.value}")
+            lines.append(f"上一轮用户动作：{self.last_user_act}")
         if self.last_system_outcome:
             lines.append(f"上一轮系统结果：{self.last_system_outcome}")
         if self.allowed_actions:
@@ -236,25 +253,46 @@ class DecisionContextBuilder:
         pending_issue: QuestionDecision | None = None,
         pending_modification: PendingModification | None = None,
         has_plans: bool = False,
-        previous_intent: Intent | None = None,
+        previous_user_act: UserActKind | None = None,
         last_system_outcome: str | None = None,
     ) -> DecisionContext:
-        allowed_actions = [
-            "create_plan",
-            "check_weather",
-            "query_plan",
-            "chitchat",
-        ]
-        if request is not None or has_plans:
-            allowed_actions.append("patch_constraints")
-        if has_plans:
-            allowed_actions.append("select_plan")
-        if selected_plan is not None:
-            allowed_actions.append("replace_stop")
+        lifecycle = _request_lifecycle(
+            request=request,
+            selected_plan=selected_plan,
+            active_plan_version_id=active_plan_version_id,
+            has_plans=has_plans,
+        )
+        allowed_actions_by_lifecycle = {
+            RequestLifecycle.EMPTY: (
+                "create_plan",
+                "check_weather",
+                "chitchat",
+            ),
+            RequestLifecycle.DRAFT: (
+                "create_plan",
+                "patch_constraints",
+                "check_weather",
+                "chitchat",
+            ),
+            RequestLifecycle.PLANNED: (
+                "create_plan",
+                "patch_constraints",
+                "replace_stop",
+                "query_plan",
+                "check_weather",
+                "chitchat",
+            ),
+        }[lifecycle]
+        allowed_actions = list(allowed_actions_by_lifecycle)
+        if lifecycle is RequestLifecycle.PLANNED and selected_plan is None:
+            # A session may contain candidate plans without a selected
+            # PlanVersion.  Replacement remains a valid *kind* for a planned
+            # session, but cannot execute until the UI supplies a selection.
+            allowed_actions.remove("replace_stop")
         return DecisionContext(
             current_request=(
                 RequestContextSummary.from_request(request)
-                if request is not None
+                if request is not None and lifecycle is not RequestLifecycle.EMPTY
                 else None
             ),
             selected_plan=(
@@ -273,7 +311,52 @@ class DecisionContextBuilder:
                 if pending_issue is not None
                 else None
             ),
-            last_user_act=previous_intent,
+            request_lifecycle=lifecycle,
+            last_user_act=previous_user_act,
             last_system_outcome=last_system_outcome,
             allowed_actions=tuple(allowed_actions),
         )
+
+
+def _request_lifecycle(
+    *,
+    request: PlanRequest | None,
+    selected_plan: Plan | None,
+    active_plan_version_id: str | None,
+    has_plans: bool,
+) -> RequestLifecycle:
+    if has_plans or selected_plan is not None or active_plan_version_id is not None:
+        return RequestLifecycle.PLANNED
+    if request is not None and _request_has_values(request):
+        return RequestLifecycle.DRAFT
+    return RequestLifecycle.EMPTY
+
+
+def _request_has_values(request: PlanRequest) -> bool:
+    """Treat ``PlanRequest()`` as construction state, not user state."""
+
+    window = request.planning_window
+    return any(
+        (
+            window.date is not None,
+            window.start_at is not None,
+            window.end_at is not None,
+            window.start_kind != "trip_start",
+            window.end_kind != "trip_end",
+            request.duration_minutes is not None,
+            request.location is not None,
+            request.planning_area is not None,
+            request.party is not None,
+            request.budget_per_person is not None,
+            request.max_distance_km is not None,
+            bool(request.preferences),
+            bool(request.diet_tags),
+            bool(request.scene_tags),
+            bool(request.avoid),
+            request.strict_budget,
+            request.require_availability_confirmation,
+            request.exact_stop_count is not None,
+            request.required_stop_roles is not None,
+            request.total_distance_km is not None,
+        )
+    )

@@ -52,6 +52,19 @@ class Intent(str, Enum):
     CLARIFY = "clarify"
 
 
+# Bounded model-facing action kinds.  This is deliberately separate from the
+# legacy execution/policy ``Intent`` enum: DecisionContext remembers only the
+# UserAct kind from the previous turn.
+UserActKind = Literal[
+    "create_plan",
+    "patch_constraints",
+    "replace_stop",
+    "check_weather",
+    "query_plan",
+    "chitchat",
+]
+
+
 class IdentityType(str, Enum):
     """用户身份阶段；M1 使用 DEMO，但数据模型不假设永远只有一个用户。"""
     DEMO = "demo"
