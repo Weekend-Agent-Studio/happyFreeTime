@@ -13,10 +13,10 @@
 
 ## 验证
 
-- 后端：`463 passed，39 subtests`
+- 后端：`464 passed，39 subtests`
 - 前端：`37 passed`
 - 前端生产构建：通过
-- SSE API 回归：progress/result 事件和普通响应字段合同通过
+- SSE API 回归：progress/result 顺序、普通响应字段合同和安全错误事件通过
 - Trace 事件最多 64 条，sequence 从 1 连续递增；高频 Beam expansion 和单条 Provider 请求不进入公开时间线。
 
 ## 尚未纳入

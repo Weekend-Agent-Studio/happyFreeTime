@@ -318,10 +318,24 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIn("text/event-stream", response.headers["content-type"])
-        self.assertIn("event: progress", response.text)
-        self.assertIn("event: result", response.text)
+        progress_index = response.text.index("event: progress")
+        result_index = response.text.index("event: result")
+        self.assertLess(progress_index, result_index)
         self.assertIn('"data":{"status":"completed"', response.text)
         self.assertIn('"run_trace"', response.text)
+
+    def test_streaming_message_emits_safe_error_event_without_stack_details(self) -> None:
+        response = self.client.post(
+            "/api/sessions/missing-session/messages/stream",
+            headers={**self.headers, "Accept": "text/event-stream"},
+            json={"request_id": uuid.uuid4().hex, "content": "今天下午出去玩"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("event: error", response.text)
+        self.assertIn("session not found", response.text)
+        self.assertNotIn("Traceback", response.text)
+        self.assertNotIn("exception", response.text.casefold())
 
     def test_selection_starts_empty_then_restores_after_select(self) -> None:
         session_id = self._create_session()
