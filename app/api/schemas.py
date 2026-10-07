@@ -12,6 +12,7 @@ from app.domain.constraints import (
     PartyProfile,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.run_trace import PlanningRunTrace
 
 
 T = TypeVar("T")
@@ -279,6 +280,9 @@ class AgentResponse(BaseModel):
     planning_intent_decision: dict[str, Any] | None = None
     retrieval_evidence: list[dict[str, Any]] = Field(default_factory=list)
     runtime_decisions: list[RuntimeDecision] = Field(default_factory=list)
+    # Coarse, user-safe execution timeline.  Detailed model/search diagnostics
+    # remain in their existing fields and are not duplicated here.
+    run_trace: PlanningRunTrace | None = None
     retrieval_mode: str | None = None
     retrieval_index_version: str | None = None
     search_mode: str | None = None

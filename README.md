@@ -145,6 +145,20 @@ Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime
 
 离线 Demo 使用真实 Graph、Enrichment、Question Gate、Planner、Provider Adapter 和 SQLite；只有自然语言 Router 使用确定性 Demo 适配器，不需要 LLM API Key。
 
+### 实时规划过程与核验
+
+发送消息时，前端通过 `POST /api/sessions/{session_id}/messages/stream` 接收 SSE：
+
+```text
+progress → progress → … → result
+```
+
+`progress` 是用户安全的阶段事件，前端将其投影为“理解需求、整理条件、设计结构、检索地点、组合方案、核验路线、生成说明”等状态；完成后同一 `run_trace` 会随助手响应保存，刷新会话仍可查看。本项目不展示模型隐藏思维，也不会用定时器伪造尚未执行的阶段。
+
+右侧“核验”页与主对话过程分开：核验概览展示后端实际掌握的路线、时间、预算和营业事实；“需要确认”展示降级和待确认风险；“数据与证据”默认折叠并按当前方案过滤。模型、Token、检索索引和 Beam 统计属于开发者详情，可通过 `VITE_SHOW_DEVELOPER_DETAILS=false` 隐藏，不影响响应数据。
+
+流式接口与普通 `POST /messages` 复用同一规划应用服务，`request_id` 保证断线重放不会重复执行。当前不包含跨进程 SSE 重连、长期 Trace 数据仓库、逐次 Beam 事件或模型思维过程展示。
+
 ### 真实 Router 与 PlanningIntent
 
 ```dotenv

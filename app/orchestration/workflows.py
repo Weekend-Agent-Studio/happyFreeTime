@@ -32,6 +32,7 @@ from app.domain.constraints import (
 )
 from app.domain.planning import CandidateSet, ConstraintConflict
 from app.domain.runtime import RuntimeDecision
+from app.domain.run_trace import RunObserver
 from app.services.clarification import ClarificationResolution, ClarificationResolver
 from app.services.clarification_patch import ClarificationPatchCompiler, merge_request_patches
 from app.services.constraint_engine import (
@@ -400,7 +401,12 @@ class ModificationWorkflow:
         self._planning = planning_service
         self._prepare_question = prepare_question
 
-    def execute(self, state: DurableState) -> WorkflowResult:
+    def execute(
+        self,
+        state: DurableState,
+        *,
+        observer: RunObserver | None = None,
+    ) -> WorkflowResult:
         action = state.get("next_action")
         active_request = state.get("active_request")
         if isinstance(action, ActionNeedsClarification):
@@ -468,6 +474,7 @@ class ModificationWorkflow:
             selected_plan=selected_plan,
             constraints=active_request,
             command=action.command,
+            observer=observer,
         )
         question = outcome.question
         if question is not None:

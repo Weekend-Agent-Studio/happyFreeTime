@@ -11,13 +11,14 @@ Graph 只负责节点顺序、interrupt/resume 和 checkpoint；请求、修改�
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Callable, Protocol, TypedDict
+from typing import Callable, Protocol, TypedDict, cast
 import uuid
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
+from langchain_core.runnables import RunnableConfig
 from app.domain.constraints import (
     ActorContext,
     Assumption,
@@ -67,6 +68,7 @@ from app.domain.planning import (
     StopReplacement,
     StopType,
 )
+from app.domain.run_trace import PlanningRunEventDraft, RunEventStatus, RunObserver, RunStage
 
 
 CHECKPOINT_SCHEMA_VERSION = "planner-core3e-v1"
@@ -80,6 +82,43 @@ def checkpoint_config(session_id: str) -> dict[str, dict[str, str]]:
             "thread_id": f"{CHECKPOINT_SCHEMA_VERSION}:{session_id}",
         }
     }
+
+
+def run_observer_from_config(config: RunnableConfig | None) -> RunObserver | None:
+    """Read request-scoped instrumentation without putting it in Graph State."""
+
+    if not isinstance(config, dict):
+        return None
+    configurable = config.get("configurable")
+    if not isinstance(configurable, dict):
+        return None
+    observer = configurable.get("run_observer")
+    if observer is None or not hasattr(observer, "record") or not hasattr(observer, "snapshot"):
+        return None
+    return cast(RunObserver, observer)
+
+
+def _trace(
+    config: object | None,
+    *,
+    stage: RunStage,
+    status: RunEventStatus,
+    message_key: str,
+    public_message: str,
+    public_details: dict[str, str | int | float | bool | None] | None = None,
+) -> None:
+    observer = run_observer_from_config(config)
+    if observer is None:
+        return
+    observer.record(
+        PlanningRunEventDraft(
+            stage=stage,
+            status=status,
+            message_key=message_key,
+            public_message=public_message,
+            public_details=public_details or {},
+        )
+    )
 from app.domain.providers import (
     AvailabilityFact,
     AvailabilityStatus,
@@ -295,7 +334,14 @@ def build_entry_graph(
         ),
     )
 
-    def router_node(state: EntryState) -> dict[str, object]:
+    def router_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        _trace(
+            config,
+            stage=RunStage.UNDERSTAND,
+            status=RunEventStatus.STARTED,
+            message_key="understand.started",
+            public_message="正在理解你的规划需求",
+        )
         actor = state["actor"]
         environment = environment_provider(actor)
         previous_user_act = user_act_kind_for_action(state.get("next_action"))
@@ -346,6 +392,13 @@ def build_entry_graph(
             interpretation = turn_result.interpretation
             action = turn_result.action
             runtime_decision = turn_result.runtime
+        _trace(
+            config,
+            stage=RunStage.UNDERSTAND,
+            status=RunEventStatus.COMPLETED,
+            message_key="understand.completed",
+            public_message="已完成需求理解",
+        )
         # 这些派生值只属于当前解释轮次。反问恢复或用户修改需求时必须清空，
         # 否则新请求可能误用上一轮的假设、Gate 决策或候选方案。
         return {
@@ -399,21 +452,73 @@ def build_entry_graph(
             )
         return WorkflowRoute.END.value
 
-    def modify_plan_node(state: EntryState) -> dict[str, object]:
-        return modification_workflow.execute(state).as_state()
+    def modify_plan_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        _trace(
+            config,
+            stage=RunStage.MODIFY,
+            status=RunEventStatus.STARTED,
+            message_key="modify.started",
+            public_message="正在处理方案修改",
+        )
+        result = modification_workflow.execute(
+            state,
+            observer=run_observer_from_config(config),
+        )
+        _trace(
+            config,
+            stage=RunStage.MODIFY,
+            status=(
+                RunEventStatus.WAITING_INPUT
+                if result.route == WorkflowRoute.ASK_QUESTION
+                else RunEventStatus.COMPLETED
+            ),
+            message_key=(
+                "modify.waiting_input"
+                if result.route == WorkflowRoute.ASK_QUESTION
+                else "modify.completed"
+            ),
+            public_message=(
+                "需要补充信息才能修改方案"
+                if result.route == WorkflowRoute.ASK_QUESTION
+                else "方案修改处理完成"
+            ),
+        )
+        return result.as_state()
 
-    def compile_patch_node(state: EntryState) -> dict[str, object]:
+    def compile_patch_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
         """Compile one PATCH_CONSTRAINTS proposal before re-entering planning."""
+        _trace(
+            config,
+            stage=RunStage.COMPILE_REQUEST,
+            status=RunEventStatus.STARTED,
+            message_key="compile_request.started",
+            public_message="正在整理并检查规划条件",
+        )
         action = state.get("next_action")
         if not isinstance(action, ApplyRequestPatch) or action.mode != "update":
             raise ValueError("compile_patch requires an update action")
-        return request_workflow.compile_update(state, action=action).as_state()
+        result = request_workflow.compile_update(state, action=action)
+        _trace(
+            config,
+            stage=RunStage.COMPILE_REQUEST,
+            status=RunEventStatus.COMPLETED,
+            message_key="compile_request.completed",
+            public_message="规划条件检查完成",
+        )
+        return result.as_state()
 
-    def apply_request_patch_node(state: EntryState) -> dict[str, object]:
+    def apply_request_patch_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        _trace(
+            config,
+            stage=RunStage.COMPILE_REQUEST,
+            status=RunEventStatus.STARTED,
+            message_key="compile_request.started",
+            public_message="正在应用规划条件更新",
+        )
         patch = state.get("request_patch_override")
         if patch is None:
             raise ValueError("apply_request_patch requires a typed RequestPatch")
-        return {
+        updates = {
             "request_patch_override": None,
             "interpretation": state.get("interpretation") or Interpretation(
                 primary_intent=Intent.REFINE_PLAN,
@@ -427,6 +532,14 @@ def build_entry_graph(
                 issues=state.get("request_patch_issues", ()),
             ).as_state(),
         }
+        _trace(
+            config,
+            stage=RunStage.COMPILE_REQUEST,
+            status=RunEventStatus.COMPLETED,
+            message_key="compile_request.completed",
+            public_message="规划条件更新完成",
+        )
+        return updates
 
     def replan_current_request_node(state: EntryState) -> dict[str, object]:
         if state.get("active_request") is None:
@@ -480,22 +593,56 @@ def build_entry_graph(
             return fields.get("party") is not None
         return False
 
-    def compile_request_node(state: EntryState) -> dict[str, object]:
+    def compile_request_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        _trace(
+            config,
+            stage=RunStage.COMPILE_REQUEST,
+            status=RunEventStatus.STARTED,
+            message_key="compile_request.started",
+            public_message="正在整理规划条件",
+        )
         action = state.get("next_action")
         if not (
             isinstance(action, AnswerQuery)
             or (isinstance(action, ApplyRequestPatch) and action.mode == "create")
         ):
             raise ValueError("compile_request requires a create action")
-        return request_workflow.compile_create(
+        result = request_workflow.compile_create(
             state,
             interpretation=state["interpretation"],
             action=action,
-        ).as_state()
+        )
+        _trace(
+            config,
+            stage=RunStage.COMPILE_REQUEST,
+            status=RunEventStatus.COMPLETED,
+            message_key="compile_request.completed",
+            public_message="规划条件整理完成",
+        )
+        return result.as_state()
 
-    def gate_node(state: EntryState) -> dict[str, object]:
+    def gate_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
         existing_issue = state.get("pending_issue")
         if existing_issue is not None and existing_issue.need_question:
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
+                status=RunEventStatus.STARTED,
+                message_key="clarify.started",
+                public_message="正在确认缺少的规划信息",
+            )
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
+                status=RunEventStatus.WAITING_INPUT,
+                message_key="clarify.waiting_input",
+                public_message="还需要补充一项规划信息",
+                public_details=(
+                    {"field": existing_issue.field}
+                    if existing_issue.field
+                    else {}
+                ),
+            )
             return {
                 "ready_for_planning": False,
                 "workflow_route": WorkflowRoute.ASK_QUESTION.value,
@@ -524,6 +671,22 @@ def build_entry_graph(
                 planning_request or weather_condition_planning
             )
         )
+        if decision.need_question:
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
+                status=RunEventStatus.STARTED,
+                message_key="clarify.started",
+                public_message="正在确认缺少的规划信息",
+            )
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
+                status=RunEventStatus.WAITING_INPUT,
+                message_key="clarify.waiting_input",
+                public_message="还需要补充一项规划信息",
+                public_details={"field": decision.field} if decision.field else {},
+            )
         return {
             "pending_issue": (
                 _prepare_question_decision(decision)
@@ -552,9 +715,10 @@ def build_entry_graph(
     def route_after_gate(state: EntryState) -> str:
         return state.get("workflow_route") or END
 
-    def planning_node(state: EntryState) -> dict[str, object]:
+    def planning_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
         constraints = state["active_request"]
-        candidate_set = planning_service.plan(constraints)
+        observer = run_observer_from_config(config)
+        candidate_set = planning_service.plan(constraints, observer=observer)
         geocoding_fact = state.get("geocoding_fact")
         if geocoding_fact is not None:
             candidate_set = candidate_set.model_copy(

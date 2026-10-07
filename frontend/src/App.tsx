@@ -41,9 +41,10 @@ import {
   X,
 } from "lucide-react";
 
-import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessage, updatePlanningContext } from "./api";
+import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessageStream, updatePlanningContext } from "./api";
 import { AmapPlanMap } from "./AmapPlanMap";
 import { clarificationSection, PlanningContextBar, type ContextSection } from "./PlanningContextBar";
+import { projectRunProgress, type RunStageViewModel } from "./runProgress";
 import type {
   AgentResponse,
   Assumption,
@@ -63,6 +64,8 @@ import type {
   ReplacementCriterion,
   RouteLeg,
   RuntimeDecision,
+  PlanningRunEvent,
+  PlanningRunTrace,
   SessionSummary,
   SessionView,
   Stop,
@@ -194,8 +197,12 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     plan_version_id: response.plan_version_id ?? null,
     retrieval_evidence: response.retrieval_evidence ?? [],
     runtime_decisions: response.runtime_decisions ?? [],
+    run_trace: response.run_trace ?? null,
     retrieval_mode: response.retrieval_mode ?? null,
     retrieval_index_version: response.retrieval_index_version ?? null,
+    search_mode: response.search_mode ?? null,
+    search_finalist_count: response.search_finalist_count ?? null,
+    search_expansions: response.search_expansions ?? null,
     conversation_command: response.conversation_command ?? null,
     plan_diff: response.plan_diff ?? null,
     plan_diffs: response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []),
@@ -351,6 +358,45 @@ function runtimeAdapterLabel(decision: RuntimeDecision): string {
   return adapterLabels[decision.adapter] ?? decision.adapter;
 }
 
+function ProgressMarker({ status }: { status: RunStageViewModel["status"] }) {
+  if (status === "active") return <span className="run-progress-spinner" aria-hidden="true" />;
+  if (status === "fallback" || status === "failed") return <CircleAlert size={14} aria-hidden="true" />;
+  if (status === "waiting_input") return <Clock3 size={14} aria-hidden="true" />;
+  if (status === "completed") return <Check size={14} aria-hidden="true" />;
+  return <span className="run-progress-pending-dot" aria-hidden="true" />;
+}
+
+function RunProgressRows({ stages }: { stages: RunStageViewModel[] }) {
+  return (
+    <ol className="run-progress-list">
+      {stages.map((stage) => (
+        <li className={`run-progress-item ${stage.status}`} key={stage.stage}>
+          <span className="run-progress-marker"><ProgressMarker status={stage.status} /></span>
+          <div>
+            <strong>{stage.label}</strong>
+            {stage.message ? <p>{stage.message}</p> : null}
+            {stage.durationMs !== undefined ? <small>{stage.durationMs} ms</small> : null}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function RunProgressDisclosure({ trace }: { trace?: PlanningRunTrace | null }) {
+  const stages = projectRunProgress(trace?.events ?? []);
+  if (!stages.length) return null;
+  return (
+    <details className="run-progress-disclosure">
+      <summary>
+        <span><CheckCircle2 size={16} />规划完成 · 查看本轮处理过程</span>
+        <small>{stages.length} 个阶段</small>
+      </summary>
+      <RunProgressRows stages={stages} />
+    </details>
+  );
+}
+
 function RuntimeDecisionEvidence({ decision }: { decision: RuntimeDecision }) {
   const suffix = [
     decision.latency_ms !== null ? `${decision.latency_ms} ms` : null,
@@ -477,6 +523,7 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progressEvents, setProgressEvents] = useState<PlanningRunEvent[]>([]);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
@@ -528,6 +575,7 @@ function App() {
       activePlanVersionIdRef.current = view.active_plan_version_id ?? null;
       setSessionId(view.session_id);
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
+      setProgressEvents([]);
       setResponse(restoredResponse);
       setPlanningContext(view.planning_context ?? restoredResponse?.planning_context ?? null);
       setInspectedResponse(restoredActiveResponse ?? restoredResponse);
@@ -548,6 +596,7 @@ function App() {
       activePlanVersionIdRef.current = null;
       setSessionId(null);
       setMessages([]);
+      setProgressEvents([]);
       setResponse(null);
       setPlanningContext(null);
       setInspectedResponse(null);
@@ -576,6 +625,7 @@ function App() {
         activePlanVersionIdRef.current = null;
         setSessionId(null);
         setMessages([]);
+        setProgressEvents([]);
         setResponse(null);
         setPlanningContext(null);
         setInspectedResponse(null);
@@ -621,6 +671,7 @@ function App() {
         : undefined
     );
     setLoading(true);
+    setProgressEvents([]);
     setError("");
     setInput("");
     let activeSession = sessionId;
@@ -643,7 +694,17 @@ function App() {
       const requestId = isRetry ? failedRequest.requestId : crypto.randomUUID();
       if (!isRetry) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
       setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply });
-      const nextResponse = await sendMessage(activeSession, trimmed, requestId, conversationCommand, effectiveClarificationReply);
+      const nextResponse = await sendMessageStream(
+        activeSession,
+        trimmed,
+        requestId,
+        (event) => setProgressEvents((current) => {
+          const next = current.filter((item) => item.sequence !== event.sequence);
+          return [...next, event].sort((left, right) => left.sequence - right.sequence);
+        }),
+        conversationCommand,
+        effectiveClarificationReply,
+      );
       setFailedRequest(null);
       setNewRequestMode(false);
       setResponse(nextResponse);
@@ -671,6 +732,7 @@ function App() {
       if (activeSession) await refreshRecentSessions();
     } finally {
       setLoading(false);
+      setProgressEvents([]);
     }
   }
 
@@ -796,6 +858,7 @@ function App() {
     activePlanVersionIdRef.current = null;
     setSessionId(null);
     setMessages([]);
+    setProgressEvents([]);
     setResponse(null);
     setPlanningContext(null);
     setContextFocus(null);
@@ -934,7 +997,7 @@ function App() {
                  onClarificationOption={(option) => message.response?.question && onClarificationOption(option, message.response.question)}
                  onOpenContext={() => openContextForClarification(message.response?.question?.field)}
               />)}
-              {loading ? <ThinkingRow /> : null}
+              {loading ? <ThinkingRow events={progressEvents} /> : null}
               <div ref={conversationEndRef} aria-hidden="true" />
             </div>
           )}
@@ -984,7 +1047,7 @@ function App() {
         <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} compact />
       </MobileSheet>
 
-      <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前方案的行程、地图、订单与可信依据。">
+      <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前方案的行程、地图、订单与核验信息。">
          <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} />
       </MobileSheet>
     </div>
@@ -1156,8 +1219,18 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
   );
 }
 
-function ThinkingRow() {
-  return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>正在核对路线和可行性</strong></div></div>;
+function ThinkingRow({ events }: { events: PlanningRunEvent[] }) {
+  const stages = projectRunProgress(events);
+  const active = stages.find((stage) => stage.status === "active") ?? stages[stages.length - 1];
+  return (
+    <div className="thinking-row" role="status" aria-live="polite">
+      <ButlerAvatar />
+      <div className="thinking-progress">
+        <strong>{active?.message ?? "正在处理你的规划请求……"}</strong>
+        {stages.length ? <RunProgressRows stages={stages} /> : <span className="thinking-dots"><span /><span /><span /></span>}
+      </div>
+    </div>
+  );
 }
 
 function RecommendationAdvicePanel({ advice, plans }: { advice?: RecommendationAdvice | null; plans: Plan[] }) {
@@ -1193,8 +1266,8 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileD
   return (
     <section className="rich-planning-reply" aria-labelledby={headingId}>
       <div className="rich-reply-body">
-        <div className="planning-progress" aria-label="规划完成步骤"><span><CheckCircle2 size={14} />解析需求</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />查询路线与景点</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />评估与排序</span></div>
         <div className="plan-intro"><div><h2 id={headingId}>{hasModification ? "方案已定向更新" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{hasModification ? "其他站点保持原位置；每个替换候选都已重新核验。" : "方案按推荐顺序排列；打开详情可查看完整行程、推荐理由和取舍。"}</p></div><span>{response.plans.length} 个候选</span></div>
+        <RunProgressDisclosure trace={response.run_trace} />
         {hasModification ? (
           <div className="plan-diff-list" role="status">
             {diffs.map((diff) => {
@@ -1281,7 +1354,7 @@ function MobilePlanExpansion({ plan, presentations, canReplace, onReplaceStop, o
 }
 
 function InspectorViewPicker({ activeTab, onTabChange }: { activeTab: InspectorTab; onTabChange: (tab: InspectorTab) => void }) {
-  const labels: Record<InspectorTab, string> = { trip: "行程", map: "地图", orders: "订单", evidence: "依据" };
+  const labels: Record<InspectorTab, string> = { trip: "行程", map: "地图", orders: "订单", evidence: "核验" };
   const icons: Record<InspectorTab, ReactNode> = {
     trip: <CalendarDays size={16} aria-hidden="true" />,
     map: <MapIcon size={16} aria-hidden="true" />,
@@ -1311,7 +1384,7 @@ function Inspector({ response, plan, selectedPlanId, activeTab, activeLegIndex, 
 function RecommendationSummary({ plan, advice }: { plan: Plan; advice?: PlanAdvice }) {
   const reasons = advice ? [advice.reason] : planRationale(plan);
   const tradeoffs = advice?.tradeoffs.length ? advice.tradeoffs : plan.tradeoffs;
-  return <section className="recommendation-summary"><h3>管家为什么推荐</h3>{advice ? <span className="recommendation-explanation-label">推荐解释 · 基于已验证事实</span> : null}<ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul><div><strong>主要取舍</strong><p>{tradeoffs.length ? tradeoffs.slice(0, 2).join("；") : "当前没有额外取舍提示；临近出发时仍需关注“依据”中的动态状态。"}</p></div></section>;
+  return <section className="recommendation-summary"><h3>管家为什么推荐</h3>{advice ? <span className="recommendation-explanation-label">推荐解释 · 基于已验证事实</span> : null}<ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul><div><strong>主要取舍</strong><p>{tradeoffs.length ? tradeoffs.slice(0, 2).join("；") : "当前没有额外取舍提示；临近出发时仍需关注“核验”中的动态状态。"}</p></div></section>;
 }
 
 function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, activeLegIndex, onSelectRoute }: { plan?: Plan; advice?: PlanAdvice; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
@@ -1401,21 +1474,118 @@ function MapPanel({ plan, activeLegIndex, onSelectRoute }: { plan?: Plan; active
   return <div className="map-detail">{plan ? <AmapPlanMap plan={plan} activeLegIndex={activeLegIndex} onSelectRoute={onSelectRoute} /> : <div className="map-canvas amap-map-status disabled">生成方案后显示地图路线</div>}<div className="detail-title"><span>路线预览</span><h2>{sourceSummary}</h2><p>{plan ? `${totalDistance(plan).toFixed(1)} km · 已按路线耗时重建时间线` : "生成方案后显示路线摘要"}</p></div>{plan?.route_legs.map((leg, index) => <button className={`route-row ${activeLegIndex === index ? "active" : ""}`} type="button" key={`${leg.destination_name}-${index}`} aria-pressed={activeLegIndex === index} onClick={() => onSelectRoute(index)}><RouteModeIcon mode={leg.mode} size={18} /><span><strong>{leg.origin_name} → {leg.destination_name}</strong><small>{leg.start}–{leg.end} · {formatDistance(leg.distance_km)}km · {leg.duration_minutes} 分钟 · {routeSourceLabel(leg.source)}{leg.degraded ? " · 降级估算" : ""}</small></span></button>)}</div>;
 }
 
+type RetrievalEvidence = NonNullable<AgentResponse["retrieval_evidence"]>[number];
+
+function evidenceBelongsToPlan(evidence: RetrievalEvidence, resourceIds: Set<string>): boolean {
+  if (evidence.source_type === "user_message") return true;
+  const sourceRef = evidence.source_ref ?? "";
+  return [...resourceIds].some((resourceId) => (
+    sourceRef === resourceId
+    || sourceRef === `profile:${resourceId}`
+    || evidence.evidence_id.startsWith(`poi.${resourceId}.`)
+  ));
+}
+
+function warningSourceLabel(warning: PlanWarning): string {
+  if (warning.source) return `来源：${warning.source}`;
+  if (warning.code.startsWith("route")) return "来源：路线核验";
+  if (warning.code.startsWith("catalog")) return "来源：Catalog 约束";
+  if (warning.code.includes("availability")) return "来源：营业/可用性核验";
+  return "来源：后端核验结果";
+}
+
+function warningTitle(warning: PlanWarning): string {
+  if (warning.code.startsWith("route")) return "路线事实需要确认";
+  if (warning.code.startsWith("catalog")) return "地点数据需要确认";
+  if (warning.code.includes("weather")) return "天气事实需要确认";
+  return "需要确认";
+}
+
+function VerificationOverview({ response, plan, selectedFacts }: { response: AgentResponse; plan?: Plan; selectedFacts: ProviderFact[] }) {
+  const budget = response.constraint_summary.find((item) => item.field === "budget_per_person");
+  const hasAvailability = selectedFacts.some((fact) => fact.kind === "availability");
+  const routeSources = plan ? [...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))] : [];
+  const routeDegraded = Boolean(plan?.route_legs.some((leg) => leg.degraded));
+  return (
+    <section className="evidence-group verification-overview" aria-label="核验概览">
+      <div className="evidence-group-heading"><h3>核验概览</h3><span>只显示后端已有事实</span></div>
+      <div className="verification-summary-grid">
+        <div><strong>时间线</strong><span>{plan?.stops.length ? "已生成时间安排" : "未提供"}</span></div>
+        <div><strong>路线</strong><span>{routeSources.length ? `${routeSources.join(" / ")}${routeDegraded ? " · 含降级" : ""}` : "未提供"}</span></div>
+        <div><strong>预算约束</strong><span>{budget ? `${displayConstraint(budget)} · 已记录` : "未提供"}</span></div>
+        <div><strong>营业与可用性</strong><span>{hasAvailability ? "已提供动态事实" : "未提供"}</span></div>
+      </div>
+    </section>
+  );
+}
+
 function EvidencePanel({ response, plan }: { response: AgentResponse | null; plan?: Plan }) {
-  if (!response || !plan) return <DetailEmpty icon={<ShieldCheck size={24} />} title="依据将在这里汇总" text="天气、路线、营业与数据来源会集中展示，不挤占方案比较区。" />;
-  const sources = [...new Map(plan.stops.map((stop) => [stop.source.source_uri, stop.source])).values()];
+  if (!response) return <DetailEmpty icon={<ShieldCheck size={24} />} title="核验将在这里汇总" text="天气、路线、营业与数据来源会集中展示，不挤占方案比较区。" />;
+  const resourceIds = new Set(plan?.stops.map((stop) => stop.resource_id) ?? []);
+  const adviceForPlan = response.recommendation_advice?.plans.find((item) => item.plan_id === plan?.plan_id);
+  const supportingIds = new Set(adviceForPlan?.supporting_evidence_ids ?? []);
+  const evidence = (response.retrieval_evidence ?? []).filter((item) => (
+    supportingIds.size ? supportingIds.has(item.evidence_id) : evidenceBelongsToPlan(item, resourceIds)
+  ));
+  const selectedFacts = response.provider_facts.filter((fact) => (
+    fact.kind !== "availability" || resourceIds.has(fact.resource_id)
+  ));
+  const verifiedFacts = selectedFacts.filter((fact) => !fact.degraded);
+  const degradedFacts = selectedFacts.filter((fact) => fact.degraded);
+  const sources = plan ? [...new Map(plan.stops.map((stop) => [stop.source.source_uri, stop.source])).values()] : [];
+  const warnings = [...new Map(
+    (response.warnings ?? [])
+      .filter((warning) => warning.plan_id === null || warning.plan_id === plan?.plan_id)
+      .map((warning) => [`${warning.code}|${warning.resource_id ?? ""}|${warning.source ?? ""}`, warning] as const),
+  ).values()];
+  const degradedLegs = plan?.route_legs.filter((leg) => leg.degraded) ?? [];
+  const hasRisks = degradedFacts.length || degradedLegs.length || warnings.length;
   return (
     <div className="evidence-panel">
-      <div className="detail-title"><span>可信状态</span><h2>证据与数据</h2><p>只展示系统实际获得的事实、来源和降级状态。</p></div>
-      <div className="evidence-list">
-        {response.runtime_decisions?.map((decision, index) => <RuntimeDecisionEvidence key={`${decision.stage}-${index}`} decision={decision} />)}
-        {response.retrieval_mode ? <article className="evidence-row"><span className="evidence-icon"><Database size={17} /></span><div><strong>候选召回 · {response.retrieval_mode === "hybrid" ? "Hybrid 本地语义索引" : "规则基线"}</strong><p>只对 Catalog 已通过硬过滤的候选排序</p><small>{response.retrieval_index_version ?? "索引版本未提供"}</small></div></article> : null}
-        {response.provider_facts.map((fact, index) => <ProviderEvidence key={`${fact.kind}-${index}`} fact={fact} />)}
-        {plan.route_legs.map((leg, index) => <article className={`evidence-row ${leg.degraded ? "warning" : ""}`} key={`${leg.destination_name}-${index}`}><span className="evidence-icon"><Route size={17} /></span><div><strong>路线 · {leg.origin_name} → {leg.destination_name}</strong><p>{routeSourceLabel(leg.source)} · {leg.provider_mode} · {leg.distance_km} km / {leg.duration_minutes} 分钟</p><small>{leg.degraded ? `降级：${leg.degraded_reason ?? "原因未提供"}` : `核验于 ${safeDateTime(leg.verified_at)}`}</small></div></article>)}
-        {sources.map((source) => <article className="evidence-row" key={source.source_uri}><span className="evidence-icon"><Database size={17} /></span><div><strong>POI 目录 · {source.source_name}</strong><p>{source.source_license} · {source.verification_status === "verified" ? "已核验" : source.verification_status === "stale" ? "需复核" : "未核验"}</p><small>采集于 {safeDateTime(source.collected_at)}</small></div></article>)}
-        {response.warnings?.map((warning) => <article className="evidence-row warning" key={`${warning.code}-${warning.resource_id ?? "all"}`}><span className="evidence-icon"><CircleAlert size={17} /></span><div><strong>需要确认</strong><p>{warning.message}</p><small>{warning.source ? `来源：${warning.source}` : "来源未提供"}{warning.stale ? " · 数据可能过期" : ""}</small></div></article>)}
-      </div>
+      <div className="detail-title"><span>可信状态</span><h2>核验</h2><p>先看当前方案的核验概览，再查看待确认风险和事实依据。</p></div>
+      <VerificationOverview response={response} plan={plan} selectedFacts={selectedFacts} />
+
+      {hasRisks ? (
+        <section className="evidence-group risk-group" aria-label="需要确认">
+          <div className="evidence-group-heading"><h3>需要确认</h3><span>只显示当前方案相关风险</span></div>
+          <div className="evidence-list">
+            {degradedFacts.map((fact, index) => <ProviderEvidence key={`degraded-${fact.kind}-${index}`} fact={fact} />)}
+            {degradedLegs.map((leg, index) => <article className="evidence-row warning" key={`degraded-leg-${leg.origin_name}-${leg.destination_name}-${index}`}><span className="evidence-icon"><Route size={17} /></span><div><strong>路线使用降级数据</strong><p>{leg.origin_name} → {leg.destination_name} · {leg.distance_km} km / {leg.duration_minutes} 分钟</p><small>来源：{routeSourceLabel(leg.source)} · {leg.degraded_reason ?? "原因未提供"}</small></div></article>)}
+            {warnings.map((warning) => <article className="evidence-row warning" key={`${warning.code}-${warning.resource_id ?? "all"}-${warning.source ?? "none"}`}><span className="evidence-icon"><CircleAlert size={17} /></span><div><strong>{warningTitle(warning)}</strong><p>{warning.message}</p><small>{warningSourceLabel(warning)}{warning.stale ? " · 数据可能过期" : ""}{warning.resource_id ? ` · 资源 ${warning.resource_id}` : ""}</small></div></article>)}
+          </div>
+        </section>
+      ) : null}
+
+      <details className="evidence-group evidence-data-disclosure">
+        <summary className="evidence-group-heading"><h3>数据与证据</h3><span>默认折叠 · 当前方案相关</span></summary>
+        <div className="evidence-list">
+          {evidence.map((item) => <article className="evidence-row" key={item.evidence_id}><span className="evidence-icon"><ShieldCheck size={17} /></span><div><strong>{item.summary}</strong><p>{item.source_type === "user_message" ? "用户关键需求 · 非外部事实" : item.source_type === "poi_profile" ? "来自 POI Profile" : "来自已核验事实"}</p><small>{item.source_field} · 置信度 {(item.confidence * 100).toFixed(0)}%</small></div></article>)}
+          {verifiedFacts.map((fact, index) => <ProviderEvidence key={`${fact.kind}-${index}`} fact={fact} />)}
+          {sources.map((source) => <article className="evidence-row" key={source.source_uri}><span className="evidence-icon"><Database size={17} /></span><div><strong>POI 目录 · {source.source_name}</strong><p>{source.source_license} · {source.verification_status === "verified" ? "已核验" : source.verification_status === "stale" ? "需复核" : "未核验"}</p><small>采集于 {safeDateTime(source.collected_at)}</small></div></article>)}
+          {!evidence.length && !verifiedFacts.length && !sources.length ? <p className="evidence-empty">当前方案没有额外的事实依据快照。</p> : null}
+        </div>
+      </details>
+      <DeveloperDetails response={response} />
     </div>
+  );
+}
+
+const SHOW_DEVELOPER_DETAILS = import.meta.env.VITE_SHOW_DEVELOPER_DETAILS !== "false";
+
+function DeveloperDetails({ response }: { response: AgentResponse }) {
+  if (!SHOW_DEVELOPER_DETAILS) return null;
+  const decisions = response.runtime_decisions ?? [];
+  const hasSearchDetails = response.search_mode || response.search_expansions !== null && response.search_expansions !== undefined;
+  if (!decisions.length && !hasSearchDetails) return null;
+  return (
+    <details className="developer-details">
+      <summary>开发者详情<small>模型、检索和搜索诊断</small></summary>
+      <div className="developer-detail-list">
+        {decisions.map((decision, index) => <RuntimeDecisionEvidence key={`runtime-${decision.stage}-${index}`} decision={decision} />)}
+        {response.retrieval_mode ? <div className="developer-detail-line"><strong>检索</strong><span>{response.retrieval_mode} · {response.retrieval_index_version ?? "索引版本未提供"}</span></div> : null}
+        {hasSearchDetails ? <div className="developer-detail-line"><strong>搜索</strong><span>{response.search_mode ?? "未提供"} · 扩展 {response.search_expansions ?? "—"} · finalists {response.search_finalist_count ?? "—"}</span></div> : null}
+      </div>
+    </details>
   );
 }
 

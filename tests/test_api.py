@@ -308,6 +308,35 @@ class ApiTest(unittest.TestCase):
         )
         self.assertIn(response.status, {"completed", "needs_input"})
 
+    def test_streaming_message_returns_progress_and_same_final_response_contract(self) -> None:
+        session_id = self._create_session()
+        response = self.client.post(
+            f"/api/sessions/{session_id}/messages/stream",
+            headers={**self.headers, "Accept": "text/event-stream"},
+            json={"request_id": uuid.uuid4().hex, "content": "今天下午出去玩"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("text/event-stream", response.headers["content-type"])
+        progress_index = response.text.index("event: progress")
+        result_index = response.text.index("event: result")
+        self.assertLess(progress_index, result_index)
+        self.assertIn('"data":{"status":"completed"', response.text)
+        self.assertIn('"run_trace"', response.text)
+
+    def test_streaming_message_emits_safe_error_event_without_stack_details(self) -> None:
+        response = self.client.post(
+            "/api/sessions/missing-session/messages/stream",
+            headers={**self.headers, "Accept": "text/event-stream"},
+            json={"request_id": uuid.uuid4().hex, "content": "今天下午出去玩"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("event: error", response.text)
+        self.assertIn("session not found", response.text)
+        self.assertNotIn("Traceback", response.text)
+        self.assertNotIn("exception", response.text.casefold())
+
     def test_selection_starts_empty_then_restores_after_select(self) -> None:
         session_id = self._create_session()
         result = self._send_message(session_id, "今天下午出去玩")
@@ -315,6 +344,17 @@ class ApiTest(unittest.TestCase):
         response_data = result.json()["data"]
         plans = response_data["plans"]
         self.assertGreaterEqual(len(plans), 2)
+        trace = response_data["run_trace"]
+        self.assertIsNotNone(trace)
+        self.assertTrue(trace["run_id"])
+        self.assertTrue(
+            {event["stage"] for event in trace["events"]}
+            >= {"understand", "compile_request", "retrieve", "construct", "verify", "advise"}
+        )
+        self.assertEqual(
+            [event["sequence"] for event in trace["events"]],
+            list(range(1, len(trace["events"]) + 1)),
+        )
         self.assertEqual(
             response_data["planning_intent_decision"]["source"],
             "rule_based",

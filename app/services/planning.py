@@ -66,6 +66,7 @@ from app.domain.providers import (
     WeatherRequest,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.run_trace import PlanningRunEventDraft, RunEventStatus, RunObserver, RunStage
 from app.domain.semantics import compile_replacement_semantics
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.availability import AvailabilityProvider, MockAvailabilityProvider
@@ -416,7 +417,34 @@ class PlanningService:
             scores_by_id,
         )
 
-    def plan(self, constraints: PlanRequest) -> CandidateSet:
+    @staticmethod
+    def _trace(
+        observer: RunObserver | None,
+        *,
+        stage: RunStage,
+        status: RunEventStatus,
+        message_key: str,
+        public_message: str,
+        public_details: dict[str, str | int | float | bool | None] | None = None,
+    ) -> None:
+        if observer is None:
+            return
+        observer.record(
+            PlanningRunEventDraft(
+                stage=stage,
+                status=status,
+                message_key=message_key,
+                public_message=public_message,
+                public_details=public_details or {},
+            )
+        )
+
+    def plan(
+        self,
+        constraints: PlanRequest,
+        *,
+        observer: RunObserver | None = None,
+    ) -> CandidateSet:
         runtime_decision = self._not_run_runtime(
             "planning cannot start before normalized constraints are complete"
         )
@@ -434,12 +462,28 @@ class PlanningService:
                 runtime_decision=runtime_decision,
             )
 
+        self._trace(
+            observer,
+            stage=RunStage.STRUCTURE,
+            status=RunEventStatus.STARTED,
+            message_key="structure.started",
+            public_message="正在组织候选行程结构",
+        )
+
         rule_baseline = build_rule_based_planning_intent(constraints)
         explicit_choices = self._plan_spec_compiler.compile_explicit_structure(
             constraints,
             rule_baseline,
         )
         if explicit_choices is not None and explicit_choices.conflict is not None:
+            self._trace(
+                observer,
+                stage=RunStage.STRUCTURE,
+                status=RunEventStatus.FALLBACK,
+                message_key="structure.fallback",
+                public_message="行程结构无法满足当前条件，已安全停止规划",
+                public_details={"reason_code": explicit_choices.conflict.code},
+            )
             conflict_code = explicit_choices.conflict.code
             return CandidateSet(
                 conflict=explicit_choices.conflict,
@@ -539,6 +583,14 @@ class PlanningService:
         )
         if not plan_specs:
             if plan_choices.conflict is not None:
+                self._trace(
+                    observer,
+                    stage=RunStage.STRUCTURE,
+                    status=RunEventStatus.FALLBACK,
+                    message_key="structure.fallback",
+                    public_message="当前条件下没有可执行的行程结构",
+                    public_details={"reason_code": plan_choices.conflict.code},
+                )
                 return CandidateSet(
                     conflict=plan_choices.conflict,
                     planning_intent_decision=planning_intent_decision,
@@ -567,6 +619,14 @@ class PlanningService:
                     fields=["plan_structure"],
                     relaxation_options=["放宽站点结构限制"],
                 )
+            self._trace(
+                observer,
+                stage=RunStage.STRUCTURE,
+                status=RunEventStatus.FALLBACK,
+                message_key="structure.fallback",
+                public_message="当前条件下没有可执行的行程结构",
+                public_details={"reason_code": conflict.code},
+            )
             return CandidateSet(
                 conflict=conflict,
                 planning_intent_decision=planning_intent_decision,
@@ -586,13 +646,51 @@ class PlanningService:
             else "fallback"
         )
         retrieval_specs = preferred_specs or fallback_specs
+        self._trace(
+            observer,
+            stage=RunStage.STRUCTURE,
+            status=RunEventStatus.COMPLETED,
+            message_key="structure.completed",
+            public_message="行程结构已确定",
+            public_details={"count": len(plan_specs)},
+        )
+        self._trace(
+            observer,
+            stage=RunStage.RETRIEVE,
+            status=RunEventStatus.STARTED,
+            message_key="retrieve.started",
+            public_message="正在检索符合条件的地点",
+        )
         retrieved, semantic_scores = self._retrieve_for_plan_spec_roles(
             candidates,
             active_planning_intent,
             retrieval_specs,
         )
         retrieval_runtime_decision = _retrieval_runtime(retrieved)
+        self._trace(
+            observer,
+            stage=RunStage.RETRIEVE,
+            status=(RunEventStatus.FALLBACK if retrieved.fallback_reason else RunEventStatus.COMPLETED),
+            message_key=("retrieve.fallback" if retrieved.fallback_reason else "retrieve.completed"),
+            public_message=(
+                "语义检索不可用，已回退到规则召回"
+                if retrieved.fallback_reason
+                else "候选地点检索完成"
+            ),
+            public_details=(
+                {"mode": retrieved.mode, "candidate_count": retrieved.candidate_count}
+                if retrieved.mode
+                else {"candidate_count": retrieved.candidate_count}
+            ),
+        )
         candidates = [item.candidate for item in retrieved.items]
+        self._trace(
+            observer,
+            stage=RunStage.CONSTRUCT,
+            status=RunEventStatus.STARTED,
+            message_key="construct.search_started",
+            public_message="正在组合候选行程",
+        )
         local_result = _rank_plan_specs(
             candidates,
             constraints,
@@ -605,6 +703,14 @@ class PlanningService:
             ),
             explicit_structure=plan_choices.explicit_structure,
             planning_intent_source=active_planning_intent_source,
+        )
+        self._trace(
+            observer,
+            stage=RunStage.CONSTRUCT,
+            status=RunEventStatus.COMPLETED,
+            message_key="construct.completed",
+            public_message="候选行程组合完成",
+            public_details={"count": len(local_result.plans)},
         )
         if weather_removed and not any(
             candidate.resource_type == ResourceType.ACTIVITY
@@ -810,6 +916,13 @@ class PlanningService:
                 exhausted_repair_chain=exhausted_repair_chain,
             )
 
+        self._trace(
+            observer,
+            stage=RunStage.VERIFY,
+            status=RunEventStatus.STARTED,
+            message_key="verify.started",
+            public_message="正在核对路线、时间和可用性",
+        )
         preferred_result = local_result
         preferred_verified = verify_local_candidates(
             preferred_result,
@@ -906,6 +1019,22 @@ class PlanningService:
             fallback_verified.exhausted_repair_chain
             if fallback_verified is not None
             else False
+        )
+        self._trace(
+            observer,
+            stage=RunStage.VERIFY,
+            status=RunEventStatus.COMPLETED if plans else RunEventStatus.FALLBACK,
+            message_key="verify.completed" if plans else "verify.fallback",
+            public_message=(
+                "路线和硬约束核对完成"
+                if plans
+                else "候选方案未通过完整核验，已返回安全结果"
+            ),
+            public_details=(
+                {"plan_count": len(plans)}
+                if plans
+                else {"reason_code": "no_verified_plan"}
+            ),
         )
         if plans:
             if structure_fallback_stage == "compile":
@@ -1190,6 +1319,7 @@ class PlanningService:
         selected_plan: Plan,
         constraints: PlanRequest,
         command: ConversationCommand,
+        observer: RunObserver | None = None,
     ) -> PlanModificationResult:
         """Replace exactly one selected-plan slot without reopening its shape.
 
@@ -1287,6 +1417,13 @@ class PlanningService:
                 if stop.role is not None
             ),
         )
+        self._trace(
+            observer,
+            stage=RunStage.RETRIEVE,
+            status=RunEventStatus.STARTED,
+            message_key="retrieve.replacement_started",
+            public_message="正在检索替换候选",
+        )
         recalled = self._catalog.recall(constraints)
         candidate_by_id = {
             candidate.resource_id: candidate for candidate in recalled.candidates
@@ -1301,6 +1438,14 @@ class PlanningService:
             if selected_plan.stops[index].resource_id not in candidate_by_id
         ]
         if missing_fixed:
+            self._trace(
+                observer,
+                stage=RunStage.RETRIEVE,
+                status=RunEventStatus.FALLBACK,
+                message_key="retrieve.replacement_fallback",
+                public_message="替换候选检索无法保留原方案中的固定站点",
+                public_details={"reason_code": "locked_stop_unavailable"},
+            )
             return PlanModificationResult(
                 candidate_set=CandidateSet(
                     catalog_violations=recalled.violations,
@@ -1332,6 +1477,14 @@ class PlanningService:
             and not (weather.is_adverse and candidate.weather_sensitive)
         ]
         if not replacement_candidates:
+            self._trace(
+                observer,
+                stage=RunStage.RETRIEVE,
+                status=RunEventStatus.FALLBACK,
+                message_key="retrieve.replacement_fallback",
+                public_message="当前没有可用的替换候选",
+                public_details={"reason_code": "no_replacement_candidates"},
+            )
             return _modification_conflict(
                 "NO_REPLACEMENT_CANDIDATES",
                 "当前目录中没有与该站点角色兼容的其他候选。",
@@ -1363,6 +1516,29 @@ class PlanningService:
             )
         )
         retrieval_runtime_decision = _retrieval_runtime(retrieved_replacements)
+        self._trace(
+            observer,
+            stage=RunStage.RETRIEVE,
+            status=(
+                RunEventStatus.FALLBACK
+                if retrieved_replacements.fallback_reason
+                else RunEventStatus.COMPLETED
+            ),
+            message_key=(
+                "retrieve.replacement_fallback"
+                if retrieved_replacements.fallback_reason
+                else "retrieve.replacement_completed"
+            ),
+            public_message=(
+                "替换候选检索已回退到规则召回"
+                if retrieved_replacements.fallback_reason
+                else "替换候选检索完成"
+            ),
+            public_details={
+                "mode": retrieved_replacements.mode,
+                "candidate_count": retrieved_replacements.candidate_count,
+            },
+        )
         retrieval_scores = {
             item.candidate.resource_id: item.score.final_score
             for item in retrieved_replacements.items
@@ -1424,6 +1600,13 @@ class PlanningService:
         verified_plans: list[tuple[Plan, tuple[VerificationFinding, ...], tuple[AvailabilityFact, ...], int]] = []
         route_leg_verifications = 0
         availability_batches = 0
+        self._trace(
+            observer,
+            stage=RunStage.VERIFY,
+            status=RunEventStatus.STARTED,
+            message_key="verify.replacement_started",
+            public_message="正在核对替换后的整套路线",
+        )
         for replacement_candidate in replacement_candidates:
             sequence_candidates = list(base_sequence)
             sequence_candidates[target_index] = replacement_candidate
@@ -1527,6 +1710,14 @@ class PlanningService:
             )
 
         if not verified_plans:
+            self._trace(
+                observer,
+                stage=RunStage.VERIFY,
+                status=RunEventStatus.FALLBACK,
+                message_key="verify.replacement_fallback",
+                public_message="替换候选未通过整套方案核验",
+                public_details={"reason_code": "no_replacement_plan"},
+            )
             conflict_code = "NO_CLOSER_REPLACEMENT" if needs_shorter_route else "NO_REPLACEMENT_PLAN"
             conflict_message = (
                 "完整路线复核后，没有找到全程距离确实更短的替换方案。"
@@ -1551,6 +1742,14 @@ class PlanningService:
                 )
             )
 
+        self._trace(
+            observer,
+            stage=RunStage.VERIFY,
+            status=RunEventStatus.COMPLETED,
+            message_key="verify.replacement_completed",
+            public_message="替换后的整套路线核验完成",
+            public_details={"plan_count": len(verified_plans)},
+        )
         verified_plans.sort(
             key=lambda item: (
                 -item[3],

@@ -267,6 +267,38 @@ export type RuntimeDecision = {
   output_tokens: number | null;
 };
 
+export type RunStage =
+  | "understand"
+  | "compile_request"
+  | "clarify"
+  | "structure"
+  | "retrieve"
+  | "construct"
+  | "verify"
+  | "modify"
+  | "advise";
+
+export type RunEventStatus = "started" | "completed" | "fallback" | "failed" | "waiting_input";
+
+export type PlanningRunEvent = {
+  schema_version: "planning-run-event.v1";
+  run_id: string;
+  sequence: number;
+  stage: RunStage;
+  status: RunEventStatus;
+  message_key: string;
+  public_message: string;
+  occurred_at: string;
+  duration_ms: number | null;
+  public_details: Record<string, string | number | boolean | null>;
+};
+
+export type PlanningRunTrace = {
+  schema_version: "planning-run-trace.v1";
+  run_id: string;
+  events: PlanningRunEvent[];
+};
+
 export type ReplacementCriterion =
   | { kind: "semantic"; text: string; strength: "preferred" }
   | { kind: "route_objective"; metric: "total_route_distance"; direction: "decrease"; strength: "required" };
@@ -379,9 +411,13 @@ export type AgentResponse = {
   poi_presentations: PoiPresentation[];
   plan_version_id?: string | null;
   runtime_decisions?: RuntimeDecision[];
+  run_trace?: PlanningRunTrace | null;
   retrieval_evidence?: EvidenceRef[];
   retrieval_mode?: string | null;
   retrieval_index_version?: string | null;
+  search_mode?: string | null;
+  search_finalist_count?: number | null;
+  search_expansions?: number | null;
   conversation_command?: Record<string, unknown> | null;
   plan_diff?: PlanDiff | null;
   plan_diffs?: PlanDiff[];

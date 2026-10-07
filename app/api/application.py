@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import queue
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.api.schemas import (
@@ -33,6 +37,7 @@ from app.services.catalog import Catalog
 from app.services.candidate_retriever import CandidateRetriever
 from app.api.planning_context import PlanningContextApplication
 from app.api.planning_turn import PlanningApplicationError, PlanningTurnApplication
+from app.domain.run_trace import PlanningRunEvent
 from app.services.planning_intent import PlanningIntentProvider
 from app.services.recommendation_advisor import (
     RecommendationAdvisor,
@@ -326,6 +331,61 @@ def create_app(
     ) -> ResponseEnvelope[AgentResponse]:
         return _run_planning_turn(session_id, request, x_user_id)
 
+    @app.post("/api/sessions/{session_id}/messages/stream")
+    async def send_message_stream(
+        session_id: str,
+        request: MessageRequest,
+        x_user_id: str = Header(default="demo-user"),
+    ) -> StreamingResponse:
+        """Stream safe lifecycle events while reusing the normal application service."""
+
+        events: queue.Queue[tuple[str, object | None]] = queue.Queue()
+
+        def emit_progress(event: PlanningRunEvent) -> None:
+            events.put(("progress", event))
+
+        def execute() -> None:
+            try:
+                response = planning_turn_application.handle(
+                    session_id=session_id,
+                    request=request,
+                    user_id=x_user_id,
+                    event_sink=emit_progress,
+                )
+                events.put(("result", response))
+            except PlanningApplicationError as error:
+                events.put(("error", {"detail": error.detail, "status_code": error.status_code}))
+            except Exception:
+                # Never expose stack traces or provider exception text through SSE.
+                events.put(("error", {"detail": "规划执行失败，请稍后重试。", "status_code": 500}))
+            finally:
+                events.put(("done", None))
+
+        worker = asyncio.create_task(asyncio.to_thread(execute))
+
+        async def body():
+            while True:
+                kind, payload = await asyncio.to_thread(events.get)
+                if kind == "progress" and isinstance(payload, PlanningRunEvent):
+                    yield _sse_frame("progress", payload.model_dump(mode="json"))
+                elif kind == "result" and isinstance(payload, AgentResponse):
+                    yield _sse_frame("result", {"data": payload.model_dump(mode="json")})
+                elif kind == "error" and isinstance(payload, dict):
+                    yield _sse_frame("error", payload)
+                elif kind == "done":
+                    break
+            await worker
+
+        return StreamingResponse(
+            body(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     @app.patch("/api/sessions/{session_id}/planning-context")
     def update_planning_context(
         session_id: str,
@@ -360,3 +420,10 @@ def create_app(
         )
 
     return app
+
+
+def _sse_frame(event_name: str, payload: dict) -> str:
+    return (
+        f"event: {event_name}\n"
+        f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+    )

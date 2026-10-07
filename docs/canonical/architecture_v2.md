@@ -168,7 +168,7 @@ flowchart TB
         memory_store[(Memory Module)]
         retrievers[(Semantic Retrievers)]
         providers[(Real Replay Mock Providers)]
-        trace[(分散 Runtime Diagnostics / Eval；统一 Trace 属于 S-TRACE1)]
+        trace[(PlanningRunTrace；Runtime Diagnostics / Eval 分开保留)]
     end
 
     api --> router
@@ -258,7 +258,7 @@ MainGraph 负责产品级控制流。下表中 `router → turn_compile → comp
 | `explanation_subgraph` | 模板 + 可选 1 次 LLM | 已验证方案、证据和取舍 | 不改变事实的解释 |
 | `permission_gate` | 确定性代码 | 已选 Plan Version、执行预览 | 有效确认快照 |
 | `execution_subgraph` | 确定性状态机 | 确认快照、ActorContext | `Order`、事件 |
-| `persist_and_emit` | 基础设施 | 状态变化 | 数据库记录、`AgentEvent` |
+| `persist_and_emit` | 基础设施 | 状态变化 | 数据库记录、`PlanningRunEvent` |
 | `feedback_and_memory` | 确定性主流程 + 可选 LLM 提取 | 完成/跳过/评分/纠正 | `MemoryCandidate[]`、确认或丢弃结果 |
 
 当前 Graph 的 `router` 先产生 `TurnProposal`，`turn_compile` 结合有限 `DecisionContext` 生成唯一 `CompiledNextAction`；`compile_request` 再由 `EnrichmentService`、`RequestPatchProposalCompiler` 与 `ConstraintEngine` 建立单一 `PlanRequest`。`gate` 通过 `RequestReadinessPolicy` 检查 Planner 必需字段，再由 `QuestionPolicy` 消费结构化 Issue。界面按钮和顶部栏可直接产生 typed Patch，绕过不必要的 LLM 解释。更完整的 `CapabilityRouter` 与多能力子图仍是目标架构：它只能根据经过 schema/权限校验的命令路由，不能听从自由文本跳过 Gate。
@@ -385,7 +385,8 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | `MemoryInfluence` | 记忆对结果的可解释影响 | memory id、plan/score/constraint target、direction、reason |
 | `MemoryCandidate` | 尚未提交的记忆提议 | proposed item、source event、confirmation requirement、risk |
 | `MemoryDecision` | 用户对记忆候选的处理结果 | accepted/rejected、resulting memory id、reason、decided at |
-| `AgentEvent` | SSE 事件 | event id、run、stage、status、public payload、timestamp |
+| `PlanningRunEvent` | 一轮规划的安全阶段事件 | run、sequence、stage、status、public message、safe details、timestamp |
+| `PlanningRunTrace` | 一轮规划的有序事件快照 | schema version、run、ordered events；不包含模型原文或隐藏推理 |
 
 ### 6.3 字段来源
 
@@ -860,7 +861,7 @@ POST   /api/orders/{order_id}/cancel
 GET    /api/sessions/{session_id}/events
 ```
 
-所有普通响应使用 `ResponseEnvelope`，流式事件使用版本化 `AgentEvent`。外部 I/O 使用 async，规划核心保持同步纯函数，必要时放入 worker thread。
+所有普通响应使用 `ResponseEnvelope`，流式事件使用版本化 `PlanningRunEvent`。外部 I/O 使用 async，规划核心保持同步纯函数，必要时放入 worker thread。
 
 `POST .../messages` 要求客户端传入 `request_id`；`GET /api/sessions` 默认只返回少量最近非空会话，`GET .../{session_id}` 返回稳定的 Session View，包括完整消息和最近一次规划响应。前端以 URL 中的 `session` 定位当前会话，并用 History API 同步点击切换、刷新与前进/后退。
 
@@ -871,19 +872,29 @@ GET    /api/sessions/{session_id}/events
 - 左栏：有界最近会话和新建会话；历史区限制高度，下部为本人/家庭记忆入口，不把全部记忆长期展开占满侧栏。
 - 中栏：家庭管家式对话、渐进披露的约束摘要、方案对比和确认操作。默认只展示用户最关心的假设、风险和差异，完整来源与置信度进入详情抽屉。
 - 右栏：行程、地图、订单 Tab；POI 详情使用抽屉或独立详情层，不把来源许可、调试字段和主要行动混在同一视觉层级。
-- 底部抽屉：公开的运行阶段、Provider 来源与调试轨迹。
+- 主对话：公开的运行阶段时间线；执行中由 SSE 事件驱动，完成后从响应中的 `run_trace` 恢复。
+- 右栏“核验”：当前方案的事实概览、待确认风险、证据和可选的开发者详情；不把运行过程和方案依据混在一起。
 
 桌面端并排对比 3 个方案；移动端改为滑动方案和 Tab。方案卡先突出主题、总时长、总路程、预算、风险和关键取舍，再展开完整时间线。地图 marker、时间线和 Route Leg 双向联动；每个停靠点支持查看标签、营业摘要、评分证据、替换、锁定和打开地图导航。
 
-规划等待态使用阶段化动效表达“理解需求、筛选地点、复核路线、比较方案”，不展示 chain-of-thought，也不伪造尚未执行的工具结果。Presenter 默认生成简短管家式说明，约束与证据采用渐进披露，避免把系统内部状态平铺成用户必须逐项阅读的表单。
+规划等待态使用阶段化动效表达“理解需求、整理条件、设计结构、检索地点、组合方案、核验路线和生成说明”，不展示 chain-of-thought，也不伪造尚未执行的工具结果。Presenter 默认生成简短管家式说明，约束与证据采用渐进披露，避免把系统内部状态平铺成用户必须逐项阅读的表单。
 
-按钮、约束面板和方案操作直接发送结构化 `ConversationCommand`，不经过 LLM；只有自然语言输入才进入 TurnInterpreter。SSE 只发布有用户价值的阶段事件，不暴露模型隐式推理过程。
+按钮、约束面板和方案操作直接发送结构化 `ConversationCommand`，不经过 LLM；只有自然语言输入才进入 TurnInterpreter。`POST /api/sessions/{session_id}/messages/stream` 使用 `fetch + ReadableStream` 接收 SSE；流式和普通 POST 复用同一个 `PlanningTurnApplication`，避免重复 Router、Planner 或 Provider 调用。SSE 只发布有用户价值的阶段事件，不暴露模型隐式推理过程。
 
 前端支持无 LLM 演示模式：预置场景、结构化约束、规则规划、本地路线、Mock 执行和模板 Presenter 仍可完成闭环。
 
 ## 13. 可观测性与评测
 
 ### 13.1 运行轨迹
+
+当前可观测性明确分成四类数据：
+
+- `PlanningRunTrace`：用户安全的一轮执行过程，只包含有限阶段、生命周期、顺序和公开详情。
+- `RuntimeDecision` / `SearchTrace`：模型、检索、Beam 和 Provider 的开发/评测诊断，不进入公开时间线。
+- `Evidence` / Provider facts：支撑当前方案结论的事实，按选中方案过滤后进入“核验”。
+- `Warning` / degradation：路线估算、营业或 Availability 待确认、数据过期和安全回退等风险。
+
+公开 Trace 不是模型思维过程，也不是把所有内部日志复制一遍。事件由 request-scoped `RunObserver` 产生，HTTP 层可将其投影为 SSE；完成后同一快照随 `AgentResponse.run_trace` 写入 `planning_runs.response_json`。当前不单独建立 Trace/Evidence 数据表，也不支持跨进程历史事件续传。
 
 每个 run 至少记录：
 

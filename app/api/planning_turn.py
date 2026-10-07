@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from langgraph.types import Command
 
@@ -28,6 +28,13 @@ from app.domain.planning import Plan
 from app.domain.providers import WeatherFact
 from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
 from app.domain.runtime import RuntimeDecision
+from app.domain.run_trace import (
+    InMemoryRunObserver,
+    PlanningRunEventDraft,
+    PlanningRunEvent,
+    RunEventStatus,
+    RunStage,
+)
 from app.domain.semantics import SemanticRequest
 from app.orchestration.entry_graph import EnvironmentProvider, checkpoint_config
 from app.persistence.repositories import SessionRepository
@@ -101,7 +108,14 @@ class PlanningTurnApplication:
             has_active_plan=has_active_plan or just_planned,
         )
 
-    def handle(self, *, session_id: str, request: MessageRequest, user_id: str) -> AgentResponse:
+    def handle(
+        self,
+        *,
+        session_id: str,
+        request: MessageRequest,
+        user_id: str,
+        event_sink: Callable[[PlanningRunEvent], None] | None = None,
+    ) -> AgentResponse:
         if self._repository.get_session(user_id, session_id) is None:
             raise PlanningApplicationError(status_code=404, detail="session not found")
 
@@ -264,6 +278,15 @@ class PlanningTurnApplication:
         if not run.should_execute:
             raise PlanningApplicationError(status_code=409, detail="planning run is already in progress")
 
+        run_observer = InMemoryRunObserver(run.planning_run_id, on_event=event_sink)
+        invoke_config = {
+            **config,
+            "configurable": {
+                **config.get("configurable", {}),
+                "run_observer": run_observer,
+            },
+        }
+
         try:
             actor = self._actor_for(user_id, session_id)
             if request.planning_context_patch is not None:
@@ -304,7 +327,7 @@ class PlanningTurnApplication:
                         "value": request.content,
                         "request_revision": pending_interrupt["request_revision"],
                     }
-                result = self._graph.invoke(Command(resume=resume_value), config=config)
+                result = self._graph.invoke(Command(resume=resume_value), config=invoke_config)
             elif compiled_context_patch is not None:
                 session_snapshot = self._repository.get_session_snapshot(user_id, session_id)
                 active_plan_payloads = self._repository.list_plans(user_id, session_id)
@@ -334,7 +357,7 @@ class PlanningTurnApplication:
                         "defer_planning": request.defer_planning,
                         "replan_current_request": False,
                     },
-                    config=config,
+                    config=invoke_config,
                 )
             else:
                 session_snapshot = self._repository.get_session_snapshot(
@@ -413,7 +436,7 @@ class PlanningTurnApplication:
                         # deterministic action path.
                         "conversation_command_override": request.conversation_command,
                     },
-                    config=config,
+                    config=invoke_config,
                 )
 
             # invoke() 可能再次停在 interrupt。这里读取持久化后的最新状态，而不是
@@ -441,6 +464,7 @@ class PlanningTurnApplication:
                     warnings=[],
                     poi_presentations=[],
                     runtime_decisions=runtime_decisions,
+                    run_trace=run_observer.snapshot(),
                     planning_context=self.project_context(
                         user_id,
                         session_id,
@@ -525,6 +549,14 @@ class PlanningTurnApplication:
 
             recommendation_advice: RecommendationAdvice | None = None
             if plans and effective_constraints is not None:
+                run_observer.record(
+                    PlanningRunEventDraft(
+                        stage=RunStage.ADVISE,
+                        status=RunEventStatus.STARTED,
+                        message_key="advise.started",
+                        public_message="正在整理推荐说明",
+                    )
+                )
                 weather_fact = next(
                     (
                         fact
@@ -555,6 +587,31 @@ class PlanningTurnApplication:
                     *runtime_decisions,
                     _recommendation_runtime_decision(recommendation_advice),
                 ]
+                run_observer.record(
+                    PlanningRunEventDraft(
+                        stage=RunStage.ADVISE,
+                        status=(
+                            RunEventStatus.COMPLETED
+                            if recommendation_advice.adapter != "fallback"
+                            else RunEventStatus.FALLBACK
+                        ),
+                        message_key=(
+                            "advise.completed"
+                            if recommendation_advice.adapter != "fallback"
+                            else "advise.fallback"
+                        ),
+                        public_message=(
+                            "推荐说明生成完成"
+                            if recommendation_advice.adapter != "fallback"
+                            else "推荐说明已回退到安全模板"
+                        ),
+                        public_details=(
+                            {}
+                            if recommendation_advice.adapter != "fallback"
+                            else {"reason_code": "advisor_fallback"}
+                        ),
+                    )
+                )
 
             response = AgentResponse(
                 status="context_saved" if context_saved else "completed",
@@ -754,6 +811,7 @@ class PlanningTurnApplication:
                     if recommendation_advice is not None
                     else None
                 ),
+                run_trace=run_observer.snapshot(),
                 planning_context=self.project_context(
                     user_id,
                     session_id,
@@ -780,6 +838,11 @@ class PlanningTurnApplication:
             )
             return response
         except Exception:
+            # Keep the public execution trace lifecycle closed even when an
+            # unexpected provider or application error aborts the turn. The
+            # observer only emits a bounded, generic failure event; raw error
+            # text and stack traces never enter the public response.
+            run_observer.fail_open_stages()
             self._repository.fail_planning_run(
                 user_id=user_id,
                 session_id=session_id,
