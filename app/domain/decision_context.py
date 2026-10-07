@@ -284,11 +284,6 @@ class DecisionContextBuilder:
             ),
         }[lifecycle]
         allowed_actions = list(allowed_actions_by_lifecycle)
-        if lifecycle is RequestLifecycle.PLANNED and selected_plan is None:
-            # A session may contain candidate plans without a selected
-            # PlanVersion.  Replacement remains a valid *kind* for a planned
-            # session, but cannot execute until the UI supplies a selection.
-            allowed_actions.remove("replace_stop")
         return DecisionContext(
             current_request=(
                 RequestContextSummary.from_request(request)

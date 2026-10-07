@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -25,10 +25,28 @@ class Database:
         )
 
     def create_schema(self) -> None:
-        """导入全部 ORM 模型并为 M1 创建表；正式部署后应迁移到 Alembic。"""
+        """导入 ORM 模型并创建/补齐当前本地 SQLite schema.
+
+        The project does not ship Alembic yet, so additive development-schema
+        changes are applied here.  This keeps an existing local demo database
+        usable after the request-snapshot column was introduced; destructive
+        migrations remain out of scope.
+        """
         from app.persistence import models  # noqa: F401
 
         Base.metadata.create_all(self.engine)
+        columns = {
+            column["name"]
+            for column in inspect(self.engine).get_columns("session_snapshots")
+        }
+        if "active_request_json" not in columns:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE session_snapshots "
+                        "ADD COLUMN active_request_json TEXT"
+                    )
+                )
 
     def close(self) -> None:
         self.engine.dispose()

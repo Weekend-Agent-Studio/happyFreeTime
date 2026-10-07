@@ -302,6 +302,7 @@ class SessionRepository:
         plans: list[Plan],
         plan_version_id: str | None = None,
         normalized_constraints_json: str | None = None,
+        active_request_json: str | None = None,
         supersedes_version_id: str | None = None,
     ) -> None:
         """Atomically persist one run response, assistant message, and Plan Version.
@@ -324,6 +325,15 @@ class SessionRepository:
                 raise LookupError("planning run not found")
             if planning_run.response_json is not None:
                 return
+            if active_request_json is not None:
+                if not active_request_json.strip():
+                    raise ValueError("active request snapshot must be non-empty")
+                try:
+                    active_request = json.loads(active_request_json)
+                except (TypeError, json.JSONDecodeError) as error:
+                    raise ValueError("active request snapshot must be valid JSON") from error
+                if not isinstance(active_request, dict) or not active_request:
+                    raise ValueError("active request snapshot must be a non-empty JSON object")
             if plans:
                 if status != "completed":
                     raise ValueError("a planning run with plans must be completed")
@@ -408,12 +418,33 @@ class SessionRepository:
                             user_id=user_id,
                             active_plan_version_id=plan_version_id,
                             selected_plan_id=None,
+                            active_request_json=active_request_json or normalized_constraints_json,
                             updated_at=now,
                         )
                     )
                 else:
                     snapshot.active_plan_version_id = plan_version_id
                     snapshot.selected_plan_id = None
+                    snapshot.active_request_json = active_request_json or normalized_constraints_json
+                    snapshot.updated_at = now
+            elif active_request_json is not None:
+                snapshot = database.scalar(
+                    select(SessionSnapshotRecord).where(
+                        SessionSnapshotRecord.session_id == session_id,
+                        SessionSnapshotRecord.user_id == user_id,
+                    )
+                )
+                if snapshot is None:
+                    database.add(
+                        SessionSnapshotRecord(
+                            session_id=session_id,
+                            user_id=user_id,
+                            active_request_json=active_request_json,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    snapshot.active_request_json = active_request_json
                     snapshot.updated_at = now
             if assistant_content:
                 database.add(
@@ -537,6 +568,43 @@ class SessionRepository:
         user_id: str,
         session_id: str,
     ) -> dict | None:
+        snapshot = self.get_session_snapshot(user_id, session_id)
+        if snapshot is None:
+            return None
+        # Validate the active version first when one exists.  This preserves
+        # tenant isolation for callers that tamper with or restore a stale
+        # snapshot pointer; a draft without a version can use its request
+        # snapshot directly.
+        with self._session_factory() as database:
+            version = None
+            if snapshot.active_plan_version_id is not None:
+                version = database.scalar(
+                    select(PlanVersionRecord).where(
+                        PlanVersionRecord.id == snapshot.active_plan_version_id,
+                        PlanVersionRecord.user_id == user_id,
+                        PlanVersionRecord.session_id == session_id,
+                    )
+                )
+                if version is None:
+                    return None
+            if snapshot.active_request_json:
+                return json.loads(snapshot.active_request_json)
+            if version is None:
+                return None
+            return json.loads(version.normalized_constraints_json)
+
+    def planned_constraints(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> dict | None:
+        """Return the request snapshot that produced the active PlanVersion.
+
+        ``active_constraints`` intentionally returns the latest editable
+        request, which may be newer than the currently displayed plan.  The
+        UI needs this separate read to calculate ``plan_stale`` correctly.
+        """
+
         snapshot = self.get_session_snapshot(user_id, session_id)
         if snapshot is None or snapshot.active_plan_version_id is None:
             return None

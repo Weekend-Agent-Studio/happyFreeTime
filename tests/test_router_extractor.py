@@ -100,6 +100,15 @@ class TurnInterpreterTest(unittest.TestCase):
                     PeriodProposal(event="departure", period=TimeScope.AFTERNOON, evidence="下午"),
                 ),
             )
+        with self.assertRaises(ValueError):
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    TripRangeProposal(start="14:00", end="18:00", evidence="下午"),
+                    EventClockProposal(event="departure", clock="14:00", evidence="下午"),
+                ),
+            )
 
     def test_production_builder_uses_turn_proposal_schema(self) -> None:
         with patch.dict(
@@ -252,6 +261,17 @@ class TurnInterpreterTest(unittest.TestCase):
         )
         self.assertIsInstance(no_selection.action, NeedsClarification)
         self.assertEqual(no_selection.action.field, "selected_plan_id")
+
+        blocked_empty = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(role=StopRole.ACTIVITY, raw_text="活动"),
+                )
+            ),
+            context=DecisionContext(allowed_actions=("create_plan", "chitchat")),
+        )
+        self.assertIsInstance(blocked_empty.action, NoAction)
+        self.assertEqual(blocked_empty.action.reason, "unsupported")
 
     def test_compiler_uses_context_allowlist_and_selected_stop_bounds(self) -> None:
         context = DecisionContext(

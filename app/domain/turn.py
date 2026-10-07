@@ -287,6 +287,18 @@ class TurnCompiler:
             )
 
         if isinstance(act, ReplaceStopProposal):
+            # Lifecycle permissions are checked before resolving model text.
+            # An empty/draft session must not enter the modification workflow
+            # merely because a target string happens to be parseable.
+            if not cls._allowed(context, "replace_stop"):
+                return TurnCompilation(
+                    interpretation=cls._interpretation(
+                        intent=Intent.REFINE_PLAN,
+                        target_reference=act.target.raw_text,
+                        evidence_map=act.evidence,
+                    ),
+                    action=NoAction(reason="unsupported"),
+                )
             command, unresolved = cls._command(act, context=context)
             if unresolved is not None:
                 pending = PendingModification(
@@ -433,6 +445,8 @@ class TurnCompiler:
                 ),
             )
         if operation == "replace":
+            if not cls._allowed(context, "replace_stop"):
+                return cls._unsupported(interpretation)
             if not selected_plan:
                 return TurnCompilation(
                     interpretation=interpretation,
@@ -451,8 +465,6 @@ class TurnCompiler:
                         ),
                     ),
                 )
-            if not cls._allowed(context, "replace_stop"):
-                return cls._unsupported(interpretation)
             invalid_target = cls._invalid_command_target(command, context)
             if invalid_target is not None:
                 return TurnCompilation(

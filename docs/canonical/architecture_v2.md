@@ -14,7 +14,7 @@
 | --- | --- |
 | Graph、反问恢复、Enrichment、Provider、Planner、Verifier | 已实现 |
 | Wire Proposal、PlanSpecCompiler、Beam、Hybrid Retrieval、Grounded Advisor | 已实现并纳入发布评测 |
-| PlanRequest、RequestPatch、ConstraintEngine、PlanningWindow、顶部五栏与字段反问 | S-CORE2A–E 已实现；S-CORE3A–G 在当前开发分支完成收敛，发布状态以冻结提交为准 |
+| PlanRequest、RequestPatch、ConstraintEngine、PlanningWindow、顶部五栏与字段反问 | S-CORE2A–E 已实现；S-CORE3A–H4 在当前架构分支完成收敛，发布状态以冻结提交为准 |
 | 真实订单、预订、叫车、Saga | 目标设计，未实现 |
 | 长期记忆、Memory Influence、可删除画像 | 目标设计，未实现 |
 | ToolBroker、MCP Client/Server Adapter | 目标设计，未接入主链 |
@@ -22,7 +22,7 @@
 
 本文后续章节描述目标边界、接口演进和取舍；出现“应支持”“目标形态”“后续”时，不得当作当前能力。
 
-> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。S-CORE2A–E 完成约束与反问收敛：自然语言、顶部栏与反问统一进入 `PlanRequest / RequestPatch / ConstraintEngine`；时间使用带来源的 `PlanningWindow` 和轻量 `TimeProposal`，不建设完整 Temporal AST；`QuestionPolicy` 确定性决策，旧开发 checkpoint 明确失效。S-CORE3A–G 又将自然语言收敛为 `DecisionContext → TurnProposal → TurnCompiler → CompiledNextAction`，并把 Graph、Application、状态所有权和旧入口清理写入当前架构。当前执行链仍保留内部 `Interpretation` 投影与 `ConversationCommand` 替换契约，因为它们被 Planner/Modification/评测实际消费；它们不是模型动作判别字段，也不是旧 checkpoint 兼容层。本文的 `QuestionGate`、`NormalizedConstraints`、`TimeConstraintSet` 等旧名称均属目标草案或历史快照，不是当前接口。详见 [当前架构](../current/resume_v2_architecture.md)、[S-CORE3G 发布记录](../status/s_core3g_release_20261006.md) 与 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
+> 更新说明：S-CORE1A/B/C 在冻结发布 tag 之后完成了 Planner 结构收敛。当前代码使用单一 `PlanStructureProposal v3 → PlanSpecCompiler → PlanSpec` 结构链；旧章节中的 `PlanSkeleton`、`StructureCompiler` 和 PlanningIntent 结构字段是历史快照或目标草案，不能作为现行实现契约。S-CORE2A–E 完成约束与反问收敛：自然语言、顶部栏与反问统一进入 `PlanRequest / RequestPatch / ConstraintEngine`；时间使用带来源的 `PlanningWindow` 和轻量 `TimeProposal`，不建设完整 Temporal AST；`QuestionPolicy` 确定性决策，旧开发 checkpoint 明确失效。S-CORE3A–H4 又将自然语言收敛为 `DecisionContext → TurnProposal → TurnCompiler → CompiledNextAction`，并把 Graph、Application、状态所有权和旧入口清理写入当前架构。当前执行链仍保留内部 `Interpretation` 投影与 `ConversationCommand` 替换契约，因为它们被 Planner/Modification/评测实际消费；它们不是模型动作判别字段，也不是旧 checkpoint 兼容层。H4 后 Graph 不再接受旧 tuple/Interpretation 动作回退，历史夹具只能在 Demo/Frozen/测试边界显式适配。本文的 `QuestionGate`、`NormalizedConstraints`、`TimeConstraintSet` 等旧名称均属目标草案或历史快照，不是当前接口。详见 [当前架构](../current/resume_v2_architecture.md)、[S-CORE3H4 收口记录](../status/s_core3h4_closeout_20261007.md) 与 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
 
 当本文档与早期的 [`mock_design.md`](../archive/v1/mock_design.md)、[`router_extractor_design_v2_draft.md`](../archive/router/router_extractor_design_v2_draft.md) 或实验代码冲突时，以本文档为准。早期文档保留为设计演进记录，不再作为实现契约。
 
@@ -129,7 +129,8 @@ flowchart TB
 
     subgraph control_graph ["🧭 当前请求主链与目标扩展"]
         router[Router / DemoRouter]
-        compile[compile_request：Enrichment + Proposal Compiler + ConstraintEngine]
+        turn_compile[TurnCompiler：Proposal + DecisionContext]
+        compile[compile_request：Patch + ConstraintEngine]
         gate{ReadinessPolicy / QuestionPolicy}
         question[Interrupt 与 ClarificationIssue]
         current_planning[[当前 planning 节点]]
@@ -137,7 +138,7 @@ flowchart TB
         reply[字段级反问回答]
         patch[apply_request_patch / compile_patch]
         modify[modify_plan：定向方案修改]
-        router --> compile --> gate
+        router --> turn_compile --> compile --> gate
         gate -->|缺阻塞信息| question
         question -->|Resume| gate
         gate -->|信息齐全| current_planning
@@ -239,12 +240,13 @@ flowchart TB
 
 ### 5.1 MainGraph
 
-MainGraph 负责产品级控制流。下表中 `router → compile_request → gate → ask_question / planning` 是当前 S-CORE2 已实现的请求主链；Inquiry、Execution、长期 Memory 等其余节点仍是目标架构，不代表本分支已交付：
+MainGraph 负责产品级控制流。下表中 `router → turn_compile → compile_request / modify_plan / ask_question / planning` 是当前 S-CORE3H4 分支的请求主链；Inquiry、Execution、长期 Memory 等其余节点仍是目标架构，不代表本分支已交付：
 
 | 节点 | 类型 | 输入 | 输出 |
 | --- | --- | --- | --- |
-| `router` | 当前实现：Demo/LLM Router | 最新用户输入与有限会话上下文 | 内部 `Interpretation` / 受限 Proposal |
-| `compile_request` | 确定性代码 + 必需 Provider | Proposal、当前请求、ActorContext | `RequestPatch`、结构化 Issue 与前置事实 |
+| `router` | 当前实现：Demo/LLM Router | 最新用户输入与有限 `DecisionContext` | `TurnProposal` 与运行诊断 |
+| `turn_compile` | 确定性代码 | `TurnProposal`、`DecisionContext` | 唯一 `CompiledNextAction` |
+| `compile_request` | 确定性代码 + 必需 Provider | `CompiledNextAction`、当前请求、ActorContext | `RequestPatch`、结构化 Issue 与前置事实 |
 | `compile_patch` / `apply_request_patch` | 确定性代码 | 方案后约束提案或已编译 typed Patch | 同一 Engine 的新 `PlanRequest`，或阻塞 Issue |
 | `replan_current_request` | 确定性代码 | 已保存且 revision 最新的请求 | 使用新请求进入 Planning |
 | `modify_plan` | 确定性代码 + 有界语义提案 | 选中方案、修改命令与锁定项 | `PlanDiff` 与新 Plan Version |
@@ -259,7 +261,7 @@ MainGraph 负责产品级控制流。下表中 `router → compile_request → g
 | `persist_and_emit` | 基础设施 | 状态变化 | 数据库记录、`AgentEvent` |
 | `feedback_and_memory` | 确定性主流程 + 可选 LLM 提取 | 完成/跳过/评分/纠正 | `MemoryCandidate[]`、确认或丢弃结果 |
 
-当前 Graph 的 `router` 将受限语义提案编译为内部 `Interpretation`；`compile_request` 由 `EnrichmentService`、`RequestPatchProposalCompiler` 与 `ConstraintEngine` 建立单一 `PlanRequest`。`gate` 通过 `RequestReadinessPolicy` 检查 Planner 必需字段，再由 `QuestionPolicy` 消费结构化 Issue。界面按钮和顶部栏可直接产生 typed Patch，绕过不必要的 LLM 解释。更完整的 `CapabilityRouter` 与多能力子图仍是目标架构：它只能根据经过 schema/权限校验的命令路由，不能听从自由文本跳过 Gate。
+当前 Graph 的 `router` 先产生 `TurnProposal`，`turn_compile` 结合有限 `DecisionContext` 生成唯一 `CompiledNextAction`；`compile_request` 再由 `EnrichmentService`、`RequestPatchProposalCompiler` 与 `ConstraintEngine` 建立单一 `PlanRequest`。`gate` 通过 `RequestReadinessPolicy` 检查 Planner 必需字段，再由 `QuestionPolicy` 消费结构化 Issue。界面按钮和顶部栏可直接产生 typed Patch，绕过不必要的 LLM 解释。更完整的 `CapabilityRouter` 与多能力子图仍是目标架构：它只能根据经过 schema/权限校验的命令路由，不能听从自由文本跳过 Gate。
 
 ### 5.2 子图与 Module 的边界
 
@@ -347,7 +349,7 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | --- | --- | --- |
 | `ActorContext` | 身份与权限上下文 | identity type、user、session、locale、timezone |
 | `ConversationCommand` | 一轮对话的组合式语义命令 | operation、subject、target、Patch、locks、requested facts、evidence、confidence |
-| `Interpretation` | Router 的内部解释对象 | primary intent、proposal 约束、时间提案、目标引用与 evidence；不是 Planner 请求或旧 checkpoint Adapter |
+| `Interpretation` | 执行服务消费的内部约束投影 | 保留约束、时间提案、目标引用与 evidence；不是模型动作判别字段、Graph 路由键或旧 checkpoint Adapter |
 | `TargetReference` | 指向已有领域对象 | plan version、stop、role、candidate、order 或 memory 的稳定引用/待解析表达 |
 | `ConstraintPatch` | 对当前约束快照的显式增量 | set、remove、strength、source、target scope |
 | `LockedStop` | 局部修改中不得无理由改变的停靠点 | plan version、stop identity、lock reason、owner |
@@ -403,7 +405,7 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 
 ### 7.1 目标态 TurnInterpreter 与组合式命令
 
-本节描述完整多能力架构的目标语义入口，不代表 S-CORE2 已交付 `ConversationCommand` / `StateMerger`。当前 Graph 的 `router` 节点输出受限 `Interpretation`，CREATE 与请求更新按第 5 节和第 7.3 节编译为统一 `PlanRequest`；旧 checkpoint 不提供兼容读取。未来若扩展为 `TurnInterpreter`，也不应重复执行一次全量语义解析。自然语言入口每轮默认最多进行 1 次必要 LLM 调用，目标输出可使用 `ConversationCommand` 等有界结构。
+本节描述完整多能力架构的目标语义入口，不代表当前已经交付 Inquiry、Execution 或长期 Memory。当前 Graph 的 `router` 节点输出受限 `TurnProposal`，`turn_compile` 结合 `DecisionContext` 生成唯一 `CompiledNextAction`；CREATE 与请求更新再按第 5 节和第 7.3 节编译为统一 `PlanRequest`，定向替换进入 `ConversationCommand` / `ModificationService`。旧 checkpoint 不提供兼容读取。自然语言入口每轮默认最多进行 1 次必要 LLM 调用，目标输出使用有界结构，不能跳过 Compiler 或 ConstraintEngine。
 
 稳定的 `operation` 控制在：`CREATE`、`MODIFY`、`QUERY`、`SEARCH`、`COMPARE`、`EXPLAIN`、`EXECUTE`、`CHAT` 和 `UNSUPPORTED`。新表达优先表示为 `operation + subject + TargetReference + ConstraintPatch` 的组合，不为“换晚饭”“换第二站”“查新展”等句式增加新的 Graph Intent。
 
@@ -424,7 +426,7 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 
 `StateMerger` 接收命令和 `SessionSnapshot`，用 Plan Version、选中方案、停靠点角色和当前 UI selection 解析引用，并按来源优先级生成新的约束快照。无法唯一解析的目标保持 unresolved，交给 Gate 反问；不允许让模型凭记忆中的名字直接修改未授权对象。
 
-Prompt 可注入当前日期和时区帮助理解相对日期，但环境事实和默认值仍由 Enrichment 提供。结构化校验失败时重试 1 次；仍失败进入安全澄清。当前 `Interpretation` 是现行 Proposal 边界；若未来切换到 `ConversationCommand`，应按新版本契约演进，不复活旧 checkpoint Adapter。
+Prompt 可注入当前日期和时区帮助理解相对日期，但环境事实和默认值仍由 Enrichment 提供。结构化校验失败时重试 1 次；仍失败进入安全澄清。当前 `TurnProposal` 是模型动作边界；`Interpretation` 只是执行服务消费的内部约束投影，不作为 Graph 路由键。若未来扩展 `ConversationCommand` 或其他能力，仍应按新版本契约演进，不复活旧 checkpoint Adapter。
 
 ### 7.2 ContextAssembler：上下文是投影，不是控制流
 
@@ -485,7 +487,7 @@ sequenceDiagram
 
 当前 CREATE 请求链由确定性组件共同完成：
 
-1. Router 产生受限 `Interpretation`/Wire Proposal，不直接生成执行请求。
+1. Router 结合有限 `DecisionContext` 产生受限 `TurnProposal`；`TurnCompiler` 将它编译为唯一的 `CompiledNextAction`，不直接生成执行请求。
 2. `EnrichmentService` 规范化地点、预算、人数、距离等非时间字段，补默认值和来源，并输出初始 `RequestPatch`。
 3. `RequestPatchProposalCompiler` 将日期和 `TimeProposal` 编译进同一 Patch；显式无法规范化的硬字段保留为 `ClarificationIssue`。
 4. `ConstraintEngine` 原子应用 Patch、检查跨字段冲突并递增 revision；`RequestReadinessPolicy` 检查地点、日期和完整时间窗等 Planner 必需字段。

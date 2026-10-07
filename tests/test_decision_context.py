@@ -57,7 +57,7 @@ class DecisionContextTest(unittest.TestCase):
         self.assertNotIn("poi-secret", lines)
         self.assertNotIn("version-secret", lines)
 
-    def test_builder_does_not_offer_replace_without_selected_plan(self) -> None:
+    def test_builder_keeps_replace_action_for_planned_session_until_selection(self) -> None:
         context = DecisionContextBuilder.build(
             request=PlanRequest(),
             has_plans=True,
@@ -65,7 +65,7 @@ class DecisionContextTest(unittest.TestCase):
 
         self.assertEqual(context.request_lifecycle, RequestLifecycle.PLANNED)
         self.assertNotIn("select_plan", context.allowed_actions)
-        self.assertNotIn("replace_stop", context.allowed_actions)
+        self.assertIn("replace_stop", context.allowed_actions)
         self.assertIn("patch_constraints", context.allowed_actions)
 
     def test_builder_does_not_offer_request_patch_without_current_request(self) -> None:

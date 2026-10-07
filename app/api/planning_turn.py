@@ -85,7 +85,7 @@ class PlanningTurnApplication:
         snapshot = self._repository.get_session_snapshot(user_id, session_id)
         has_active_plan = bool(snapshot and snapshot.active_plan_version_id)
         planned_request = (
-            self._repository.active_constraints(user_id, session_id)
+            self._repository.planned_constraints(user_id, session_id)
             if has_active_plan
             else None
         )
@@ -456,6 +456,7 @@ class PlanningTurnApplication:
                     response=response.model_dump(mode="json"),
                     assistant_content=question["question"],
                     plans=[],
+                    active_request_json=current_request.model_dump_json(),
                 )
                 return response
 
@@ -770,6 +771,11 @@ class PlanningTurnApplication:
                 plans=plans,
                 plan_version_id=plan_version_id,
                 normalized_constraints_json=normalized_constraints_json,
+                active_request_json=(
+                    effective_constraints.model_dump_json()
+                    if effective_constraints is not None
+                    else None
+                ),
                 supersedes_version_id=supersedes_version_id,
             )
             return response

@@ -582,16 +582,24 @@ class Interpretation(BaseModel):
     def validate_temporal_scope_consistency(self) -> "Interpretation":
         """Reject one evidence span being assigned to two event scopes."""
 
-        periods_by_evidence: dict[str, set[str]] = {}
+        scopes_by_evidence: dict[str, set[str]] = {}
         for proposal in self.time_proposals:
-            if isinstance(proposal, PeriodProposal):
-                periods_by_evidence.setdefault(proposal.evidence, set()).add(proposal.event)
-        for evidence, events in periods_by_evidence.items():
-            if "trip" in events and "departure" in events:
+            if isinstance(proposal, TripRangeProposal):
+                scope = "trip"
+            else:
+                # Both exact clocks and coarse periods are event-scoped.  The
+                # discriminated wire contract keeps their event explicit, so
+                # mixed representations can be rejected without inspecting
+                # the original sentence again.
+                scope = proposal.event
+            scopes_by_evidence.setdefault(proposal.evidence, set()).add(scope)
+        for evidence, scopes in scopes_by_evidence.items():
+            event_scopes = scopes - {"trip"}
+            if "trip" in scopes and event_scopes:
                 raise PydanticCustomError(
                     "temporal_scope_conflict",
-                    "one time evidence cannot scope both trip and departure",
-                    {"evidence": evidence},
+                    "one time evidence cannot scope both the trip and an event",
+                    {"evidence": evidence, "scopes": sorted(scopes)},
                 )
         return self
 

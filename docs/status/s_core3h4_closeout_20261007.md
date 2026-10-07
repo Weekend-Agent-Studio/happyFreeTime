@@ -122,3 +122,22 @@ Rerun report directories:
 - No Planner/Search/Provider/Verifier behavior was changed in H4.
 - The rerun above is the valid network-enabled Live result; earlier blocked
   runs remain diagnostics only.
+
+## Post-H4 follow-up checks
+
+After the clean H4 evaluation, the branch received three small correctness
+follow-ups: temporal-scope validation now covers mixed range/clock proposals,
+replace actions check lifecycle permissions before target resolution, and the
+latest editable `PlanRequest` is persisted even before a `PlanVersion` exists.
+These changes do not alter the Planner, Retrieval, Provider, Verifier, or
+Advisor algorithms.
+
+- Backend deterministic regression: **457 tests passed**, including the new
+  lifecycle, temporal-scope, and draft-persistence cases.
+- AST compilation: **128 Python files parsed successfully**; the isolated
+  worktree's `compileall` write step was blocked only by its local
+  `__pycache__` ACL, not by a syntax error.
+- `git diff --check`: no content errors.
+- The expensive C0–C4/B0/B3 evaluations were **not rerun** after these
+  follow-ups. The clean-commit results in the preceding section remain the
+  applicable H4 evaluation evidence.

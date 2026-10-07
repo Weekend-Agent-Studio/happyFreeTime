@@ -171,6 +171,9 @@ class SessionSnapshotRecord(Base):
     user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     active_plan_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     selected_plan_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The latest request is a business fact even when it has not produced a
+    # PlanVersion yet (for example a deferred top-bar edit or a clarification).
+    active_request_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
