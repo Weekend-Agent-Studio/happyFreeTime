@@ -16,6 +16,7 @@ from app.domain.planning import Plan, Stop, StopType
 from app.orchestration.entry_graph import build_entry_graph
 from app.services.enrichment import EnvironmentContext
 from app.services.router_extractor import RouterContext
+from tests.router_support import InterpretationRouter
 
 
 class DecisionContextTest(unittest.TestCase):
@@ -103,7 +104,7 @@ class DecisionContextTest(unittest.TestCase):
         self.assertEqual(context.decision_context.current_request.revision, 2)
 
     def test_graph_supplies_bounded_context_to_natural_language_router(self) -> None:
-        class CapturingRouter:
+        class CapturingRouter(InterpretationRouter):
             def __init__(self) -> None:
                 self.context: RouterContext | None = None
 

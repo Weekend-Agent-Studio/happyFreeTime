@@ -220,17 +220,10 @@ class TurnCompiler:
         proposal: TurnProposal,
         *,
         context: DecisionContext | None = None,
-        has_selected_plan: bool | None = None,
     ) -> TurnCompilation:
-        """Compile one proposal against the bounded state projection.
-
-        ``has_selected_plan`` remains an adapter-only fallback for old unit
-        callers.  Graph/runtime callers pass ``DecisionContext`` so action
-        legality and target bounds are decided here rather than inferred from
-        several independent booleans downstream.
-        """
+        """Compile one proposal against the bounded state projection."""
         act = proposal.act
-        selected_plan = cls._selected_plan_available(context, has_selected_plan)
+        selected_plan = cls._selected_plan_available(context)
         if isinstance(act, CreatePlanProposal):
             interpretation = cls._interpretation(
                 intent=Intent.PLAN_OUTING,
@@ -392,11 +385,10 @@ class TurnCompiler:
         command: ConversationCommand,
         *,
         context: DecisionContext | None = None,
-        has_selected_plan: bool | None = None,
     ) -> TurnCompilation:
         """Compile an already validated UI command without a legacy projection."""
 
-        selected_plan = cls._selected_plan_available(context, has_selected_plan)
+        selected_plan = cls._selected_plan_available(context)
         operation = command.operation.value
         intent = (
             Intent.REFINE_PLAN
@@ -485,81 +477,11 @@ class TurnCompiler:
             )
         return cls._unsupported(interpretation)
 
-    @classmethod
-    def from_interpretation(
-        cls,
-        interpretation: Interpretation,
-        *,
-        context: DecisionContext | None = None,
-        has_selected_plan: bool | None = None,
-    ) -> TurnCompilation:
-        """Project deterministic/offline adapters into the same action seam."""
-
-        command = interpretation.conversation_command
-        if command is not None:
-            compiled = cls.compile_command(
-                command,
-                context=context,
-                has_selected_plan=has_selected_plan,
-            )
-            return TurnCompilation(
-                interpretation=interpretation,
-                action=compiled.action,
-            )
-
-        if interpretation.primary_intent == Intent.REFINE_PLAN:
-            # Deterministic/offline adapters may know that a turn is a
-            # modification without having resolved a target yet. Preserve
-            # that intent as an explicit clarification action instead of
-            # silently treating it as chitchat or ending the graph turn.
-            action: CompiledNextAction = NeedsClarification(
-                field="target_reference",
-                issue_kind="target",
-                raw_text=interpretation.target_reference,
-                pending_modification=PendingModification(
-                    operation="replace",
-                    target_raw_text=interpretation.target_reference,
-                    evidence=dict(interpretation.evidence_map),
-                ),
-            )
-        elif interpretation.primary_intent in {Intent.PLAN_OUTING, Intent.FIND_ACTIVITY}:
-            action = ApplyRequestPatch(
-                mode="create",
-                raw_constraints=interpretation.raw_constraints,
-                time_proposals=interpretation.time_proposals,
-                evidence_map=dict(interpretation.evidence_map),
-                condition_requests_plan=cls._condition_requests_plan(
-                    interpretation.raw_constraints,
-                    interpretation.time_proposals,
-                ),
-            )
-        elif interpretation.primary_intent == Intent.CHECK_WEATHER:
-            action = AnswerQuery(
-                query_kind="weather",
-                raw_constraints=interpretation.raw_constraints,
-                time_proposals=interpretation.time_proposals,
-                condition_requests_plan=cls._condition_requests_plan(
-                    interpretation.raw_constraints,
-                    interpretation.time_proposals,
-                ),
-            )
-        elif interpretation.primary_intent == Intent.QUERY_PLAN:
-            action = AnswerQuery(query_kind="plan")
-        else:
-            action = NoAction(reason="chitchat")
-        action_name = cls._action_name(action)
-        if action_name is not None and not cls._allowed(context, action_name):
-            action = NoAction(reason="unsupported")
-        return TurnCompilation(interpretation=interpretation, action=action)
-
     @staticmethod
     def _selected_plan_available(
         context: DecisionContext | None,
-        fallback: bool | None,
     ) -> bool:
-        if context is not None:
-            return context.selected_plan is not None
-        return bool(fallback)
+        return context is not None and context.selected_plan is not None
 
     @staticmethod
     def _allowed(context: DecisionContext | None, action: str) -> bool:

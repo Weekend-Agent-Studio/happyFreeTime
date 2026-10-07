@@ -24,6 +24,16 @@ from app.domain.constraints import (
 )
 from app.domain.runtime import RuntimeDecision
 from app.domain.turn import TurnCompiler
+from app.domain.turn import (
+    CheckWeatherProposal,
+    ChitchatProposal,
+    CreatePlanProposal,
+    PatchConstraintsProposal,
+    QueryPlanProposal,
+    ReplaceStopProposal,
+    TurnProposal,
+    TurnTargetProposal,
+)
 from app.services.enrichment import TemporalCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.router_extractor import RouterContext, TurnInterpreterResult
@@ -721,10 +731,31 @@ class DemoRouter:
     ) -> TurnInterpreterResult:
         started_at = perf_counter()
         interpretation = self.interpret(user_input, context)
-        compilation = TurnCompiler.from_interpretation(
-            interpretation,
+        # Keep the rule extractor's rich ``Interpretation`` as an internal
+        # semantic projection, but cross the same public proposal contract as
+        # the live Router before entering the compiler.  This makes the Demo
+        # adapter exercise the production action boundary instead of keeping a
+        # second interpretation-to-action route in the graph.
+        proposal = self._proposal_from_interpretation(interpretation)
+        compilation = TurnCompiler.compile(
+            proposal,
             context=context.decision_context,
-            has_selected_plan=context.has_selected_plan,
+        )
+        # The action is compiled from the proposal; preserve non-routing
+        # presentation metadata from the deterministic extractor for the
+        # response/diagnostic projection.
+        compilation = compilation.model_copy(
+            update={
+                "interpretation": compilation.interpretation.model_copy(
+                    update={
+                        "reply": interpretation.reply,
+                        "requires_clarification": interpretation.requires_clarification,
+                        "selected_plan_index": interpretation.selected_plan_index,
+                        "extraction_confidence": dict(interpretation.extraction_confidence),
+                        "inferred_fields": set(interpretation.inferred_fields),
+                    }
+                )
+            }
         )
         return TurnInterpreterResult(
             interpretation=compilation.interpretation,
@@ -739,3 +770,74 @@ class DemoRouter:
                 latency_ms=max(0, round((perf_counter() - started_at) * 1000)),
             ),
         )
+
+    @staticmethod
+    def _proposal_from_interpretation(interpretation: Interpretation) -> TurnProposal:
+        """Project the deterministic extractor into the public UserAct wire.
+
+        ``Interpretation`` remains useful to the rule extractor and request
+        compilers as a constraint projection.  It is not allowed to become an
+        action source: all actions below are compiled from the same
+        discriminated ``TurnProposal`` used by the model Router.
+        """
+
+        command = interpretation.conversation_command
+        if command is not None:
+            if command.operation == CommandOperation.PATCH_CONSTRAINTS:
+                return TurnProposal(
+                    act=PatchConstraintsProposal(
+                        constraint_patch=command.constraint_patch,
+                        evidence_map=dict(command.evidence),
+                    )
+                )
+            if command.operation == CommandOperation.REPLACE:
+                target = command.target or TargetReference(raw_text="那个地方")
+
+                def to_turn_target(reference: TargetReference) -> TurnTargetProposal:
+                    return TurnTargetProposal(
+                        role=reference.role,
+                        resource_type=reference.resource_type,
+                        stop_index=reference.stop_index,
+                        raw_text=reference.raw_text,
+                    )
+
+                return TurnProposal(
+                    act=ReplaceStopProposal(
+                        target=to_turn_target(target),
+                        locked_targets=tuple(
+                            to_turn_target(item) for item in command.locked_targets
+                        ),
+                        replacement_criteria=command.replacement_criteria,
+                        evidence=dict(command.evidence),
+                    )
+                )
+
+        if interpretation.primary_intent == Intent.REFINE_PLAN:
+            return TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(
+                        raw_text=interpretation.target_reference or "那个地方"
+                    ),
+                    evidence=dict(interpretation.evidence_map),
+                )
+            )
+
+        if interpretation.primary_intent in {Intent.PLAN_OUTING, Intent.FIND_ACTIVITY}:
+            return TurnProposal(
+                act=CreatePlanProposal(
+                    raw_constraints=interpretation.raw_constraints,
+                    time_proposals=interpretation.time_proposals,
+                    evidence_map=dict(interpretation.evidence_map),
+                )
+            )
+        if interpretation.primary_intent == Intent.CHECK_WEATHER:
+            return TurnProposal(
+                act=CheckWeatherProposal(
+                    raw_constraints=interpretation.raw_constraints,
+                    time_proposals=interpretation.time_proposals,
+                    evidence_map=dict(interpretation.evidence_map),
+                )
+            )
+        if interpretation.primary_intent == Intent.QUERY_PLAN:
+            return TurnProposal(act=QueryPlanProposal(query=interpretation.reply or "当前方案"))
+        return TurnProposal(act=ChitchatProposal())

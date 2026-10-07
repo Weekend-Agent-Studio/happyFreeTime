@@ -171,9 +171,6 @@ class TurnInterpreter:
         self._model = model
         self._model_name = model_name
 
-    def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
-        return self.interpret_with_runtime(user_input, context).interpretation
-
     def interpret_with_runtime(
         self,
         user_input: str,
@@ -202,7 +199,6 @@ class TurnInterpreter:
         try:
             compilation, compile_diagnostic = self._validate_with_diagnostic(
                 raw_result,
-                has_selected_plan=context.has_selected_plan,
                 decision_context=context.decision_context,
             )
             if compile_diagnostic is not None and compile_diagnostic.code == "action_not_allowed":
@@ -245,7 +241,6 @@ class TurnInterpreter:
             try:
                 compilation, compile_diagnostic = self._validate_with_diagnostic(
                     raw_retry,
-                    has_selected_plan=context.has_selected_plan,
                     decision_context=context.decision_context,
                 )
             except Exception as error:
@@ -319,7 +314,6 @@ class TurnInterpreter:
         try:
             compilation, diagnostic = self._validate_with_diagnostic(
                 raw_retry,
-                has_selected_plan=context.has_selected_plan,
                 decision_context=context.decision_context,
             )
         except Exception:
@@ -475,7 +469,6 @@ class TurnInterpreter:
     def _validate_with_diagnostic(
         result: object,
         *,
-        has_selected_plan: bool = False,
         decision_context: DecisionContext | None = None,
     ) -> tuple[TurnCompilation, StructuredOutputDiagnostic | None]:
         if isinstance(result, dict) and (
@@ -494,20 +487,11 @@ class TurnInterpreter:
                 )
             return TurnInterpreter._validate_with_diagnostic(
                 parsed,
-                has_selected_plan=has_selected_plan,
                 decision_context=decision_context,
             )
-        if isinstance(result, Interpretation):
-            compiled = TurnCompiler.from_interpretation(
-                result,
-                has_selected_plan=has_selected_plan,
-                context=decision_context,
-            )
-            return compiled, _compilation_diagnostic(compiled)
         if isinstance(result, TurnProposal):
             compilation = TurnCompiler.compile(
                 result,
-                has_selected_plan=has_selected_plan,
                 context=decision_context,
             )
             return compilation, _compilation_diagnostic(compilation)
@@ -530,7 +514,6 @@ class TurnInterpreter:
             ) from error
         compilation = TurnCompiler.compile(
             proposal,
-            has_selected_plan=has_selected_plan,
             context=decision_context,
         )
         return compilation, _compilation_diagnostic(compilation)

@@ -34,6 +34,7 @@ from app.services.recommendation_advisor import RuleBasedRecommendationAdvisor
 from app.services.router_extractor import RouterContext
 from tests.test_native_planning import candidate
 from app.domain.catalog import ResourceType
+from tests.router_support import InterpretationRouter
 
 
 def _trip_period(scope: TimeScope, evidence: str) -> PeriodProposal:
@@ -44,7 +45,7 @@ def _exact_time(target: str, clock: str, evidence: str) -> EventClockProposal:
     return EventClockProposal(event=target, clock=clock, evidence=evidence)
 
 
-class RuleRouter:
+class RuleRouter(InterpretationRouter):
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         if "只安排一家晚饭" in user_input:
             return Interpretation(
@@ -147,7 +148,7 @@ class RuleRouter:
         )
 
 
-class LocationRuleRouter:
+class LocationRuleRouter(InterpretationRouter):
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
@@ -160,7 +161,7 @@ class LocationRuleRouter:
         )
 
 
-class ExplodingRouter:
+class ExplodingRouter(InterpretationRouter):
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         raise AssertionError("structured replacement must bypass TurnInterpreter")
 

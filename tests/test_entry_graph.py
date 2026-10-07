@@ -32,6 +32,7 @@ from app.services.router_extractor import RouterContext
 from app.domain.planning import PlanSlotProposal, PlanStructureProposal
 from app.domain.planning import ConstraintConflict
 from tests.test_planning import planning_constraints
+from tests.router_support import InterpretationRouter
 
 
 def _afternoon() -> PeriodProposal:
@@ -40,7 +41,7 @@ def _afternoon() -> PeriodProposal:
     )
 
 
-class FollowUpRouter:
+class FollowUpRouter(InterpretationRouter):
     def __init__(self) -> None:
         self.inputs: list[str] = []
 
@@ -70,7 +71,7 @@ class FollowUpRouter:
         )
 
 
-class ExplicitLocationRouter:
+class ExplicitLocationRouter(InterpretationRouter):
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
@@ -148,7 +149,7 @@ class EntryGraphTest(unittest.TestCase):
         self.assertEqual(command.locked_targets[0].role, StopRole.ACTIVITY)
 
     def test_patch_question_resumes_into_compiler_without_reasking(self) -> None:
-        class PatchRouter:
+        class PatchRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
                 return Interpretation(
                     primary_intent=Intent.REFINE_PLAN,
@@ -264,7 +265,7 @@ class EntryGraphTest(unittest.TestCase):
         )
 
     def test_refine_plan_without_resolved_command_asks_without_planning(self) -> None:
-        class UnresolvedModificationRouter:
+        class UnresolvedModificationRouter(InterpretationRouter):
             def interpret(
                 self,
                 user_input: str,
@@ -527,7 +528,7 @@ class EntryGraphTest(unittest.TestCase):
         self.assertIn("取消", cancelled["interpretation"].reply)
 
     def test_new_request_during_clarification_does_not_carry_old_interpretation(self) -> None:
-        class NewRequestRouter:
+        class NewRequestRouter(InterpretationRouter):
             def __init__(self) -> None:
                 self.inputs: list[str] = []
 
@@ -644,7 +645,7 @@ class EntryGraphTest(unittest.TestCase):
         self.assertNotIn("用户补充：人均200", router.inputs[0])
 
     def test_chitchat_finishes_without_entering_planning(self) -> None:
-        class ChitchatRouter:
+        class ChitchatRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
                 return Interpretation(
                     primary_intent=Intent.CHITCHAT,
@@ -681,7 +682,7 @@ class EntryGraphTest(unittest.TestCase):
         self.assertEqual(result["interpretation"].reply, "你好，今天想聊点什么？")
 
     def test_weather_intent_does_not_enter_planning(self) -> None:
-        class WeatherRouter:
+        class WeatherRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
                 return Interpretation(
                     primary_intent=Intent.CHECK_WEATHER,
@@ -716,7 +717,7 @@ class EntryGraphTest(unittest.TestCase):
         self.assertFalse(result["ready_for_planning"])
 
     def test_weather_condition_with_plan_constraint_enters_existing_planning_chain(self) -> None:
-        class ConditionalWeatherRouter:
+        class ConditionalWeatherRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
                 return Interpretation(
                     primary_intent=Intent.CHECK_WEATHER,
@@ -762,7 +763,7 @@ class EntryGraphTest(unittest.TestCase):
         self.assertTrue(result["candidate_set"].plans)
 
     def test_non_blocking_request_finishes_with_structured_candidate_plans(self) -> None:
-        class PlanningRouter:
+        class PlanningRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
                 return Interpretation(
                     primary_intent=Intent.PLAN_OUTING,

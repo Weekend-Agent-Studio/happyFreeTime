@@ -149,22 +149,18 @@ from app.orchestration.workflows import (
 
 
 class TurnInterpreter(Protocol):
-    """真实 LLM 与离线 Demo Adapter 共同满足的语义解释接口。
+    """Semantic entry point shared by the live and deterministic Routers.
 
-    The runtime path should prefer ``interpret_with_runtime`` because it
-    returns the already compiled ``CompiledNextAction``.  ``interpret`` is
-    retained only for older composition roots and custom adapters that still
-    expose an ``Interpretation`` result.
+    The graph accepts only the compiled turn result.  Constraint projections
+    such as ``Interpretation`` remain downstream metadata and are never used
+    as a second action protocol.
     """
 
     def interpret_with_runtime(
         self,
         user_input: str,
         context: RouterContext,
-    ) -> TurnInterpreterResult | tuple[Interpretation, RuntimeDecision]:
-        ...
-
-    def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+    ) -> TurnInterpreterResult:
         ...
 
 
@@ -899,43 +895,25 @@ def _interpret_with_runtime(
     user_input: str,
     context: RouterContext,
 ) -> TurnInterpreterResult:
-    """Normalize real and deterministic Routers at the compiled-action seam."""
+    """Invoke a Router at the compiled-action seam.
+
+    All production composition roots implement this method directly.  Older
+    tuple/``Interpretation`` adapters are intentionally not accepted here;
+    tests that author an Interpretation projection adapt it at their own
+    composition root instead.
+    """
 
     interpret_with_runtime = getattr(router, "interpret_with_runtime", None)
-    if callable(interpret_with_runtime):
-        result = interpret_with_runtime(user_input, context)
-        if isinstance(result, TurnInterpreterResult):
-            return result
-        interpretation, runtime = result
-        compilation = TurnCompiler.from_interpretation(
-            interpretation,
-            context=context.decision_context,
-            has_selected_plan=context.has_selected_plan,
+    if not callable(interpret_with_runtime):
+        raise TypeError(
+            "Router must implement interpret_with_runtime and return TurnInterpreterResult"
         )
-        return TurnInterpreterResult(
-            interpretation=compilation.interpretation,
-            action=compilation.action,
-            runtime=runtime,
+    result = interpret_with_runtime(user_input, context)
+    if not isinstance(result, TurnInterpreterResult):
+        raise TypeError(
+            "Router interpret_with_runtime must return TurnInterpreterResult"
         )
-    interpretation = router.interpret(user_input, context)
-    compilation = TurnCompiler.from_interpretation(
-        interpretation,
-        context=context.decision_context,
-        has_selected_plan=context.has_selected_plan,
-    )
-    return TurnInterpreterResult(
-        interpretation=compilation.interpretation,
-        action=compilation.action,
-        runtime=RuntimeDecision(
-            stage="turn_interpreter",
-            adapter="custom",
-            model_invoked=False,
-            model_name=None,
-            attempts=0,
-            fallback_reason=None,
-            latency_ms=None,
-        ),
-    )
+    return result
 
 
 def default_environment_provider(actor: ActorContext) -> EnvironmentContext:

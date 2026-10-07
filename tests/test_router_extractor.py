@@ -57,6 +57,26 @@ class FakeStructuredModel:
         return response
 
 
+def _planned_context() -> DecisionContext:
+    return DecisionContext(
+        current_request=RequestContextSummary(revision=1),
+        selected_plan=SelectedPlanContextSummary(
+            stops=(
+                StopContextSummary(stop_index=0, role="activity", name="公园"),
+                StopContextSummary(stop_index=1, role="dinner", name="餐厅"),
+            )
+        ),
+        allowed_actions=(
+            "create_plan",
+            "patch_constraints",
+            "replace_stop",
+            "query_plan",
+            "check_weather",
+            "chitchat",
+        ),
+    )
+
+
 class TurnInterpreterTest(unittest.TestCase):
     def test_time_wire_contract_uses_discriminated_scopes(self) -> None:
         self.assertEqual(
@@ -163,7 +183,6 @@ class TurnInterpreterTest(unittest.TestCase):
                     ),
                 )
             ),
-            has_selected_plan=False,
         )
         self.assertIsInstance(create.action, ApplyRequestPatch)
         self.assertEqual(create.action.mode, "create")
@@ -175,7 +194,7 @@ class TurnInterpreterTest(unittest.TestCase):
                     constraint_patch=ConstraintPatch(preferences=("安静",))
                 )
             ),
-            has_selected_plan=True,
+            context=_planned_context(),
         )
         self.assertIsInstance(patch.action, ApplyRequestPatch)
         self.assertEqual(patch.action.mode, "update")
@@ -184,21 +203,19 @@ class TurnInterpreterTest(unittest.TestCase):
     def test_query_weather_and_chitchat_have_explicit_compiled_actions(self) -> None:
         weather = TurnCompiler.compile(
             TurnProposal(act=CheckWeatherProposal()),
-            has_selected_plan=False,
         )
         self.assertIsInstance(weather.action, AnswerQuery)
         self.assertEqual(weather.action.query_kind, "weather")
 
         query = TurnCompiler.compile(
             TurnProposal(act=QueryPlanProposal(query="当前选中方案是什么？")),
-            has_selected_plan=True,
+            context=_planned_context(),
         )
         self.assertIsInstance(query.action, AnswerQuery)
         self.assertEqual(query.action.query_kind, "plan")
 
         chitchat = TurnCompiler.compile(
             TurnProposal(act=ChitchatProposal()),
-            has_selected_plan=False,
         )
         self.assertEqual(chitchat.action.kind, "no_action")
 
@@ -209,7 +226,7 @@ class TurnInterpreterTest(unittest.TestCase):
                     target=TurnTargetProposal(raw_text="第二站"),
                 )
             ),
-            has_selected_plan=True,
+            context=_planned_context(),
         )
         self.assertIsInstance(second.action, ModifySelectedPlan)
         self.assertEqual(second.action.command.target.stop_index, 1)
@@ -220,7 +237,7 @@ class TurnInterpreterTest(unittest.TestCase):
                     target=TurnTargetProposal(raw_text="那个地方"),
                 )
             ),
-            has_selected_plan=True,
+            context=_planned_context(),
         )
         self.assertIsInstance(ambiguous.action, NeedsClarification)
         self.assertEqual(ambiguous.action.field, "target_reference")
@@ -232,7 +249,6 @@ class TurnInterpreterTest(unittest.TestCase):
                     target=TurnTargetProposal(role=StopRole.ACTIVITY, raw_text="活动"),
                 )
             ),
-            has_selected_plan=False,
         )
         self.assertIsInstance(no_selection.action, NeedsClarification)
         self.assertEqual(no_selection.action.field, "selected_plan_id")
@@ -332,13 +348,13 @@ class TurnInterpreterTest(unittest.TestCase):
         self.assertEqual(runtime.fallback_reason, "action_not_allowed")
 
     def test_deterministic_refine_adapter_preserves_unresolved_modification(self) -> None:
-        compilation = TurnCompiler.from_interpretation(
-            Interpretation(
-                primary_intent=Intent.REFINE_PLAN,
-                intent_scores={Intent.REFINE_PLAN: 1.0},
-                target_reference="那个地方",
+        compilation = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(raw_text="那个地方"),
+                )
             ),
-            has_selected_plan=True,
+            context=_planned_context(),
         )
         self.assertIsInstance(compilation.action, NeedsClarification)
         self.assertEqual(compilation.action.field, "target_reference")
@@ -366,7 +382,7 @@ class TurnInterpreterTest(unittest.TestCase):
         self.assertEqual(runtime.diagnostic_code, "target_resolution_required")
         compiled, _ = TurnInterpreter._validate_with_diagnostic(
             {"act": {"kind": "replace_stop", "target": {"raw_text": "活动"}}},
-            has_selected_plan=True,
+            decision_context=_planned_context(),
         )
         self.assertIsInstance(compiled.action, ModifySelectedPlan)
 
@@ -397,7 +413,7 @@ class TurnInterpreterTest(unittest.TestCase):
 
     def test_prompt_contains_bounded_context_without_provider_facts(self) -> None:
         model = FakeStructuredModel([TurnProposal(act=ChitchatProposal())])
-        TurnInterpreter(model).interpret(
+        TurnInterpreter(model).interpret_with_runtime(
             "你好",
             RouterContext(current_date=date(2026, 8, 12)),
         )

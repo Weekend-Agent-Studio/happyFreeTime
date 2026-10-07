@@ -16,9 +16,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.constraints import Interpretation
+from app.domain.constraints import CommandOperation, Intent, Interpretation, TargetReference
 from app.evaluation.temporal_fixture_adapter import adapt_legacy_interpretation_payload
 from app.domain.runtime import RuntimeDecision
+from app.domain.turn import (
+    CheckWeatherProposal,
+    ChitchatProposal,
+    CreatePlanProposal,
+    PatchConstraintsProposal,
+    QueryPlanProposal,
+    ReplaceStopProposal,
+    TurnCompiler,
+    TurnProposal,
+    TurnTargetProposal,
+)
+from app.services.router_extractor import TurnInterpreterResult
 
 
 INTERPRETATION_SCHEMA_VERSION = "interpretation.v1"
@@ -128,20 +140,26 @@ class FrozenTurnInterpreter:
         self,
         user_input: str,
         context: object,
-    ) -> tuple[Interpretation, RuntimeDecision]:
+    ) -> TurnInterpreterResult:
         fixture = self._lookup(user_input)
-        return fixture.interpretation, RuntimeDecision(
-            stage="turn_interpreter",
-            adapter="frozen_fixture",
-            model_invoked=False,
-            model_name=fixture.generated_by_model,
-            attempts=0,
-            latency_ms=0,
+        proposal = _proposal_from_interpretation(fixture.interpretation)
+        decision_context = getattr(context, "decision_context", None)
+        compilation = TurnCompiler.compile(proposal, context=decision_context)
+        return TurnInterpreterResult(
+            interpretation=compilation.interpretation,
+            action=compilation.action,
+            runtime=RuntimeDecision(
+                stage="turn_interpreter",
+                adapter="frozen_fixture",
+                model_invoked=False,
+                model_name=fixture.generated_by_model,
+                attempts=0,
+                latency_ms=0,
+            ),
         )
 
     def interpret(self, user_input: str, context: object) -> Interpretation:
-        interpretation, _ = self.interpret_with_runtime(user_input, context)
-        return interpretation
+        return self._lookup(user_input).interpretation
 
     def _lookup(self, user_input: str) -> FrozenInterpretationFixture:
         actual_hash = input_sha256(user_input)
@@ -165,6 +183,74 @@ class FrozenTurnInterpreter:
         raise FrozenFixtureError(
             "fixture_missing", "no unused frozen fixture matches this case input"
         )
+
+
+def _proposal_from_interpretation(interpretation: Interpretation) -> TurnProposal:
+    """Translate the reviewed v1 fixture at the evaluation boundary only.
+
+    Frozen files intentionally preserve their historical ``Interpretation``
+    payload and hash.  The product graph still receives the current
+    discriminated proposal/action contract; this adapter is not imported by
+    production routing code.
+    """
+
+    command = interpretation.conversation_command
+    if command is not None:
+        if command.operation == CommandOperation.PATCH_CONSTRAINTS:
+            return TurnProposal(
+                act=PatchConstraintsProposal(
+                    constraint_patch=command.constraint_patch,
+                    evidence_map=dict(command.evidence),
+                )
+            )
+        if command.operation == CommandOperation.REPLACE:
+            target = command.target or TargetReference(raw_text="那个地方")
+
+            def to_target(reference: TargetReference) -> TurnTargetProposal:
+                return TurnTargetProposal(
+                    role=reference.role,
+                    resource_type=reference.resource_type,
+                    stop_index=reference.stop_index,
+                    raw_text=reference.raw_text,
+                )
+
+            return TurnProposal(
+                act=ReplaceStopProposal(
+                    target=to_target(target),
+                    locked_targets=tuple(to_target(item) for item in command.locked_targets),
+                    replacement_criteria=command.replacement_criteria,
+                    evidence=dict(command.evidence),
+                )
+            )
+
+    if interpretation.primary_intent in {Intent.PLAN_OUTING, Intent.FIND_ACTIVITY}:
+        return TurnProposal(
+            act=CreatePlanProposal(
+                raw_constraints=interpretation.raw_constraints,
+                time_proposals=interpretation.time_proposals,
+                evidence_map=dict(interpretation.evidence_map),
+            )
+        )
+    if interpretation.primary_intent == Intent.CHECK_WEATHER:
+        return TurnProposal(
+            act=CheckWeatherProposal(
+                raw_constraints=interpretation.raw_constraints,
+                time_proposals=interpretation.time_proposals,
+                evidence_map=dict(interpretation.evidence_map),
+            )
+        )
+    if interpretation.primary_intent == Intent.QUERY_PLAN:
+        return TurnProposal(act=QueryPlanProposal(query=interpretation.reply or "当前方案"))
+    if interpretation.primary_intent == Intent.REFINE_PLAN:
+        return TurnProposal(
+            act=ReplaceStopProposal(
+                target=TurnTargetProposal(
+                    raw_text=interpretation.target_reference or "那个地方"
+                ),
+                evidence=dict(interpretation.evidence_map),
+            )
+        )
+    return TurnProposal(act=ChitchatProposal())
 
 
 def fixture_coverage(
