@@ -627,6 +627,13 @@ def build_entry_graph(
             _trace(
                 config,
                 stage=RunStage.CLARIFY,
+                status=RunEventStatus.STARTED,
+                message_key="clarify.started",
+                public_message="正在确认缺少的规划信息",
+            )
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
                 status=RunEventStatus.WAITING_INPUT,
                 message_key="clarify.waiting_input",
                 public_message="还需要补充一项规划信息",
@@ -665,6 +672,13 @@ def build_entry_graph(
             )
         )
         if decision.need_question:
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
+                status=RunEventStatus.STARTED,
+                message_key="clarify.started",
+                public_message="正在确认缺少的规划信息",
+            )
             _trace(
                 config,
                 stage=RunStage.CLARIFY,

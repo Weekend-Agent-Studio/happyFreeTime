@@ -838,6 +838,11 @@ class PlanningTurnApplication:
             )
             return response
         except Exception:
+            # Keep the public execution trace lifecycle closed even when an
+            # unexpected provider or application error aborts the turn. The
+            # observer only emits a bounded, generic failure event; raw error
+            # text and stack traces never enter the public response.
+            run_observer.fail_open_stages()
             self._repository.fail_planning_run(
                 user_id=user_id,
                 session_id=session_id,

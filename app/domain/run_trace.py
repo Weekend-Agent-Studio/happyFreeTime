@@ -21,12 +21,12 @@ class RunStage(StrEnum):
     UNDERSTAND = "understand"
     COMPILE_REQUEST = "compile_request"
     CLARIFY = "clarify"
+    STRUCTURE = "structure"
     RETRIEVE = "retrieve"
     CONSTRUCT = "construct"
     VERIFY = "verify"
     MODIFY = "modify"
     ADVISE = "advise"
-    PERSIST = "persist"
 
 
 class RunEventStatus(StrEnum):
@@ -76,6 +76,17 @@ _FORBIDDEN_DETAIL_TERMS = frozenset(
         "reasoning",
     }
 )
+_MAX_PUBLIC_DETAIL_STRING_LENGTH = 160
+
+
+def _validate_public_detail_string(key: str, value: str) -> None:
+    if len(value) > _MAX_PUBLIC_DETAIL_STRING_LENGTH:
+        raise ValueError(
+            f"public trace detail value is too long for {key}: "
+            f"maximum {_MAX_PUBLIC_DETAIL_STRING_LENGTH} characters"
+        )
+    if any(ord(character) < 32 and character not in "\t" for character in value):
+        raise ValueError(f"public trace detail value contains unsafe control characters: {key}")
 
 
 def _validate_public_details(value: dict[str, Any]) -> dict[str, Any]:
@@ -89,6 +100,9 @@ def _validate_public_details(value: dict[str, Any]) -> dict[str, Any]:
         normalized = key.casefold()
         if any(term in normalized for term in _FORBIDDEN_DETAIL_TERMS):
             raise ValueError(f"public trace detail key is sensitive: {key}")
+        detail_value = value[key]
+        if isinstance(detail_value, str):
+            _validate_public_detail_string(key, detail_value)
     try:
         json.dumps(value, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError) as error:
@@ -168,20 +182,74 @@ class InMemoryRunObserver:
         self._run_id = run_id
         self._on_event = on_event
         self._events: list[PlanningRunEvent] = []
+        self._stage_states: dict[RunStage, RunEventStatus] = {}
+        self._stage_started_at: dict[RunStage, datetime] = {}
 
     def record(self, event: PlanningRunEventDraft) -> PlanningRunEvent:
         if len(self._events) >= 64:
             raise ValueError("planning run trace event limit exceeded")
+        previous = self._stage_states.get(event.stage)
+        terminal_statuses = {
+            RunEventStatus.COMPLETED,
+            RunEventStatus.FALLBACK,
+            RunEventStatus.FAILED,
+            RunEventStatus.WAITING_INPUT,
+        }
+        if event.status == RunEventStatus.STARTED:
+            if previous is not None:
+                raise ValueError(
+                    f"trace stage {event.stage.value} cannot start twice"
+                )
+        elif event.status in terminal_statuses:
+            if previous != RunEventStatus.STARTED:
+                raise ValueError(
+                    f"trace stage {event.stage.value} must start before it terminates"
+                )
+        else:  # pragma: no cover - guarded by the enum, kept for future statuses.
+            raise ValueError(f"unsupported trace event status: {event.status}")
+
+        occurred_at = datetime.now().astimezone()
+        duration_ms = event.duration_ms
+        if event.status == RunEventStatus.STARTED:
+            self._stage_started_at[event.stage] = occurred_at
+        else:
+            started_at = self._stage_started_at[event.stage]
+            duration_ms = max(
+                0,
+                round((occurred_at - started_at).total_seconds() * 1000),
+            )
         event_value = PlanningRunEvent(
             run_id=self._run_id,
             sequence=len(self._events) + 1,
-            occurred_at=datetime.now().astimezone(),
-            **event.model_dump(),
+            occurred_at=occurred_at,
+            **event.model_dump(exclude={"duration_ms"}),
+            duration_ms=duration_ms,
         )
         self._events.append(event_value)
+        self._stage_states[event.stage] = event.status
+        if event.status in terminal_statuses:
+            self._stage_started_at.pop(event.stage, None)
         if self._on_event is not None:
             self._on_event(event_value)
         return event_value
+
+    def fail_open_stages(self) -> tuple[PlanningRunEvent, ...]:
+        """Close stages left open by an unexpected execution error safely."""
+
+        failed: list[PlanningRunEvent] = []
+        for stage in tuple(self._stage_started_at):
+            failed.append(
+                self.record(
+                    PlanningRunEventDraft(
+                        stage=stage,
+                        status=RunEventStatus.FAILED,
+                        message_key=f"{stage.value}.failed",
+                        public_message="本阶段未能完成，规划已安全停止",
+                        public_details={"reason_code": "internal_error"},
+                    )
+                )
+            )
+        return tuple(failed)
 
     def snapshot(self) -> PlanningRunTrace:
         return PlanningRunTrace(run_id=self._run_id, events=tuple(self._events))

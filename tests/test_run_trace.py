@@ -52,6 +52,10 @@ class PlanningRunTraceContractTest(unittest.TestCase):
             self._event(public_details={"prompt": "do not expose this"})
         with self.assertRaises(ValidationError):
             self._event(public_details={"unbounded_internal_field": "no"})
+        with self.assertRaises(ValidationError):
+            self._event(public_details={"mode": "x" * 161})
+        with self.assertRaises(ValidationError):
+            self._event(public_details={"mode": "unsafe\nvalue"})
 
     def test_event_contract_forbids_extra_fields(self) -> None:
         with self.assertRaises(ValidationError):
@@ -81,3 +85,50 @@ class PlanningRunTraceContractTest(unittest.TestCase):
         self.assertEqual(trace.run_id, "run-2")
         self.assertEqual([item.sequence for item in trace.events], [1, 2])
         self.assertEqual(trace.events[1].public_details["candidate_count"], 8)
+        self.assertIsNotNone(trace.events[1].duration_ms)
+        self.assertGreaterEqual(trace.events[1].duration_ms or 0, 0)
+
+    def test_observer_rejects_duplicate_stage_lifecycle_events(self) -> None:
+        observer = InMemoryRunObserver("run-3")
+        started = PlanningRunEventDraft(
+            stage=RunStage.STRUCTURE,
+            status=RunEventStatus.STARTED,
+            message_key="structure.started",
+            public_message="开始组织结构",
+        )
+        observer.record(started)
+        with self.assertRaises(ValueError):
+            observer.record(started)
+
+        observer.record(
+            PlanningRunEventDraft(
+                stage=RunStage.STRUCTURE,
+                status=RunEventStatus.COMPLETED,
+                message_key="structure.completed",
+                public_message="结构完成",
+            )
+        )
+        with self.assertRaises(ValueError):
+            observer.record(
+                PlanningRunEventDraft(
+                    stage=RunStage.STRUCTURE,
+                    status=RunEventStatus.COMPLETED,
+                    message_key="structure.completed_again",
+                    public_message="结构再次完成",
+                )
+            )
+
+    def test_observer_closes_open_stages_with_safe_failure(self) -> None:
+        observer = InMemoryRunObserver("run-4")
+        observer.record(
+            PlanningRunEventDraft(
+                stage=RunStage.VERIFY,
+                status=RunEventStatus.STARTED,
+                message_key="verify.started",
+                public_message="开始核验",
+            )
+        )
+        failed = observer.fail_open_stages()
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0].status, RunEventStatus.FAILED)
+        self.assertEqual(failed[0].public_details, {"reason_code": "internal_error"})

@@ -462,6 +462,14 @@ class PlanningService:
                 runtime_decision=runtime_decision,
             )
 
+        self._trace(
+            observer,
+            stage=RunStage.STRUCTURE,
+            status=RunEventStatus.STARTED,
+            message_key="structure.started",
+            public_message="正在组织候选行程结构",
+        )
+
         rule_baseline = build_rule_based_planning_intent(constraints)
         explicit_choices = self._plan_spec_compiler.compile_explicit_structure(
             constraints,
@@ -470,9 +478,9 @@ class PlanningService:
         if explicit_choices is not None and explicit_choices.conflict is not None:
             self._trace(
                 observer,
-                stage=RunStage.CONSTRUCT,
+                stage=RunStage.STRUCTURE,
                 status=RunEventStatus.FALLBACK,
-                message_key="construct.fallback",
+                message_key="structure.fallback",
                 public_message="行程结构无法满足当前条件，已安全停止规划",
                 public_details={"reason_code": explicit_choices.conflict.code},
             )
@@ -488,13 +496,6 @@ class PlanningService:
                 ),
             )
 
-        self._trace(
-            observer,
-            stage=RunStage.CONSTRUCT,
-            status=RunEventStatus.STARTED,
-            message_key="construct.started",
-            public_message="正在组织候选行程结构",
-        )
         # Reject deterministic hard conflicts before spending the bounded model
         # budget. PlanningIntent is a soft structural decision and cannot make
         # either conflict valid.
@@ -582,6 +583,14 @@ class PlanningService:
         )
         if not plan_specs:
             if plan_choices.conflict is not None:
+                self._trace(
+                    observer,
+                    stage=RunStage.STRUCTURE,
+                    status=RunEventStatus.FALLBACK,
+                    message_key="structure.fallback",
+                    public_message="当前条件下没有可执行的行程结构",
+                    public_details={"reason_code": plan_choices.conflict.code},
+                )
                 return CandidateSet(
                     conflict=plan_choices.conflict,
                     planning_intent_decision=planning_intent_decision,
@@ -612,9 +621,9 @@ class PlanningService:
                 )
             self._trace(
                 observer,
-                stage=RunStage.CONSTRUCT,
+                stage=RunStage.STRUCTURE,
                 status=RunEventStatus.FALLBACK,
-                message_key="construct.fallback",
+                message_key="structure.fallback",
                 public_message="当前条件下没有可执行的行程结构",
                 public_details={"reason_code": conflict.code},
             )
@@ -639,9 +648,9 @@ class PlanningService:
         retrieval_specs = preferred_specs or fallback_specs
         self._trace(
             observer,
-            stage=RunStage.CONSTRUCT,
+            stage=RunStage.STRUCTURE,
             status=RunEventStatus.COMPLETED,
-            message_key="construct.structure_completed",
+            message_key="structure.completed",
             public_message="行程结构已确定",
             public_details={"count": len(plan_specs)},
         )
@@ -1429,6 +1438,14 @@ class PlanningService:
             if selected_plan.stops[index].resource_id not in candidate_by_id
         ]
         if missing_fixed:
+            self._trace(
+                observer,
+                stage=RunStage.RETRIEVE,
+                status=RunEventStatus.FALLBACK,
+                message_key="retrieve.replacement_fallback",
+                public_message="替换候选检索无法保留原方案中的固定站点",
+                public_details={"reason_code": "locked_stop_unavailable"},
+            )
             return PlanModificationResult(
                 candidate_set=CandidateSet(
                     catalog_violations=recalled.violations,
@@ -1460,6 +1477,14 @@ class PlanningService:
             and not (weather.is_adverse and candidate.weather_sensitive)
         ]
         if not replacement_candidates:
+            self._trace(
+                observer,
+                stage=RunStage.RETRIEVE,
+                status=RunEventStatus.FALLBACK,
+                message_key="retrieve.replacement_fallback",
+                public_message="当前没有可用的替换候选",
+                public_details={"reason_code": "no_replacement_candidates"},
+            )
             return _modification_conflict(
                 "NO_REPLACEMENT_CANDIDATES",
                 "当前目录中没有与该站点角色兼容的其他候选。",
