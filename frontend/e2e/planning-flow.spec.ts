@@ -56,6 +56,26 @@ const response = {
   })),
 };
 
+function streamResponse(payload: unknown) {
+  const progress = {
+    schema_version: "planning-run-event.v1",
+    run_id: "e2e-run",
+    sequence: 1,
+    stage: "understand",
+    status: "completed",
+    message_key: "understand.completed",
+    public_message: "需求理解完成",
+    occurred_at: "2026-08-15T00:00:00Z",
+    duration_ms: 1,
+    public_details: {},
+  };
+  const body = [
+    `event: progress\ndata: ${JSON.stringify(progress)}\n\n`,
+    `event: result\ndata: ${JSON.stringify({ data: payload })}\n\n`,
+  ].join("");
+  return { status: 200, headers: { "content-type": "text/event-stream" }, body };
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route(/\/api\/sessions(?:\?[^/]*)?$/, async (route) => {
     if (route.request().method() === "GET") {
@@ -64,7 +84,7 @@ test.beforeEach(async ({ page }) => {
     }
     await route.fulfill({ json: { data: { session_id: "offline-session" } } });
   });
-  await page.route("**/api/sessions/offline-session/messages", (route) => route.fulfill({ json: { data: response } }));
+  await page.route("**/api/sessions/offline-session/messages/stream", (route) => route.fulfill(streamResponse(response)));
   await page.route("**/api/config/map", (route) => route.fulfill({ json: { data: { enabled: false, provider: "none", js_api_key: null, version: null, service_host_path: null } } }));
 });
 
@@ -238,8 +258,8 @@ test("clarification card opens When and resolves through the same topbar request
   pendingResponse.planning_context.pending_field = "departure_at";
   let submittedPatch: Record<string, unknown> | null = null;
 
-  await page.route("**/api/sessions/offline-session/messages", (route) =>
-    route.fulfill({ json: { data: pendingResponse } }),
+  await page.route("**/api/sessions/offline-session/messages/stream", (route) =>
+    route.fulfill(streamResponse(pendingResponse)),
   );
   await page.route("**/api/sessions/offline-session/planning-context", async (route) => {
     submittedPatch = route.request().postDataJSON().patch;

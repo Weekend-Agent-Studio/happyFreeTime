@@ -168,7 +168,7 @@ flowchart TB
         memory_store[(Memory Module)]
         retrievers[(Semantic Retrievers)]
         providers[(Real Replay Mock Providers)]
-        trace[(分散 Runtime Diagnostics / Eval；统一 Trace 属于 S-TRACE1)]
+        trace[(PlanningRunTrace；Runtime Diagnostics / Eval 分开保留)]
     end
 
     api --> router
@@ -872,19 +872,29 @@ GET    /api/sessions/{session_id}/events
 - 左栏：有界最近会话和新建会话；历史区限制高度，下部为本人/家庭记忆入口，不把全部记忆长期展开占满侧栏。
 - 中栏：家庭管家式对话、渐进披露的约束摘要、方案对比和确认操作。默认只展示用户最关心的假设、风险和差异，完整来源与置信度进入详情抽屉。
 - 右栏：行程、地图、订单 Tab；POI 详情使用抽屉或独立详情层，不把来源许可、调试字段和主要行动混在同一视觉层级。
-- 底部抽屉：公开的运行阶段、Provider 来源与调试轨迹。
+- 主对话：公开的运行阶段时间线；执行中由 SSE 事件驱动，完成后从响应中的 `run_trace` 恢复。
+- 右栏“核验”：当前方案的事实概览、待确认风险、证据和可选的开发者详情；不把运行过程和方案依据混在一起。
 
 桌面端并排对比 3 个方案；移动端改为滑动方案和 Tab。方案卡先突出主题、总时长、总路程、预算、风险和关键取舍，再展开完整时间线。地图 marker、时间线和 Route Leg 双向联动；每个停靠点支持查看标签、营业摘要、评分证据、替换、锁定和打开地图导航。
 
-规划等待态使用阶段化动效表达“理解需求、筛选地点、复核路线、比较方案”，不展示 chain-of-thought，也不伪造尚未执行的工具结果。Presenter 默认生成简短管家式说明，约束与证据采用渐进披露，避免把系统内部状态平铺成用户必须逐项阅读的表单。
+规划等待态使用阶段化动效表达“理解需求、整理条件、设计结构、检索地点、组合方案、核验路线和生成说明”，不展示 chain-of-thought，也不伪造尚未执行的工具结果。Presenter 默认生成简短管家式说明，约束与证据采用渐进披露，避免把系统内部状态平铺成用户必须逐项阅读的表单。
 
-按钮、约束面板和方案操作直接发送结构化 `ConversationCommand`，不经过 LLM；只有自然语言输入才进入 TurnInterpreter。SSE 只发布有用户价值的阶段事件，不暴露模型隐式推理过程。
+按钮、约束面板和方案操作直接发送结构化 `ConversationCommand`，不经过 LLM；只有自然语言输入才进入 TurnInterpreter。`POST /api/sessions/{session_id}/messages/stream` 使用 `fetch + ReadableStream` 接收 SSE；流式和普通 POST 复用同一个 `PlanningTurnApplication`，避免重复 Router、Planner 或 Provider 调用。SSE 只发布有用户价值的阶段事件，不暴露模型隐式推理过程。
 
 前端支持无 LLM 演示模式：预置场景、结构化约束、规则规划、本地路线、Mock 执行和模板 Presenter 仍可完成闭环。
 
 ## 13. 可观测性与评测
 
 ### 13.1 运行轨迹
+
+当前可观测性明确分成四类数据：
+
+- `PlanningRunTrace`：用户安全的一轮执行过程，只包含有限阶段、生命周期、顺序和公开详情。
+- `RuntimeDecision` / `SearchTrace`：模型、检索、Beam 和 Provider 的开发/评测诊断，不进入公开时间线。
+- `Evidence` / Provider facts：支撑当前方案结论的事实，按选中方案过滤后进入“核验”。
+- `Warning` / degradation：路线估算、营业或 Availability 待确认、数据过期和安全回退等风险。
+
+公开 Trace 不是模型思维过程，也不是把所有内部日志复制一遍。事件由 request-scoped `RunObserver` 产生，HTTP 层可将其投影为 SSE；完成后同一快照随 `AgentResponse.run_trace` 写入 `planning_runs.response_json`。当前不单独建立 Trace/Evidence 数据表，也不支持跨进程历史事件续传。
 
 每个 run 至少记录：
 
