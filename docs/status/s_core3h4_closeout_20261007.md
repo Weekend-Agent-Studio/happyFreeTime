@@ -79,10 +79,46 @@ The evaluation reports identify the run as `dirty=True` because they were
 generated before this H4 commit. They are regression evidence for the current
 code, not a new frozen Resume metric set.
 
+## Network-enabled rerun on the clean H4 commit
+
+After the commit, the same four variants were rerun with the configured model
+endpoint and corrected dotenv-style parsing. All reports recorded
+`git_dirty=false` and commit `2e9f0f0`:
+
+| Variant | Task success | Hard safety | Conflict diagnosis | Modification setup/execution | Model result |
+|---|---:|---:|---:|---:|---|
+| C3 Frozen LLM Intent + Hybrid | 36/36 | 7/7 | 4/4 | 10/10, 10/10 | PlanningIntent 0/17 fallback |
+| C4 Frozen LLM Intent + Hybrid + Advisor | 36/36 | 7/7 | 4/4 | 10/10, 10/10 | Advisor accepted 22/27; 5 safe fallbacks |
+| B0 Live Router + Rule + Rule | 30/36 | 7/7 | 4/4 | 7/10, 7/7 | Router 36 decisions, 37 attempts |
+| B3 Live Router + LLM + Hybrid + Advisor | 33/36 | 7/7 | 4/4 | 8/10, 8/8 | Advisor accepted 23/25; 2 safe fallbacks |
+
+Latency and cost observations:
+
+- C3 end-to-end P50/P95: **780/3361 ms**; 48 provider attempts across
+  44 model decisions.
+- C4 end-to-end P50/P95: **3203/11973 ms**; Advisor P50/P95
+  **2656/3196 ms**, with 100,011 input and 18,549 output tokens.
+- B0 end-to-end P50/P95: **1598/2473 ms**.
+- B3 end-to-end P50/P95: **4764/12172 ms**; Advisor P50/P95
+  **2686/3587 ms**, with 86,734 input and 16,607 output tokens.
+
+The B0/B3 task failures are concentrated in the known live-LLM boundary:
+`clarify_unknown_date` was planned instead of asking for a date, and several
+modification cases did not obtain an initial plan. Hard-constraint safety and
+conflict diagnosis remained 100%. Advisor fallbacks were rejected safely for
+unsupported claims and did not affect task safety.
+
+Rerun report directories:
+
+- `C:\Users\UpAndUp\AppData\Local\Temp\S-CORE3H4_C3_rerun2_20261007`
+- `C:\Users\UpAndUp\AppData\Local\Temp\S-CORE3H4_C4_rerun_20261007`
+- `C:\Users\UpAndUp\AppData\Local\Temp\S-CORE3H4_B0_rerun_20261007`
+- `C:\Users\UpAndUp\AppData\Local\Temp\S-CORE3H4_B3_rerun_20261007`
+
 ## Residual boundaries
 
 - No new compatibility layer was added. Historical fixture conversion is
   confined to Demo/Frozen/evaluation boundaries.
 - No Planner/Search/Provider/Verifier behavior was changed in H4.
-- Live-model quality and latency need a network-enabled rerun before being
-  used in a release report.
+- The rerun above is the valid network-enabled Live result; earlier blocked
+  runs remain diagnostics only.
