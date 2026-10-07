@@ -271,12 +271,12 @@ export type RunStage =
   | "understand"
   | "compile_request"
   | "clarify"
+  | "structure"
   | "retrieve"
   | "construct"
   | "verify"
   | "modify"
-  | "advise"
-  | "persist";
+  | "advise";
 
 export type RunEventStatus = "started" | "completed" | "fallback" | "failed" | "waiting_input";
 

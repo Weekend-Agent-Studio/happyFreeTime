@@ -154,14 +154,59 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: "依据" }));
+    expect(screen.getByText("规划完成 · 查看本轮处理过程")).toBeInTheDocument();
+    await user.click(screen.getByText("规划完成 · 查看本轮处理过程"));
+    await user.click(screen.getByRole("button", { name: "核验" }));
 
-    expect(screen.getByText("本轮处理过程")).toBeInTheDocument();
-    expect(screen.getByText("方案依据")).toBeInTheDocument();
+    expect(screen.queryByText("本轮处理过程")).not.toBeInTheDocument();
+    expect(screen.getByText("数据与证据")).toBeInTheDocument();
     expect(screen.getByText("开发者详情")).toBeInTheDocument();
-    await user.click(screen.getByText("本轮处理过程"));
     expect(screen.getByText("已完成需求理解")).toBeInTheDocument();
     expect(screen.getByText("路线和硬约束核对完成")).toBeInTheDocument();
+  });
+
+  it("scopes verification evidence to the viewed plan and deduplicates risks", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      retrieval_evidence: [
+        { evidence_id: "poi.plan-one-activity.1", source_type: "poi_profile", source_field: "scene_tags", summary: "方案一安静", source_ref: "plan-one-activity", confidence: 0.9 },
+        { evidence_id: "poi.plan-two-activity.1", source_type: "poi_profile", source_field: "scene_tags", summary: "方案二热闹", source_ref: "plan-two-activity", confidence: 0.9 },
+      ],
+      recommendation_advice: {
+        recommended_plan_id: "plan-one",
+        understood_needs: [],
+        overall_reason: "方案一更匹配。",
+        plans: [
+          { plan_id: "plan-one", reason: "安静", matched_need_ids: [], supporting_evidence_ids: ["poi.plan-one-activity.1"], tradeoffs: [] },
+          { plan_id: "plan-two", reason: "热闹", matched_need_ids: [], supporting_evidence_ids: ["poi.plan-two-activity.1"], tradeoffs: [] },
+        ],
+        adapter: "rule_based",
+        fallback_reason: null,
+        prompt_version: "test",
+        model_name: null,
+        model_invoked: false,
+        attempts: 0,
+        latency_ms: 0,
+      },
+      warnings: [
+        { code: "route_fact_degraded", message: "路线使用估算。", plan_id: "plan-one", resource_id: null, route_leg_index: 0, source: null, degraded: true, stale: false },
+        { code: "route_fact_degraded", message: "路线使用估算。", plan_id: "plan-one", resource_id: null, route_leg_index: 0, source: null, degraded: true, stale: false },
+        { code: "route_fact_degraded", message: "方案二不应展示。", plan_id: "plan-two", resource_id: null, route_leg_index: 0, source: null, degraded: true, stale: false },
+      ],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "核验" }));
+
+    expect(screen.getByText("方案一安静")).not.toBeVisible();
+    await user.click(screen.getByText("数据与证据"));
+    expect(screen.getByText("方案一安静")).toBeVisible();
+    expect(screen.queryByText("方案二热闹")).not.toBeInTheDocument();
+    expect(screen.getAllByText("路线事实需要确认")).toHaveLength(1);
+    expect(within(document.querySelector(".evidence-panel") as HTMLElement).queryByText("方案二不应展示。")).not.toBeInTheDocument();
   });
 
   it("adds POI context to plan cards and supports renaming and deleting history", async () => {
