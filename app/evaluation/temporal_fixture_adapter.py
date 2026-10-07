@@ -62,10 +62,9 @@ def adapt_legacy_temporal_payload(
         if start and end:
             proposals.append(
                 {
-                    "target": "trip",
-                    "precision": "exact",
-                    "clock": start,
-                    "end_clock": end,
+                    "kind": "trip_range",
+                    "start": start,
+                    "end": end,
                     "evidence": time_text or f"{start}-{end}",
                 }
             )
@@ -79,8 +78,8 @@ def adapt_legacy_temporal_payload(
     if departure_clock:
         proposals.append(
             {
-                "target": "departure",
-                "precision": "exact",
+                "kind": "event_clock",
+                "event": "departure",
                 "clock": departure_clock,
                 "evidence": departure_text or str(departure_value),
             }
@@ -90,8 +89,8 @@ def adapt_legacy_temporal_payload(
         if departure_period is not None:
             proposals.append(
                 {
-                    "target": "departure",
-                    "precision": "period",
+                    "kind": "period",
+                    "event": "departure",
                     "period": departure_period.value,
                     "evidence": departure_text,
                 }
@@ -103,8 +102,8 @@ def adapt_legacy_temporal_payload(
     if return_clock:
         proposals.append(
             {
-                "target": "return",
-                "precision": "exact",
+                "kind": "event_clock",
+                "event": "return",
                 "clock": return_clock,
                 "evidence": return_text or str(return_value),
             }
@@ -114,14 +113,18 @@ def adapt_legacy_temporal_payload(
         if period is not None:
             proposals.append(
                 {
-                    "target": "return",
-                    "precision": "period",
+                    "kind": "period",
+                    "event": "return",
                     "period": period.value,
                     "evidence": return_text,
                 }
             )
 
-    if not any(item["target"] == "trip" for item in proposals):
+    if not any(
+        item.get("kind") in {"trip_range", "period"}
+        and (item.get("kind") == "trip_range" or item.get("event") == "trip")
+        for item in proposals
+    ):
         scope_value = raw.get("time_scope")
         try:
             scope = TimeScope(scope_value) if scope_value else None
@@ -132,18 +135,17 @@ def adapt_legacy_temporal_payload(
             if parsed_window is not None:
                 proposals.append(
                     {
-                        "target": "trip",
-                        "precision": "exact",
-                        "clock": parsed_window.start,
-                        "end_clock": parsed_window.end,
+                        "kind": "trip_range",
+                        "start": parsed_window.start,
+                        "end": parsed_window.end,
                         "evidence": time_text,
                     }
                 )
         elif scope is not None and scope != TimeScope.EXPLICIT_RANGE:
             proposals.append(
                 {
-                    "target": "trip",
-                    "precision": "period",
+                    "kind": "period",
+                    "event": "trip",
                     "period": scope.value,
                     "evidence": time_text or scope.value,
                 }

@@ -33,6 +33,8 @@ STRUCTURED_OUTPUT_RULE_CODES = (
     "absolute_date_reference_mismatch",
     "absolute_date_missing",
     "explicit_time_window_order_invalid",
+    "period_scope_invalid",
+    "temporal_scope_conflict",
     "departure_period_invalid",
     "replace_target_missing",
     "target_reference_missing",
@@ -336,47 +338,79 @@ class TimeWindow(BaseModel):
         return _canonical_clock(value, field_name="time") or value
 
 
-class TimeProposal(BaseModel):
-    """One time phrase with its semantic target preserved until compilation."""
+class TripRangeProposal(BaseModel):
+    """A bounded interval that applies to the whole outing."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    target: Literal["trip", "departure", "return"]
-    precision: Literal["exact", "period"]
-    clock: str | None = None
-    end_clock: str | None = None
-    period: TimeScope | None = None
+    kind: Literal["trip_range"] = "trip_range"
+    start: str
+    end: str
     evidence: str = Field(min_length=1)
 
-    @field_validator("clock", "end_clock")
+    @field_validator("start", "end")
     @classmethod
-    def validate_clocks(cls, value: str | None) -> str | None:
-        return _canonical_clock(value, field_name="clock")
+    def validate_clocks(cls, value: str) -> str:
+        return _canonical_clock(value, field_name="clock") or value
 
     @model_validator(mode="after")
-    def validate_proposal_shape(self) -> "TimeProposal":
-        if self.precision == "exact":
-            if self.clock is None or self.period is not None:
-                raise ValueError("exact time proposal requires clock and no period")
-            if self.target == "trip" and self.end_clock is None:
-                raise ValueError("exact trip time proposal requires end_clock")
-            if self.target != "trip" and self.end_clock is not None:
-                raise ValueError("only a trip range may provide end_clock")
-            if self.end_clock is not None and self.clock >= self.end_clock:
-                raise PydanticCustomError(
-                    "explicit_time_window_order_invalid",
-                    "trip range start must be before end",
-                )
-        else:
-            if self.period is None or self.clock is not None or self.end_clock is not None:
-                raise ValueError("period time proposal requires period and no clock")
-            if self.target != "trip" and self.period not in {
-                TimeScope.MORNING,
-                TimeScope.AFTERNOON,
-                TimeScope.EVENING,
-            }:
-                raise ValueError("departure and return periods must be a day period")
+    def validate_range(self) -> "TripRangeProposal":
+        if self.start >= self.end:
+            raise PydanticCustomError(
+                "explicit_time_window_order_invalid",
+                "trip range start must be before end",
+            )
         return self
+
+
+class EventClockProposal(BaseModel):
+    """An exact clock attached to one event, not to the whole trip."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["event_clock"] = "event_clock"
+    event: Literal["departure", "return"]
+    clock: str
+    evidence: str = Field(min_length=1)
+
+    @field_validator("clock")
+    @classmethod
+    def validate_clock(cls, value: str) -> str:
+        return _canonical_clock(value, field_name="clock") or value
+
+
+class PeriodProposal(BaseModel):
+    """A coarse period whose scope is explicit until compilation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["period"] = "period"
+    event: Literal["trip", "departure", "return"]
+    period: TimeScope
+    evidence: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_period_scope(self) -> "PeriodProposal":
+        if self.period == TimeScope.EXPLICIT_RANGE:
+            raise PydanticCustomError(
+                "period_scope_invalid",
+                "an explicit range must use trip_range",
+            )
+        if self.event != "trip" and self.period == TimeScope.ALL_DAY:
+            raise PydanticCustomError(
+                "departure_period_invalid",
+                "departure and return periods must be a day period",
+            )
+        return self
+
+
+# A discriminated union keeps the semantic alternatives separate in the
+# model-facing contract.  Callers inspect the concrete proposal class rather
+# than interpreting a partially populated set of target/precision fields.
+TimeProposal = Annotated[
+    TripRangeProposal | EventClockProposal | PeriodProposal,
+    Field(discriminator="kind"),
+]
 
 
 
@@ -542,6 +576,23 @@ class Interpretation(BaseModel):
         require_trace("weekday", ("weekday", "date_reference", "date_text"))
         require_trace("week_offset", ("week_offset", "date_reference", "date_text"))
         require_trace("absolute_date", ("absolute_date", "date_reference", "date_text"))
+        return self
+
+    @model_validator(mode="after")
+    def validate_temporal_scope_consistency(self) -> "Interpretation":
+        """Reject one evidence span being assigned to two event scopes."""
+
+        periods_by_evidence: dict[str, set[str]] = {}
+        for proposal in self.time_proposals:
+            if isinstance(proposal, PeriodProposal):
+                periods_by_evidence.setdefault(proposal.evidence, set()).add(proposal.event)
+        for evidence, events in periods_by_evidence.items():
+            if "trip" in events and "departure" in events:
+                raise PydanticCustomError(
+                    "temporal_scope_conflict",
+                    "one time evidence cannot scope both trip and departure",
+                    {"evidence": evidence},
+                )
         return self
 
 

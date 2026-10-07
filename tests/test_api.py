@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.application import create_app
 from app.api.schemas import MessageRequest
-from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole, TimeProposal, TimeScope
+from app.domain.constraints import EventClockProposal, GeoLocation, Intent, Interpretation, PeriodProposal, RawConstraints, StopRole, TimeScope, TripRangeProposal
 from app.domain.providers import (
     AvailabilityStatus,
     GeoPoint,
@@ -36,12 +36,12 @@ from tests.test_native_planning import candidate
 from app.domain.catalog import ResourceType
 
 
-def _trip_period(scope: TimeScope, evidence: str) -> TimeProposal:
-    return TimeProposal(target="trip", precision="period", period=scope, evidence=evidence)
+def _trip_period(scope: TimeScope, evidence: str) -> PeriodProposal:
+    return PeriodProposal(event="trip", period=scope, evidence=evidence)
 
 
-def _exact_time(target: str, clock: str, evidence: str) -> TimeProposal:
-    return TimeProposal(target=target, precision="exact", clock=clock, evidence=evidence)
+def _exact_time(target: str, clock: str, evidence: str) -> EventClockProposal:
+    return EventClockProposal(event=target, clock=clock, evidence=evidence)
 
 
 class RuleRouter:

@@ -45,7 +45,9 @@ from app.domain.constraints import (
     StopRole,
     TargetReference,
     TimeScope,
-    TimeProposal,
+    EventClockProposal,
+    PeriodProposal,
+    TripRangeProposal,
     Weekday,
 )
 from app.domain.planning import (
@@ -382,7 +384,7 @@ def build_entry_graph(
         if isinstance(action, ModifySelectedPlan):
             return WorkflowRoute.MODIFY_PLAN.value
         if isinstance(action, ActionNeedsClarification):
-            if action.issue_kind == "action":
+            if action.field == "request_rephrase" or action.issue_kind == "action":
                 # An illegal action proposal must not enter a patch workflow.
                 # The Router's bounded repair attempt owns recovery; if it
                 # still fails, the interpretation carries the user-facing
@@ -864,7 +866,9 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             SemanticCriterion,
             StopRole,
             TimeScope,
-            TimeProposal,
+            EventClockProposal,
+            PeriodProposal,
+            TripRangeProposal,
             Weekday,
             TargetReference,
             StopReplacement,

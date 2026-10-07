@@ -13,12 +13,15 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
     DateReference,
+    EventClockProposal,
     Interpretation,
     PlanningWindow,
     RequestPatch,
+    PeriodProposal,
     TimeProposal,
     TimeScope,
     TimeWindow,
+    TripRangeProposal,
     Weekday,
 )
 from app.services.enrichment import EnvironmentContext, TemporalCompiler
@@ -51,7 +54,11 @@ class RequestPatchProposalCompiler:
         environment: EnvironmentContext,
     ) -> RequestPatchCompilation:
         raw = interpretation.raw_constraints
-        date_value, date_issue = self._compile_date(interpretation, environment.now.date())
+        date_value, date_issue = self._compile_date(
+            interpretation,
+            environment.now.date(),
+            request_revision=base_patch.base_revision,
+        )
         temporal_issues = self._compile_issues(interpretation, base_patch.base_revision)
         unresolved_issues = self._compile_unresolved_fields(
             interpretation,
@@ -67,7 +74,7 @@ class RequestPatchProposalCompiler:
         # Keep the normalized, non-blocking portions in the pending patch while
         # a single unresolved field is clarified. Nothing is applied to the
         # request until the complete patch passes ConstraintEngine.
-        if date_value is None:
+        if date_value is None and date_issue is None:
             date_value = ConstraintValue[Date](
                 value=self._next_saturday(environment.now.date()),
                 source=ConstraintSource.DEFAULT_RULE,
@@ -80,7 +87,8 @@ class RequestPatchProposalCompiler:
             raw.exact_stop_count,
         )
         updates = dict(base_patch.set_fields)
-        updates["planning_window.date"] = window.date
+        if window.date is not None:
+            updates["planning_window.date"] = window.date
         updates["planning_window.start_at"] = window.start_at
         updates["planning_window.end_at"] = window.end_at
         updates["planning_window.start_kind"] = window.start_kind
@@ -138,6 +146,8 @@ class RequestPatchProposalCompiler:
     def _compile_date(
         interpretation: Interpretation,
         current_date: Date,
+        *,
+        request_revision: int,
     ) -> tuple[ConstraintValue[Date] | None, ClarificationIssue | None]:
         raw = interpretation.raw_constraints
         resolved = TemporalCompiler.resolve_date(
@@ -174,7 +184,7 @@ class RequestPatchProposalCompiler:
                 code="DATE_REQUIRES_RESOLUTION",
                 reason="explicit_date_could_not_be_resolved",
                 expected_value_type="date",
-                request_revision=0,
+                request_revision=request_revision,
             )
 
         default_date = RequestPatchProposalCompiler._next_saturday(current_date)
@@ -211,10 +221,10 @@ class RequestPatchProposalCompiler:
             matching = [
                 item
                 for item in proposals
-                if item.target == target and item.precision == "period"
+                if isinstance(item, PeriodProposal) and item.event == target
             ]
             exact = any(
-                item.target == target and item.precision == "exact"
+                isinstance(item, EventClockProposal) and item.event == target
                 for item in proposals
             )
             if matching and not exact:
@@ -227,14 +237,11 @@ class RequestPatchProposalCompiler:
                         request_revision=request_revision,
                     )
                 )
-        trip = next(
-            (item for item in proposals if item.target == "trip" and item.precision == "exact"),
-            None,
-        )
+        trip = next((item for item in proposals if isinstance(item, TripRangeProposal)), None)
         if trip is not None:
             for item in proposals:
-                if item.target == "departure" and item.precision == "exact":
-                    if not trip.clock <= item.clock < trip.end_clock:
+                if isinstance(item, EventClockProposal) and item.event == "departure":
+                    if not trip.start <= item.clock < trip.end:
                         issues.append(
                             ClarificationIssue(
                                 field="departure_at",
@@ -244,8 +251,8 @@ class RequestPatchProposalCompiler:
                                 request_revision=request_revision,
                             )
                         )
-                if item.target == "return" and item.precision == "exact":
-                    if item.clock > trip.end_clock:
+                if isinstance(item, EventClockProposal) and item.event == "return":
+                    if item.clock > trip.end:
                         issues.append(
                             ClarificationIssue(
                                 field="return_by",
@@ -260,14 +267,24 @@ class RequestPatchProposalCompiler:
     def _compile_window(
         self,
         proposals: tuple[TimeProposal, ...],
-        date_value: ConstraintValue[Date],
+        date_value: ConstraintValue[Date] | None,
         required_roles: tuple[object, ...],
         exact_stop_count: int | None,
     ) -> tuple[PlanningWindow, list[Assumption]]:
         assumptions: list[Assumption] = []
-        trip = next((item for item in proposals if item.target == "trip"), None)
-        departure = next((item for item in proposals if item.target == "departure" and item.precision == "exact"), None)
-        return_time = next((item for item in proposals if item.target == "return" and item.precision == "exact"), None)
+        trip_range = next((item for item in proposals if isinstance(item, TripRangeProposal)), None)
+        trip_period = next(
+            (item for item in proposals if isinstance(item, PeriodProposal) and item.event == "trip"),
+            None,
+        )
+        departure = next(
+            (item for item in proposals if isinstance(item, EventClockProposal) and item.event == "departure"),
+            None,
+        )
+        return_time = next(
+            (item for item in proposals if isinstance(item, EventClockProposal) and item.event == "return"),
+            None,
+        )
 
         start: str | None = None
         end: str | None = None
@@ -280,19 +297,19 @@ class RequestPatchProposalCompiler:
         start_kind: Literal["trip_start", "departure"] = "trip_start"
         end_kind: Literal["trip_end", "return_deadline"] = "trip_end"
 
-        if trip is not None and trip.precision == "exact":
-            start, end = trip.clock, trip.end_clock
+        if trip_range is not None:
+            start, end = trip_range.start, trip_range.end
             start_source = end_source = ConstraintSource.USER_EXPLICIT
-            start_text = end_text = trip.evidence
+            start_text = end_text = trip_range.evidence
             start_rule = end_rule = "time.trip.range.v1"
-        elif trip is not None and trip.precision == "period":
-            bounds = TemporalCompiler.time_window_for_scope(trip.period)
+        elif trip_period is not None:
+            bounds = TemporalCompiler.time_window_for_scope(trip_period.period)
             if bounds is not None:
                 start, end = bounds.start, bounds.end
                 start_source = end_source = ConstraintSource.DERIVED
-                start_text = end_text = trip.evidence
-                start_rule = end_rule = f"time.trip.{trip.period.value}.v1"
-                if trip.period == TimeScope.ALL_DAY:
+                start_text = end_text = trip_period.evidence
+                start_rule = end_rule = f"time.trip.{trip_period.period.value}.v1"
+                if trip_period.period == TimeScope.ALL_DAY:
                     assumptions.append(
                         Assumption(
                             field="planning_window",
@@ -309,7 +326,7 @@ class RequestPatchProposalCompiler:
                     str(getattr(role, "value", role)) for role in required_roles
                 }
                 if (
-                    trip.period == TimeScope.AFTERNOON
+                    trip_period.period == TimeScope.AFTERNOON
                     and "dinner" in role_values
                     and return_time is None
                 ):

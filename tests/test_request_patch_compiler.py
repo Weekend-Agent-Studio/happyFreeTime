@@ -7,12 +7,14 @@ from zoneinfo import ZoneInfo
 from app.domain.constraints import (
     ActorContext,
     ConstraintSource,
+    EventClockProposal,
     Intent,
     IdentityType,
     Interpretation,
     PlanRequest,
     RawConstraints,
-    TimeProposal,
+    PeriodProposal,
+    TripRangeProposal,
     TimeScope,
 )
 from app.domain.planning import PlanPace
@@ -81,21 +83,28 @@ class RequestPatchCompilerTest(unittest.TestCase):
 
     def test_morning_activity_scopes_the_trip_window(self) -> None:
         interpretation, _, outcome = self._compile("明天早上出去玩")
-        self.assertEqual(interpretation.time_proposals[0].target, "trip")
+        self.assertEqual(interpretation.time_proposals[0].event, "trip")
         self.assertIsInstance(outcome, ResolvedRequest)
         self.assertEqual(outcome.request.planning_window.start_at.value, "09:00")
         self.assertEqual(outcome.request.planning_window.end_at.value, "12:00")
 
     def test_morning_departure_is_a_clarification_not_a_trip_window(self) -> None:
         interpretation, compilation, outcome = self._compile("明天早上出发")
-        self.assertEqual(interpretation.time_proposals[0].target, "departure")
+        self.assertEqual(interpretation.time_proposals[0].event, "departure")
         self.assertEqual(interpretation.time_proposals[0].period, TimeScope.MORNING)
         self.assertEqual(compilation.issues[0].field, "departure_at")
         self.assertIsInstance(outcome, NeedsClarification)
 
+    def test_unresolved_date_is_not_silently_replaced_by_default(self) -> None:
+        interpretation, compilation, outcome = self._compile("等忙完那天带家里人出去")
+        self.assertEqual(interpretation.raw_constraints.date_text, "等忙完那天")
+        self.assertEqual(compilation.issues[0].field, "date")
+        self.assertIsInstance(outcome, NeedsClarification)
+        self.assertNotIn("planning_window.date", compilation.patch.set_fields)
+
     def test_exact_morning_departure_sets_only_start_bound(self) -> None:
         interpretation, _, outcome = self._compile("明天早上九点出发")
-        self.assertEqual(interpretation.time_proposals[0].target, "departure")
+        self.assertEqual(interpretation.time_proposals[0].event, "departure")
         self.assertIsInstance(outcome, ResolvedRequest)
         window = outcome.request.planning_window
         self.assertEqual(window.start_at.value, "09:00")
@@ -137,11 +146,9 @@ class RequestPatchCompilerTest(unittest.TestCase):
         interpretation = interpretation.model_copy(
             update={
                 "time_proposals": (
-                    TimeProposal(
-                        target="trip",
-                        precision="exact",
-                        clock="14:00",
-                        end_clock="18:00",
+                    TripRangeProposal(
+                        start="14:00",
+                        end="18:00",
                         evidence="下午两点到六点",
                     ),
                 ),
@@ -233,16 +240,13 @@ class RequestPatchCompilerTest(unittest.TestCase):
         interpretation = interpretation.model_copy(
             update={
                 "time_proposals": (
-                    TimeProposal(
-                        target="trip",
-                        precision="exact",
-                        clock="14:00",
-                        end_clock="18:00",
+                    TripRangeProposal(
+                        start="14:00",
+                        end="18:00",
                         evidence="下午两点到六点",
                     ),
-                    TimeProposal(
-                        target="departure",
-                        precision="exact",
+                    EventClockProposal(
+                        event="departure",
                         clock="13:30",
                         evidence="一点半出发",
                     ),

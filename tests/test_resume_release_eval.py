@@ -61,7 +61,7 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         family_dinner = by_id["plan_family_home_style_dinner"].interpretation.raw_constraints
         self.assertIsNone(family_dinner.date_text)
         family_time = by_id["plan_family_home_style_dinner"].interpretation.time_proposals
-        self.assertEqual(family_time[0].target, "trip")
+        self.assertEqual(family_time[0].event, "trip")
         self.assertEqual(family_time[0].period.value, "afternoon")
 
         new_plan = by_id["plan_fast_meal_more_activity"].interpretation

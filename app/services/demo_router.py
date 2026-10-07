@@ -10,12 +10,15 @@ from app.domain.constraints import (
     CommandOperation,
     ConstraintPatch,
     ConversationCommand,
+    EventClockProposal,
     Intent,
     Interpretation,
     RawConstraints,
     RouteObjective,
     StopRole,
+    PeriodProposal,
     TargetReference,
+    TripRangeProposal,
     TimeProposal,
     TimeScope,
 )
@@ -241,9 +244,8 @@ class DemoRouter:
             )
             if departure_clock:
                 time_proposals.append(
-                    TimeProposal(
-                        target="departure",
-                        precision="exact",
+                    EventClockProposal(
+                        event="departure",
                         clock=departure_clock,
                         evidence=departure_match.group(0),
                     )
@@ -254,9 +256,8 @@ class DemoRouter:
             )
             if departure_period is not None:
                 time_proposals.append(
-                    TimeProposal(
-                        target="departure",
-                        precision="period",
+                    PeriodProposal(
+                        event="departure",
                         period=departure_period,
                         evidence=departure_period_match.group(0),
                     )
@@ -492,9 +493,8 @@ class DemoRouter:
             return_evidence = effective_return_by_text_match.group(0)
             if return_clock:
                 time_proposals.append(
-                    TimeProposal(
-                        target="return",
-                        precision="exact",
+                    EventClockProposal(
+                        event="return",
                         clock=return_clock,
                         evidence=return_evidence,
                     )
@@ -506,9 +506,8 @@ class DemoRouter:
                     else TimeScope.EVENING
                 )
                 time_proposals.append(
-                    TimeProposal(
-                        target="return",
-                        precision="period",
+                    PeriodProposal(
+                        event="return",
                         period=period,
                         evidence=return_evidence,
                     )
@@ -521,19 +520,16 @@ class DemoRouter:
         trip_time_text, trip_scope, trip_window = TemporalCompiler.extract_time(trip_text)
         if trip_time_text and trip_window is not None:
             time_proposals.append(
-                TimeProposal(
-                    target="trip",
-                    precision="exact",
-                    clock=trip_window.start,
-                    end_clock=trip_window.end,
+                TripRangeProposal(
+                    start=trip_window.start,
+                    end=trip_window.end,
                     evidence=trip_time_text,
                 )
             )
         elif trip_time_text and trip_scope is not None:
             time_proposals.append(
-                TimeProposal(
-                    target="trip",
-                    precision="period",
+                PeriodProposal(
+                    event="trip",
                     period=trip_scope,
                     evidence=trip_time_text,
                 )

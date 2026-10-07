@@ -5,11 +5,13 @@ from unittest.mock import patch
 
 from app.domain.constraints import (
     ConstraintPatch,
+    EventClockProposal,
     Intent,
     Interpretation,
     RawConstraints,
     StopRole,
-    TimeProposal,
+    PeriodProposal,
+    TripRangeProposal,
     TimeScope,
 )
 from app.domain.decision_context import (
@@ -56,6 +58,29 @@ class FakeStructuredModel:
 
 
 class TurnInterpreterTest(unittest.TestCase):
+    def test_time_wire_contract_uses_discriminated_scopes(self) -> None:
+        self.assertEqual(
+            TripRangeProposal(start="10:00", end="16:00", evidence="10到16点").kind,
+            "trip_range",
+        )
+        self.assertEqual(
+            EventClockProposal(event="departure", clock="09:00", evidence="九点出发").kind,
+            "event_clock",
+        )
+        with self.assertRaises(ValueError):
+            TripRangeProposal(start="16:00", end="10:00", evidence="16到10点")
+        with self.assertRaises(ValueError):
+            PeriodProposal(event="departure", period=TimeScope.ALL_DAY, evidence="全天出发")
+        with self.assertRaises(ValueError):
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    PeriodProposal(event="trip", period=TimeScope.AFTERNOON, evidence="下午"),
+                    PeriodProposal(event="departure", period=TimeScope.AFTERNOON, evidence="下午"),
+                ),
+            )
+
     def test_production_builder_uses_turn_proposal_schema(self) -> None:
         with patch.dict(
             "os.environ",
@@ -130,9 +155,8 @@ class TurnInterpreterTest(unittest.TestCase):
                 act=CreatePlanProposal(
                     raw_constraints=RawConstraints(preferences=["浪漫"]),
                     time_proposals=(
-                        TimeProposal(
-                            target="trip",
-                            precision="period",
+                        PeriodProposal(
+                            event="trip",
                             period=TimeScope.EVENING,
                             evidence="晚上",
                         ),
@@ -368,8 +392,8 @@ class TurnInterpreterTest(unittest.TestCase):
         self.assertEqual(result.raw_constraints.preferences, ["安静"])
         self.assertEqual(runtime.input_tokens, 21)
         self.assertEqual(runtime.output_tokens, 8)
-        self.assertEqual(runtime.wire_schema_version, "turn-proposal.v1")
-        self.assertEqual(runtime.prompt_version, "turn-interpreter.v3")
+        self.assertEqual(runtime.wire_schema_version, "turn-proposal.v2")
+        self.assertEqual(runtime.prompt_version, "turn-interpreter.v4")
 
     def test_prompt_contains_bounded_context_without_provider_facts(self) -> None:
         model = FakeStructuredModel([TurnProposal(act=ChitchatProposal())])
@@ -385,14 +409,17 @@ class TurnInterpreterTest(unittest.TestCase):
 
     def test_retries_once_then_returns_safe_clarification(self) -> None:
         model = FakeStructuredModel([{"invalid": True}, {"still_invalid": True}])
-        result, runtime = TurnInterpreter(model).interpret_with_runtime(
+        outcome = TurnInterpreter(model).interpret_with_runtime(
             "随便安排一下",
             RouterContext(current_date=date(2026, 8, 12)),
         )
         self.assertEqual(len(model.calls), 2)
-        self.assertEqual(result.primary_intent, Intent.CLARIFY)
-        self.assertTrue(result.requires_clarification)
-        self.assertEqual(runtime.fallback_reason, "invalid_output")
+        self.assertEqual(outcome.interpretation.primary_intent, Intent.CLARIFY)
+        self.assertTrue(outcome.interpretation.requires_clarification)
+        self.assertIsInstance(outcome.action, NeedsClarification)
+        self.assertEqual(outcome.action.field, "request_rephrase")
+        self.assertEqual(outcome.action.issue_kind, "constraint")
+        self.assertEqual(outcome.runtime.fallback_reason, "invalid_output")
         self.assertIn("TurnProposal", "\n".join(str(m.content) for m in model.calls[1]))
 
     def test_classifies_provider_failure_without_retry(self) -> None:

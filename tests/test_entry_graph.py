@@ -16,7 +16,7 @@ from app.domain.constraints import (
     Interpretation,
     RawConstraints,
     StopRole,
-    TimeProposal,
+    PeriodProposal,
     TimeScope,
 )
 from app.orchestration.entry_graph import (
@@ -34,9 +34,9 @@ from app.domain.planning import ConstraintConflict
 from tests.test_planning import planning_constraints
 
 
-def _afternoon() -> TimeProposal:
-    return TimeProposal(
-        target="trip", precision="period", period=TimeScope.AFTERNOON, evidence="下午"
+def _afternoon() -> PeriodProposal:
+    return PeriodProposal(
+        event="trip", period=TimeScope.AFTERNOON, evidence="下午"
     )
 
 
