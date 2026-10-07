@@ -258,7 +258,7 @@ MainGraph 负责产品级控制流。下表中 `router → turn_compile → comp
 | `explanation_subgraph` | 模板 + 可选 1 次 LLM | 已验证方案、证据和取舍 | 不改变事实的解释 |
 | `permission_gate` | 确定性代码 | 已选 Plan Version、执行预览 | 有效确认快照 |
 | `execution_subgraph` | 确定性状态机 | 确认快照、ActorContext | `Order`、事件 |
-| `persist_and_emit` | 基础设施 | 状态变化 | 数据库记录、`AgentEvent` |
+| `persist_and_emit` | 基础设施 | 状态变化 | 数据库记录、`PlanningRunEvent` |
 | `feedback_and_memory` | 确定性主流程 + 可选 LLM 提取 | 完成/跳过/评分/纠正 | `MemoryCandidate[]`、确认或丢弃结果 |
 
 当前 Graph 的 `router` 先产生 `TurnProposal`，`turn_compile` 结合有限 `DecisionContext` 生成唯一 `CompiledNextAction`；`compile_request` 再由 `EnrichmentService`、`RequestPatchProposalCompiler` 与 `ConstraintEngine` 建立单一 `PlanRequest`。`gate` 通过 `RequestReadinessPolicy` 检查 Planner 必需字段，再由 `QuestionPolicy` 消费结构化 Issue。界面按钮和顶部栏可直接产生 typed Patch，绕过不必要的 LLM 解释。更完整的 `CapabilityRouter` 与多能力子图仍是目标架构：它只能根据经过 schema/权限校验的命令路由，不能听从自由文本跳过 Gate。
@@ -385,7 +385,8 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | `MemoryInfluence` | 记忆对结果的可解释影响 | memory id、plan/score/constraint target、direction、reason |
 | `MemoryCandidate` | 尚未提交的记忆提议 | proposed item、source event、confirmation requirement、risk |
 | `MemoryDecision` | 用户对记忆候选的处理结果 | accepted/rejected、resulting memory id、reason、decided at |
-| `AgentEvent` | SSE 事件 | event id、run、stage、status、public payload、timestamp |
+| `PlanningRunEvent` | 一轮规划的安全阶段事件 | run、sequence、stage、status、public message、safe details、timestamp |
+| `PlanningRunTrace` | 一轮规划的有序事件快照 | schema version、run、ordered events；不包含模型原文或隐藏推理 |
 
 ### 6.3 字段来源
 
@@ -860,7 +861,7 @@ POST   /api/orders/{order_id}/cancel
 GET    /api/sessions/{session_id}/events
 ```
 
-所有普通响应使用 `ResponseEnvelope`，流式事件使用版本化 `AgentEvent`。外部 I/O 使用 async，规划核心保持同步纯函数，必要时放入 worker thread。
+所有普通响应使用 `ResponseEnvelope`，流式事件使用版本化 `PlanningRunEvent`。外部 I/O 使用 async，规划核心保持同步纯函数，必要时放入 worker thread。
 
 `POST .../messages` 要求客户端传入 `request_id`；`GET /api/sessions` 默认只返回少量最近非空会话，`GET .../{session_id}` 返回稳定的 Session View，包括完整消息和最近一次规划响应。前端以 URL 中的 `session` 定位当前会话，并用 History API 同步点击切换、刷新与前进/后退。
 
