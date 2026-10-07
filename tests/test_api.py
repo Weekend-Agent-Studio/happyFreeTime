@@ -315,6 +315,17 @@ class ApiTest(unittest.TestCase):
         response_data = result.json()["data"]
         plans = response_data["plans"]
         self.assertGreaterEqual(len(plans), 2)
+        trace = response_data["run_trace"]
+        self.assertIsNotNone(trace)
+        self.assertTrue(trace["run_id"])
+        self.assertTrue(
+            {event["stage"] for event in trace["events"]}
+            >= {"understand", "compile_request", "retrieve", "construct", "verify", "advise"}
+        )
+        self.assertEqual(
+            [event["sequence"] for event in trace["events"]],
+            list(range(1, len(trace["events"]) + 1)),
+        )
         self.assertEqual(
             response_data["planning_intent_decision"]["source"],
             "rule_based",

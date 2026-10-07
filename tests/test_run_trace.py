@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from app.domain.run_trace import (
+    InMemoryRunObserver,
     PlanningRunEvent,
+    PlanningRunEventDraft,
     PlanningRunTrace,
     RunEventStatus,
     RunStage,
@@ -54,3 +56,28 @@ class PlanningRunTraceContractTest(unittest.TestCase):
     def test_event_contract_forbids_extra_fields(self) -> None:
         with self.assertRaises(ValidationError):
             self._event(unexpected="not allowed")
+
+    def test_observer_assigns_sequence_and_run_identity(self) -> None:
+        observer = InMemoryRunObserver("run-2")
+        observer.record(
+            PlanningRunEventDraft(
+                stage=RunStage.RETRIEVE,
+                status=RunEventStatus.STARTED,
+                message_key="retrieve.started",
+                public_message="正在检索候选地点",
+            )
+        )
+        observer.record(
+            PlanningRunEventDraft(
+                stage=RunStage.RETRIEVE,
+                status=RunEventStatus.COMPLETED,
+                message_key="retrieve.completed",
+                public_message="候选地点检索完成",
+                public_details={"candidate_count": 8},
+            )
+        )
+
+        trace = observer.snapshot()
+        self.assertEqual(trace.run_id, "run-2")
+        self.assertEqual([item.sequence for item in trace.events], [1, 2])
+        self.assertEqual(trace.events[1].public_details["candidate_count"], 8)

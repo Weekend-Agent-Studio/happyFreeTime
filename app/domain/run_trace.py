@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -134,3 +134,51 @@ class PlanningRunTrace(BaseModel):
                 raise ValueError("trace event sequences must be contiguous and ordered")
             expected += 1
         return self
+
+
+class PlanningRunEventDraft(BaseModel):
+    """Input accepted by a request-scoped observer before sequencing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    stage: RunStage
+    status: RunEventStatus
+    message_key: str = Field(min_length=1, max_length=80)
+    public_message: str = Field(min_length=1, max_length=240)
+    duration_ms: int | None = Field(default=None, ge=0)
+    public_details: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+    _safe_details = field_validator("public_details")(_validate_public_details)
+
+
+class RunObserver(Protocol):
+    """Small seam for request-scoped execution instrumentation."""
+
+    def record(self, event: PlanningRunEventDraft) -> PlanningRunEvent:
+        ...
+
+    def snapshot(self) -> PlanningRunTrace:
+        ...
+
+
+class InMemoryRunObserver:
+    """Collect a bounded trace without putting the observer in Graph State."""
+
+    def __init__(self, run_id: str) -> None:
+        self._run_id = run_id
+        self._events: list[PlanningRunEvent] = []
+
+    def record(self, event: PlanningRunEventDraft) -> PlanningRunEvent:
+        if len(self._events) >= 64:
+            raise ValueError("planning run trace event limit exceeded")
+        event_value = PlanningRunEvent(
+            run_id=self._run_id,
+            sequence=len(self._events) + 1,
+            occurred_at=datetime.now().astimezone(),
+            **event.model_dump(),
+        )
+        self._events.append(event_value)
+        return event_value
+
+    def snapshot(self) -> PlanningRunTrace:
+        return PlanningRunTrace(run_id=self._run_id, events=tuple(self._events))
