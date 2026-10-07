@@ -1,6 +1,6 @@
 # Resume V2 当前架构
 
-_Resume V2 当前实现快照；核对日期：2026-10-05。S-CORE2A–E 在 `codex/s-core2-request-engine` 上完成，尚未合并 main；本文件描述该分支的实现。发布 tag 仍是冻结评测基线。_
+_Resume V2 当前实现快照；核对日期：2026-10-07。S-CORE2A–E 与 S-CORE3A–H4 已在当前架构分支完成；发布 tag 仍是冻结评测基线。_
 
 ---
 
@@ -12,7 +12,7 @@ _Resume V2 当前实现快照；核对日期：2026-10-05。S-CORE2A–E 在 `co
 - 评测代码提交：db8603b，是发布 tag 的祖先；
 - 36 条人工复核 Frozen Fixture；
 - S-CORE1A/B/C 的代码、自动测试和阶段报告；其评测代码提交 `52fd353` 的正式结果见 [S-CORE1C 报告](../status/s_core1c_release_20261002.md)。
-- S-CORE2A–E 的代码、测试和本次验收报告；该分支基于已合并 S-CORE1 的 `origin/main@26df327`，尚未合并 main。冻结 tag 的历史指标仍只对应旧提交。
+- S-CORE2A–E、S-CORE3A–H4 的代码、测试和阶段报告；冻结 tag 的历史指标仍只对应各自冻结提交，不能把本地开发分支的复验结果倒写成发布指标。
 
 如果本文与根 README、代码或自动测试冲突，以代码和测试为准。目标架构、长期记忆、真实执行、Saga 和 MCP 演进见 canonical/architecture_v2.md，不能从目标设计推断为当前能力。
 
@@ -34,11 +34,13 @@ flowchart TB
     accTitle: Resume V2 Runtime Architecture
     accDescr: The current implementation separates natural language interpretation, deterministic planning, external fact verification, grounded presentation, and durable session state.
 
-    input([👤 User request]) --> api[🌐 FastAPI application]
+    input([👤 User request]) --> api[🌐 FastAPI HTTP interface]
 
     subgraph graph_control["⚙️ Stateful graph"]
-        api --> turn[🧠 Router / DemoRouter]
-        turn --> compile[⚙️ compile_request: Enrichment + Proposal Compiler]
+        api --> app[🧩 PlanningTurnApplication]
+        app --> turn[🧠 Router / DemoRouter + DecisionContext]
+        turn --> action[⚙️ TurnCompiler → CompiledNextAction]
+        action --> compile[⚙️ Request/Patch Workflow]
         compile --> engine{🧭 ConstraintEngine}
         engine -->|NeedsClarification| policy[❓ ReadinessPolicy / QuestionPolicy]
         policy --> pause[🔒 Interrupt and SQLite checkpoint]
@@ -46,14 +48,14 @@ flowchart TB
         engine -->|Resolved| ready[✅ RequestReadinessPolicy]
         ready -->|ready| intent[🧠 PlanningIntent projection]
         engine -->|Conflict| conflict[⚠️ Structured conflict]
-        topbar[顶部栏 typed Patch] --> patch[apply_request_patch]
+        topbar[顶部栏 typed Patch] --> patch[RequestPatch]
         reply[字段级反问回答] --> patch
-        turn -->|constraint update| patch
+        action -->|ApplyRequestPatch| patch
         patch --> engine
     end
 
     subgraph planning_core["⚙️ Planning core"]
-        intent[Rule semantics + optional LLM proposal] --> spec[🛡️ PlanSpecCompiler]
+        intent[PlanningIntent + structure proposal] --> spec[🛡️ PlanSpecCompiler]
         spec --> retrieve[🔍 Catalog and Hybrid Retrieval]
         retrieve --> search[⚙️ Beam Search]
         search --> schedule[⚙️ Timeline Scheduler]
@@ -67,7 +69,7 @@ flowchart TB
     output --> api
 ```
 
-Graph 只编排有状态分支、反问恢复和有限决策；普通过滤、评分、Provider 调用和搜索保持在 Service/Adapter 内部，不为每个函数增加 Graph 节点。
+Graph 只编排有状态分支、反问恢复和有限决策；普通过滤、评分、Provider 调用和搜索保持在 Service/Adapter 内部，不为每个函数增加 Graph 节点。自然语言先经过 `TurnProposal + DecisionContext → TurnCompiler`；顶部栏和反问回答绕过 Router，但都汇入 `RequestPatch → ConstraintEngine`。
 
 ## 🧠 语义入口与状态边界
 
@@ -82,7 +84,9 @@ Graph 只编排有状态分支、反问恢复和有限决策；普通过滤、�
 
 模型不能输出真实资源 ID、应用已经知道的方案 ID、路线价格营业库存等外部事实，也不能生成可以绕过权限和状态校验的执行命令。
 
-受限 Wire Proposal 经 Router Adapter 形成内部 `Interpretation`；它是当前解释/编译边界，不是旧 checkpoint 的读取 Adapter，也不等于模型直接拥有整个领域状态。
+受限 Wire Proposal 经 Router 形成 `TurnProposal`，由 `TurnCompiler` 结合有限 `DecisionContext` 编译为唯一的 `CompiledNextAction`。执行服务仍消费内部 `Interpretation` 投影；它是当前执行链的领域投影，不是模型动作判别字段，也不是旧 checkpoint 的读取 Adapter。`ConversationCommand` 同样是定向替换的执行契约，不能被模型资源 ID 绕过校验。
+
+H4 后，Graph 运行时只接受 `interpret_with_runtime() -> TurnInterpreterResult`；旧的 tuple/`Interpretation` 动作回退和 `TurnCompiler.from_interpretation()` 已删除。Demo Router、Frozen Fixture 和测试夹具如需保留历史 `Interpretation`，只能在各自边界显式投影到当前 `TurnProposal`，不能成为生产路由的第二套动作协议。
 
 ### PlanRequest、RequestPatch 与 QuestionPolicy
 
@@ -157,7 +161,7 @@ Beam 是默认主路径。Legacy Search 仅通过显式实验模式或 Beam 在�
 
 Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单、预订、叫车或长期用户记忆模块。
 
-当前 Graph 状态以 `active_request`、一个 `pending_issue`、待应用 Patch、方案/候选结果和运行诊断为主；Enrichment 结果只作为瞬时输出，假设与地理编码事实按需单独存储。`CHECKPOINT_SCHEMA_VERSION=planner-core2e-v1`。旧开发 checkpoint 不做读取 Adapter；旧测试会话需新建，不删除用户本地数据库或历史记录。
+当前 Graph 状态以 `active_request`、一个 `pending_issue`、待应用 Patch、方案/候选结果和运行诊断为主；Enrichment 结果只作为瞬时输出，假设与地理编码事实按需单独存储。`CHECKPOINT_SCHEMA_VERSION=planner-core3e-v1`。Repository 是 `PlanRequest`、PlanVersion 和 selected plan 的产品事实来源；其中尚未生成 PlanVersion 的草稿/最新编辑请求也写入 SessionSnapshot，checkpoint 只保存暂停位置、pending interaction 和本轮临时状态。旧开发 checkpoint 不做读取 Adapter，需新建开发会话；本轮不主动删除用户本地消息和历史记录。
 
 ## 📊 当前评测证据
 
@@ -166,7 +170,8 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 - Frozen C0–C4 使用同一份 36 条 reviewed Interpretation；C0/C1 为 34/36，C2/C3/C4 为 36/36；各冻结变体硬约束 7/7、冲突归因 4/4、修改链路 10/10；
 - C4 Advisor 结构有效 27/27，接受 23/27，其余 4 次按规则安全回退；
 - Live B0/B3 原始诊断分别为 26/36 和 28/36；两者来自 `b4d4312 + dirty worktree`，未在最终 `922474e` 重跑，不是最终 HEAD 的可复现指标，也不代表通用或生产成功率；
-- S-CORE2 Clarification Eval 24/24 子案例通过；Playwright 13 passed、1 skipped，Vite 进程改为 in-process setup/close 后 runner 退出码为 0；
+- S-CORE2 Clarification Eval 24/24 子案例通过；S-CORE3A–H4 的确定性回归与 Graph/API 分层测试在各切片报告中记录；H4 后端收集 456 tests，前端 32 tests、TypeScript 和 Vite build 通过；
+- H4 干净提交 `2e9f0f0` 的复验中，C3/C4 均为 36/36，B0/B3 分别为 30/36 与 33/36；四组硬约束安全和冲突归因均保持 100%，Live 结果只用于稳定性诊断，完整限制见 [H4 收口记录](../status/s_core3h4_closeout_20261007.md)。
 - Hybrid Retrieval 的历史正式 Recall@5 为 0.537，Rule baseline 为 0.240；Advisor 接受结果经过 Plan/Evidence/Fact ID grounding，失败时安全回退；
 - BGE 冷启动延迟与稳态延迟分开记录。
 
@@ -188,7 +193,8 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 
 | 层 | 入口 |
 | --- | --- |
-| Graph/API | app/orchestration/entry_graph.py、app/api/application.py |
+| Graph/API | app/orchestration/entry_graph.py、app/api/application.py、app/api/planning_turn.py |
+| 对话动作与上下文 | app/domain/turn.py、app/domain/decision_context.py、app/services/router_extractor.py |
 | 领域契约 | app/domain/ |
 | 语义入口 | app/services/router_extractor.py、app/services/demo_router.py |
 | 请求编译与执行 | app/services/enrichment.py、app/services/request_patch_compiler.py、app/services/request_patch_update.py、app/services/constraint_engine.py |
@@ -200,4 +206,4 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 
 ## 🎓 学习建议
 
-先读根 README 和发布报告建立当前系统概念；再读本文；随后对照自然语言、顶部栏和字段反问三种入口，沿 `RequestPatch → ConstraintEngine → PlanRequest` 阅读，再看 `RequestReadinessPolicy / QuestionPolicy → PlanningIntent → PlanSpecCompiler → PlanningService → Provider / Verifier → Persistence`。
+先读根 README 和发布报告建立当前系统概念；再读本文；随后对照自然语言、顶部栏和字段反问三种入口：自然语言沿 `DecisionContext → TurnProposal → TurnCompiler → CompiledNextAction`，其请求更新再沿 `RequestPatch → ConstraintEngine → PlanRequest`；顶部栏和反问直接进入同一 Patch；最后看 `RequestReadinessPolicy / QuestionPolicy → PlanningIntent → PlanSpecCompiler → PlanningService → Provider / Verifier → PlanningTurnApplication → Persistence`。

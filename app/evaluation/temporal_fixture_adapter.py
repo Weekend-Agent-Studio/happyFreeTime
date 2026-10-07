@@ -31,6 +31,11 @@ def adapt_legacy_interpretation_payload(payload: dict[str, Any]) -> dict[str, An
     """Convert an old serialized Interpretation without changing its source file."""
     adapted = deepcopy(payload)
     raw, proposals = adapt_legacy_temporal_payload(adapted.get("raw_constraints", {}))
+    # Frozen v1 fixtures used one ambiguous location field.  Keep the source
+    # files hash-pinned, but translate that retired evaluation shape at the
+    # loader seam so the production Router contract can stay scope-explicit.
+    if "location_text" in raw:
+        raw["origin_text"] = raw.pop("location_text")
     adapted["raw_constraints"] = raw
     if not adapted.get("time_proposals"):
         adapted["time_proposals"] = proposals
@@ -57,10 +62,9 @@ def adapt_legacy_temporal_payload(
         if start and end:
             proposals.append(
                 {
-                    "target": "trip",
-                    "precision": "exact",
-                    "clock": start,
-                    "end_clock": end,
+                    "kind": "trip_range",
+                    "start": start,
+                    "end": end,
                     "evidence": time_text or f"{start}-{end}",
                 }
             )
@@ -74,8 +78,8 @@ def adapt_legacy_temporal_payload(
     if departure_clock:
         proposals.append(
             {
-                "target": "departure",
-                "precision": "exact",
+                "kind": "event_clock",
+                "event": "departure",
                 "clock": departure_clock,
                 "evidence": departure_text or str(departure_value),
             }
@@ -85,8 +89,8 @@ def adapt_legacy_temporal_payload(
         if departure_period is not None:
             proposals.append(
                 {
-                    "target": "departure",
-                    "precision": "period",
+                    "kind": "period",
+                    "event": "departure",
                     "period": departure_period.value,
                     "evidence": departure_text,
                 }
@@ -98,8 +102,8 @@ def adapt_legacy_temporal_payload(
     if return_clock:
         proposals.append(
             {
-                "target": "return",
-                "precision": "exact",
+                "kind": "event_clock",
+                "event": "return",
                 "clock": return_clock,
                 "evidence": return_text or str(return_value),
             }
@@ -109,14 +113,18 @@ def adapt_legacy_temporal_payload(
         if period is not None:
             proposals.append(
                 {
-                    "target": "return",
-                    "precision": "period",
+                    "kind": "period",
+                    "event": "return",
                     "period": period.value,
                     "evidence": return_text,
                 }
             )
 
-    if not any(item["target"] == "trip" for item in proposals):
+    if not any(
+        item.get("kind") in {"trip_range", "period"}
+        and (item.get("kind") == "trip_range" or item.get("event") == "trip")
+        for item in proposals
+    ):
         scope_value = raw.get("time_scope")
         try:
             scope = TimeScope(scope_value) if scope_value else None
@@ -127,18 +135,17 @@ def adapt_legacy_temporal_payload(
             if parsed_window is not None:
                 proposals.append(
                     {
-                        "target": "trip",
-                        "precision": "exact",
-                        "clock": parsed_window.start,
-                        "end_clock": parsed_window.end,
+                        "kind": "trip_range",
+                        "start": parsed_window.start,
+                        "end": parsed_window.end,
                         "evidence": time_text,
                     }
                 )
         elif scope is not None and scope != TimeScope.EXPLICIT_RANGE:
             proposals.append(
                 {
-                    "target": "trip",
-                    "precision": "period",
+                    "kind": "period",
+                    "event": "trip",
                     "period": scope.value,
                     "evidence": time_text or scope.value,
                 }
@@ -146,6 +153,8 @@ def adapt_legacy_temporal_payload(
 
     for field in _LEGACY_TIME_FIELDS:
         raw.pop(field, None)
+    if "location_text" in raw:
+        raw["origin_text"] = raw.pop("location_text")
     return raw, proposals
 
 

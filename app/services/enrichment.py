@@ -27,6 +27,7 @@ from app.domain.constraints import (
 )
 from app.domain.providers import GeocodeRequest, GeocodeResolution, GeocodingFact
 from app.providers.geocoding import GeocodingProvider
+from app.services.constraint_normalizers import DistanceNormalizer
 
 
 class EnvironmentContext(BaseModel):
@@ -343,8 +344,6 @@ class EnrichmentService:
     """Compile non-temporal extracted values into an atomic request patch."""
 
     DEFAULT_BUDGET = 120
-    DEFAULT_DISTANCE_KM = 8.0
-
     def __init__(self, geocoding_provider: GeocodingProvider | None = None) -> None:
         self._geocoding_provider = geocoding_provider
 
@@ -380,7 +379,7 @@ class EnrichmentService:
             else None
         )
 
-        distance = self._normalize_distance(
+        distance = DistanceNormalizer.normalize(
             raw.max_distance_km,
             raw.max_distance_text,
         )
@@ -466,42 +465,21 @@ class EnrichmentService:
                 )
             )
 
-        # 显式地点只能由 GeocodingProvider 变成坐标；无法解析时保留 None，由
-        # Gate 反问。用户没有给地点才可以使用会话默认出发地。
-        location = None
-        geocoding_fact: GeocodingFact | None = None
-        if raw.location_text:
-            if self._geocoding_provider is not None:
-                geocoding_fact = self._geocoding_provider.geocode(
-                    GeocodeRequest(
-                        location_text=raw.location_text,
-                        city=environment.default_location.city,
-                    )
-                )
-            if (
-                geocoding_fact is not None
-                and geocoding_fact.resolution == GeocodeResolution.RESOLVED
-                and geocoding_fact.point is not None
-            ):
-                location = ConstraintValue[GeoLocation](
-                    value=GeoLocation(
-                        city=geocoding_fact.city or environment.default_location.city,
-                        district=geocoding_fact.district or "",
-                        address=geocoding_fact.address or raw.location_text,
-                        latitude=geocoding_fact.point.latitude,
-                        longitude=geocoding_fact.point.longitude,
-                        adcode=geocoding_fact.adcode,
-                    ),
-                    source=ConstraintSource.REAL_TOOL,
-                    raw_text=raw.location_text,
-                    rule_id="location.geocoded.v1",
-                )
-        else:
-            location = ConstraintValue[GeoLocation](
-                value=environment.default_location,
-                source=ConstraintSource.SYSTEM_CONTEXT,
-                rule_id="location.session_default.v1",
-            )
+        # The Router has already assigned location scope.  Enrichment only
+        # resolves the two bounded provider facts; it never decides whether a
+        # phrase meant the route origin or the activity area.
+        location, origin_fact = self._resolve_location(
+            raw.origin_text,
+            environment,
+            default_to_session=True,
+            rule_id="location.geocoded.v1",
+        )
+        planning_area, planning_area_fact = self._resolve_location(
+            raw.planning_area_text,
+            environment,
+            default_to_session=False,
+            rule_id="planning_area.geocoded.v1",
+        )
 
         set_fields: dict[str, object] = {
             "preferences": raw.preferences,
@@ -519,6 +497,7 @@ class EnrichmentService:
             )
         for name, value in (
             ("location", location),
+            ("planning_area", planning_area),
             ("party", party_value),
             ("budget_per_person", budget),
             ("max_distance_km", distance),
@@ -541,43 +520,62 @@ class EnrichmentService:
         return EnrichmentResult(
             request_patch=request_patch,
             assumptions=assumptions,
-            geocoding_fact=geocoding_fact,
+            # Keep the existing singular provider-fact seam stable.  When a
+            # request has only an activity area, expose that fact; when both
+            # are present the origin remains the primary route fact.
+            geocoding_fact=origin_fact or planning_area_fact,
+        )
+
+    def _resolve_location(
+        self,
+        raw_text: str | None,
+        environment: EnvironmentContext,
+        *,
+        default_to_session: bool,
+        rule_id: str,
+    ) -> tuple[ConstraintValue[GeoLocation] | None, GeocodingFact | None]:
+        """Resolve an already-scoped location phrase without semantic guessing."""
+
+        if not raw_text:
+            if not default_to_session:
+                return None, None
+            return (
+                ConstraintValue[GeoLocation](
+                    value=environment.default_location,
+                    source=ConstraintSource.SYSTEM_CONTEXT,
+                    rule_id="location.session_default.v1",
+                ),
+                None,
+            )
+        fact = (
+            self._geocoding_provider.geocode(
+                GeocodeRequest(
+                    location_text=raw_text,
+                    city=environment.default_location.city,
+                )
+            )
+            if self._geocoding_provider is not None
+            else None
+        )
+        if fact is None or fact.resolution != GeocodeResolution.RESOLVED or fact.point is None:
+            return None, fact
+        return (
+            ConstraintValue[GeoLocation](
+                value=GeoLocation(
+                    city=fact.city or environment.default_location.city,
+                    district=fact.district or "",
+                    address=fact.address or raw_text,
+                    latitude=fact.point.latitude,
+                    longitude=fact.point.longitude,
+                    adcode=fact.adcode,
+                ),
+                source=ConstraintSource.REAL_TOOL,
+                raw_text=raw_text,
+                rule_id=rule_id,
+            ),
+            fact,
         )
 
     @staticmethod
     def _confidence(interpretation: Interpretation, field: str) -> float | None:
         return interpretation.extraction_confidence.get(field)
-
-    @classmethod
-    def _normalize_distance(
-        cls,
-        explicit_km: float | None,
-        raw_text: str | None,
-    ) -> ConstraintValue[float] | None:
-        """把少量模糊距离词映射到产品规则，并保留命中的 rule_id。"""
-        if explicit_km is not None:
-            return ConstraintValue[float](
-                value=explicit_km,
-                source=ConstraintSource.USER_EXPLICIT,
-                raw_text=raw_text,
-            )
-        rules = {
-            "步行可达": (2.0, "distance.walkable.v1"),
-            "附近": (5.0, "distance.nearby.v1"),
-            "别太远": (cls.DEFAULT_DISTANCE_KM, "distance.not_far.beijing.v1"),
-        }
-        if raw_text and raw_text.strip() in rules:
-            value, rule_id = rules[raw_text.strip()]
-            return ConstraintValue[float](
-                value=value,
-                source=ConstraintSource.USER_INFERRED,
-                raw_text=raw_text,
-                rule_id=rule_id,
-            )
-        if raw_text:
-            return None
-        return ConstraintValue[float](
-            value=cls.DEFAULT_DISTANCE_KM,
-            source=ConstraintSource.DEFAULT_RULE,
-            rule_id="distance.default.beijing.v1",
-        )

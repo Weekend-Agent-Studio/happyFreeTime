@@ -112,12 +112,33 @@ class EnrichmentServiceTest(unittest.TestCase):
             geocoding_provider=MockGeocodingProvider.from_locations({})
         )
         result = service.enrich(
-            self.interpretation(RawConstraints(location_text="我公司附近")),
+            self.interpretation(RawConstraints(origin_text="我公司附近")),
             self.actor,
             self.environment,
         )
 
         self.assertNotIn("location", result.request_patch.set_fields)
+
+    def test_resolves_origin_and_planning_area_as_separate_request_fields(self) -> None:
+        service = EnrichmentService(
+            geocoding_provider=MockGeocodingProvider.from_locations(
+                {
+                    ("北京市", "望京"): (39.99, 116.48, "朝阳区", "110105", "望京"),
+                    ("北京市", "朝阳"): (39.92, 116.44, "朝阳区", "110105", "朝阳区"),
+                }
+            )
+        )
+        result = service.enrich(
+            self.interpretation(
+                RawConstraints(origin_text="望京", planning_area_text="朝阳")
+            ),
+            self.actor,
+            self.environment,
+        )
+
+        fields = result.request_patch.set_fields
+        self.assertEqual(fields["location"].value.address, "望京")
+        self.assertEqual(fields["planning_area"].value.address, "朝阳区")
 
 
 if __name__ == "__main__":

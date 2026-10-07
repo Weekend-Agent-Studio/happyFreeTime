@@ -3,6 +3,7 @@ import unittest
 import uuid
 from pathlib import Path
 
+from app.domain.constraints import PlanRequest
 from app.domain.planning import Plan
 from app.persistence.database import Database
 from app.persistence.models import SessionSnapshotRecord
@@ -96,6 +97,35 @@ class PlanVersionPersistenceTest(unittest.TestCase):
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot.active_plan_version_id, versions[0].id)
         self.assertIsNone(snapshot.selected_plan_id)
+
+    def test_request_snapshot_survives_without_a_plan_version(self) -> None:
+        session = self.repository.create_session(user_id="user-a", identity_type="demo")
+        request = PlanRequest(preferences=["安静"], revision=1)
+        run = self.repository.begin_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            request_id="request-draft",
+            content="顶部条件更新",
+        )
+
+        self.repository.complete_planning_run(
+            user_id="user-a",
+            session_id=session.id,
+            planning_run_id=run.planning_run_id,
+            status="context_saved",
+            response={"status": "context_saved"},
+            assistant_content="",
+            plans=[],
+            active_request_json=request.model_dump_json(),
+        )
+
+        snapshot = self.repository.get_session_snapshot("user-a", session.id)
+        self.assertIsNotNone(snapshot)
+        self.assertIsNone(snapshot.active_plan_version_id)
+        self.assertEqual(
+            self.repository.active_constraints("user-a", session.id),
+            request.model_dump(mode="json"),
+        )
 
     def test_non_empty_plans_require_version_metadata(self) -> None:
         session = self.repository.create_session(user_id="user-a", identity_type="demo")

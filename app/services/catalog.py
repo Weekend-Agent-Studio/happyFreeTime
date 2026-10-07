@@ -247,8 +247,13 @@ def _violations_for(
                 )
             )
 
-    if constraints.location and constraints.max_distance_km:
-        origin = constraints.location.value
+    # A planning area is the recall center for candidate discovery; the
+    # route origin remains ``constraints.location`` and is handled later by
+    # the route/schedule pipeline.  Fall back to the origin when no area was
+    # supplied so existing requests keep their original behavior.
+    recall_center = constraints.planning_area or constraints.location
+    if recall_center and constraints.max_distance_km:
+        origin = recall_center.value
         straight_line_km = _haversine_km(
             origin.latitude,
             origin.longitude,

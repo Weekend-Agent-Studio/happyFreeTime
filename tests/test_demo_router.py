@@ -6,6 +6,19 @@ from app.services.demo_router import DemoRouter
 from app.services.router_extractor import RouterContext
 
 
+def _event_proposal(result, event):
+    return next(item for item in result.time_proposals if getattr(item, "event", None) == event)
+
+
+def _trip_proposal(result):
+    return next(
+        item
+        for item in result.time_proposals
+        if getattr(item, "event", None) == "trip"
+        or getattr(item, "kind", None) == "trip_range"
+    )
+
+
 class DemoRouterTest(unittest.TestCase):
     def setUp(self) -> None:
         self.router = DemoRouter()
@@ -22,6 +35,15 @@ class DemoRouterTest(unittest.TestCase):
         self.assertEqual(result.raw_constraints.budget_per_person, 150)
         self.assertEqual(result.raw_constraints.max_distance_text, "别太远")
 
+    def test_keeps_origin_and_planning_area_scopes_separate(self) -> None:
+        result = self.router.interpret(
+            "从望京出发，想在朝阳玩",
+            self.context,
+        )
+
+        self.assertEqual(result.raw_constraints.origin_text, "望京")
+        self.assertEqual(result.raw_constraints.planning_area_text, "朝阳")
+
     def test_follow_up_budget_is_extracted_from_combined_turn(self) -> None:
         result = self.router.interpret(
             "今天下午出去玩，别超预算\n用户补充：人均200",
@@ -37,7 +59,7 @@ class DemoRouterTest(unittest.TestCase):
             self.context,
         )
 
-        proposal = next(item for item in result.time_proposals if item.target == "return")
+        proposal = _event_proposal(result, "return")
         self.assertEqual(proposal.clock, "18:00")
         self.assertEqual(proposal.evidence, "最晚18:00到家")
 
@@ -47,8 +69,8 @@ class DemoRouterTest(unittest.TestCase):
             self.context,
         )
 
-        departure = next(item for item in result.time_proposals if item.target == "departure")
-        return_time = next(item for item in result.time_proposals if item.target == "return")
+        departure = _event_proposal(result, "departure")
+        return_time = _event_proposal(result, "return")
         self.assertEqual(departure.clock, "15:20")
         self.assertEqual(return_time.clock, "20:00")
 
@@ -70,8 +92,8 @@ class DemoRouterTest(unittest.TestCase):
             self.context,
         )
 
-        departure = next(item for item in result.time_proposals if item.target == "departure")
-        return_time = next(item for item in result.time_proposals if item.target == "return")
+        departure = _event_proposal(result, "departure")
+        return_time = _event_proposal(result, "return")
         self.assertEqual(departure.clock, "14:30")
         self.assertEqual(return_time.clock, "18:00")
 
@@ -90,8 +112,8 @@ class DemoRouterTest(unittest.TestCase):
             self.context,
         )
 
-        proposal = next(item for item in result.time_proposals if item.target == "return")
-        self.assertEqual(proposal.precision, "exact")
+        proposal = _event_proposal(result, "return")
+        self.assertEqual(proposal.kind, "event_clock")
         self.assertEqual(proposal.clock, "18:00")
 
     def test_preserves_unresolved_date_phrase_for_the_question_gate(self) -> None:
@@ -212,7 +234,7 @@ class DemoRouterTest(unittest.TestCase):
             self.context,
         )
 
-        proposal = next(item for item in result.time_proposals if item.target == "trip")
+        proposal = _trip_proposal(result)
         self.assertEqual(proposal.evidence, "一整天")
         self.assertEqual(proposal.period, TimeScope.ALL_DAY)
 
@@ -221,18 +243,19 @@ class DemoRouterTest(unittest.TestCase):
 
         self.assertEqual(len(result.time_proposals), 1)
         proposal = result.time_proposals[0]
-        self.assertEqual(proposal.target, "departure")
+        self.assertEqual(proposal.event, "departure")
+        self.assertEqual(proposal.kind, "period")
         self.assertEqual(proposal.period, TimeScope.MORNING)
         self.assertEqual(proposal.evidence, "早上出发")
 
     def test_exact_departure_keeps_a_departure_period_and_clock_evidence(self) -> None:
         result = self.router.interpret("周六早上九点出发", self.context)
 
-        proposal = next(item for item in result.time_proposals if item.target == "departure")
-        self.assertEqual(proposal.precision, "exact")
+        proposal = _event_proposal(result, "departure")
+        self.assertEqual(proposal.kind, "event_clock")
         self.assertEqual(proposal.clock, "09:00")
         self.assertEqual(proposal.evidence, "早上九点出发")
-        self.assertFalse(any(item.target == "trip" for item in result.time_proposals))
+        self.assertFalse(any(getattr(item, "event", None) == "trip" for item in result.time_proposals))
 
     def test_extracts_bounded_temporal_contract_for_compound_phrases(self) -> None:
         result = self.router.interpret("今晚只安排一家晚饭", self.context)
@@ -240,7 +263,7 @@ class DemoRouterTest(unittest.TestCase):
         raw = result.raw_constraints
         self.assertEqual(raw.date_text, "今晚")
         self.assertEqual(raw.date_reference, DateReference.TODAY)
-        proposal = next(item for item in result.time_proposals if item.target == "trip")
+        proposal = _trip_proposal(result)
         self.assertEqual(proposal.period, TimeScope.EVENING)
         self.assertEqual(result.evidence_map["date_reference"], "今晚")
         self.assertIn("date_reference", result.extraction_confidence)
@@ -257,10 +280,10 @@ class DemoRouterTest(unittest.TestCase):
         result = self.router.interpret("明天 10:00–16:00 出去玩", self.context)
 
         self.assertEqual(result.raw_constraints.date_reference, DateReference.TOMORROW)
-        proposal = next(item for item in result.time_proposals if item.target == "trip")
-        self.assertEqual(proposal.precision, "exact")
-        self.assertEqual(proposal.clock, "10:00")
-        self.assertEqual(proposal.end_clock, "16:00")
+        proposal = _trip_proposal(result)
+        self.assertEqual(proposal.kind, "trip_range")
+        self.assertEqual(proposal.start, "10:00")
+        self.assertEqual(proposal.end, "16:00")
 
 
 if __name__ == "__main__":

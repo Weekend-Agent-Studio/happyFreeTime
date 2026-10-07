@@ -550,6 +550,34 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             ["activity-meal-v1"],
         )
 
+    def test_partial_exact_count_generates_three_station_plan_without_registry_shape(self) -> None:
+        constraints = with_planning_window(
+            planning_constraints(time_end="22:00"),
+            start="14:00",
+            end="22:00",
+        ).model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=3,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="三站",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.DINNER,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="晚饭",
+                ),
+            }
+        )
+
+        result = PlanningService().plan(constraints)
+
+        self.assertTrue(result.plans)
+        self.assertTrue(all(len(plan.stops) == 3 for plan in result.plans))
+        self.assertTrue(
+            all(any(stop.role == StopRole.DINNER for stop in plan.stops) for plan in result.plans)
+        )
+
     def test_departure_only_horizon_allows_activity_then_dinner_to_continue_into_evening(self) -> None:
         constraints = with_planning_window(
             planning_constraints(time_end="23:59"),

@@ -56,7 +56,7 @@ from app.services.opening_hours import visit_fits_opening_hours
 from app.services.planning_intent import build_default_planning_intent_provider
 from app.services.candidate_retriever import build_default_candidate_retriever
 from app.services.recommendation_advisor import build_default_recommendation_advisor
-from app.services.router_extractor import build_default_turn_interpreter
+from app.services.router_extractor import TurnInterpreterResult, build_default_turn_interpreter
 from evals.resume_release_dataset import (
     EvaluationStep,
     ResumeReleaseCase,
@@ -112,28 +112,18 @@ class _RecordingRouter:
 
     def interpret_with_runtime(self, user_input: str, context: Any):
         method = getattr(self._delegate, "interpret_with_runtime", None)
-        if callable(method):
-            interpretation, runtime = method(user_input, context)
-        else:
-            interpretation = self._delegate.interpret(user_input, context)
-            runtime = None
-        self.latest_semantic_trace = _router_semantic_trace(interpretation)
-        if runtime is None:
-            from app.domain.runtime import RuntimeDecision
-
-            runtime = RuntimeDecision(
-                stage="turn_interpreter",
-                adapter="recording",
-                model_invoked=False,
-                attempts=0,
-                latency_ms=None,
+        if not callable(method):
+            raise TypeError(
+                "evaluation Router must implement interpret_with_runtime"
             )
-        return interpretation, runtime
+        result = method(user_input, context)
+        if not isinstance(result, TurnInterpreterResult):
+            raise TypeError(
+                "evaluation Router must return TurnInterpreterResult"
+            )
+        self.latest_semantic_trace = _router_semantic_trace(result.interpretation)
+        return result
 
-    def interpret(self, user_input: str, context: Any):
-        interpretation = self._delegate.interpret(user_input, context)
-        self.latest_semantic_trace = _router_semantic_trace(interpretation)
-        return interpretation
 
 
 @dataclass

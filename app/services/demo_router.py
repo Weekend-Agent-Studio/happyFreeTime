@@ -10,19 +10,33 @@ from app.domain.constraints import (
     CommandOperation,
     ConstraintPatch,
     ConversationCommand,
+    EventClockProposal,
     Intent,
     Interpretation,
     RawConstraints,
     RouteObjective,
     StopRole,
+    PeriodProposal,
     TargetReference,
+    TripRangeProposal,
     TimeProposal,
     TimeScope,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.turn import TurnCompiler
+from app.domain.turn import (
+    CheckWeatherProposal,
+    ChitchatProposal,
+    CreatePlanProposal,
+    PatchConstraintsProposal,
+    QueryPlanProposal,
+    ReplaceStopProposal,
+    TurnProposal,
+    TurnTargetProposal,
+)
 from app.services.enrichment import TemporalCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
-from app.services.router_extractor import RouterContext
+from app.services.router_extractor import RouterContext, TurnInterpreterResult
 
 
 def _parse_budget_amount(value: str) -> int | None:
@@ -204,6 +218,16 @@ class DemoRouter:
             (phrase for phrase in ("步行可达", "附近", "别太远") if phrase in text),
             None,
         )
+        origin_match = re.search(
+            r"(?:从|由)(?P<origin>[^，,。；;]{2,30})(?:出发|出门|离开)",
+            text,
+        )
+        planning_area_match = re.search(
+            r"(?:在|去)(?P<area>[^，,。；;]{2,20})(?:玩|安排|活动|逛)",
+            text,
+        )
+        origin_text = origin_match.group("origin") if origin_match else None
+        planning_area_text = planning_area_match.group("area") if planning_area_match else None
         (
             date_text,
             date_reference,
@@ -230,9 +254,8 @@ class DemoRouter:
             )
             if departure_clock:
                 time_proposals.append(
-                    TimeProposal(
-                        target="departure",
-                        precision="exact",
+                    EventClockProposal(
+                        event="departure",
                         clock=departure_clock,
                         evidence=departure_match.group(0),
                     )
@@ -243,9 +266,8 @@ class DemoRouter:
             )
             if departure_period is not None:
                 time_proposals.append(
-                    TimeProposal(
-                        target="departure",
-                        precision="period",
+                    PeriodProposal(
+                        event="departure",
                         period=departure_period,
                         evidence=departure_period_match.group(0),
                     )
@@ -481,9 +503,8 @@ class DemoRouter:
             return_evidence = effective_return_by_text_match.group(0)
             if return_clock:
                 time_proposals.append(
-                    TimeProposal(
-                        target="return",
-                        precision="exact",
+                    EventClockProposal(
+                        event="return",
                         clock=return_clock,
                         evidence=return_evidence,
                     )
@@ -495,9 +516,8 @@ class DemoRouter:
                     else TimeScope.EVENING
                 )
                 time_proposals.append(
-                    TimeProposal(
-                        target="return",
-                        precision="period",
+                    PeriodProposal(
+                        event="return",
                         period=period,
                         evidence=return_evidence,
                     )
@@ -510,19 +530,16 @@ class DemoRouter:
         trip_time_text, trip_scope, trip_window = TemporalCompiler.extract_time(trip_text)
         if trip_time_text and trip_window is not None:
             time_proposals.append(
-                TimeProposal(
-                    target="trip",
-                    precision="exact",
-                    clock=trip_window.start,
-                    end_clock=trip_window.end,
+                TripRangeProposal(
+                    start=trip_window.start,
+                    end=trip_window.end,
                     evidence=trip_time_text,
                 )
             )
         elif trip_time_text and trip_scope is not None:
             time_proposals.append(
-                TimeProposal(
-                    target="trip",
-                    precision="period",
+                PeriodProposal(
+                    event="trip",
                     period=trip_scope,
                     evidence=trip_time_text,
                 )
@@ -565,6 +582,8 @@ class DemoRouter:
             ),
             strict_budget=strict_budget,
             require_availability_confirmation=require_availability_confirmation,
+            origin_text=origin_text,
+            planning_area_text=planning_area_text,
             max_distance_text=distance_text,
             preferences=preferences,
             scene_tags=["约会"] if "约会" in text else [],
@@ -602,6 +621,8 @@ class DemoRouter:
                     if require_availability_confirmation
                     else None
                 ),
+                "origin_text": origin_text,
+                "planning_area_text": planning_area_text,
                 "total_distance_km": (
                     total_distance_match.group(1) if total_distance_match else None
                 ),
@@ -654,8 +675,13 @@ class DemoRouter:
             budget = value
             strict_budget = True
         max_distance = value if re.search(r"(?:公里|千米|km|KM)", value) else None
-        location_match = re.search(r"从(?P<location>[^，,。；;]{2,30})(?:出发|出门)", value)
-        location = location_match.group("location") if location_match else None
+        origin_match = re.search(r"(?:从|由)(?P<origin>[^，,。；;]{2,30})(?:出发|出门|离开)", value)
+        planning_area_match = re.search(
+            r"(?:在|去)(?P<area>[^，,。；;]{2,20})(?:玩|安排|活动|逛)",
+            value,
+        )
+        origin = origin_match.group("origin") if origin_match else None
+        planning_area = planning_area_match.group("area") if planning_area_match else None
         preferences = tuple(
             label
             for keyword, label in (("安静", "安静"), ("聊天", "适合聊天"), ("浪漫", "浪漫"), ("轻松", "轻松"), ("不累", "不累"))
@@ -672,8 +698,9 @@ class DemoRouter:
         )
         if not (
             has_patch_marker or date_text or departure or departure_period or return_by
-            or budget or strict_budget is not None or location or preferences or diet_tags
-            or avoid or max_distance or scope is not None or explicit_window is not None
+            or budget or strict_budget is not None or origin or preferences or diet_tags
+            or avoid or max_distance or planning_area
+            or scope is not None or explicit_window is not None
         ):
             return None
         return ConstraintPatch(
@@ -686,7 +713,8 @@ class DemoRouter:
                 if time_text and departure is None and departure_period is None and return_by is None
                 else None
             ),
-            location_text=location,
+            origin_text=origin,
+            planning_area_text=planning_area,
             budget_text=budget,
             max_distance_text=max_distance,
             preferences=preferences,
@@ -700,15 +728,116 @@ class DemoRouter:
         self,
         user_input: str,
         context: RouterContext,
-    ) -> tuple[Interpretation, RuntimeDecision]:
+    ) -> TurnInterpreterResult:
         started_at = perf_counter()
         interpretation = self.interpret(user_input, context)
-        return interpretation, RuntimeDecision(
-            stage="turn_interpreter",
-            adapter="demo_rule",
-            model_invoked=False,
-            model_name=None,
-            attempts=0,
-            fallback_reason=None,
-            latency_ms=max(0, round((perf_counter() - started_at) * 1000)),
+        # Keep the rule extractor's rich ``Interpretation`` as an internal
+        # semantic projection, but cross the same public proposal contract as
+        # the live Router before entering the compiler.  This makes the Demo
+        # adapter exercise the production action boundary instead of keeping a
+        # second interpretation-to-action route in the graph.
+        proposal = self._proposal_from_interpretation(interpretation)
+        compilation = TurnCompiler.compile(
+            proposal,
+            context=context.decision_context,
         )
+        # The action is compiled from the proposal; preserve non-routing
+        # presentation metadata from the deterministic extractor for the
+        # response/diagnostic projection.
+        compilation = compilation.model_copy(
+            update={
+                "interpretation": compilation.interpretation.model_copy(
+                    update={
+                        "reply": interpretation.reply,
+                        "requires_clarification": interpretation.requires_clarification,
+                        "selected_plan_index": interpretation.selected_plan_index,
+                        "extraction_confidence": dict(interpretation.extraction_confidence),
+                        "inferred_fields": set(interpretation.inferred_fields),
+                    }
+                )
+            }
+        )
+        return TurnInterpreterResult(
+            interpretation=compilation.interpretation,
+            action=compilation.action,
+            runtime=RuntimeDecision(
+                stage="turn_interpreter",
+                adapter="demo_rule",
+                model_invoked=False,
+                model_name=None,
+                attempts=0,
+                fallback_reason=None,
+                latency_ms=max(0, round((perf_counter() - started_at) * 1000)),
+            ),
+        )
+
+    @staticmethod
+    def _proposal_from_interpretation(interpretation: Interpretation) -> TurnProposal:
+        """Project the deterministic extractor into the public UserAct wire.
+
+        ``Interpretation`` remains useful to the rule extractor and request
+        compilers as a constraint projection.  It is not allowed to become an
+        action source: all actions below are compiled from the same
+        discriminated ``TurnProposal`` used by the model Router.
+        """
+
+        command = interpretation.conversation_command
+        if command is not None:
+            if command.operation == CommandOperation.PATCH_CONSTRAINTS:
+                return TurnProposal(
+                    act=PatchConstraintsProposal(
+                        constraint_patch=command.constraint_patch,
+                        evidence_map=dict(command.evidence),
+                    )
+                )
+            if command.operation == CommandOperation.REPLACE:
+                target = command.target or TargetReference(raw_text="那个地方")
+
+                def to_turn_target(reference: TargetReference) -> TurnTargetProposal:
+                    return TurnTargetProposal(
+                        role=reference.role,
+                        resource_type=reference.resource_type,
+                        stop_index=reference.stop_index,
+                        raw_text=reference.raw_text,
+                    )
+
+                return TurnProposal(
+                    act=ReplaceStopProposal(
+                        target=to_turn_target(target),
+                        locked_targets=tuple(
+                            to_turn_target(item) for item in command.locked_targets
+                        ),
+                        replacement_criteria=command.replacement_criteria,
+                        evidence=dict(command.evidence),
+                    )
+                )
+
+        if interpretation.primary_intent == Intent.REFINE_PLAN:
+            return TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(
+                        raw_text=interpretation.target_reference or "那个地方"
+                    ),
+                    evidence=dict(interpretation.evidence_map),
+                )
+            )
+
+        if interpretation.primary_intent in {Intent.PLAN_OUTING, Intent.FIND_ACTIVITY}:
+            return TurnProposal(
+                act=CreatePlanProposal(
+                    raw_constraints=interpretation.raw_constraints,
+                    time_proposals=interpretation.time_proposals,
+                    evidence_map=dict(interpretation.evidence_map),
+                )
+            )
+        if interpretation.primary_intent == Intent.CHECK_WEATHER:
+            return TurnProposal(
+                act=CheckWeatherProposal(
+                    raw_constraints=interpretation.raw_constraints,
+                    time_proposals=interpretation.time_proposals,
+                    evidence_map=dict(interpretation.evidence_map),
+                )
+            )
+        if interpretation.primary_intent == Intent.QUERY_PLAN:
+            return TurnProposal(act=QueryPlanProposal(query=interpretation.reply or "当前方案"))
+        return TurnProposal(act=ChitchatProposal())

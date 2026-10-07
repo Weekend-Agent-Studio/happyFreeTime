@@ -1,30 +1,46 @@
-import json
 import unittest
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.domain.constraints import (
-    CommandOperation,
-    ConversationCommand,
-    DateReference,
+    ConstraintPatch,
+    EventClockProposal,
     Intent,
     Interpretation,
     RawConstraints,
-    TargetReference,
-    TimeProposal,
-    TimeWindow,
+    StopRole,
+    PeriodProposal,
+    TripRangeProposal,
     TimeScope,
-    Weekday,
+)
+from app.domain.decision_context import (
+    DecisionContext,
+    RequestContextSummary,
+    SelectedPlanContextSummary,
+    StopContextSummary,
+)
+from app.domain.turn import (
+    AnswerQuery,
+    ApplyRequestPatch,
+    CheckWeatherProposal,
+    ChitchatProposal,
+    CreatePlanProposal,
+    ModifySelectedPlan,
+    NeedsClarification,
+    NoAction,
+    PatchConstraintsProposal,
+    ReplaceStopProposal,
+    QueryPlanProposal,
+    TurnCompiler,
+    TurnProposal,
+    TurnTargetProposal,
 )
 from app.services import router_extractor as router_extractor_module
 from app.services.router_extractor import (
-    ConversationCommandProposal,
-    LlmInterpretationProposal,
     RouterContext,
-    RouterExtractor,
+    TurnInterpreter,
     build_default_turn_interpreter,
-    compile_llm_interpretation_proposal,
 )
 
 
@@ -41,8 +57,60 @@ class FakeStructuredModel:
         return response
 
 
-class RouterExtractorTest(unittest.TestCase):
-    def test_production_builder_uses_schema_aware_function_calling(self) -> None:
+def _planned_context() -> DecisionContext:
+    return DecisionContext(
+        current_request=RequestContextSummary(revision=1),
+        selected_plan=SelectedPlanContextSummary(
+            stops=(
+                StopContextSummary(stop_index=0, role="activity", name="公园"),
+                StopContextSummary(stop_index=1, role="dinner", name="餐厅"),
+            )
+        ),
+        allowed_actions=(
+            "create_plan",
+            "patch_constraints",
+            "replace_stop",
+            "query_plan",
+            "check_weather",
+            "chitchat",
+        ),
+    )
+
+
+class TurnInterpreterTest(unittest.TestCase):
+    def test_time_wire_contract_uses_discriminated_scopes(self) -> None:
+        self.assertEqual(
+            TripRangeProposal(start="10:00", end="16:00", evidence="10到16点").kind,
+            "trip_range",
+        )
+        self.assertEqual(
+            EventClockProposal(event="departure", clock="09:00", evidence="九点出发").kind,
+            "event_clock",
+        )
+        with self.assertRaises(ValueError):
+            TripRangeProposal(start="16:00", end="10:00", evidence="16到10点")
+        with self.assertRaises(ValueError):
+            PeriodProposal(event="departure", period=TimeScope.ALL_DAY, evidence="全天出发")
+        with self.assertRaises(ValueError):
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    PeriodProposal(event="trip", period=TimeScope.AFTERNOON, evidence="下午"),
+                    PeriodProposal(event="departure", period=TimeScope.AFTERNOON, evidence="下午"),
+                ),
+            )
+        with self.assertRaises(ValueError):
+            Interpretation(
+                primary_intent=Intent.PLAN_OUTING,
+                intent_scores={Intent.PLAN_OUTING: 1.0},
+                time_proposals=(
+                    TripRangeProposal(start="14:00", end="18:00", evidence="下午"),
+                    EventClockProposal(event="departure", clock="14:00", evidence="下午"),
+                ),
+            )
+
+    def test_production_builder_uses_turn_proposal_schema(self) -> None:
         with patch.dict(
             "os.environ",
             {
@@ -58,95 +126,271 @@ class RouterExtractorTest(unittest.TestCase):
         self.assertEqual(kwargs["max_tokens"], 2048)
         self.assertEqual(kwargs["timeout"], 15)
         self.assertEqual(kwargs["max_retries"], 0)
-        self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "disabled"}})
         chat_openai.return_value.with_structured_output.assert_called_once_with(
-            LlmInterpretationProposal,
+            TurnProposal,
             method="function_calling",
             include_raw=True,
         )
 
-    def test_llm_wire_proposal_excludes_runtime_and_application_fields(self) -> None:
-        fields = set(LlmInterpretationProposal.model_fields)
-        self.assertNotIn("intent_scores", fields)
-        self.assertNotIn("extraction_confidence", fields)
-        self.assertNotIn("inferred_fields", fields)
-        self.assertNotIn("reply", fields)
-        self.assertNotIn("requires_clarification", fields)
-        self.assertNotIn("target_reference", fields)
-
-        command_fields = set(ConversationCommandProposal.model_fields)
-        self.assertNotIn("base_plan_id", command_fields)
-        self.assertNotIn("base_plan_version_id", command_fields)
-        self.assertNotIn("confidence", command_fields)
-
-    def test_llm_wire_proposal_rejects_unknown_fields(self) -> None:
+    def test_turn_proposal_has_one_discriminated_action_and_rejects_legacy_fields(self) -> None:
+        proposal = TurnProposal(
+            act=CreatePlanProposal(raw_constraints=RawConstraints(preferences=["安静"]))
+        )
+        self.assertEqual(proposal.act.kind, "create_plan")
         with self.assertRaises(ValueError):
-            LlmInterpretationProposal.model_validate(
-                {"primary_intent": "plan_outing", "reply": "不要从模型接收回复"}
+            TurnProposal.model_validate(
+                {"primary_intent": "plan_outing", "conversation_command": {}}
             )
         with self.assertRaises(ValueError):
-            ConversationCommandProposal.model_validate(
-                {"operation": "replace", "base_plan_id": "server-owned"}
-            )
-        with self.assertRaises(ValueError):
-            ConversationCommandProposal.model_validate(
+            TurnProposal.model_validate(
                 {
-                    "operation": "replace",
-                    "target": {"raw_text": "活动", "resource_id": "server-owned"},
+                    "act": {
+                        "kind": "replace_stop",
+                        "target": {
+                            "raw_text": "活动",
+                            "resource_id": "server-owned",
+                        },
+                    }
+                }
+            )
+        with self.assertRaises(ValueError):
+            TurnProposal.model_validate(
+                {
+                    "act": {
+                        "kind": "create_plan",
+                        "raw_constraints": {"location_text": "望京"},
+                    }
                 }
             )
 
-    def test_llm_wire_proposal_compiles_party_and_command_without_anchors(self) -> None:
-        proposal = LlmInterpretationProposal.model_validate(
+    def test_location_semantics_are_explicit_in_turn_wire_contract(self) -> None:
+        proposal = TurnProposal.model_validate(
             {
-                "primary_intent": "refine_plan",
-                "raw_constraints": {"members": ["女朋友"]},
-                "conversation_command": {
-                    "operation": "replace",
-                    "target": {"role": "activity", "raw_text": "活动"},
-                    "locked_targets": [
-                        {"resource_type": "restaurant", "raw_text": "餐厅"}
-                    ],
-                    "replacement_criteria": [{"kind": "route_objective"}],
-                    "evidence": {"replace": "活动换近一点"},
-                },
-                "evidence_map": {"party": "女朋友"},
+                "act": {
+                    "kind": "create_plan",
+                    "raw_constraints": {
+                        "origin_text": "望京",
+                        "planning_area_text": "朝阳",
+                    },
+                }
             }
         )
-        compiled = compile_llm_interpretation_proposal(proposal)
-        self.assertEqual(compiled.raw_constraints.members, ["女朋友"])
-        self.assertEqual(compiled.intent_scores, {Intent.REFINE_PLAN: 1.0})
-        self.assertEqual(compiled.extraction_confidence, {})
-        self.assertEqual(compiled.inferred_fields, set())
-        self.assertEqual(compiled.conversation_command.base_plan_id, None)
-        self.assertEqual(compiled.conversation_command.base_plan_version_id, None)
-        self.assertEqual(compiled.conversation_command.target.resource_id, None)
+        self.assertEqual(proposal.act.raw_constraints.origin_text, "望京")
+        self.assertEqual(proposal.act.raw_constraints.planning_area_text, "朝阳")
+
+    def test_create_and_patch_compile_to_request_actions(self) -> None:
+        create = TurnCompiler.compile(
+            TurnProposal(
+                act=CreatePlanProposal(
+                    raw_constraints=RawConstraints(preferences=["浪漫"]),
+                    time_proposals=(
+                        PeriodProposal(
+                            event="trip",
+                            period=TimeScope.EVENING,
+                            evidence="晚上",
+                        ),
+                    ),
+                )
+            ),
+        )
+        self.assertIsInstance(create.action, ApplyRequestPatch)
+        self.assertEqual(create.action.mode, "create")
+        self.assertEqual(create.interpretation.primary_intent, Intent.PLAN_OUTING)
+
+        patch = TurnCompiler.compile(
+            TurnProposal(
+                act=PatchConstraintsProposal(
+                    constraint_patch=ConstraintPatch(preferences=("安静",))
+                )
+            ),
+            context=_planned_context(),
+        )
+        self.assertIsInstance(patch.action, ApplyRequestPatch)
+        self.assertEqual(patch.action.mode, "update")
+        self.assertEqual(patch.action.constraint_patch.preferences, ("安静",))
+
+    def test_query_weather_and_chitchat_have_explicit_compiled_actions(self) -> None:
+        weather = TurnCompiler.compile(
+            TurnProposal(act=CheckWeatherProposal()),
+        )
+        self.assertIsInstance(weather.action, AnswerQuery)
+        self.assertEqual(weather.action.query_kind, "weather")
+
+        query = TurnCompiler.compile(
+            TurnProposal(act=QueryPlanProposal(query="当前选中方案是什么？")),
+            context=_planned_context(),
+        )
+        self.assertIsInstance(query.action, AnswerQuery)
+        self.assertEqual(query.action.query_kind, "plan")
+
+        chitchat = TurnCompiler.compile(
+            TurnProposal(act=ChitchatProposal()),
+        )
+        self.assertEqual(chitchat.action.kind, "no_action")
+
+    def test_replace_compiles_alias_index_and_unresolved_target(self) -> None:
+        second = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(raw_text="第二站"),
+                )
+            ),
+            context=_planned_context(),
+        )
+        self.assertIsInstance(second.action, ModifySelectedPlan)
+        self.assertEqual(second.action.command.target.stop_index, 1)
+
+        ambiguous = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(raw_text="那个地方"),
+                )
+            ),
+            context=_planned_context(),
+        )
+        self.assertIsInstance(ambiguous.action, NeedsClarification)
+        self.assertEqual(ambiguous.action.field, "target_reference")
+        self.assertEqual(ambiguous.action.pending_modification.target_raw_text, "那个地方")
+
+        no_selection = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(role=StopRole.ACTIVITY, raw_text="活动"),
+                )
+            ),
+        )
+        self.assertIsInstance(no_selection.action, NeedsClarification)
+        self.assertEqual(no_selection.action.field, "selected_plan_id")
+
+        blocked_empty = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(role=StopRole.ACTIVITY, raw_text="活动"),
+                )
+            ),
+            context=DecisionContext(allowed_actions=("create_plan", "chitchat")),
+        )
+        self.assertIsInstance(blocked_empty.action, NoAction)
+        self.assertEqual(blocked_empty.action.reason, "unsupported")
+
+    def test_compiler_uses_context_allowlist_and_selected_stop_bounds(self) -> None:
+        context = DecisionContext(
+            current_request=RequestContextSummary(revision=2),
+            selected_plan=SelectedPlanContextSummary(
+                stops=(
+                    StopContextSummary(
+                        stop_index=0,
+                        role="activity",
+                        name="安静公园",
+                    ),
+                )
+            ),
+            allowed_actions=("patch_constraints", "replace_stop"),
+        )
+
+        blocked_create = TurnCompiler.compile(
+            TurnProposal(act=CreatePlanProposal()),
+            context=context,
+        )
+        self.assertIsInstance(blocked_create.action, NoAction)
+        self.assertEqual(blocked_create.action.reason, "unsupported")
+
+        out_of_bounds = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(stop_index=1, raw_text="第二站"),
+                )
+            ),
+            context=context,
+        )
+        self.assertIsInstance(out_of_bounds.action, NeedsClarification)
+        self.assertEqual(out_of_bounds.action.field, "target_reference")
+
+    def test_patch_requires_current_request_in_context(self) -> None:
+        compilation = TurnCompiler.compile(
+            TurnProposal(
+                act=PatchConstraintsProposal(
+                    constraint_patch=ConstraintPatch(preferences=("安静",))
+                )
+            ),
+            context=DecisionContext(allowed_actions=("create_plan",)),
+        )
+        self.assertIsInstance(compilation.action, NeedsClarification)
+        self.assertEqual(compilation.action.field, "request_lifecycle")
+        self.assertEqual(compilation.action.issue_kind, "action")
+
+    def test_empty_session_retries_an_illegal_patch_as_create_once(self) -> None:
+        model = FakeStructuredModel(
+            [
+                TurnProposal(
+                    act=PatchConstraintsProposal(
+                        constraint_patch=ConstraintPatch(preferences=("安静",))
+                    )
+                ),
+                TurnProposal(
+                    act=CreatePlanProposal(
+                        raw_constraints=RawConstraints(preferences=["安静"])
+                    )
+                ),
+            ]
+        )
+        result, runtime = TurnInterpreter(model).interpret_with_runtime(
+            "还是安静点吧",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                decision_context=DecisionContext(allowed_actions=("create_plan", "check_weather", "chitchat")),
+            ),
+        )
+
+        self.assertEqual(len(model.calls), 2)
+        self.assertIsInstance(result, Interpretation)
+        self.assertEqual(runtime.attempts, 2)
+        self.assertEqual(runtime.fallback_reason, None)
+
+    def test_empty_session_does_not_silently_convert_repeated_patch(self) -> None:
+        model = FakeStructuredModel(
+            [
+                TurnProposal(act=PatchConstraintsProposal()),
+                TurnProposal(act=PatchConstraintsProposal()),
+            ]
+        )
+        result, runtime = TurnInterpreter(model).interpret_with_runtime(
+            "预算再低一点",
+            RouterContext(
+                current_date=date(2026, 8, 12),
+                decision_context=DecisionContext(allowed_actions=("create_plan", "check_weather", "chitchat")),
+            ),
+        )
+
+        self.assertEqual(len(model.calls), 2)
+        self.assertEqual(result.primary_intent, Intent.CLARIFY)
+        self.assertTrue(result.requires_clarification)
+        self.assertEqual(runtime.fallback_reason, "action_not_allowed")
+
+    def test_deterministic_refine_adapter_preserves_unresolved_modification(self) -> None:
+        compilation = TurnCompiler.compile(
+            TurnProposal(
+                act=ReplaceStopProposal(
+                    target=TurnTargetProposal(raw_text="那个地方"),
+                )
+            ),
+            context=_planned_context(),
+        )
+        self.assertIsInstance(compilation.action, NeedsClarification)
+        self.assertEqual(compilation.action.field, "target_reference")
 
     def test_raw_only_target_is_resolved_or_becomes_needs_input(self) -> None:
-        resolvable = LlmInterpretationProposal.model_validate(
-            {
-                "primary_intent": "refine_plan",
-                "conversation_command": {
-                    "operation": "replace",
-                    "target": {"raw_text": "活动"},
-                },
-            }
-        )
-        compiled = compile_llm_interpretation_proposal(resolvable)
-        self.assertEqual(compiled.conversation_command.target.role, "activity")
-
         model = FakeStructuredModel(
             [
                 {
-                    "primary_intent": "refine_plan",
-                    "conversation_command": {
-                        "operation": "replace",
+                    "act": {
+                        "kind": "replace_stop",
                         "target": {"raw_text": "那个地方"},
-                    },
+                    }
                 }
             ]
         )
-        result, runtime = RouterExtractor(model).interpret_with_runtime(
+        result, runtime = TurnInterpreter(model).interpret_with_runtime(
             "把那个地方换一下",
             RouterContext(
                 current_date=date(2026, 8, 12),
@@ -154,118 +398,17 @@ class RouterExtractorTest(unittest.TestCase):
                 has_selected_plan=True,
             ),
         )
-        self.assertIsNone(runtime.fallback_reason)
+        self.assertIsInstance(result, Interpretation)
         self.assertEqual(runtime.diagnostic_code, "target_resolution_required")
-        self.assertIsNone(result.conversation_command)
-
-    def test_bounded_raw_target_aliases_compile_without_substring_guessing(self) -> None:
-        cases = (
-            ("活动", "activity", None, None),
-            ("晚饭", "dinner", None, None),
-            ("午饭", "lunch", None, None),
-            (" 第二站。 ", None, None, 1),
-            ("第四站", None, None, 3),
-            ("餐厅", None, "restaurant", None),
+        compiled, _ = TurnInterpreter._validate_with_diagnostic(
+            {"act": {"kind": "replace_stop", "target": {"raw_text": "活动"}}},
+            decision_context=_planned_context(),
         )
-        for raw_text, expected_role, expected_resource_type, expected_index in cases:
-            with self.subTest(raw_text=raw_text):
-                proposal = LlmInterpretationProposal.model_validate(
-                    {
-                        "primary_intent": "refine_plan",
-                        "conversation_command": {
-                            "operation": "replace",
-                            "target": {"raw_text": raw_text},
-                        },
-                    }
-                )
+        self.assertIsInstance(compiled.action, ModifySelectedPlan)
 
-                command = compile_llm_interpretation_proposal(
-                    proposal
-                ).conversation_command
-
-                self.assertIsNotNone(command)
-                self.assertEqual(
-                    command.target.role.value if command.target.role else None,
-                    expected_role,
-                )
-                self.assertEqual(
-                    (
-                        command.target.resource_type.value
-                        if command.target.resource_type
-                        else None
-                    ),
-                    expected_resource_type,
-                )
-                self.assertEqual(command.target.stop_index, expected_index)
-
-        ambiguous = LlmInterpretationProposal.model_validate(
-            {
-                "primary_intent": "refine_plan",
-                "conversation_command": {
-                    "operation": "replace",
-                    "target": {"raw_text": "想换活动"},
-                },
-            }
-        )
-        self.assertIsNone(
-            compile_llm_interpretation_proposal(ambiguous).conversation_command
-        )
-
-    def test_plan_ignores_accidental_create_command(self) -> None:
-        model = FakeStructuredModel(
-            [
-                {
-                    "primary_intent": "plan_outing",
-                    "conversation_command": {
-                        "operation": "create",
-                        "target": {"raw_text": "活动"},
-                    },
-                }
-            ]
-        )
-        result, runtime = RouterExtractor(model).interpret_with_runtime(
-            "明天安排活动",
-            RouterContext(current_date=date(2026, 8, 12)),
-        )
-        self.assertIsNone(result.conversation_command)
-        self.assertIsNone(runtime.fallback_reason)
-        self.assertEqual(runtime.diagnostic_code, "command_ignored_for_plan")
-
-    def test_patch_constraints_command_compiles_without_target(self) -> None:
-        proposal = LlmInterpretationProposal.model_validate(
-            {
-                "primary_intent": "refine_plan",
-                "conversation_command": {
-                    "operation": "patch_constraints",
-                    "constraint_patch": {
-                        "return_by_text": "19:00 前回家",
-                        "preferences": ["安静"],
-                    },
-                },
-            }
-        )
-        compiled = compile_llm_interpretation_proposal(proposal)
-        self.assertEqual(compiled.conversation_command.operation.value, "patch_constraints")
-        self.assertEqual(compiled.conversation_command.constraint_patch.return_by_text, "19:00 前回家")
-
-    def test_plain_date_evidence_compiles_without_model_confidence(self) -> None:
-        proposal = LlmInterpretationProposal.model_validate(
-            {
-                "primary_intent": "plan_outing",
-                "raw_constraints": {
-                    "date_reference": "tomorrow",
-                    "date_text": "明天",
-                },
-                "evidence_map": {"date_reference": "明天"},
-            }
-        )
-        compiled = compile_llm_interpretation_proposal(proposal)
-        self.assertEqual(compiled.raw_constraints.date_reference.value, "tomorrow")
-
-    def test_runtime_reports_provider_token_usage(self) -> None:
-        expected = Interpretation(
-            primary_intent=Intent.PLAN_OUTING,
-            intent_scores={Intent.PLAN_OUTING: 0.97},
+    def test_runtime_reports_provider_token_usage_and_wire_version(self) -> None:
+        expected = TurnProposal(
+            act=CreatePlanProposal(raw_constraints=RawConstraints(preferences=["安静"]))
         )
         model = FakeStructuredModel(
             [
@@ -278,482 +421,81 @@ class RouterExtractorTest(unittest.TestCase):
                 }
             ]
         )
-
-        result, runtime = RouterExtractor(model, model_name="fake-model").interpret_with_runtime(
+        result, runtime = TurnInterpreter(model, model_name="fake-model").interpret_with_runtime(
             "明天出去玩",
             RouterContext(current_date=date(2026, 9, 11)),
         )
-
-        self.assertEqual(result, expected)
+        self.assertEqual(result.raw_constraints.preferences, ["安静"])
         self.assertEqual(runtime.input_tokens, 21)
         self.assertEqual(runtime.output_tokens, 8)
-        self.assertEqual(runtime.wire_schema_version, "llm-interpretation-proposal.v1")
-        self.assertEqual(runtime.prompt_version, "turn-interpreter.v2")
+        self.assertEqual(runtime.wire_schema_version, "turn-proposal.v2")
+        self.assertEqual(runtime.prompt_version, "turn-interpreter.v4")
 
-    def test_returns_structured_interpretation_without_environment_facts(self) -> None:
-        expected = Interpretation(
-            primary_intent=Intent.PLAN_OUTING,
-            intent_scores={Intent.PLAN_OUTING: 0.97},
-            raw_constraints=RawConstraints(
-                date_text="今天",
-                max_distance_text="别太远",
-            ),
-            time_proposals=(
-                TimeProposal(
-                    target="trip",
-                    precision="period",
-                    period=TimeScope.AFTERNOON,
-                    evidence="下午",
-                ),
-            ),
-            evidence_map={"date_text": "今天"},
-        )
-        model = FakeStructuredModel([expected])
-        router = RouterExtractor(model)
-
-        result = router.interpret(
-            "今天下午出去玩，别太远",
+    def test_prompt_contains_bounded_context_without_provider_facts(self) -> None:
+        model = FakeStructuredModel([TurnProposal(act=ChitchatProposal())])
+        TurnInterpreter(model).interpret_with_runtime(
+            "你好",
             RouterContext(current_date=date(2026, 8, 12)),
         )
-
-        self.assertEqual(result, expected)
         prompt = "\n".join(str(message.content) for message in model.calls[0])
         self.assertIn("2026-08-12", prompt)
-        self.assertNotIn("天气", prompt)
-        self.assertNotIn("默认位置", prompt)
-        self.assertNotIn("默认预算", prompt)
+        self.assertIn("TurnProposal", prompt)
+        self.assertNotIn("天气事实", prompt)
+        self.assertNotIn("resource_id", prompt)
 
-    def test_retries_once_then_returns_explicit_clarification(self) -> None:
+    def test_retries_once_then_returns_safe_clarification(self) -> None:
         model = FakeStructuredModel([{"invalid": True}, {"still_invalid": True}])
-        router = RouterExtractor(model)
-
-        result = router.interpret(
+        outcome = TurnInterpreter(model).interpret_with_runtime(
             "随便安排一下",
             RouterContext(current_date=date(2026, 8, 12)),
         )
-
         self.assertEqual(len(model.calls), 2)
-        self.assertEqual(result.primary_intent, Intent.CLARIFY)
-        self.assertTrue(result.requires_clarification)
-        self.assertIn("重新描述", result.reply)
-        retry_prompt = "\n".join(str(message.content) for message in model.calls[1])
-        self.assertIn("invalid_output", retry_prompt)
+        self.assertEqual(outcome.interpretation.primary_intent, Intent.CLARIFY)
+        self.assertTrue(outcome.interpretation.requires_clarification)
+        self.assertIsInstance(outcome.action, NeedsClarification)
+        self.assertEqual(outcome.action.field, "request_rephrase")
+        self.assertEqual(outcome.action.issue_kind, "constraint")
+        self.assertEqual(outcome.runtime.fallback_reason, "invalid_output")
+        self.assertIn("TurnProposal", "\n".join(str(m.content) for m in model.calls[1]))
 
-    def test_classifies_provider_failure_separately_from_invalid_output(self) -> None:
+    def test_classifies_provider_failure_without_retry(self) -> None:
         model = FakeStructuredModel([ConnectionError("connection refused")])
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
+        _, runtime = TurnInterpreter(model).interpret_with_runtime(
             "明天出去玩",
             RouterContext(current_date=date(2026, 8, 12)),
         )
-
         self.assertEqual(runtime.fallback_reason, "network_error")
         self.assertEqual(len(model.calls), 1)
 
-    def test_classifies_missing_tool_call_without_exposing_provider_payload(self) -> None:
+    def test_invalid_legacy_wire_is_rejected_with_safe_path(self) -> None:
         model = FakeStructuredModel(
             [
-                {"raw": SimpleNamespace(content="not a tool call"), "parsed": None, "parsing_error": ValueError("parser")},
-                {"raw": SimpleNamespace(content="still not a tool call"), "parsed": None, "parsing_error": ValueError("parser")},
+                {"primary_intent": "plan_outing", "inferred_fields": ["party"]},
+                {"primary_intent": "plan_outing", "inferred_fields": ["party"]},
             ]
         )
-
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
-            "明天出去玩",
-            RouterContext(current_date=date(2026, 8, 12)),
-        )
-
-        self.assertEqual(runtime.fallback_reason, "invalid_output")
-        self.assertEqual(runtime.diagnostic_code, "missing_tool_call")
-        self.assertEqual(runtime.diagnostic_paths, ())
-        self.assertEqual(runtime.diagnostic_error_types, ())
-
-    def test_classifies_invalid_json_tool_arguments(self) -> None:
-        raw = SimpleNamespace(
-            content="",
-            tool_calls=[],
-            invalid_tool_calls=[{"name": "Interpretation", "args": "{"}],
-        )
-        model = FakeStructuredModel(
-            [
-                {"raw": raw, "parsed": None, "parsing_error": ValueError("invalid json")},
-                {"raw": raw, "parsed": None, "parsing_error": ValueError("invalid json")},
-            ]
-        )
-
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
-            "明天出去玩",
-            RouterContext(current_date=date(2026, 8, 12)),
-        )
-
-        self.assertEqual(runtime.diagnostic_code, "invalid_json_arguments")
-        self.assertNotIn("invalid json", runtime.model_dump_json())
-
-    def test_classifies_provider_parser_error_when_tool_call_exists(self) -> None:
-        raw = SimpleNamespace(content="", tool_calls=[{"name": "Interpretation"}], invalid_tool_calls=[])
-        model = FakeStructuredModel(
-            [
-                {"raw": raw, "parsed": None, "parsing_error": RuntimeError("parser")},
-                {"raw": raw, "parsed": None, "parsing_error": RuntimeError("parser")},
-            ]
-        )
-
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
-            "明天出去玩",
-            RouterContext(current_date=date(2026, 8, 12)),
-        )
-
-        self.assertEqual(runtime.diagnostic_code, "provider_parsing_error")
-
-    def test_classifies_field_and_cross_field_pydantic_errors_safely(self) -> None:
-        field_model = FakeStructuredModel(
-            [
-                {"primary_intent": "not-an-intent", "intent_scores": {}},
-                {"primary_intent": "still-not-an-intent", "intent_scores": {}},
-            ]
-        )
-        _, field_runtime = RouterExtractor(field_model).interpret_with_runtime(
-            "明天出去玩",
-            RouterContext(current_date=date(2026, 8, 12)),
-        )
-        self.assertEqual(field_runtime.diagnostic_code, "pydantic_validation_failed")
-        self.assertIn("primary_intent", field_runtime.diagnostic_paths)
-        self.assertTrue(field_runtime.diagnostic_error_types)
-
-        cross_model = FakeStructuredModel(
-            [
-                {
-                    "primary_intent": "plan_outing",
-                    "intent_scores": {"plan_outing": 1.0},
-                    "raw_constraints": {"date_reference": "weekday"},
-                },
-                {
-                    "primary_intent": "plan_outing",
-                    "intent_scores": {"plan_outing": 1.0},
-                    "raw_constraints": {"date_reference": "weekday"},
-                },
-            ]
-        )
-        _, cross_runtime = RouterExtractor(cross_model).interpret_with_runtime(
-            "明天出去玩",
-            RouterContext(current_date=date(2026, 8, 12)),
-        )
-        self.assertEqual(cross_runtime.diagnostic_code, "weekday_missing")
-        self.assertIn("raw_constraints", cross_runtime.diagnostic_paths)
-        repair_prompt = "\n".join(
-            str(message.content) for message in cross_model.calls[1]
-        )
-        self.assertIn("诊断码=weekday_missing", repair_prompt)
-        self.assertIn("字段路径=raw_constraints", repair_prompt)
-        self.assertNotIn("Pydantic错误类型", repair_prompt)
-        self.assertNotIn("date_reference=weekday requires weekday", repair_prompt)
-
-    def test_cross_field_rules_expose_stable_codes(self) -> None:
-        cases = [
-            (
-                "weekday_reference_mismatch",
-                lambda: RawConstraints(
-                    date_reference=DateReference.TOMORROW,
-                    weekday=Weekday.SATURDAY,
-                ),
-            ),
-            (
-                "weekday_missing",
-                lambda: RawConstraints(date_reference=DateReference.WEEKDAY),
-            ),
-            (
-                "absolute_date_reference_mismatch",
-                lambda: RawConstraints(
-                    date_reference=DateReference.TOMORROW,
-                    absolute_date=date(2026, 9, 20),
-                ),
-            ),
-            (
-                "absolute_date_missing",
-                lambda: RawConstraints(date_reference=DateReference.ABSOLUTE),
-            ),
-            (
-                "explicit_time_window_order_invalid",
-                lambda: TimeProposal(
-                    target="trip",
-                    precision="exact",
-                    clock="18:00",
-                    end_clock="17:00",
-                    evidence="18点到17点",
-                ),
-            ),
-            (
-                "replace_target_missing",
-                lambda: ConversationCommand(operation=CommandOperation.REPLACE),
-            ),
-            (
-                "target_reference_missing",
-                lambda: TargetReference(raw_text="那个地方"),
-            ),
-        ]
-
-        for expected_code, builder in cases:
-            with self.subTest(expected_code=expected_code):
-                with self.assertRaises(ValueError) as context:
-                    builder()
-                errors = context.exception.errors(
-                    include_url=False,
-                    include_context=False,
-                )
-                self.assertEqual(errors[0]["type"], expected_code)
-
-    def test_inferred_and_temporal_contracts_have_stable_codes(self) -> None:
-        inferred_cases = [
-            (
-                "inferred_value_missing",
-                {"party"},
-                {},
-                {},
-            ),
-            (
-                "inferred_evidence_missing",
-                {"date_reference"},
-                {},
-                {"date_reference": 0.9},
-            ),
-            (
-                "inferred_confidence_missing",
-                {"date_reference"},
-                {"date_reference": "明天"},
-                {},
-            ),
-        ]
-        for expected_code, inferred, evidence, confidence in inferred_cases:
-            with self.subTest(expected_code=expected_code):
-                kwargs = {
-                    "primary_intent": Intent.PLAN_OUTING,
-                    "intent_scores": {Intent.PLAN_OUTING: 1.0},
-                    "inferred_fields": inferred,
-                    "evidence_map": evidence,
-                    "extraction_confidence": confidence,
-                }
-                if expected_code != "inferred_value_missing":
-                    kwargs["raw_constraints"] = RawConstraints(
-                        date_reference=DateReference.TOMORROW,
-                        date_text="明天",
-                    )
-                with self.assertRaises(ValueError) as context:
-                    Interpretation(**kwargs)
-                self.assertEqual(
-                    context.exception.errors(
-                        include_url=False,
-                        include_context=False,
-                    )[0]["type"],
-                    expected_code,
-                )
-
-        with self.assertRaises(ValueError) as context:
-            Interpretation(
-                primary_intent=Intent.PLAN_OUTING,
-                intent_scores={Intent.PLAN_OUTING: 1.0},
-                inferred_fields={"party"},
-            )
-        error = context.exception.errors(
-            include_url=False,
-            include_context=True,
-        )[0]
-        self.assertEqual(error["type"], "inferred_value_missing")
-        self.assertEqual(error["ctx"]["field"], "party")
-
-    def test_legacy_inferred_fields_are_rejected_by_live_wire_contract(self) -> None:
-        model = FakeStructuredModel(
-            [
-                {
-                    "primary_intent": "plan_outing",
-                    "inferred_fields": ["party"],
-                },
-                {
-                    "primary_intent": "plan_outing",
-                    "inferred_fields": ["party"],
-                },
-            ]
-        )
-
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
+        _, runtime = TurnInterpreter(model).interpret_with_runtime(
             "明天和对象约会",
             RouterContext(current_date=date(2026, 8, 12)),
         )
-
         self.assertEqual(runtime.diagnostic_code, "pydantic_validation_failed")
-        self.assertIn("inferred_fields", runtime.diagnostic_paths)
+        self.assertIn("act", runtime.diagnostic_paths)
         self.assertNotIn("inferred field has no extracted value", runtime.model_dump_json())
 
-    def test_inferred_party_accepts_member_relationship_without_count(self) -> None:
-        for member, evidence in (("女朋友", "跟女朋友约会"), ("父母", "带父母出去")):
-            with self.subTest(member=member):
-                interpretation = Interpretation(
-                    primary_intent=Intent.PLAN_OUTING,
-                    intent_scores={Intent.PLAN_OUTING: 1.0},
-                    raw_constraints=RawConstraints(members=[member]),
-                    inferred_fields={"party"},
-                    evidence_map={"party": evidence},
-                    extraction_confidence={"party": 0.8},
-                )
-                self.assertEqual(interpretation.raw_constraints.adults, None)
-                self.assertEqual(interpretation.raw_constraints.members, [member])
-
-    def test_inferred_party_still_requires_a_value(self) -> None:
-        with self.assertRaises(ValueError) as context:
-            Interpretation(
-                primary_intent=Intent.PLAN_OUTING,
-                intent_scores={Intent.PLAN_OUTING: 1.0},
-                inferred_fields={"party"},
-                evidence_map={"party": "约会"},
-                extraction_confidence={"party": 0.8},
-            )
-        error = context.exception.errors(include_url=False, include_context=True)[0]
-        self.assertEqual(error["type"], "inferred_value_missing")
-        self.assertEqual(error["ctx"]["field"], "party")
-
-    def test_inferred_party_with_members_requires_evidence(self) -> None:
-        with self.assertRaises(ValueError) as context:
-            Interpretation(
-                primary_intent=Intent.PLAN_OUTING,
-                intent_scores={Intent.PLAN_OUTING: 1.0},
-                raw_constraints=RawConstraints(members=["女朋友"]),
-                inferred_fields={"party"},
-                extraction_confidence={"party": 0.8},
-            )
-        error = context.exception.errors(include_url=False, include_context=True)[0]
-        self.assertEqual(error["type"], "inferred_evidence_missing")
-        self.assertEqual(error["ctx"]["field"], "party")
-
-    def test_inferred_party_with_members_requires_confidence(self) -> None:
-        with self.assertRaises(ValueError) as context:
-            Interpretation(
-                primary_intent=Intent.PLAN_OUTING,
-                intent_scores={Intent.PLAN_OUTING: 1.0},
-                raw_constraints=RawConstraints(members=["女朋友"]),
-                inferred_fields={"party"},
-                evidence_map={"party": "女朋友"},
-            )
-        error = context.exception.errors(include_url=False, include_context=True)[0]
-        self.assertEqual(error["type"], "inferred_confidence_missing")
-        self.assertEqual(error["ctx"]["field"], "party")
-
-        with self.assertRaises(ValueError) as context:
-            Interpretation(
-                primary_intent=Intent.PLAN_OUTING,
-                intent_scores={Intent.PLAN_OUTING: 1.0},
-                raw_constraints=RawConstraints(
-                    date_reference=DateReference.TOMORROW,
-                ),
-                extraction_confidence={"date_reference": 0.9},
-            )
-        self.assertEqual(
-            context.exception.errors(
-                include_url=False,
-                include_context=False,
-            )[0]["type"],
-            "temporal_evidence_missing",
-        )
-
-        temporal_without_confidence = Interpretation(
-            primary_intent=Intent.PLAN_OUTING,
-            intent_scores={Intent.PLAN_OUTING: 1.0},
-            raw_constraints=RawConstraints(
-                date_reference=DateReference.TOMORROW,
-            ),
-            evidence_map={"date_reference": "明天"},
-            extraction_confidence={},
-        )
-        self.assertEqual(
-            temporal_without_confidence.raw_constraints.date_reference,
-            DateReference.TOMORROW,
-        )
-
-    def test_runtime_trace_keeps_only_stable_diagnostic_details(self) -> None:
+    def test_structured_provider_parser_diagnostic_does_not_expose_payload(self) -> None:
+        raw = SimpleNamespace(content="private", tool_calls=[], invalid_tool_calls=[])
         model = FakeStructuredModel(
             [
-                {
-                    "primary_intent": "plan_outing",
-                    "intent_scores": {"plan_outing": 1.0},
-                    "raw_constraints": {"date_reference": "weekday"},
-                },
-                {
-                    "primary_intent": "plan_outing",
-                    "intent_scores": {"plan_outing": 1.0},
-                    "raw_constraints": {"date_reference": "weekday"},
-                },
+                {"raw": raw, "parsed": None, "parsing_error": ValueError("parser")},
+                {"raw": raw, "parsed": None, "parsing_error": ValueError("parser")},
             ]
         )
-        _, runtime = RouterExtractor(model).interpret_with_runtime(
-            "用户私密原话不应进入诊断",
+        _, runtime = TurnInterpreter(model).interpret_with_runtime(
+            "明天出去玩",
             RouterContext(current_date=date(2026, 8, 12)),
         )
-
-        self.assertEqual(runtime.diagnostic_code, "weekday_missing")
-        self.assertIn("raw_constraints", runtime.diagnostic_paths)
-        self.assertIn("weekday_missing", runtime.diagnostic_error_types)
-        serialized = runtime.model_dump_json()
-        self.assertNotIn("用户私密原话", serialized)
-        self.assertNotIn("date_reference=weekday requires weekday", serialized)
-        self.assertNotIn("primary_intent", serialized)
-
-    def test_decodes_provider_json_string_for_nested_command_then_validates_domain(self) -> None:
-        command = {
-            "operation": "replace",
-            "target": {"role": "activity", "raw_text": "活动"},
-            "replacement_criteria": [{"kind": "route_objective"}],
-        }
-        model = FakeStructuredModel(
-            [
-                {
-                    "primary_intent": "refine_plan",
-                    "conversation_command": json.dumps(command, ensure_ascii=False),
-                }
-            ]
-        )
-
-        result, runtime = RouterExtractor(model).interpret_with_runtime(
-            "餐厅保留，只把活动换近一点",
-            RouterContext(
-                current_date=date(2026, 8, 12),
-                has_plans=True,
-                has_selected_plan=True,
-            ),
-        )
-
-        self.assertIsNone(runtime.fallback_reason)
-        self.assertEqual(result.conversation_command.operation.value, "replace")
-        self.assertEqual(
-            result.conversation_command.replacement_criteria[0].kind,
-            "route_objective",
-        )
-
-    def test_temporal_proposals_require_evidence_but_not_confidence(self) -> None:
-        with self.assertRaises(ValueError):
-            TimeProposal.model_validate(
-                {
-                    "target": "trip",
-                    "precision": "period",
-                    "period": "evening",
-                }
-            )
-
-        valid = Interpretation(
-            primary_intent=Intent.PLAN_OUTING,
-            intent_scores={Intent.PLAN_OUTING: 1.0},
-            raw_constraints=RawConstraints(
-                date_text="今晚",
-                date_reference=DateReference.TODAY,
-            ),
-            time_proposals=(
-                TimeProposal(
-                    target="trip",
-                    precision="period",
-                    period=TimeScope.EVENING,
-                    evidence="今晚",
-                ),
-            ),
-            evidence_map={"date_text": "今晚"},
-        )
-        self.assertEqual(valid.raw_constraints.date_reference, DateReference.TODAY)
-        self.assertEqual(valid.time_proposals[0].evidence, "今晚")
+        self.assertEqual(runtime.diagnostic_code, "missing_tool_call")
+        self.assertNotIn("private", runtime.model_dump_json())
 
 
 if __name__ == "__main__":

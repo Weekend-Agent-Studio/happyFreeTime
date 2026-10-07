@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from app.api.application import create_app
-from app.domain.constraints import GeoLocation, Intent, Interpretation, RawConstraints, StopRole, TimeProposal, TimeScope
+from app.api.schemas import MessageRequest
+from app.domain.constraints import EventClockProposal, GeoLocation, Intent, Interpretation, PeriodProposal, RawConstraints, StopRole, TimeScope, TripRangeProposal
 from app.domain.providers import (
     AvailabilityStatus,
     GeoPoint,
@@ -33,17 +34,18 @@ from app.services.recommendation_advisor import RuleBasedRecommendationAdvisor
 from app.services.router_extractor import RouterContext
 from tests.test_native_planning import candidate
 from app.domain.catalog import ResourceType
+from tests.router_support import InterpretationRouter
 
 
-def _trip_period(scope: TimeScope, evidence: str) -> TimeProposal:
-    return TimeProposal(target="trip", precision="period", period=scope, evidence=evidence)
+def _trip_period(scope: TimeScope, evidence: str) -> PeriodProposal:
+    return PeriodProposal(event="trip", period=scope, evidence=evidence)
 
 
-def _exact_time(target: str, clock: str, evidence: str) -> TimeProposal:
-    return TimeProposal(target=target, precision="exact", clock=clock, evidence=evidence)
+def _exact_time(target: str, clock: str, evidence: str) -> EventClockProposal:
+    return EventClockProposal(event=target, clock=clock, evidence=evidence)
 
 
-class RuleRouter:
+class RuleRouter(InterpretationRouter):
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         if "只安排一家晚饭" in user_input:
             return Interpretation(
@@ -146,7 +148,7 @@ class RuleRouter:
         )
 
 
-class LocationRuleRouter:
+class LocationRuleRouter(InterpretationRouter):
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         return Interpretation(
             primary_intent=Intent.PLAN_OUTING,
@@ -154,12 +156,12 @@ class LocationRuleRouter:
             time_proposals=(_trip_period(TimeScope.AFTERNOON, "下午"),),
             raw_constraints=RawConstraints(
                 date_text="今天",
-                location_text="国贸",
+                origin_text="国贸",
             ),
         )
 
 
-class ExplodingRouter:
+class ExplodingRouter(InterpretationRouter):
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
         raise AssertionError("structured replacement must bypass TurnInterpreter")
 
@@ -289,6 +291,22 @@ class ApiTest(unittest.TestCase):
         return self.client.get(
             f"/api/sessions/{session_id}", headers=self.headers
         ).json()["data"]
+
+    def test_planning_application_runs_without_http_route(self):
+        app = self.client.app
+        session = app.state.session_repository.create_session(
+            user_id="application-test-user",
+            identity_type="demo",
+        )
+        response = app.state.planning_turn_application.handle(
+            session_id=session.id,
+            user_id="application-test-user",
+            request=MessageRequest(
+                request_id="application-test-request",
+                content="今天下午出去玩",
+            ),
+        )
+        self.assertIn(response.status, {"completed", "needs_input"})
 
     def test_selection_starts_empty_then_restores_after_select(self) -> None:
         session_id = self._create_session()

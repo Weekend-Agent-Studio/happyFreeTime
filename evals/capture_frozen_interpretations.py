@@ -16,6 +16,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from app.domain.decision_context import (
+    DecisionContext,
+    SelectedPlanContextSummary,
+    StopContextSummary,
+)
 from app.evaluation.resume_release import DEFAULT_DATASET_PATH
 from app.services.router_extractor import RouterContext, build_default_turn_interpreter
 from evals.frozen_interpretations import (
@@ -176,6 +181,32 @@ def main() -> int:
             if used_model_calls >= args.max_model_calls:
                 parser.error("model call budget exhausted before capture completed")
             attempted_steps += 1
+            decision_context = DecisionContext(
+                selected_plan=(
+                    SelectedPlanContextSummary(
+                        stops=tuple(
+                            StopContextSummary(
+                                stop_index=index,
+                                role=role,
+                                name=f"第{index + 1}站",
+                            )
+                            for index, role in enumerate(
+                                ("activity", "dinner", "activity", "break")
+                            )
+                        )
+                    )
+                    if has_selected_plan
+                    else None
+                ),
+                allowed_actions=(
+                    "create_plan",
+                    "patch_constraints",
+                    "replace_stop",
+                    "query_plan",
+                    "check_weather",
+                    "chitchat",
+                ),
+            )
             interpretation, runtime = interpreter.interpret_with_runtime(
                 step.user_input,
                 RouterContext(
@@ -183,6 +214,7 @@ def main() -> int:
                     timezone=str(clock.tzinfo),
                     has_plans=has_plans,
                     has_selected_plan=has_selected_plan,
+                    decision_context=decision_context,
                 ),
             )
             used_model_calls += runtime.attempts

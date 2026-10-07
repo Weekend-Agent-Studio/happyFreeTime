@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app.domain.constraints import GeoLocation, TimeProposal, TimeScope
+from app.domain.constraints import GeoLocation, PeriodProposal, TimeScope
 from app.domain.evaluation import EvalCase, ExpectedOutcome
 from app.evaluation.smoke import load_cases, run_smoke_cases
 from app.services.enrichment import EnvironmentContext
@@ -54,11 +54,11 @@ class SmokeEvalTest(unittest.TestCase):
         case = EvalCase.model_validate({
             "case_id": "return-postconditions",
             "intent": "plan_outing",
-            "raw_constraints": {},
-            "time_proposals": [
+                "raw_constraints": {},
+                "time_proposals": [
                 {
-                    "target": "return",
-                    "precision": "exact",
+                    "kind": "event_clock",
+                    "event": "return",
                     "clock": "23:00",
                     "evidence": "最晚23:00到家",
                 }
@@ -83,11 +83,11 @@ class SmokeEvalTest(unittest.TestCase):
         case = EvalCase.model_validate({
             "case_id": "broken-return-postcondition",
             "intent": "plan_outing",
-            "raw_constraints": {},
-            "time_proposals": [
+                "raw_constraints": {},
+                "time_proposals": [
                 {
-                    "target": "return",
-                    "precision": "exact",
+                    "kind": "event_clock",
+                    "event": "return",
                     "clock": "23:00",
                     "evidence": "最晚23:00到家",
                 }
@@ -123,9 +123,8 @@ class SmokeEvalTest(unittest.TestCase):
                 "intent": "plan_outing",
                 "raw_constraints": {},
                 "time_proposals": [
-                    TimeProposal(
-                        target="trip",
-                        precision="period",
+                    PeriodProposal(
+                        event="trip",
                         period=TimeScope.EVENING,
                         evidence="晚上",
                     ).model_dump(mode="json")

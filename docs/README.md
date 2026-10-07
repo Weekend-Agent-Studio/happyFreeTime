@@ -44,8 +44,9 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 
 ### Current implementation
 
-- [Resume V2 当前架构](current/resume_v2_architecture.md)：当前 Graph、Wire Proposal、Enrichment、Gate、PlanSpecCompiler、Beam、Provider、Verifier、持久化和降级边界
+- [Resume V2 当前架构](current/resume_v2_architecture.md)：当前 Graph、DecisionContext、Wire Proposal、TurnCompiler、Enrichment、ConstraintEngine、PlanSpecCompiler、Beam、Provider、Verifier、持久化和降级边界
 - [Resume V2 发布评测](releases/resume_v2_release_report.md)：36 条 reviewed Fixture、C0–C4、B0/B3、Retrieval、Advisor、Beam 和发布限制
+- [S-CORE3H4 收口记录](status/s_core3h4_closeout_20261007.md)：统一动作入口、删除旧路由回退，以及干净提交上的 C/B 复验
 - [S-CORE1C PlanSpec 收敛验收](status/s_core1c_release_20261002.md)：三阶段重构、Rule fallback、C0–C4 与 Live B0/B3 的新分支回归结果
 - [CONTEXT.md](../CONTEXT.md)：Session、Planning Run、Plan Version、Constraint、Provider 和 Memory 等术语
 
@@ -64,6 +65,7 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 - [06_语义规划与轻量 RAG](interview/06_从关键词匹配到可验证语义规划与轻量RAG.md)：语义中间层、Hybrid Retrieval、Grounding 和评测
 - [07_Wire Proposal 与 CommandCompiler](interview/07_从万能Interpretation到受约束WireProposal与CommandCompiler.md)：结构化输出失败与 Harness 重构
 - [08_PlanSpecCompiler 与结构提案收敛](interview/08_PlanSpecCompiler与结构提案收敛.md)：S-CORE1A/B/C 三阶段 Planner 结构重构
+- [09_S-CORE3 架构收口故事](interview/09_S-CORE3从多入口到统一动作链路.md)：从多入口、多状态分支到统一动作编译链路的面试讲解
 - [learning/](learning/)：按里程碑记录“我是否理解和验证过”，不是产品文档
 
 ## 🗂️ 目录地图
@@ -120,28 +122,32 @@ archive/ 下的旧 Router 设计和 V1 Mock/迁移说明只用于追溯。原始
 推荐按以下模块顺序学习：
 
 ```text
-自然语言：Router → Enrichment / RequestPatchProposalCompiler ─┐
-顶部栏：typed RequestPatch ───────────────────────────────────┼→ ConstraintEngine
-反问回答：字段级 RequestPatch ────────────────────────────────┘
-        ↓
-RequestReadinessPolicy / QuestionPolicy → interrupt/resume
-        ↓
-PlanRequest → PlanningIntent 与 PlanSpecCompiler
-        ↓
-Catalog / Hybrid Retrieval / Beam Search
-        ↓
-Timeline / Route / Availability / Verifier
-        ↓
-Plan Version / PlanDiff / SQLite
-        ↓
-评测、Grounding 与降级
+自然语言：DecisionContext → TurnProposal → TurnCompiler → CompiledNextAction
+顶部栏：typed DTO ───────────────────────────────┐
+反问回答：字段级 Patch ──────────────────────────┼→ RequestPatch → ConstraintEngine
+                                                 │
+                              NeedsClarification / Conflict
+                                                 │
+                         QuestionPolicy → interrupt/resume
+                                                 ↓
+                         PlanRequest → ReadinessPolicy
+                                                 ↓
+             PlanningIntent + StructureProposal → PlanSpecCompiler
+                                                 ↓
+              Catalog / Hybrid Retrieval / Beam Search
+                                                 ↓
+                 Timeline / Route / Availability / Verifier
+                                                 ↓
+                   Advisor → PlanVersion / PlanDiff / SQLite
+                                                 ↓
+                         评测、Grounding 与降级
 ```
 
-上面是当前请求主链。旧的 M1/M2 学习笔记保留当时的 `NormalizedConstraints`、Enrichment/Gate 术语，用来说明架构演进，不应当作当前接口。每学完一层，至少做一次小实验：读一个测试、修改一个输入、观察运行诊断或运行一条离线回归。学习文档中的回答只有在能回指代码、测试或报告时，才升级为面试结论。
+上面是当前请求主链：自然语言经过动作编译，顶部栏和反问直接进入 Patch；三者不会各自维护一套请求状态。旧的 M1/M2 学习笔记保留当时的 `NormalizedConstraints`、Enrichment/Gate 术语，用来说明架构演进，不应当作当前接口。每学完一层，至少做一次小实验：读一个测试、修改一个输入、观察运行诊断或运行一条离线回归。学习文档中的回答只有在能回指代码、测试或报告时，才升级为面试结论。
 
 ## ✍️ 维护规则
 
-- 功能或运行方式改变时，先更新根 README 和 current/
+- 功能、运行方式或主链路改变时，先更新根 README、current/ 和对应 status/ 证据
 - 新增评测只创建带日期的 status 快照，不覆盖旧报告；冻结版本报告进入 releases/
 - 目标设计必须写明“目标/未实现”，不能混入当前能力列表
 - 面试材料中的指标必须链接发布报告或具体评测产物

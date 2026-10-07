@@ -440,10 +440,15 @@ class PlanningService:
             rule_baseline,
         )
         if explicit_choices is not None and explicit_choices.conflict is not None:
+            conflict_code = explicit_choices.conflict.code
             return CandidateSet(
                 conflict=explicit_choices.conflict,
                 runtime_decision=self._not_run_runtime(
-                    "unsupported_plan_structure"
+                    (
+                        "unsupported_plan_structure"
+                        if conflict_code == "UNSUPPORTED_PLAN_STRUCTURE"
+                        else conflict_code.lower()
+                    )
                 ),
             )
 
@@ -533,6 +538,12 @@ class PlanningService:
                 }
         )
         if not plan_specs:
+            if plan_choices.conflict is not None:
+                return CandidateSet(
+                    conflict=plan_choices.conflict,
+                    planning_intent_decision=planning_intent_decision,
+                    runtime_decision=runtime_decision,
+                )
             deadline = constraints.planning_window.explicit_return_deadline
             explicit_window = constraints.planning_window.explicit_trip_range
             if deadline is not None:

@@ -55,13 +55,13 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         by_id = {item.case_id: item for item in fixture_set.fixtures}
 
         lakeside = by_id["plan_relaxed_lakeside"].interpretation.raw_constraints
-        self.assertIsNone(lakeside.location_text)
+        self.assertIsNone(lakeside.origin_text)
         self.assertIn("湖边走走", lakeside.preferences)
 
         family_dinner = by_id["plan_family_home_style_dinner"].interpretation.raw_constraints
         self.assertIsNone(family_dinner.date_text)
         family_time = by_id["plan_family_home_style_dinner"].interpretation.time_proposals
-        self.assertEqual(family_time[0].target, "trip")
+        self.assertEqual(family_time[0].event, "trip")
         self.assertEqual(family_time[0].period.value, "afternoon")
 
         new_plan = by_id["plan_fast_meal_more_activity"].interpretation

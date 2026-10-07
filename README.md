@@ -12,7 +12,7 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 
 项目重点不是让模型自由编写一段看似合理的行程，而是证明：模型可以参与规划，同时不能绕过事实和安全边界。
 
-当前发布基线：`planner-v2-eval-baseline`。评测使用 36 条人工复核 Fixture、DeepSeek Flash、BGE 本地向量模型和可复现 Demo World；它是可回放的工程评测版本，不是实时商户数据或生产成功率承诺。
+冻结发布基线：`planner-v2-eval-baseline`。评测使用 36 条人工复核 Fixture、DeepSeek Flash、BGE 本地向量模型和可复现 Demo World；它是可回放的工程评测版本，不是实时商户数据或生产成功率承诺。当前架构分支正在完成 S-CORE3H4 收口，最新代码提交和复验结果见 [H4 收口记录](docs/status/s_core3h4_closeout_20261007.md)。
 
 - 在线体验：待补充
 - 演示视频：待补充
@@ -38,40 +38,37 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 
 ## 🔗 一次请求如何运行
 
-```mermaid
-flowchart LR
-    accTitle: Resume V2 Planning Flow
-    accDescr: Natural language, structured condition edits, and clarification replies converge on one versioned PlanRequest before deterministic planning and provider verification.
+这张图只保留发布版主链的关键边界，便于在 GitHub 首页阅读；节点内部的 Planner、Provider 和恢复细节见[当前架构文档](docs/current/resume_v2_architecture.md)。顶部栏和反问不会再伪装成自然语言；它们直接产生 `RequestPatch`，与自然语言最终汇入同一个 `ConstraintEngine`。
 
-    user[👤 User] --> ui[🌐 React workspace]
+```mermaid
+flowchart TB
+    accTitle: Resume V2 Planning Flow
+    accDescr: Natural language is compiled into a typed action, while top bar edits and clarification replies produce typed patches. All request updates converge on ConstraintEngine before deterministic planning and provider verification.
+
+    user[👤 用户] --> ui[🌐 React 工作台]
     ui --> api[🌐 FastAPI]
 
-    subgraph conversation["⚙️ Stateful request control"]
-        api --> router[🧠 Router / DemoRouter]
-        router --> compile[⚙️ Enrichment + Proposal Compiler]
-        compile --> engine{🧭 ConstraintEngine}
-        engine -->|Resolved| ready[✅ ReadinessPolicy]
-        engine -->|Needs clarification| policy[❓ QuestionPolicy]
-        ready -->|ready| intent[🧠 PlanningIntent]
-        policy --> interrupt[🔒 Interrupt and checkpoint]
-        topbar[Top bar typed Patch] --> patch[RequestPatch]
-        reply[Field-scoped clarification reply] --> patch
-        router -->|constraint update| patch
-        patch --> engine
+    subgraph control["⚙️ 语义与请求控制"]
+        api --> router[🧠 Router + DecisionContext]
+        router --> compiler[⚙️ TurnCompiler → CompiledNextAction]
+        topbar[顶部栏 typed DTO] --> patch[RequestPatch]
+        reply[字段级反问回答] --> patch
+        compiler -->|ApplyRequestPatch| patch
+        patch --> engine{🛡️ ConstraintEngine}
+        engine -->|缺字段| question[❓ QuestionPolicy + interrupt/resume]
+        question -. 用户补充 .-> reply
+        engine -->|冲突| response[📤 Response]
+        engine -->|就绪| readiness[🧭 ReadinessPolicy]
+        readiness --> request[✅ PlanRequest]
+        compiler -->|ModifySelectedPlan| modify[🔁 ModificationService]
+        compiler -->|Query / NoAction| response
     end
 
-    subgraph planning["⚙️ Deterministic planning"]
-        intent --> compiler[🛡️ PlanSpecCompiler]
-        compiler --> retrieve[🔍 Catalog and Hybrid Retrieval]
-        retrieve --> beam[⚙️ Beam Search]
-        beam --> schedule[⚙️ Timeline Scheduler]
-        schedule --> providers[🔌 Route, weather, availability]
-        providers --> verifier[🛡️ Verifier and bounded repair]
-    end
-
-    verifier --> advisor[🧠 Grounded Advisor]
-    advisor --> persist[💾 Plan Version and Session Snapshot]
-    persist --> response[📤 CandidateSet and warnings]
+    request --> planner[⚙️ Planning Kernel<br/>Intent → Spec → Retrieve → Beam → Schedule → Provider → Verifier]
+    planner --> advisor[🧠 Grounded Advisor / Rule fallback]
+    advisor --> persist[💾 PlanVersion + PlanDiff + SQLite]
+    persist --> response
+    modify --> persist
     response --> ui
 ```
 
@@ -97,6 +94,19 @@ flowchart LR
 | Live B3 完整链路 | 30/36 | 真实 Router 端到端诊断 |
 
 所有 Frozen 变体硬约束安全率为 100%，9/9 修改链路通过；Frozen 结果不能直接表述为生产成功率。Hybrid 的 Recall@5 从 `0.240` 提升到 `0.537`，但冷启动与稳态延迟必须分开报告。Advisor 接受结果的事实、方案和证据 ID grounding 为 100%，未通过时回退规则解释。
+
+### S-CORE3H4 干净提交复验
+
+以下结果来自干净提交 `2e9f0f0`，用于验证架构收口，不替换上面的冻结发布基线：
+
+| 变体 | 任务完成 | 硬约束安全 | 冲突归因 | 说明 |
+| --- | ---: | ---: | ---: | --- |
+| C3 Frozen LLM Intent + Hybrid | 36/36 | 7/7 | 4/4 | PlanningIntent 无 fallback |
+| C4 Frozen + Advisor | 36/36 | 7/7 | 4/4 | Advisor 接受 22/27，拒绝时安全回退 |
+| B0 Live Router + Rule | 30/36 | 7/7 | 4/4 | P50/P95 1598/2473ms |
+| B3 Live 完整链路 | 33/36 | 7/7 | 4/4 | Advisor 接受 23/25；仅作 Live 稳定性诊断 |
+
+完整限制、失败分类和临时报告路径见 [S-CORE3H4 收口记录](docs/status/s_core3h4_closeout_20261007.md)。
 
 ## 🧱 项目结构
 
@@ -168,6 +178,7 @@ pnpm run build
 - [语义规划与 Hybrid RAG](docs/interview/06_从关键词匹配到可验证语义规划与轻量RAG.md)：语义与检索专题。
 - [Wire Proposal 与 CommandCompiler](docs/interview/07_从万能Interpretation到受约束WireProposal与CommandCompiler.md)：结构化输出和 Harness 重构专题。
 - [V2 长期路线图](docs/canonical/v2_roadmap.md)：未来路线图，不代表当前能力。
+- [S-CORE3 架构收口故事](docs/interview/09_S-CORE3从多入口到统一动作链路.md)：从双重动作表示到统一 `CompiledNextAction` 的面试讲解。
 
 推荐学习顺序：先看 README 和发布报告，建立当前系统概念；再读当前架构文档；随后对照自然语言、顶部栏 typed Patch 与字段反问三种入口，阅读共同的 `RequestPatch → ConstraintEngine → PlanRequest` 主链，再看 `RequestReadinessPolicy / QuestionPolicy → PlanningService → Provider / Verifier → Persistence`；最后阅读面试材料和历史设计。旧文档里的 `NormalizedConstraints`、`QuestionGate` 是 S-CORE2 前的历史契约，不是当前 Planner 输入。
 

@@ -33,6 +33,8 @@ STRUCTURED_OUTPUT_RULE_CODES = (
     "absolute_date_reference_mismatch",
     "absolute_date_missing",
     "explicit_time_window_order_invalid",
+    "period_scope_invalid",
+    "temporal_scope_conflict",
     "departure_period_invalid",
     "replace_target_missing",
     "target_reference_missing",
@@ -47,8 +49,22 @@ class Intent(str, Enum):
     REFINE_PLAN = "refine_plan"
     EXECUTE_PLAN = "execute_plan"
     CANCEL_EXECUTION = "cancel_execution"
+    QUERY_PLAN = "query_plan"
     CHITCHAT = "chitchat"
     CLARIFY = "clarify"
+
+
+# Bounded model-facing action kinds.  This is deliberately separate from the
+# legacy execution/policy ``Intent`` enum: DecisionContext remembers only the
+# UserAct kind from the previous turn.
+UserActKind = Literal[
+    "create_plan",
+    "patch_constraints",
+    "replace_stop",
+    "check_weather",
+    "query_plan",
+    "chitchat",
+]
 
 
 class IdentityType(str, Enum):
@@ -176,7 +192,12 @@ class ConstraintPatch(BaseModel):
     # a clock; the compiler then asks for the exact departure time.
     departure_period: TimeScope | None = None
     time_window_text: str | None = None
-    location_text: str | None = None
+    # ``origin_text`` is the route's starting point.  It is intentionally
+    # distinct from ``planning_area_text``: saying "from Wangjing" does not
+    # mean the user wants every stop inside Wangjing, and saying "play in
+    # Chaoyang" does not move the route origin there.
+    origin_text: str | None = None
+    planning_area_text: str | None = None
     budget_text: str | None = None
     max_distance_text: str | None = None
     total_distance_text: str | None = None
@@ -317,47 +338,79 @@ class TimeWindow(BaseModel):
         return _canonical_clock(value, field_name="time") or value
 
 
-class TimeProposal(BaseModel):
-    """One time phrase with its semantic target preserved until compilation."""
+class TripRangeProposal(BaseModel):
+    """A bounded interval that applies to the whole outing."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    target: Literal["trip", "departure", "return"]
-    precision: Literal["exact", "period"]
-    clock: str | None = None
-    end_clock: str | None = None
-    period: TimeScope | None = None
+    kind: Literal["trip_range"] = "trip_range"
+    start: str
+    end: str
     evidence: str = Field(min_length=1)
 
-    @field_validator("clock", "end_clock")
+    @field_validator("start", "end")
     @classmethod
-    def validate_clocks(cls, value: str | None) -> str | None:
-        return _canonical_clock(value, field_name="clock")
+    def validate_clocks(cls, value: str) -> str:
+        return _canonical_clock(value, field_name="clock") or value
 
     @model_validator(mode="after")
-    def validate_proposal_shape(self) -> "TimeProposal":
-        if self.precision == "exact":
-            if self.clock is None or self.period is not None:
-                raise ValueError("exact time proposal requires clock and no period")
-            if self.target == "trip" and self.end_clock is None:
-                raise ValueError("exact trip time proposal requires end_clock")
-            if self.target != "trip" and self.end_clock is not None:
-                raise ValueError("only a trip range may provide end_clock")
-            if self.end_clock is not None and self.clock >= self.end_clock:
-                raise PydanticCustomError(
-                    "explicit_time_window_order_invalid",
-                    "trip range start must be before end",
-                )
-        else:
-            if self.period is None or self.clock is not None or self.end_clock is not None:
-                raise ValueError("period time proposal requires period and no clock")
-            if self.target != "trip" and self.period not in {
-                TimeScope.MORNING,
-                TimeScope.AFTERNOON,
-                TimeScope.EVENING,
-            }:
-                raise ValueError("departure and return periods must be a day period")
+    def validate_range(self) -> "TripRangeProposal":
+        if self.start >= self.end:
+            raise PydanticCustomError(
+                "explicit_time_window_order_invalid",
+                "trip range start must be before end",
+            )
         return self
+
+
+class EventClockProposal(BaseModel):
+    """An exact clock attached to one event, not to the whole trip."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["event_clock"] = "event_clock"
+    event: Literal["departure", "return"]
+    clock: str
+    evidence: str = Field(min_length=1)
+
+    @field_validator("clock")
+    @classmethod
+    def validate_clock(cls, value: str) -> str:
+        return _canonical_clock(value, field_name="clock") or value
+
+
+class PeriodProposal(BaseModel):
+    """A coarse period whose scope is explicit until compilation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["period"] = "period"
+    event: Literal["trip", "departure", "return"]
+    period: TimeScope
+    evidence: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_period_scope(self) -> "PeriodProposal":
+        if self.period == TimeScope.EXPLICIT_RANGE:
+            raise PydanticCustomError(
+                "period_scope_invalid",
+                "an explicit range must use trip_range",
+            )
+        if self.event != "trip" and self.period == TimeScope.ALL_DAY:
+            raise PydanticCustomError(
+                "departure_period_invalid",
+                "departure and return periods must be a day period",
+            )
+        return self
+
+
+# A discriminated union keeps the semantic alternatives separate in the
+# model-facing contract.  Callers inspect the concrete proposal class rather
+# than interpreting a partially populated set of target/precision fields.
+TimeProposal = Annotated[
+    TripRangeProposal | EventClockProposal | PeriodProposal,
+    Field(discriminator="kind"),
+]
 
 
 
@@ -379,7 +432,11 @@ class RawConstraints(BaseModel):
     exact_stop_count: int | None = Field(default=None, ge=1, le=4)
     required_stop_roles: tuple[StopRole, ...] = ()
     duration_minutes: int | None = Field(default=None, gt=0)
-    location_text: str | None = None
+    # Keep the semantic scope selected by the Router until the request
+    # compiler resolves it.  A single ambiguous ``location_text`` field made
+    # origin and destination-area requests indistinguishable downstream.
+    origin_text: str | None = None
+    planning_area_text: str | None = None
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
     child_age: int | None = Field(default=None, ge=0, le=17)
@@ -521,6 +578,31 @@ class Interpretation(BaseModel):
         require_trace("absolute_date", ("absolute_date", "date_reference", "date_text"))
         return self
 
+    @model_validator(mode="after")
+    def validate_temporal_scope_consistency(self) -> "Interpretation":
+        """Reject one evidence span being assigned to two event scopes."""
+
+        scopes_by_evidence: dict[str, set[str]] = {}
+        for proposal in self.time_proposals:
+            if isinstance(proposal, TripRangeProposal):
+                scope = "trip"
+            else:
+                # Both exact clocks and coarse periods are event-scoped.  The
+                # discriminated wire contract keeps their event explicit, so
+                # mixed representations can be rejected without inspecting
+                # the original sentence again.
+                scope = proposal.event
+            scopes_by_evidence.setdefault(proposal.evidence, set()).add(scope)
+        for evidence, scopes in scopes_by_evidence.items():
+            event_scopes = scopes - {"trip"}
+            if "trip" in scopes and event_scopes:
+                raise PydanticCustomError(
+                    "temporal_scope_conflict",
+                    "one time evidence cannot scope both the trip and an event",
+                    {"evidence": evidence, "scopes": sorted(scopes)},
+                )
+        return self
+
 
 T = TypeVar("T")
 
@@ -605,8 +687,16 @@ class PlanRequest(BaseModel):
     planning_window: PlanningWindow = Field(default_factory=PlanningWindow)
     duration_minutes: ConstraintValue[int] | None = None
     location: ConstraintValue[GeoLocation] | None = None
+    # Optional search center for the requested activity area.  The route still
+    # starts at ``location``; Catalog consumes this value only when recalling
+    # nearby candidates, so it is not an inert semantic field.
+    planning_area: ConstraintValue[GeoLocation] | None = None
     party: ConstraintValue[PartyProfile] | None = None
     budget_per_person: ConstraintValue[int] | None = None
+    # The current product contract intentionally treats one user-facing
+    # distance limit as both the candidate-recall envelope and the per-leg
+    # route bound.  ``total_distance_km`` remains the separate whole-route
+    # constraint; split fields only when the UI exposes distinct semantics.
     max_distance_km: ConstraintValue[float] | None = None
     preferences: list[str] = Field(default_factory=list)
     diet_tags: list[str] = Field(default_factory=list)

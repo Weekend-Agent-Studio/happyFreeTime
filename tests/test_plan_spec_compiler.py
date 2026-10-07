@@ -5,7 +5,7 @@ from app.domain.planning import PlanStructureProposal
 from app.domain.semantics import SoftObjective
 from app.services.plan_spec_compiler import PlanSpecCompiler
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
-from tests.test_planning import planning_constraints
+from tests.test_planning import planning_constraints, with_planning_window
 
 
 class PlanSpecCompilerTest(unittest.TestCase):
@@ -130,6 +130,138 @@ class PlanSpecCompilerTest(unittest.TestCase):
         self.assertEqual(choices.proposal_status, "rejected")
         self.assertEqual(choices.diagnostic_code, "lunch_before_dinner_required")
         self.assertTrue(choices.fallback_specs)
+
+    def test_partial_count_is_completed_without_registry_match(self) -> None:
+        constraints = with_planning_window(
+            planning_constraints(time_end="22:00"),
+            start="14:00",
+            end="22:00",
+        ).model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=3,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="三站",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.DINNER,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="要吃晚饭",
+                ),
+            }
+        )
+
+        compiler = PlanSpecCompiler()
+        self.assertIsNone(
+            compiler.compile_explicit_structure(constraints, self.baseline)
+        )
+        choices = compiler.compile(constraints, self.baseline, None)
+        self.assertEqual(choices.proposal_status, "not_used")
+        self.assertTrue(choices.preferred_specs)
+        self.assertTrue(all(len(spec.roles) == 3 for spec in choices.preferred_specs))
+        self.assertTrue(
+            all(StopRole.DINNER in spec.roles for spec in choices.preferred_specs)
+        )
+
+    def test_complete_unregistered_sequence_is_executable(self) -> None:
+        constraints = with_planning_window(
+            planning_constraints(time_end="22:00"),
+            start="14:00",
+            end="22:00",
+        ).model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=3,
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.ACTIVITY, StopRole.DINNER),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+            }
+        )
+        choices = PlanSpecCompiler().compile_explicit_structure(
+            constraints,
+            self.baseline,
+        )
+        self.assertIsNotNone(choices)
+        self.assertIsNone(choices.conflict)
+        self.assertEqual(
+            choices.preferred_specs[0].roles,
+            (StopRole.ACTIVITY, StopRole.ACTIVITY, StopRole.DINNER),
+        )
+
+    def test_invalid_partial_proposal_uses_dynamic_fallback(self) -> None:
+        constraints = with_planning_window(
+            planning_constraints(time_end="22:00"),
+            start="14:00",
+            end="22:00",
+        ).model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=3,
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.DINNER,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+            }
+        )
+        invalid = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v3",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "activity", "inclusion": "core"},
+                {"role": "break", "inclusion": "core"},
+            ],
+        )
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, invalid)
+        self.assertEqual(choices.proposal_status, "rejected")
+        self.assertEqual(choices.diagnostic_code, "explicit_roles_not_preserved")
+        self.assertTrue(choices.fallback_specs)
+        self.assertTrue(
+            any(StopRole.DINNER in spec.roles for spec in choices.fallback_specs)
+        )
+
+    def test_partial_structure_reports_capacity_shortage(self) -> None:
+        constraints = with_planning_window(
+            planning_constraints(time_end="14:30"),
+            start="14:00",
+            end="14:30",
+        ).model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=3,
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.DINNER,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+            }
+        )
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, None)
+        self.assertEqual(choices.conflict.code, "NO_FEASIBLE_PLAN")
+
+    def test_required_roles_cannot_exceed_exact_count(self) -> None:
+        constraints = planning_constraints(time_end="22:00").model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=2,
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.LUNCH, StopRole.DINNER),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+            }
+        )
+        choices = PlanSpecCompiler().compile_explicit_structure(
+            constraints,
+            self.baseline,
+        )
+        self.assertEqual(choices.conflict.code, "UNSUPPORTED_PLAN_STRUCTURE")
 
     def test_objectives_must_reference_existing_evidence(self) -> None:
         evidence_id = self.baseline.semantic_request.evidence[0].evidence_id

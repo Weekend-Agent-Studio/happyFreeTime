@@ -1,10 +1,10 @@
 # HappyFreeTime V2 开发路线图
 
-> 目标：以 5 个核心里程碑和 2 个桥接切片完成可信规划、产品体验、受约束智能、可控记忆、可修改、可执行、可观测、可评测的闭环 | 状态：当前路线图基线；实际完成情况以根目录 `README.md` 为准 | 更新：2026-10-04
+> 目标：以 5 个核心里程碑和 2 个桥接切片完成可信规划、产品体验、受约束智能、可控记忆、可修改、可执行、可观测、可评测的闭环 | 状态：当前路线图基线；实际完成情况以根目录 `README.md` 和当前架构说明为准 | 更新：2026-10-06
 
 > 历史注记：本路线图包含 M1/M2 的阶段快照和早期目标。旧 `NormalizedConstraints`、`QuestionGate`、`TimeConstraintSet` 与 M2 `PlanSkeleton` 仅描述当时设计，不是当前运行时契约；当前请求/时间机制见下方增补和[当前架构](../current/resume_v2_architecture.md)，Planner 结构契约见 [S-CORE1C 面试说明](../interview/08_PlanSpecCompiler与结构提案收敛.md)。
 
-> 当前实现增补（2026-10-04）：S-CORE2A–E 已在 `codex/s-core2-request-engine` 完成，尚未合并 main。`PlanRequest + RequestPatch + ConstraintEngine` 已统一自然语言创建、约束补充、反问恢复与顶部栏条件编辑；`PlanningWindow + TimeProposal` 已落地，默认值可见、可编辑，**没有完整 Temporal AST**。S-SIR1（统一 PlanningWindow/轻量时间提案）与 S-SIR1B（可见条件栏/字段反问）由 S-CORE2B–D 覆盖；S-SIR2–S-SIR5 仍按真实语义缺口分项评估，不属于本次完成范围。实现与验收证据见 [S-CORE2E 验收报告](../status/s_core2e_release_20261004.md)。
+> 当前实现增补（2026-10-06）：S-CORE2A–E 已完成请求、顶部栏与反问收敛；S-CORE3A–G 又完成有限 `DecisionContext`、`TurnProposal → TurnCompiler → CompiledNextAction`、语义作用域、Planning Context、Graph 状态和 FastAPI Application 收口。当前 checkpoint 使用 `planner-core3e-v1`，旧开发 checkpoint 不做兼容读取；当前实现仍以 [当前架构](../current/resume_v2_architecture.md) 和 [S-CORE3G 发布记录](../status/s_core3g_release_20261006.md) 为准。时间使用 `PlanningWindow + TimeProposal`，默认值可见、可编辑，**没有完整 Temporal AST**。
 
 ---
 
