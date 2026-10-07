@@ -123,6 +123,44 @@ describe("planning workspace", () => {
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("separates the completed run trace from evidence and developer details", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      runtime_decisions: [{
+        stage: "candidate_retrieval",
+        adapter: "rule_based",
+        model_invoked: false,
+        model_name: null,
+        attempts: 0,
+        fallback_reason: null,
+        latency_ms: 12,
+        input_tokens: null,
+        output_tokens: null,
+      }],
+      run_trace: {
+        schema_version: "planning-run-trace.v1",
+        run_id: "run-ui-1",
+        events: [
+          { schema_version: "planning-run-event.v1", run_id: "run-ui-1", sequence: 1, stage: "understand", status: "completed", message_key: "understand.completed", public_message: "已完成需求理解", occurred_at: "2026-10-07T10:00:00Z", duration_ms: 3, public_details: {} },
+          { schema_version: "planning-run-event.v1", run_id: "run-ui-1", sequence: 2, stage: "verify", status: "completed", message_key: "verify.completed", public_message: "路线和硬约束核对完成", occurred_at: "2026-10-07T10:00:01Z", duration_ms: 20, public_details: { plan_count: 2 } },
+        ],
+      },
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "依据" }));
+
+    expect(screen.getByText("本轮处理过程")).toBeInTheDocument();
+    expect(screen.getByText("方案依据")).toBeInTheDocument();
+    expect(screen.getByText("开发者详情")).toBeInTheDocument();
+    await user.click(screen.getByText("本轮处理过程"));
+    expect(screen.getByText("已完成需求理解")).toBeInTheDocument();
+    expect(screen.getByText("路线和硬约束核对完成")).toBeInTheDocument();
+  });
+
   it("adds POI context to plan cards and supports renaming and deleting history", async () => {
     const user = userEvent.setup();
     api.listSessions.mockResolvedValue([{

@@ -63,6 +63,8 @@ import type {
   ReplacementCriterion,
   RouteLeg,
   RuntimeDecision,
+  PlanningRunEvent,
+  PlanningRunTrace,
   SessionSummary,
   SessionView,
   Stop,
@@ -194,8 +196,12 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     plan_version_id: response.plan_version_id ?? null,
     retrieval_evidence: response.retrieval_evidence ?? [],
     runtime_decisions: response.runtime_decisions ?? [],
+    run_trace: response.run_trace ?? null,
     retrieval_mode: response.retrieval_mode ?? null,
     retrieval_index_version: response.retrieval_index_version ?? null,
+    search_mode: response.search_mode ?? null,
+    search_finalist_count: response.search_finalist_count ?? null,
+    search_expansions: response.search_expansions ?? null,
     conversation_command: response.conversation_command ?? null,
     plan_diff: response.plan_diff ?? null,
     plan_diffs: response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []),
@@ -349,6 +355,56 @@ function runtimeAdapterLabel(decision: RuntimeDecision): string {
     custom: "自定义适配器",
   };
   return adapterLabels[decision.adapter] ?? decision.adapter;
+}
+
+function runStageLabel(stage: PlanningRunEvent["stage"]): string {
+  const labels: Record<PlanningRunEvent["stage"], string> = {
+    understand: "理解需求",
+    compile_request: "整理规划条件",
+    clarify: "等待补充信息",
+    retrieve: "检索候选地点",
+    construct: "组合候选行程",
+    verify: "核对路线与硬约束",
+    modify: "处理方案修改",
+    advise: "生成推荐说明",
+    persist: "保存本轮结果",
+  };
+  return labels[stage];
+}
+
+function runStatusLabel(status: PlanningRunEvent["status"]): string {
+  const labels: Record<PlanningRunEvent["status"], string> = {
+    started: "开始",
+    completed: "完成",
+    fallback: "安全回退",
+    failed: "未完成",
+    waiting_input: "等待输入",
+  };
+  return labels[status];
+}
+
+function RunTracePanel({ trace }: { trace?: PlanningRunTrace | null }) {
+  if (!trace?.events.length) return null;
+  return (
+    <details className="run-trace-disclosure">
+      <summary>
+        <span><CheckCircle2 size={16} />本轮处理过程</span>
+        <small>{trace.events.length} 个执行事件 · 查看详情</small>
+      </summary>
+      <ol className="run-trace-list">
+        {trace.events.map((event) => (
+          <li className={`run-trace-item ${event.status}`} key={`${event.run_id}-${event.sequence}`}>
+            <span className="run-trace-marker" aria-hidden="true">{event.status === "fallback" || event.status === "failed" ? <CircleAlert size={14} /> : event.status === "waiting_input" ? <Clock3 size={14} /> : <Check size={14} />}</span>
+            <div>
+              <strong>{runStageLabel(event.stage)}</strong>
+              <p>{event.public_message}</p>
+              <small>{runStatusLabel(event.status)}{event.duration_ms !== null ? ` · ${event.duration_ms} ms` : ""}</small>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
 }
 
 function RuntimeDecisionEvidence({ decision }: { decision: RuntimeDecision }) {
@@ -1157,7 +1213,7 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
 }
 
 function ThinkingRow() {
-  return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>正在核对路线和可行性</strong></div></div>;
+  return <div className="thinking-row"><ButlerAvatar /><div><span /><span /><span /><strong>正在处理你的规划请求……</strong></div></div>;
 }
 
 function RecommendationAdvicePanel({ advice, plans }: { advice?: RecommendationAdvice | null; plans: Plan[] }) {
@@ -1193,7 +1249,6 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, showMobileD
   return (
     <section className="rich-planning-reply" aria-labelledby={headingId}>
       <div className="rich-reply-body">
-        <div className="planning-progress" aria-label="规划完成步骤"><span><CheckCircle2 size={14} />解析需求</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />查询路线与景点</span><ChevronRight size={13} /><span><CheckCircle2 size={14} />评估与排序</span></div>
         <div className="plan-intro"><div><h2 id={headingId}>{hasModification ? "方案已定向更新" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{hasModification ? "其他站点保持原位置；每个替换候选都已重新核验。" : "方案按推荐顺序排列；打开详情可查看完整行程、推荐理由和取舍。"}</p></div><span>{response.plans.length} 个候选</span></div>
         {hasModification ? (
           <div className="plan-diff-list" role="status">
@@ -1402,20 +1457,56 @@ function MapPanel({ plan, activeLegIndex, onSelectRoute }: { plan?: Plan; active
 }
 
 function EvidencePanel({ response, plan }: { response: AgentResponse | null; plan?: Plan }) {
-  if (!response || !plan) return <DetailEmpty icon={<ShieldCheck size={24} />} title="依据将在这里汇总" text="天气、路线、营业与数据来源会集中展示，不挤占方案比较区。" />;
-  const sources = [...new Map(plan.stops.map((stop) => [stop.source.source_uri, stop.source])).values()];
+  if (!response) return <DetailEmpty icon={<ShieldCheck size={24} />} title="依据将在这里汇总" text="天气、路线、营业与数据来源会集中展示，不挤占方案比较区。" />;
+  const sources = plan ? [...new Map(plan.stops.map((stop) => [stop.source.source_uri, stop.source])).values()] : [];
+  const verifiedFacts = response.provider_facts.filter((fact) => !fact.degraded);
+  const degradedFacts = response.provider_facts.filter((fact) => fact.degraded);
+  const verifiedLegs = plan?.route_legs.filter((leg) => !leg.degraded) ?? [];
+  const degradedLegs = plan?.route_legs.filter((leg) => leg.degraded) ?? [];
   return (
     <div className="evidence-panel">
-      <div className="detail-title"><span>可信状态</span><h2>证据与数据</h2><p>只展示系统实际获得的事实、来源和降级状态。</p></div>
-      <div className="evidence-list">
-        {response.runtime_decisions?.map((decision, index) => <RuntimeDecisionEvidence key={`${decision.stage}-${index}`} decision={decision} />)}
-        {response.retrieval_mode ? <article className="evidence-row"><span className="evidence-icon"><Database size={17} /></span><div><strong>候选召回 · {response.retrieval_mode === "hybrid" ? "Hybrid 本地语义索引" : "规则基线"}</strong><p>只对 Catalog 已通过硬过滤的候选排序</p><small>{response.retrieval_index_version ?? "索引版本未提供"}</small></div></article> : null}
-        {response.provider_facts.map((fact, index) => <ProviderEvidence key={`${fact.kind}-${index}`} fact={fact} />)}
-        {plan.route_legs.map((leg, index) => <article className={`evidence-row ${leg.degraded ? "warning" : ""}`} key={`${leg.destination_name}-${index}`}><span className="evidence-icon"><Route size={17} /></span><div><strong>路线 · {leg.origin_name} → {leg.destination_name}</strong><p>{routeSourceLabel(leg.source)} · {leg.provider_mode} · {leg.distance_km} km / {leg.duration_minutes} 分钟</p><small>{leg.degraded ? `降级：${leg.degraded_reason ?? "原因未提供"}` : `核验于 ${safeDateTime(leg.verified_at)}`}</small></div></article>)}
-        {sources.map((source) => <article className="evidence-row" key={source.source_uri}><span className="evidence-icon"><Database size={17} /></span><div><strong>POI 目录 · {source.source_name}</strong><p>{source.source_license} · {source.verification_status === "verified" ? "已核验" : source.verification_status === "stale" ? "需复核" : "未核验"}</p><small>采集于 {safeDateTime(source.collected_at)}</small></div></article>)}
-        {response.warnings?.map((warning) => <article className="evidence-row warning" key={`${warning.code}-${warning.resource_id ?? "all"}`}><span className="evidence-icon"><CircleAlert size={17} /></span><div><strong>需要确认</strong><p>{warning.message}</p><small>{warning.source ? `来源：${warning.source}` : "来源未提供"}{warning.stale ? " · 数据可能过期" : ""}</small></div></article>)}
-      </div>
+      <div className="detail-title"><span>可信状态</span><h2>证据与过程</h2><p>把本轮怎么处理、为什么可信和需要留意的风险分开查看。</p></div>
+      <RunTracePanel trace={response.run_trace} />
+
+      <section className="evidence-group" aria-label="方案依据">
+        <div className="evidence-group-heading"><h3>方案依据</h3><span>支撑当前结果的事实</span></div>
+        <div className="evidence-list">
+          {response.retrieval_evidence?.map((evidence) => <article className="evidence-row" key={evidence.evidence_id}><span className="evidence-icon"><ShieldCheck size={17} /></span><div><strong>{evidence.summary}</strong><p>{evidence.source_type === "user_message" ? "来自你的需求" : evidence.source_type === "poi_profile" ? "来自 POI Profile" : "来自已核验事实"}</p><small>{evidence.source_field} · 置信度 {(evidence.confidence * 100).toFixed(0)}%</small></div></article>)}
+          {verifiedFacts.map((fact, index) => <ProviderEvidence key={`${fact.kind}-${index}`} fact={fact} />)}
+          {verifiedLegs.map((leg, index) => <article className="evidence-row" key={`${leg.destination_name}-${index}`}><span className="evidence-icon"><Route size={17} /></span><div><strong>路线 · {leg.origin_name} → {leg.destination_name}</strong><p>{routeSourceLabel(leg.source)} · {leg.provider_mode} · {leg.distance_km} km / {leg.duration_minutes} 分钟</p><small>核验于 {safeDateTime(leg.verified_at)}</small></div></article>)}
+          {sources.map((source) => <article className="evidence-row" key={source.source_uri}><span className="evidence-icon"><Database size={17} /></span><div><strong>POI 目录 · {source.source_name}</strong><p>{source.source_license} · {source.verification_status === "verified" ? "已核验" : source.verification_status === "stale" ? "需复核" : "未核验"}</p><small>采集于 {safeDateTime(source.collected_at)}</small></div></article>)}
+          {!response.retrieval_evidence?.length && !verifiedFacts.length && !verifiedLegs.length && !sources.length ? <p className="evidence-empty">本轮没有额外的事实依据快照。</p> : null}
+        </div>
+      </section>
+
+      {(degradedFacts.length || degradedLegs.length || response.warnings?.length) ? (
+        <section className="evidence-group risk-group" aria-label="降级与风险">
+          <div className="evidence-group-heading"><h3>降级与风险</h3><span>不会被隐藏的待确认信息</span></div>
+          <div className="evidence-list">
+            {degradedFacts.map((fact, index) => <ProviderEvidence key={`degraded-${fact.kind}-${index}`} fact={fact} />)}
+            {degradedLegs.map((leg, index) => <article className="evidence-row warning" key={`degraded-leg-${leg.destination_name}-${index}`}><span className="evidence-icon"><Route size={17} /></span><div><strong>路线使用降级数据 · {leg.origin_name} → {leg.destination_name}</strong><p>{routeSourceLabel(leg.source)} · {leg.distance_km} km / {leg.duration_minutes} 分钟</p><small>{leg.degraded_reason ?? "原因未提供"}</small></div></article>)}
+            {response.warnings?.map((warning) => <article className="evidence-row warning" key={`${warning.code}-${warning.resource_id ?? "all"}`}><span className="evidence-icon"><CircleAlert size={17} /></span><div><strong>需要确认</strong><p>{warning.message}</p><small>{warning.source ? `来源：${warning.source}` : "来源未提供"}{warning.stale ? " · 数据可能过期" : ""}</small></div></article>)}
+          </div>
+        </section>
+      ) : null}
+      <DeveloperDetails response={response} />
     </div>
+  );
+}
+
+function DeveloperDetails({ response }: { response: AgentResponse }) {
+  const decisions = response.runtime_decisions ?? [];
+  const hasSearchDetails = response.search_mode || response.search_expansions !== null && response.search_expansions !== undefined;
+  if (!decisions.length && !hasSearchDetails) return null;
+  return (
+    <details className="developer-details">
+      <summary>开发者详情<small>模型、检索和搜索诊断</small></summary>
+      <div className="developer-detail-list">
+        {decisions.map((decision, index) => <RuntimeDecisionEvidence key={`runtime-${decision.stage}-${index}`} decision={decision} />)}
+        {response.retrieval_mode ? <div className="developer-detail-line"><strong>检索</strong><span>{response.retrieval_mode} · {response.retrieval_index_version ?? "索引版本未提供"}</span></div> : null}
+        {hasSearchDetails ? <div className="developer-detail-line"><strong>搜索</strong><span>{response.search_mode ?? "未提供"} · 扩展 {response.search_expansions ?? "—"} · finalists {response.search_finalist_count ?? "—"}</span></div> : null}
+      </div>
+    </details>
   );
 }
 

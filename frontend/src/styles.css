@@ -292,6 +292,7 @@ h2, h3, p { margin-top: 0; }
 .thinking-row > div > span { width: 6px; height: 6px; border-radius: 50%; background: var(--sky); animation: planningPulse 900ms var(--ease-out) infinite alternate; }
 .thinking-row > div > span:nth-child(2) { animation-delay: 140ms; }
 .thinking-row > div > span:nth-child(3) { animation-delay: 280ms; margin-right: 5px; }
+.thinking-row strong { font-weight: 700; }
 @keyframes planningPulse { from { opacity: .25; transform: translateY(2px) scale(.85); } to { opacity: 1; transform: translateY(-2px) scale(1); } }
 
 .error-banner { display: flex; align-items: center; gap: 8px; margin: 0 12px; padding: 11px 13px; color: var(--danger); background: rgba(255, 241, 238, .9); border-radius: 12px; font-size: 12px; }
@@ -539,6 +540,35 @@ h2, h3, p { margin-top: 0; }
 .route-row:hover, .route-row.active { background: #e7f3ff; box-shadow: inset 0 0 0 1px rgba(25,121,230,.25); }
 
 .evidence-list { display: grid; gap: 8px; padding: 4px 14px 22px; }
+.run-trace-disclosure, .developer-details, .evidence-group { margin: 0 14px 12px; border: 1px solid rgba(126, 153, 184, .18); border-radius: 14px; background: rgba(247, 251, 255, .72); overflow: hidden; }
+.run-trace-disclosure > summary, .developer-details > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; cursor: pointer; list-style: none; color: #253750; font-size: 12px; font-weight: 800; }
+.run-trace-disclosure > summary::-webkit-details-marker, .developer-details > summary::-webkit-details-marker { display: none; }
+.run-trace-disclosure > summary > span { display: inline-flex; align-items: center; gap: 7px; }
+.run-trace-disclosure > summary small, .developer-details > summary small { color: #748196; font-size: 10px; font-weight: 600; }
+.run-trace-disclosure[open] > summary, .developer-details[open] > summary { border-bottom: 1px solid rgba(126, 153, 184, .15); }
+.run-trace-list { display: grid; gap: 0; margin: 0; padding: 6px 14px 12px 18px; list-style: none; }
+.run-trace-item { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; padding: 8px 0 10px; }
+.run-trace-item:not(:last-child)::after { position: absolute; left: 11px; top: 31px; bottom: -1px; width: 1px; background: rgba(111, 151, 192, .28); content: ""; }
+.run-trace-marker { z-index: 1; display: grid; place-items: center; width: 22px; height: 22px; color: #15805e; background: #e2f7ed; border-radius: 50%; }
+.run-trace-item.fallback .run-trace-marker, .run-trace-item.failed .run-trace-marker { color: #8a6516; background: #fff1c4; }
+.run-trace-item.waiting_input .run-trace-marker { color: #2767a5; background: #e6f2ff; }
+.run-trace-item strong, .run-trace-item p, .run-trace-item small { display: block; }
+.run-trace-item strong { color: #2b394f; font-size: 12px; }
+.run-trace-item p { margin: 2px 0; color: #56667d; font-size: 11px; line-height: 1.45; }
+.run-trace-item small { color: #8492a5; font-size: 10px; }
+.evidence-group { background: transparent; border: 0; overflow: visible; }
+.evidence-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 3px 4px; }
+.evidence-group-heading h3 { margin: 0; color: #253750; font-size: 13px; }
+.evidence-group-heading span { color: #8492a5; font-size: 10px; }
+.evidence-group .evidence-list { padding: 4px 0 8px; }
+.risk-group .evidence-group-heading h3 { color: #80621e; }
+.risk-group .evidence-list { padding-bottom: 2px; }
+.evidence-empty { margin: 6px 0 12px; padding: 12px; color: #748196; font-size: 11px; background: rgba(255,255,255,.62); border-radius: 10px; }
+.developer-details { margin-top: 2px; background: rgba(243, 247, 251, .72); }
+.developer-detail-list { display: grid; gap: 7px; padding: 8px 14px 14px; }
+.developer-detail-line { display: flex; justify-content: space-between; gap: 10px; color: #64748b; font-size: 10px; }
+.developer-detail-line strong { color: #3b4d67; }
+.developer-detail-list .evidence-row { padding: 9px; }
 .evidence-row { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 8px; padding: 11px; background: rgba(255,255,255,.52); border-radius: 11px; }
 .evidence-row.warning { background: rgba(255, 247, 214, .74); }
 .evidence-icon { width: 32px; height: 32px; display: grid; place-items: center; color: #116bc5; background: #e9f4ff; border-radius: 9px; }

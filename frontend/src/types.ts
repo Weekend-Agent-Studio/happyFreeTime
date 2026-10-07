@@ -415,6 +415,9 @@ export type AgentResponse = {
   retrieval_evidence?: EvidenceRef[];
   retrieval_mode?: string | null;
   retrieval_index_version?: string | null;
+  search_mode?: string | null;
+  search_finalist_count?: number | null;
+  search_expansions?: number | null;
   conversation_command?: Record<string, unknown> | null;
   plan_diff?: PlanDiff | null;
   plan_diffs?: PlanDiff[];
