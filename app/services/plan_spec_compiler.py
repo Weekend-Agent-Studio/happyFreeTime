@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from itertools import combinations
+from itertools import combinations, product
 from typing import Literal
 
 from app.domain.constraints import PlanRequest, StopRole
@@ -26,6 +26,23 @@ class PlanSpecChoices:
     diagnostic_code: str | None = None
     conflict: ConstraintConflict | None = None
     explicit_structure: bool = False
+
+
+_DYNAMIC_ROLE_POOL = (
+    StopRole.ACTIVITY,
+    StopRole.BREAK,
+    StopRole.LUNCH,
+    StopRole.DINNER,
+    StopRole.MEAL,
+)
+_ROLE_MINIMUM_MINUTES = {
+    StopRole.ACTIVITY: 30,
+    StopRole.BREAK: 15,
+    StopRole.LUNCH: 60,
+    StopRole.DINNER: 60,
+    StopRole.MEAL: 60,
+}
+_MAX_DYNAMIC_COMPLETIONS = 24
 
 
 def _build_rule_plan_specs(
@@ -133,7 +150,13 @@ class PlanSpecCompiler:
         constraints: PlanRequest,
         rule_baseline: PlanningIntent,
     ) -> PlanSpecChoices | None:
-        """Preflight an explicit role/count request before a model decision."""
+        """Preflight only complete or contradictory structure requests.
+
+        A count with fewer role requirements is intentionally *not* compiled
+        against the deterministic shapes here.  It is a partial constraint:
+        the model may complete it, and the deterministic compiler can produce
+        a bounded completion when no model proposal is available.
+        """
 
         exact_stop_count = (
             constraints.exact_stop_count.value
@@ -142,6 +165,24 @@ class PlanSpecCompiler:
         )
         required_roles = _explicit_roles(constraints)
         if exact_stop_count is None and not required_roles:
+            return None
+
+        conflict = _explicit_structure_conflict(
+            constraints,
+            exact_stop_count=exact_stop_count,
+            required_roles=required_roles,
+        )
+        if conflict is not None:
+            return PlanSpecChoices(
+                conflict=conflict,
+                explicit_structure=True,
+            )
+
+        # ``three stations, including dinner`` (and even just ``three
+        # stations``) leaves roles for the structure proposal/compiler to
+        # complete.  Matching it to a registered shape here would make the
+        # old registry an accidental legality gate again.
+        if exact_stop_count is not None and len(required_roles) < exact_stop_count:
             return None
 
         candidates = _build_rule_plan_specs(
@@ -157,6 +198,46 @@ class PlanSpecCompiler:
         if matches:
             return PlanSpecChoices(
                 preferred_specs=matches,
+                explicit_structure=True,
+            )
+
+        # A complete explicit sequence is valid even when it is not one of
+        # the product's current Rule shapes.  The static shapes are a fallback
+        # policy, not the domain's complete vocabulary.
+        if required_roles and exact_stop_count == len(required_roles):
+            if not _capacity_is_feasible(required_roles, constraints):
+                return PlanSpecChoices(
+                    conflict=_capacity_conflict(constraints),
+                    explicit_structure=True,
+                )
+            roles = tuple(required_roles)
+            return PlanSpecChoices(
+                preferred_specs=(
+                    PlanSpec(
+                        spec_id=_stable_plan_spec_id(roles),
+                        roles=roles,
+                    ),
+                ),
+                explicit_structure=True,
+            )
+
+        # Without an explicit count, an otherwise valid unregistered ordered
+        # role request is still a usable concrete sequence.  Do not turn the
+        # Rule shape table into a hidden legality registry.
+        if required_roles and exact_stop_count is None:
+            if not _capacity_is_feasible(required_roles, constraints):
+                return PlanSpecChoices(
+                    conflict=_capacity_conflict(constraints),
+                    explicit_structure=True,
+                )
+            roles = tuple(required_roles)
+            return PlanSpecChoices(
+                preferred_specs=(
+                    PlanSpec(
+                        spec_id=_stable_plan_spec_id(roles),
+                        roles=roles,
+                    ),
+                ),
                 explicit_structure=True,
             )
 
@@ -188,8 +269,23 @@ class PlanSpecCompiler:
         explicit = self.compile_explicit_structure(constraints, rule_baseline)
         if explicit is not None:
             return explicit
+        partial = _is_partial_structure(constraints)
         fallback = _build_rule_plan_specs(constraints, rule_baseline)
+        if partial:
+            # Include deterministic completions for the no-model/provider
+            # fallback path.  Known Rule shapes are still useful, but they no
+            # longer define which partial structures are legal.
+            fallback = _merge_specs(
+                _build_dynamic_completion_specs(constraints),
+                fallback,
+            )
         if proposal is None:
+            if not fallback and partial:
+                return PlanSpecChoices(
+                    proposal_status="not_used",
+                    diagnostic_code="structure_capacity_insufficient",
+                    conflict=_capacity_conflict(constraints),
+                )
             return PlanSpecChoices(
                 preferred_specs=fallback,
                 fallback_specs=(),
@@ -206,11 +302,17 @@ class PlanSpecCompiler:
                 diagnostic_code=_safe_code(error),
             )
         if not preferred:
+            capacity_issue = partial and not fallback
             return PlanSpecChoices(
                 preferred_specs=(),
                 fallback_specs=fallback,
                 proposal_status="rejected",
-                diagnostic_code="no_compiled_plan_spec",
+                diagnostic_code=(
+                    "structure_capacity_insufficient"
+                    if partial
+                    else "no_compiled_plan_spec"
+                ),
+                conflict=_capacity_conflict(constraints) if capacity_issue else None,
             )
         return PlanSpecChoices(
             preferred_specs=preferred,
@@ -268,6 +370,16 @@ class PlanSpecCompiler:
             if exact_count not in possible_counts:
                 raise ValueError("explicit_stop_count_not_preserved")
 
+        # A proposal may satisfy the role/count contract but still ask for a
+        # structure whose optimistic lower bound cannot fit the request.  This
+        # is a compiler rejection, not a route/verifier rejection; the caller
+        # can then use the deterministic fallback completion.
+        core_roles = tuple(
+            slot.role for slot in slots if slot.inclusion == "core"
+        )
+        if not _capacity_is_feasible(core_roles, constraints):
+            raise ValueError("structure_capacity_insufficient")
+
         if not set(proposal.evidence_refs).issubset(known_evidence):
             raise ValueError("proposal_evidence_ungrounded")
         slot_roles = set(roles)
@@ -290,6 +402,7 @@ class PlanSpecCompiler:
         optional_indexes = tuple(
             index for index, slot in enumerate(slots) if slot.inclusion == "optional"
         )
+        required_roles = _explicit_roles(constraints)
         exact_count = (
             constraints.exact_stop_count.value
             if constraints.exact_stop_count is not None
@@ -308,6 +421,33 @@ class PlanSpecCompiler:
                     continue
                 if exact_count is not None and len(concrete_roles) != exact_count:
                     continue
+                assignment = _required_role_assignment(required_roles, concrete_roles)
+                if assignment is None:
+                    continue
+                if required_roles:
+                    bound_roles = list(concrete_roles)
+                    for required, index in zip(
+                        required_roles,
+                        assignment[1],
+                        strict=True,
+                    ):
+                        if bound_roles[index] == StopRole.MEAL and required in {
+                            StopRole.LUNCH,
+                            StopRole.DINNER,
+                        }:
+                            bound_roles[index] = required
+                    concrete_roles = tuple(bound_roles)
+                if (
+                    concrete_roles.count(StopRole.LUNCH) > 1
+                    or concrete_roles.count(StopRole.DINNER) > 1
+                ):
+                    continue
+                lunch = _first_index(concrete_roles, StopRole.LUNCH)
+                dinner = _first_index(concrete_roles, StopRole.DINNER)
+                if lunch is not None and dinner is not None and lunch >= dinner:
+                    continue
+                if not _capacity_is_feasible(concrete_roles, constraints):
+                    continue
                 variants.append(
                     PlanSpec(
                         spec_id=_stable_plan_spec_id(concrete_roles),
@@ -323,6 +463,188 @@ class PlanSpecCompiler:
                 key=lambda spec: (-len(spec.roles), spec.spec_id),
             )
         )
+
+
+def _explicit_structure_conflict(
+    constraints: PlanRequest,
+    *,
+    exact_stop_count: int | None,
+    required_roles: tuple[StopRole, ...],
+) -> ConstraintConflict | None:
+    """Return only contradictions that no completion can repair."""
+
+    fields: list[str] = []
+    if exact_stop_count is not None:
+        fields.append("exact_stop_count")
+    if required_roles:
+        fields.append("required_stop_roles")
+    fields.append("plan_structure")
+
+    if exact_stop_count is not None and len(required_roles) > exact_stop_count:
+        return ConstraintConflict(
+            code="UNSUPPORTED_PLAN_STRUCTURE",
+            message="必需站点数量超过了用户指定的总站数。",
+            fields=fields,
+            relaxation_options=["增加站点数量", "减少必需站点"],
+        )
+    lunch = _first_index(required_roles, StopRole.LUNCH)
+    dinner = _first_index(required_roles, StopRole.DINNER)
+    if (
+        required_roles.count(StopRole.LUNCH) > 1
+        or required_roles.count(StopRole.DINNER) > 1
+        or (lunch is not None and dinner is not None and lunch >= dinner)
+    ):
+        return ConstraintConflict(
+            code="UNSUPPORTED_PLAN_STRUCTURE",
+            message="午饭和晚饭的顺序或重复要求无法组成可执行结构。",
+            fields=fields,
+            relaxation_options=["调整餐食顺序", "减少重复餐食要求"],
+        )
+
+    # A lone break is not a meaningful outing.  Keep this deterministic
+    # rejection, while allowing all other complete sequences to be dynamic.
+    if exact_stop_count == 1 and required_roles == (StopRole.BREAK,):
+        return ConstraintConflict(
+            code="UNSUPPORTED_PLAN_STRUCTURE",
+            message="单独安排休息站点无法组成可执行行程。",
+            fields=fields,
+            relaxation_options=["增加一个活动站点", "移除休息站点限制"],
+        )
+
+    if required_roles and not _capacity_is_feasible(required_roles, constraints):
+        return _capacity_conflict(constraints)
+    return None
+
+
+def _is_partial_structure(constraints: PlanRequest) -> bool:
+    exact_count = (
+        constraints.exact_stop_count.value
+        if constraints.exact_stop_count is not None
+        else None
+    )
+    return exact_count is not None and len(_explicit_roles(constraints)) < exact_count
+
+
+def _build_dynamic_completion_specs(
+    constraints: PlanRequest,
+) -> tuple[PlanSpec, ...]:
+    """Build a small deterministic completion space for partial structure.
+
+    This is deliberately bounded and role-only.  It is a safety fallback when
+    the model is unavailable or its proposal is rejected, not a replacement
+    for semantic PlanningIntent.
+    """
+
+    exact_count = (
+        constraints.exact_stop_count.value
+        if constraints.exact_stop_count is not None
+        else None
+    )
+    if exact_count is None:
+        return ()
+    required_roles = _explicit_roles(constraints)
+    pool = list(_DYNAMIC_ROLE_POOL)
+    for role in required_roles:
+        if role not in pool:
+            pool.append(role)
+
+    sequences: list[PlanSpec] = []
+    if exact_count == 1 and not required_roles:
+        raw_sequences = ((StopRole.ACTIVITY,),)
+    else:
+        raw_sequences = product(tuple(pool), repeat=exact_count)
+    for roles in raw_sequences:
+        roles = tuple(roles)
+        if not _meaningful_sequence(roles):
+            continue
+        assignment = _required_role_assignment(required_roles, roles)
+        if assignment is None:
+            continue
+        if required_roles:
+            roles = list(roles)
+            for required, index in zip(
+                required_roles,
+                assignment[1],
+                strict=True,
+            ):
+                if roles[index] == StopRole.MEAL and required in {
+                    StopRole.LUNCH,
+                    StopRole.DINNER,
+                }:
+                    roles[index] = required
+            roles = tuple(roles)
+        if roles.count(StopRole.LUNCH) > 1 or roles.count(StopRole.DINNER) > 1:
+            continue
+        lunch = _first_index(roles, StopRole.LUNCH)
+        dinner = _first_index(roles, StopRole.DINNER)
+        if lunch is not None and dinner is not None and lunch >= dinner:
+            continue
+        if not _capacity_is_feasible(roles, constraints):
+            continue
+        sequences.append(
+            PlanSpec(spec_id=_stable_plan_spec_id(roles), roles=roles)
+        )
+
+    sequences.sort(key=lambda spec: _dynamic_completion_sort_key(spec, required_roles))
+    return _merge_specs(tuple(sequences[:_MAX_DYNAMIC_COMPLETIONS]))
+
+
+def _dynamic_completion_sort_key(
+    spec: PlanSpec,
+    required_roles: tuple[StopRole, ...],
+) -> tuple[object, ...]:
+    roles = spec.roles
+    dinner_required = StopRole.DINNER in required_roles
+    dinner_last_penalty = (
+        0 if not dinner_required or roles[-1] == StopRole.DINNER else 1
+    )
+    return (
+        dinner_last_penalty,
+        -sum(role == StopRole.ACTIVITY for role in roles),
+        sum(role == StopRole.MEAL for role in roles),
+        sum(role == StopRole.BREAK for role in roles),
+        tuple(role.value for role in roles),
+    )
+
+
+def _meaningful_sequence(roles: tuple[StopRole, ...]) -> bool:
+    return not (
+        len(roles) == 1
+        and roles[0] in {StopRole.BREAK, StopRole.MEAL}
+    )
+
+
+def _minimum_capacity_minutes(roles: tuple[StopRole, ...]) -> int:
+    if not roles:
+        return 0
+    return sum(_ROLE_MINIMUM_MINUTES[role] for role in roles) + max(
+        0,
+        len(roles) - 1,
+    ) * 15
+
+
+def _capacity_is_feasible(
+    roles: tuple[StopRole, ...],
+    constraints: PlanRequest,
+) -> bool:
+    return _minimum_capacity_minutes(roles) <= _available_minutes(constraints)
+
+
+def _capacity_conflict(constraints: PlanRequest) -> ConstraintConflict:
+    return ConstraintConflict(
+        code="NO_FEASIBLE_PLAN",
+        message="指定时间范围内连满足站点结构的最短行程都无法安排。",
+        fields=["time_window", "plan_structure"],
+        relaxation_options=["扩大可用时间范围", "减少站点或餐食要求"],
+    )
+
+
+def _merge_specs(*groups: tuple[PlanSpec, ...]) -> tuple[PlanSpec, ...]:
+    merged: dict[tuple[str, tuple[StopRole, ...]], PlanSpec] = {}
+    for group in groups:
+        for spec in group:
+            merged.setdefault((spec.spec_id, spec.roles), spec)
+    return tuple(merged.values())
 
 
 def _explicit_roles(constraints: PlanRequest) -> tuple[StopRole, ...]:
