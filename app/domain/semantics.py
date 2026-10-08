@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.constraints import StopRole
+from app.domain.constraints import StopRole, TimeScope
 
 
 POI_SEMANTIC_PROFILE_SCHEMA_VERSION = "poi-semantic-profile.v1"
@@ -102,6 +102,30 @@ class SoftObjective(BaseModel):
     strength: Literal["preferred", "required"] = "preferred"
     target_role: StopRole | None = None
     evidence_refs: tuple[str, ...] = ()
+
+
+class TimeCoverageObjective(BaseModel):
+    """A soft request to make a plan span named parts of the day.
+
+    This is intentionally separate from ``PlanningWindow``: the window says
+    when a plan may run, while this objective says how much of that window the
+    user would like the itinerary to meaningfully use.  It is never a hard
+    feasibility condition.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target_periods: tuple[TimeScope, ...] = Field(min_length=1)
+    strength: Literal["preferred"] = "preferred"
+    evidence: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_target_periods(self) -> "TimeCoverageObjective":
+        if len(self.target_periods) != len(set(self.target_periods)):
+            raise ValueError("time coverage periods must be unique")
+        if TimeScope.EXPLICIT_RANGE in self.target_periods:
+            raise ValueError("explicit range is not a coverage period")
+        return self
 
 
 class SemanticQuery(BaseModel):

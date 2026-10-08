@@ -13,6 +13,7 @@ from app.domain.planning import (
     PlanPace,
     PlanningIntent,
 )
+from app.domain.semantics import TimeCoverageObjective
 from app.services.plan_spec import PlanSpec
 
 
@@ -142,7 +143,38 @@ def _build_rule_plan_specs(
             if assignment is not None:
                 spec = _bind_explicit_roles(spec, required_roles, assignment[1])
         output.append(spec)
+    if semantics.time_coverage is not None:
+        # Give richer structures the first local-search opportunity for an
+        # all-day request. This is only a deterministic priority; every
+        # compiled spec still receives a bounded search share and feasibility
+        # remains the Scheduler/Verifier's responsibility.
+        output.sort(
+            key=lambda spec: (
+                -_coverage_role_signal(spec, semantics.time_coverage),
+                -len(spec.roles),
+                spec.spec_id,
+            )
+        )
     return tuple(output)
+
+
+def _coverage_role_signal(
+    spec: PlanSpec,
+    objective: TimeCoverageObjective,
+) -> int:
+    """Estimate structure richness without turning roles into hard rules."""
+
+    target_periods = getattr(objective, "target_periods", ())
+    roles = set(spec.roles)
+    signal = 0
+    for period in target_periods:
+        if period.value == "morning" and roles & {StopRole.LUNCH}:
+            signal += 1
+        elif period.value == "afternoon" and roles & {StopRole.ACTIVITY, StopRole.BREAK}:
+            signal += 1
+        elif period.value == "evening" and roles & {StopRole.DINNER}:
+            signal += 1
+    return signal
 
 
 class PlanSpecCompiler:

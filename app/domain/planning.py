@@ -18,7 +18,12 @@ from app.domain.catalog import (
     PriceKind,
 )
 from app.domain.constraints import QuestionDecision, StopRole, TimeScope
-from app.domain.semantics import EvidenceRef, SemanticRequest, SoftObjective
+from app.domain.semantics import (
+    EvidenceRef,
+    SemanticRequest,
+    SoftObjective,
+    TimeCoverageObjective,
+)
 from app.domain.providers import (
     AvailabilityFact,
     GeocodingFact,
@@ -63,6 +68,9 @@ class PlanningIntent(BaseModel):
 
     pace: PlanPace = PlanPace.BALANCED
     semantic_request: SemanticRequest = Field(default_factory=SemanticRequest)
+    # A request to use named parts of the day meaningfully.  This is a ranking
+    # objective, not another hard time window.
+    time_coverage: TimeCoverageObjective | None = None
 
 
 class RoleQueryProposal(BaseModel):

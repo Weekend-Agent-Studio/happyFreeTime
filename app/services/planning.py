@@ -67,7 +67,7 @@ from app.domain.providers import (
 )
 from app.domain.runtime import RuntimeDecision
 from app.domain.run_trace import PlanningRunEventDraft, RunEventStatus, RunObserver, RunStage
-from app.domain.semantics import compile_replacement_semantics
+from app.domain.semantics import TimeCoverageObjective, compile_replacement_semantics
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
 from app.providers.availability import AvailabilityProvider, MockAvailabilityProvider
 from app.providers.weather import WeatherProvider, clear_mock_weather
@@ -126,6 +126,22 @@ _ROLE_RESOURCE_TYPES: dict[StopRole, frozenset[ResourceType]] = {
     StopRole.DINNER: frozenset({ResourceType.RESTAURANT}),
     StopRole.BREAK: frozenset({ResourceType.CAFE, ResourceType.DESSERT}),
 }
+
+_TIME_COVERAGE_WINDOWS: dict[TimeScope, tuple[int, int]] = {
+    TimeScope.MORNING: (9 * 60, 12 * 60),
+    TimeScope.AFTERNOON: (14 * 60, 18 * 60),
+    TimeScope.EVENING: (18 * 60, 22 * 60),
+}
+_TIME_COVERAGE_ROLES: dict[TimeScope, frozenset[StopRole]] = {
+    TimeScope.MORNING: frozenset(
+        {StopRole.ACTIVITY, StopRole.BREAK, StopRole.LUNCH, StopRole.MEAL}
+    ),
+    TimeScope.AFTERNOON: frozenset({StopRole.ACTIVITY, StopRole.BREAK}),
+    TimeScope.EVENING: frozenset(
+        {StopRole.ACTIVITY, StopRole.BREAK, StopRole.DINNER, StopRole.MEAL}
+    ),
+}
+_MIN_COVERAGE_OVERLAP_MINUTES = 30
 
 
 def _retrieval_runtime(result: RetrievedCandidateSet) -> RuntimeDecision:
@@ -833,7 +849,11 @@ class PlanningService:
                     route_provider_requests=route_request_count,
                     route_leg_count=len(verified.route_legs),
                 )
-                verified = _refresh_verified_score(verified, constraints)
+                verified = _refresh_verified_score(
+                    verified,
+                    constraints,
+                    time_coverage=active_planning_intent.time_coverage,
+                )
                 availability_facts: tuple[AvailabilityFact, ...] = ()
                 availability_budget_exhausted = (
                     availability_batches >= availability_batch_limit
@@ -1069,6 +1089,7 @@ class PlanningService:
                 weather,
                 verification_warnings_by_plan,
                 catalog_result.warnings,
+                time_coverage=active_planning_intent.time_coverage,
             )
             return CandidateSet(
                 plans=plans,
@@ -1634,7 +1655,11 @@ class PlanningService:
                 candidate_by_id,
             )
             route_leg_verifications += len(verified.route_legs)
-            verified = _refresh_verified_score(verified, constraints)
+            verified = _refresh_verified_score(
+                verified,
+                constraints,
+                time_coverage=modification_intent.time_coverage,
+            )
             availability_facts: tuple[AvailabilityFact, ...] = ()
             if availability_batches < _MAX_AVAILABILITY_BATCHES:
                 availability_facts = tuple(
@@ -1786,6 +1811,7 @@ class PlanningService:
                 weather,
                 verification_warnings,
                 recalled.warnings,
+                time_coverage=modification_intent.time_coverage,
             ),
             retrieval_runtime_decision=retrieval_runtime_decision,
             retrieval_mode=retrieved_replacements.mode,
@@ -2232,6 +2258,8 @@ def _collect_final_warnings(
     weather: WeatherFact,
     verification_warnings: dict[str, tuple[VerificationFinding, ...]],
     catalog_warnings: list[object],
+    *,
+    time_coverage: TimeCoverageObjective | None = None,
 ) -> list[PlanWarning]:
     """Expose only warnings tied to plans that survived whole-plan verification."""
     warnings: list[PlanWarning] = []
@@ -2268,6 +2296,27 @@ def _collect_final_warnings(
                     stale=weather.cache_age_seconds is not None,
                 )
             )
+        if time_coverage is not None:
+            _, _, _, covered_periods = _time_coverage_score(
+                time_coverage,
+                stops=plan.stops,
+                total_duration_minutes=plan.total_duration_minutes,
+                available_minutes=plan.total_duration_minutes,
+                stop_count=len(plan.stops),
+            )
+            if len(covered_periods) < len(time_coverage.target_periods):
+                missing = "、".join(
+                    period.value
+                    for period in time_coverage.target_periods
+                    if period not in covered_periods
+                )
+                warnings.append(
+                    PlanWarning(
+                        code="time_coverage_incomplete",
+                        message=f"该方案未完整覆盖用户希望利用的时段：{missing}。",
+                        plan_id=plan.plan_id,
+                    )
+                )
     return warnings
 
 
@@ -3320,6 +3369,16 @@ def _build_local_plan(
         0.0,
         15.0 * (1 - abs(target_minutes - total_duration) / target_minutes),
     ), 1)
+    coverage_score, coverage_message, coverage_evidence, covered_periods = (
+        _time_coverage_score(
+            planning_intent.time_coverage,
+            stops=estimated_timeline.stops,
+            stop_roles=plan_spec.roles,
+            total_duration_minutes=total_duration,
+            available_minutes=maximum_minutes,
+            stop_count=len(sequence),
+        )
+    )
     total_distance = sum(route_distances)
     distance_score = round(
         max(0.0, 5.0 - total_distance / 2),
@@ -3377,6 +3436,19 @@ def _build_local_plan(
                 f"estimated_total_minutes={total_duration}",
                 f"target_minutes={target_minutes}",
             ],
+        ),
+        *(
+            [
+                ScoreContribution(
+                    rule_id="planning.time_coverage.v1",
+                    dimension="time_coverage",
+                    points=coverage_score,
+                    message=coverage_message,
+                    evidence=coverage_evidence,
+                )
+            ]
+            if planning_intent.time_coverage is not None
+            else []
         ),
         ScoreContribution(
             rule_id="planning.travel_distance.v1",
@@ -3502,8 +3574,30 @@ def _build_local_plan(
         highlights.append(f"匹配饮食：{'、'.join(matched_diet_tags)}")
     if matched_scene_tags:
         highlights.append(f"匹配场景：{'、'.join(matched_scene_tags)}")
+    if planning_intent.time_coverage is not None:
+        target_periods = planning_intent.time_coverage.target_periods
+        missing_periods = tuple(
+            period for period in target_periods if period not in covered_periods
+        )
+        if len(covered_periods) == len(target_periods):
+            highlights.append(
+                "覆盖目标时段："
+                + "、".join(period.value for period in covered_periods)
+            )
+        else:
+            highlights.append(
+                "部分覆盖目标时段："
+                + "、".join(period.value for period in covered_periods)
+            )
     unmatched = [item for item in requested_preferences if item not in matched_preferences]
     tradeoffs = [f"未找到明确标签证据：{item}" for item in unmatched]
+    if planning_intent.time_coverage is not None and len(covered_periods) < len(
+        planning_intent.time_coverage.target_periods
+    ):
+        tradeoffs.append(
+            "全天目标尚未覆盖："
+            + "、".join(period.value for period in missing_periods)
+        )
     tradeoffs.extend(
         f"未找到饮食标签证据：{item}"
         for item in constraints.diet_tags
@@ -3544,6 +3638,76 @@ def _build_local_plan(
     ), None
 
 
+def _time_coverage_score(
+    objective: TimeCoverageObjective | None,
+    *,
+    stops: Sequence[object],
+    stop_roles: Sequence[StopRole | None] | None = None,
+    total_duration_minutes: int,
+    available_minutes: int,
+    stop_count: int,
+) -> tuple[float, str, list[str], tuple[TimeScope, ...]]:
+    """Score meaningful day-part coverage without creating a hard gate."""
+
+    if objective is None:
+        return 0.0, "", [], ()
+
+    intervals: list[tuple[int, int, StopRole | None]] = []
+    for index, stop in enumerate(stops):
+        role = getattr(stop, "role", None)
+        if role is None and stop_roles is not None and index < len(stop_roles):
+            role = stop_roles[index]
+        start = getattr(stop, "start_minutes", None)
+        end = getattr(stop, "end_minutes", None)
+        if start is None or end is None:
+            start_text = getattr(stop, "start", None)
+            end_text = getattr(stop, "end", None)
+            if not start_text or not end_text:
+                continue
+            start = _time_to_minutes(start_text)
+            end = _time_to_minutes(end_text)
+        if end > start:
+            intervals.append((int(start), int(end), role))
+
+    covered: list[TimeScope] = []
+    overlap_evidence: list[str] = []
+    for period in objective.target_periods:
+        bounds = _TIME_COVERAGE_WINDOWS.get(period)
+        if bounds is None:
+            continue
+        eligible_roles = _TIME_COVERAGE_ROLES.get(period)
+        overlap = sum(
+            max(0, min(end, bounds[1]) - max(start, bounds[0]))
+            for start, end, role in intervals
+            if role is None or eligible_roles is None or role in eligible_roles
+        )
+        overlap_evidence.append(f"{period.value}_overlap_minutes={overlap}")
+        if overlap >= _MIN_COVERAGE_OVERLAP_MINUTES:
+            covered.append(period)
+
+    target_count = len(objective.target_periods)
+    coverage_ratio = len(covered) / target_count if target_count else 0.0
+    utilization = min(
+        1.0,
+        max(0.0, total_duration_minutes / max(1, available_minutes)),
+    )
+    richness = min(1.0, max(0.0, (stop_count - 1) / 3.0))
+    points = round(12.0 * coverage_ratio + 6.0 * utilization + 4.0 * richness, 1)
+    message = (
+        f"覆盖 {len(covered)}/{target_count} 个目标时段，"
+        f"时间利用率 {utilization:.0%}，结构丰富度 {richness:.0%}。"
+    )
+    evidence = [
+        f"target_periods={','.join(period.value for period in objective.target_periods)}",
+        f"covered_periods={','.join(period.value for period in covered) or 'none'}",
+        *overlap_evidence,
+        f"utilization={utilization:.3f}",
+        f"stop_count={stop_count}",
+        f"evidence={objective.evidence}",
+    ]
+    return points, message, evidence, tuple(covered)
+
+
 def _to_stop(
     candidate: StopCandidate,
     role: StopRole,
@@ -3568,6 +3732,8 @@ def _to_stop(
 def _refresh_verified_score(
     plan: Plan,
     constraints: PlanRequest,
+    *,
+    time_coverage: TimeCoverageObjective | None = None,
 ) -> Plan:
     _, target_minutes = _planning_minutes(constraints)
     duration_score = round(
@@ -3584,6 +3750,14 @@ def _refresh_verified_score(
     )
     total_distance = sum(leg.distance_km for leg in plan.route_legs)
     distance_score = round(max(0.0, 5.0 - total_distance / 2), 1)
+    maximum_minutes, _ = _planning_minutes(constraints)
+    coverage_score, coverage_message, coverage_evidence, _ = _time_coverage_score(
+        time_coverage,
+        stops=plan.stops,
+        total_duration_minutes=plan.total_duration_minutes,
+        available_minutes=maximum_minutes,
+        stop_count=len(plan.stops),
+    )
     refreshed: list[ScoreContribution] = []
     for contribution in plan.score_breakdown:
         if contribution.rule_id == "planning.duration_fit.v1":
@@ -3611,6 +3785,16 @@ def _refresh_verified_score(
                         "evidence": [
                             f"route_checked_total_distance_km={total_distance:.2f}",
                         ],
+                    }
+                )
+            )
+        elif contribution.rule_id == "planning.time_coverage.v1":
+            refreshed.append(
+                contribution.model_copy(
+                    update={
+                        "points": coverage_score,
+                        "message": coverage_message,
+                        "evidence": coverage_evidence,
                     }
                 )
             )

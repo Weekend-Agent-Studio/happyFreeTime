@@ -9,6 +9,7 @@ from app.domain.constraints import (
     ConstraintValue,
     PartyProfile,
     StopRole,
+    TimeScope,
     TimeWindow,
 )
 from app.domain.planning import (
@@ -118,6 +119,59 @@ def single_role_constraints(role: StopRole):
 
 
 class PlanningIntentProviderTest(unittest.TestCase):
+    def test_all_day_compiles_a_soft_coverage_objective(self) -> None:
+        constraints = with_planning_window(
+            planning_constraints(time_end="21:00"),
+            start="09:00",
+            end="21:00",
+            start_rule_id="time.trip.all_day.v1",
+            end_rule_id="time.trip.all_day.v1",
+        )
+
+        intent = RuleBasedPlanningIntentProvider().decide(constraints).intent
+
+        self.assertIsNotNone(intent.time_coverage)
+        assert intent.time_coverage is not None
+        self.assertEqual(
+            intent.time_coverage.target_periods,
+            (TimeScope.MORNING, TimeScope.AFTERNOON),
+        )
+        self.assertEqual(intent.time_coverage.strength, "preferred")
+        self.assertEqual(intent.pace, PlanPace.FULL)
+
+    def test_all_day_with_dinner_targets_evening_but_explicit_range_does_not(self) -> None:
+        all_day = with_planning_window(
+            planning_constraints(time_end="21:00"),
+            start="09:00",
+            end="21:00",
+            start_rule_id="time.trip.all_day.v1",
+            end_rule_id="time.trip.all_day.v1",
+        ).model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.DINNER,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="晚饭",
+                )
+            }
+        )
+        explicit_range = with_planning_window(
+            planning_constraints(time_end="21:00"),
+            start="09:00",
+            end="21:00",
+            start_rule_id="time.trip.range.v1",
+            end_rule_id="time.trip.range.v1",
+        )
+
+        dinner_intent = RuleBasedPlanningIntentProvider().decide(all_day).intent
+        range_intent = RuleBasedPlanningIntentProvider().decide(explicit_range).intent
+
+        self.assertEqual(
+            dinner_intent.time_coverage.target_periods,
+            (TimeScope.MORNING, TimeScope.AFTERNOON, TimeScope.EVENING),
+        )
+        self.assertIsNone(range_intent.time_coverage)
+
     def test_v3_objectives_are_merged_into_semantic_request(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"preferences": ["带父母", "新鲜感", "不希望太累"]}
@@ -204,9 +258,10 @@ class PlanningIntentProviderTest(unittest.TestCase):
                 StopRole.DINNER,
             ),
         )
-        self.assertEqual(
-            set(PlanningIntent.model_fields),
-            {"pace", "semantic_request"},
+        self.assertTrue(
+            {"pace", "semantic_request", "time_coverage"}.issubset(
+                PlanningIntent.model_fields
+            )
         )
         self.assertEqual(
             {
@@ -733,9 +788,10 @@ class PlanningIntentProviderTest(unittest.TestCase):
 
         self.assertTrue(rule_result.plans)
         self.assertTrue(llm_result.plans)
-        self.assertEqual(
-            set(PlanningIntent.model_fields),
-            {"pace", "semantic_request"},
+        self.assertTrue(
+            {"pace", "semantic_request", "time_coverage"}.issubset(
+                PlanningIntent.model_fields
+            )
         )
         llm_choices = PlanSpecCompiler().compile(
             constraints,

@@ -15,7 +15,7 @@ from typing import Protocol
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from app.domain.constraints import PlanRequest, StopRole
+from app.domain.constraints import PlanRequest, StopRole, TimeScope
 from app.domain.semantics import (
     EvidenceRef,
     SOFT_OBJECTIVE_ALIASES,
@@ -23,6 +23,7 @@ from app.domain.semantics import (
     SemanticRequest,
     SoftObjective,
     SoftObjectiveKind,
+    TimeCoverageObjective,
 )
 from app.domain.planning import (
     PlanPace,
@@ -228,6 +229,7 @@ def build_rule_based_planning_intent(
     return PlanningIntent(
         pace=pace,
         semantic_request=_build_rule_semantic_request(constraints),
+        time_coverage=_build_time_coverage_objective(constraints),
     )
 
 
@@ -238,6 +240,52 @@ def _is_all_day_request(constraints: PlanRequest) -> bool:
     return any(
         bound is not None and bound.rule_id == "time.trip.all_day.v1"
         for bound in (window.start_at, window.end_at)
+    )
+
+
+def _build_time_coverage_objective(
+    constraints: PlanRequest,
+) -> TimeCoverageObjective | None:
+    """Compile the explicit all-day language into a bounded soft objective.
+
+    ``PlanningWindow`` remains the executable availability range.  The
+    objective is added only when the user actually said “一整天”; ordinary
+    explicit ranges and fuzzy morning/afternoon requests do not inherit it.
+    Dinner or an evening-scoped activity extends the target to the evening,
+    while an all-day request without either remains a morning+afternoon goal.
+    """
+
+    if not _is_all_day_request(constraints):
+        return None
+    periods = [TimeScope.MORNING, TimeScope.AFTERNOON]
+    required_roles = (
+        constraints.required_stop_roles.value
+        if constraints.required_stop_roles is not None
+        else ()
+    )
+    if (
+        StopRole.DINNER in required_roles
+        or (
+            constraints.activity_time_scope is not None
+            and constraints.activity_time_scope.value == TimeScope.EVENING
+        )
+    ):
+        periods.append(TimeScope.EVENING)
+    evidence = next(
+        (
+            bound.raw_text
+            for bound in (
+                constraints.planning_window.start_at,
+                constraints.planning_window.end_at,
+            )
+            if bound is not None and bound.raw_text
+        ),
+        "一整天",
+    )
+    return TimeCoverageObjective(
+        target_periods=tuple(periods),
+        strength="preferred",
+        evidence=evidence,
     )
 
 
@@ -362,6 +410,10 @@ def _project_proposal_to_intent(
     return PlanningIntent(
         pace=proposal.pace,
         semantic_request=semantic_request,
+        # Coverage is derived from the user's temporal evidence, not invented
+        # by the model's structure proposal. Preserve the baseline objective
+        # while allowing the model to refine only the semantic payload.
+        time_coverage=baseline.time_coverage,
     )
 
 

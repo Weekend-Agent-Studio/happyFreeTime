@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.domain.catalog import (
@@ -24,6 +25,7 @@ from app.domain.planning import (
     PlanningIntentDecision,
     ScoreContribution,
     StopRole,
+    TimeScope,
 )
 from app.domain.providers import (
     AvailabilityStatus,
@@ -34,6 +36,7 @@ from app.domain.providers import (
     WeatherRequest,
 )
 from app.domain.semantics import SemanticRequest
+from app.domain.semantics import TimeCoverageObjective
 from app.providers.availability import MockAvailabilityProvider
 from app.services.catalog import InMemoryCatalog
 from app.services.candidate_retriever import (
@@ -46,6 +49,7 @@ from app.services.planning import (
     _build_planning_intent,
     _diversify_plans,
     _rank_plan_specs,
+    _time_coverage_score,
 )
 from app.services.plan_spec import PlanSpec
 from app.services.plan_spec_compiler import PlanSpecCompiler
@@ -118,6 +122,54 @@ class UnexpectedWeatherProvider:
 
 
 class NativePlanningBehaviorTest(unittest.TestCase):
+    def test_time_coverage_is_a_soft_score_not_a_feasibility_gate(self) -> None:
+        objective = TimeCoverageObjective(
+            target_periods=(TimeScope.MORNING, TimeScope.AFTERNOON),
+            evidence="一整天",
+        )
+        short_plan = [
+            SimpleNamespace(start_minutes=600, end_minutes=660),
+        ]
+        full_plan = [
+            SimpleNamespace(start_minutes=600, end_minutes=720),
+            SimpleNamespace(start_minutes=840, end_minutes=960),
+        ]
+
+        short_score = _time_coverage_score(
+            objective,
+            stops=short_plan,
+            total_duration_minutes=60,
+            available_minutes=720,
+            stop_count=1,
+        )
+        full_score = _time_coverage_score(
+            objective,
+            stops=full_plan,
+            total_duration_minutes=240,
+            available_minutes=720,
+            stop_count=2,
+        )
+
+        self.assertGreater(full_score[0], short_score[0])
+        self.assertEqual(short_score[3], (TimeScope.MORNING,))
+        self.assertEqual(
+            full_score[3],
+            (TimeScope.MORNING, TimeScope.AFTERNOON),
+        )
+        dinner_only = _time_coverage_score(
+            objective,
+            stops=[
+                SimpleNamespace(
+                    start_minutes=1020,
+                    end_minutes=1110,
+                    role=StopRole.DINNER,
+                )
+            ],
+            total_duration_minutes=90,
+            available_minutes=720,
+            stop_count=1,
+        )
+        self.assertEqual(dinner_only[3], ())
     def test_llm_structure_falls_back_after_route_verifier_rejects_preferred(self) -> None:
         constraints = with_planning_window(
             planning_constraints(budget=1_000, time_end="22:00"),
@@ -435,7 +487,11 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             ],
             ["dinner-only-v1"],
         )
-        self.assertEqual(set(PlanningIntent.model_fields), {"pace", "semantic_request"})
+        self.assertTrue(
+            {"pace", "semantic_request", "time_coverage"}.issubset(
+                PlanningIntent.model_fields
+            )
+        )
         self.assertNotIn(
             "dinner-only-v1",
             {
