@@ -22,6 +22,8 @@ frontend/test-results/
 frontend/prototypes/**/screenshots/
 .pnpm-store/
 .impeccable/
+/.worktrees/
+frontend/*.log
 data/*.db
 data/*.db-shm
 data/*.db-wal

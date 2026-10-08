@@ -30,6 +30,7 @@ _把 Resume V2 的代码证据、架构取舍和评测结果转化为可复述�
 | [../status/s_ab1_4_legacy_v1_vs_resume_v2.md](../status/s_ab1_4_legacy_v1_vs_resume_v2.md) | Legacy V1 Completed 与 Resume V2 的共同任务对比、指标和结论边界 | 跨版本评测证据 |
 | [09_S-CORE3从多入口到统一动作链路.md](09_S-CORE3从多入口到统一动作链路.md) | 从多入口、多状态分支到统一状态感知动作编译链路 | 架构收口专题 |
 | [当前 Planner 全流程](v2版本的方案生成的全流程.md) | 规划输入、召回、Beam、路线、Verifier 和 Top 3 | 需先确认版本标记 |
+| [1006去哪儿AI面试.md](1006去哪儿AI面试.md) | AI/Agent 面试问题还原与口述答案 | 面试练习 |
 
 ## 🧭 推荐学习路径
 
