@@ -60,6 +60,126 @@ class PlanSpecCompilerTest(unittest.TestCase):
             ),
         )
 
+    def test_required_activity_is_a_lower_bound_for_model_structure(self) -> None:
+        constraints = self.constraints.model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="去玩",
+                )
+            }
+        )
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v3",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "lunch", "inclusion": "optional"},
+                {"role": "activity", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "core"},
+            ],
+        )
+
+        compiler = PlanSpecCompiler()
+        self.assertIsNone(
+            compiler.compile_explicit_structure(constraints, self.baseline)
+        )
+        choices = compiler.compile(constraints, self.baseline, proposal)
+
+        self.assertEqual(choices.proposal_status, "compiled")
+        self.assertEqual(
+            choices.preferred_specs[0].roles,
+            (
+                StopRole.ACTIVITY,
+                StopRole.LUNCH,
+                StopRole.ACTIVITY,
+                StopRole.DINNER,
+            ),
+        )
+
+    def test_required_lunch_keeps_model_activity_slots(self) -> None:
+        constraints = self.constraints.model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.LUNCH,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="要吃午饭",
+                )
+            }
+        )
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v3",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "lunch", "inclusion": "core"},
+                {"role": "activity", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "optional"},
+            ],
+        )
+
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, proposal)
+
+        self.assertEqual(choices.proposal_status, "compiled")
+        self.assertEqual(
+            choices.preferred_specs[0].roles,
+            (
+                StopRole.ACTIVITY,
+                StopRole.LUNCH,
+                StopRole.ACTIVITY,
+                StopRole.DINNER,
+            ),
+        )
+
+    def test_minimal_model_structure_is_rejected_for_partial_requirements(self) -> None:
+        constraints = self.constraints.model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                )
+            }
+        )
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v3",
+            slots=[{"role": "activity", "inclusion": "core"}],
+        )
+
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, proposal)
+
+        self.assertEqual(choices.proposal_status, "rejected")
+        self.assertEqual(choices.diagnostic_code, "structure_under_specified")
+        self.assertFalse(choices.preferred_specs)
+        self.assertTrue(choices.fallback_specs)
+        self.assertTrue(all(len(spec.roles) >= 2 for spec in choices.fallback_specs))
+
+    def test_exact_count_three_allows_model_to_complete_required_activity(self) -> None:
+        constraints = self.constraints.model_copy(
+            update={
+                "exact_stop_count": ConstraintValue[int](
+                    value=3,
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="三站",
+                ),
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY,),
+                    source=ConstraintSource.USER_EXPLICIT,
+                ),
+            }
+        )
+        proposal = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v3",
+            slots=[
+                {"role": "activity", "inclusion": "core"},
+                {"role": "lunch", "inclusion": "core"},
+                {"role": "dinner", "inclusion": "optional"},
+            ],
+        )
+
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, proposal)
+
+        self.assertEqual(choices.proposal_status, "compiled")
+        self.assertTrue(all(len(spec.roles) == 3 for spec in choices.preferred_specs))
+
     def test_optional_slot_expands_finite_variants(self) -> None:
         proposal = PlanStructureProposal(
             schema_version="plan-structure-proposal.v3",

@@ -479,7 +479,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             "unsupported_plan_structure",
         )
 
-    def test_structure_compiler_accepts_explicit_activity_and_dinner_as_meal_slot(self) -> None:
+    def test_required_activity_and_dinner_are_completed_by_rule_shapes(self) -> None:
         constraints = planning_constraints(time_end="21:00").model_copy(
             update={
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
@@ -490,16 +490,20 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             }
         )
 
-        compilation = PlanSpecCompiler().compile_explicit_structure(
+        compilation = PlanSpecCompiler().compile(
             constraints,
             _build_planning_intent(constraints),
+            None,
         )
 
-        self.assertIsNotNone(compilation)
+        self.assertFalse(compilation.explicit_structure)
         self.assertIsNone(compilation.conflict)
-        self.assertEqual(
-            [item.spec_id for item in compilation.preferred_specs],
-            ["activity-meal-v1"],
+        self.assertIn(
+            (StopRole.ACTIVITY, StopRole.DINNER),
+            [item.roles for item in compilation.preferred_specs],
+        )
+        self.assertTrue(
+            any(len(item.roles) > 2 for item in compilation.preferred_specs)
         )
 
         result = PlanningService(
@@ -527,7 +531,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertGreaterEqual(result.plans[0].stops[1].start, "17:00")
         self.assertLessEqual(result.plans[0].stops[1].start, "20:30")
 
-    def test_single_required_dinner_without_exact_count_keeps_an_activity_slot(self) -> None:
+    def test_single_required_dinner_without_exact_count_is_not_a_complete_structure(self) -> None:
         constraints = planning_constraints(time_end="21:00").model_copy(
             update={
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
@@ -543,11 +547,24 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             _build_planning_intent(constraints),
         )
 
-        self.assertIsNotNone(compilation)
-        self.assertIsNone(compilation.conflict)
-        self.assertEqual(
-            [item.spec_id for item in compilation.preferred_specs],
-            ["activity-meal-v1"],
+        self.assertIsNone(compilation)
+        choices = PlanSpecCompiler().compile(
+            constraints,
+            _build_planning_intent(constraints),
+            None,
+        )
+        self.assertTrue(choices.preferred_specs)
+        self.assertTrue(
+            all(len(item.roles) >= 2 for item in choices.preferred_specs)
+        )
+        self.assertTrue(
+            all(
+                any(
+                    role in {StopRole.DINNER, StopRole.MEAL}
+                    for role in item.roles
+                )
+                for item in choices.preferred_specs
+            )
         )
 
     def test_partial_exact_count_generates_three_station_plan_without_registry_shape(self) -> None:
