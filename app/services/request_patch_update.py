@@ -36,6 +36,7 @@ class RequestPatchUpdateCompiler:
         proposal: ConstraintPatch,
         actor: ActorContext,
         environment: EnvironmentContext,
+        evidence_map: dict[str, str] | None = None,
     ) -> RequestPatchCompilation:
         """Compile every supported field against the current request revision."""
 
@@ -43,6 +44,60 @@ class RequestPatchUpdateCompiler:
         add_to_fields: dict[str, tuple[str, ...]] = {}
         clear_fields: list[str] = []
         issues: list[ClarificationIssue] = []
+        evidence_map = evidence_map or {}
+        patch_evidence = evidence_map.get("patch")
+
+        if proposal.clear_structure:
+            clear_fields.extend(("exact_stop_count", "required_stop_roles"))
+        elif proposal.exact_stop_count is not None:
+            updates["exact_stop_count"] = self._value(
+                proposal.exact_stop_count,
+                evidence_map.get("exact_stop_count") or patch_evidence,
+                "plan_structure.exact_stop_count.patch.v1",
+            )
+        if not proposal.clear_structure and proposal.required_stop_roles:
+            updates["required_stop_roles"] = self._value(
+                proposal.required_stop_roles,
+                evidence_map.get("required_stop_roles") or patch_evidence,
+                "plan_structure.required_stop_roles.patch.v1",
+            )
+        if not proposal.clear_structure and proposal.add_required_stop_roles:
+            current_roles = (
+                base.required_stop_roles.value
+                if base.required_stop_roles is not None
+                else ()
+            )
+            # ``add`` is intentionally not set-union: a second activity is a
+            # meaningful extra slot and must remain representable.
+            merged_roles = tuple((*current_roles, *proposal.add_required_stop_roles))
+            updates["required_stop_roles"] = self._value(
+                merged_roles,
+                evidence_map.get("required_stop_roles")
+                or evidence_map.get("add_required_stop_roles")
+                or patch_evidence,
+                "plan_structure.required_stop_roles.append.v1",
+            )
+        if proposal.structure_hint_text and not (
+            proposal.exact_stop_count is not None
+            or proposal.required_stop_roles
+            or proposal.add_required_stop_roles
+            or proposal.clear_structure
+        ):
+            issues.append(
+                self._issue(
+                    "exact_stop_count",
+                    base.revision,
+                    code="STOP_COUNT_REQUIRES_NUMBER",
+                    expected="integer",
+                )
+            )
+
+        if proposal.activity_time_scope is not None:
+            updates["activity_time_scope"] = self._value(
+                proposal.activity_time_scope,
+                proposal.activity_time_text or evidence_map.get("activity_time_scope"),
+                f"time.activity.{proposal.activity_time_scope.value}.patch.v1",
+            )
 
         if proposal.date_text:
             date_value = self._compile_date(proposal.date_text, environment)
@@ -235,7 +290,13 @@ class RequestPatchUpdateCompiler:
                 target.append(field)
 
     @staticmethod
-    def _issue(field: str, revision: int) -> ClarificationIssue:
+    def _issue(
+        field: str,
+        revision: int,
+        *,
+        code: str | None = None,
+        expected: str | None = None,
+    ) -> ClarificationIssue:
         codes = {
             "date": ("DATE_REQUIRES_RESOLUTION", "date"),
             "time_window": ("TRIP_TIME_REQUIRES_RESOLUTION", "time_window"),
@@ -247,12 +308,12 @@ class RequestPatchUpdateCompiler:
             "max_distance_km": ("MAX_DISTANCE_REQUIRES_NUMBER", "number"),
             "total_distance_km": ("TOTAL_DISTANCE_REQUIRES_NUMBER", "number"),
         }
-        code, expected = codes.get(field, ("PATCH_FIELD_REQUIRES_INPUT", "text"))
+        default_code, default_expected = codes.get(field, ("PATCH_FIELD_REQUIRES_INPUT", "text"))
         return ClarificationIssue(
             field=field,
-            code=code,
+            code=code or default_code,
             reason="explicit_patch_value_could_not_be_normalized",
-            expected_value_type=expected,
+            expected_value_type=expected or default_expected,
             request_revision=revision,
         )
 

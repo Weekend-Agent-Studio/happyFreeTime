@@ -96,6 +96,7 @@ class QuestionPolicy:
             "budget_per_person": ("你的预算大概是多少？可以告诉我总预算或人均预算。", "question.budget_per_person.v1"),
             "max_distance_km": ("你能接受的最远距离大概是多少公里？", "question.max_distance_km.unresolved.v1"),
             "total_distance_km": ("你希望全程总路程最多是多少公里？请给一个数字，例如 12 公里。", "question.total_distance_km.unresolved.v1"),
+            "exact_stop_count": ("你希望总共安排几站？可以告诉我 1 到 4 站。", "question.exact_stop_count.required.v1"),
             "party": ("实际需要预订几位成人和几位儿童？", "question.party.booking.v1"),
             "child_age": ("同行儿童几岁？部分活动有明确的年龄限制。", "question.child_age.required.v1"),
         }

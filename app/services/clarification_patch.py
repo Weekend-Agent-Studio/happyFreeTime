@@ -76,6 +76,19 @@ class ClarificationPatchCompiler:
                 ),
             )
 
+        if field == "exact_stop_count":
+            count = self._parse_number(text)
+            if count is None or not 1 <= count <= 4:
+                return None
+            proposal = ConstraintPatch(exact_stop_count=count)
+            compiled = self._proposal_compiler.compile_update_proposal(
+                base=request,
+                proposal=proposal,
+                actor=actor,
+                environment=environment,
+            )
+            return None if compiled.issues else compiled.patch
+
         proposals = {
             "date": ConstraintPatch(date_text=text),
             "time_window": ConstraintPatch(time_window_text=text),

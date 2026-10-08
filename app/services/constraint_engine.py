@@ -293,6 +293,37 @@ class ConstraintEngine:
                     ),
                 )
             )
+        exact_count = (
+            request.exact_stop_count.value
+            if request.exact_stop_count is not None
+            else None
+        )
+        required_roles = (
+            request.required_stop_roles.value
+            if request.required_stop_roles is not None
+            else ()
+        )
+        if exact_count is not None and len(required_roles) > exact_count:
+            return ConflictedRequest(
+                conflict=ConstraintConflict(
+                    code="STOP_COUNT_BELOW_REQUIRED_ROLES",
+                    message="总站数不能少于明确要求的站点角色数。",
+                    fields=["exact_stop_count", "required_stop_roles"],
+                    relaxation_options=["增加总站数", "减少必需站点"],
+                )
+            )
+        if (
+            sum(1 for role in required_roles if getattr(role, "value", role) == "lunch") > 1
+            or sum(1 for role in required_roles if getattr(role, "value", role) == "dinner") > 1
+        ):
+            return ConflictedRequest(
+                conflict=ConstraintConflict(
+                    code="DUPLICATE_MEAL_ROLE",
+                    message="同一行程不能重复要求午饭或晚饭角色。",
+                    fields=["required_stop_roles"],
+                    relaxation_options=["保留一个用餐时段"],
+                )
+            )
         return None
 
 

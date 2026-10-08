@@ -343,6 +343,21 @@ class ConstraintEngineTest(unittest.TestCase):
             ["planning_window.start_at", "planning_window.end_at"],
         )
 
+    def test_structure_count_cannot_be_below_required_roles(self) -> None:
+        result = self.engine.apply(
+            PlanRequest(),
+            RequestPatch(
+                base_revision=0,
+                set_fields={
+                    "exact_stop_count": 1,
+                    "required_stop_roles": ["activity", "dinner"],
+                },
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+        )
+        self.assertIsInstance(result, ConflictedRequest)
+        self.assertEqual(result.conflict.code, "STOP_COUNT_BELOW_REQUIRED_ROLES")
+
 
 if __name__ == "__main__":
     unittest.main()

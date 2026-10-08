@@ -319,6 +319,7 @@ def _should_call_model(constraints: PlanRequest) -> bool:
     return bool(
         constraints.preferences
         or constraints.scene_tags
+        or constraints.activity_time_scope is not None
         or _member_evidence(constraints)
     )
 
@@ -590,6 +591,11 @@ def _build_context(
             [role.value for role in constraints.required_stop_roles.value]
             if constraints.required_stop_roles is not None
             else []
+        ),
+        "activity_time_scope": (
+            constraints.activity_time_scope.value.value
+            if constraints.activity_time_scope is not None
+            else None
         ),
         "baseline_semantics": baseline.model_dump(mode="json"),
         "explicit_roles": (

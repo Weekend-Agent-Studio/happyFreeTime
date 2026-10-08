@@ -257,6 +257,26 @@ class DemoRouterTest(unittest.TestCase):
         self.assertEqual(proposal.evidence, "早上九点出发")
         self.assertFalse(any(getattr(item, "event", None) == "trip" for item in result.time_proposals))
 
+    def test_activity_period_is_not_trip_or_departure(self) -> None:
+        result = self.router.interpret("明天下午去公园", self.context)
+        self.assertEqual(len(result.time_proposals), 1)
+        proposal = result.time_proposals[0]
+        self.assertEqual(proposal.event, "activity")
+        self.assertEqual(proposal.period, TimeScope.AFTERNOON)
+
+    def test_post_plan_structure_patch_keeps_typed_fields(self) -> None:
+        patch = self.router.patch_proposal_from_text("补充一下，改成三站，午饭和晚饭都要", has_plans=True)
+        self.assertIsNotNone(patch)
+        self.assertEqual(patch.exact_stop_count, 3)
+        self.assertEqual(patch.required_stop_roles, (StopRole.LUNCH, StopRole.DINNER))
+        self.assertEqual(patch.add_required_stop_roles, ())
+
+    def test_post_plan_can_clear_structure_or_ask_for_count(self) -> None:
+        clear = self.router.patch_proposal_from_text("不用限制站数了", has_plans=True)
+        self.assertTrue(clear.clear_structure)
+        vague = self.router.patch_proposal_from_text("多安排几个地方", has_plans=True)
+        self.assertEqual(vague.structure_hint_text, "多安排几个地方")
+
     def test_extracts_bounded_temporal_contract_for_compound_phrases(self) -> None:
         result = self.router.interpret("今晚只安排一家晚饭", self.context)
 
