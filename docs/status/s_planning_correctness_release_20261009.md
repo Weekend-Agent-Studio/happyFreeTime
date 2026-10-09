@@ -2,7 +2,7 @@
 
 ## 结论
 
-S-PC1、S-PC2、S-PC3 已完成，第一阶段停止门达到：Planner 不再把部分结构、作用域时间或全天语义错误地硬编码成最小结构/错误时间窗；确定性冻结评测已在干净提交上完成，PlanningIntent 只做有界真实模型小样本验证。
+S-PC1、S-PC2、S-PC3、S-PC4 已完成，第一阶段停止门达到：Planner 不再把部分结构、作用域时间或全天语义错误地硬编码成最小结构/错误时间窗；Rule fallback 也不会因静态骨架缺口丢失用户必需角色；确定性冻结评测已在干净提交上完成，PlanningIntent 只做有界真实模型小样本验证。
 
 本阶段**没有开始** Typed RecoveryAction、RecoveryPolicy、Graph interrupt/resume 或前端 HITL 改动。下一阶段应在本报告基础上另开切片，不把恢复机制用于掩盖 Planner 自己制造的假失败。
 
@@ -13,24 +13,26 @@ S-PC1、S-PC2、S-PC3 已完成，第一阶段停止门达到：Planner 不再�
 | S-PC1 | `212a960` | 必需角色是结构下限；显式结构不再被提前收缩为 activity-only/meal-only；保留有序重复角色。 |
 | S-PC2 | `efc1bca` | 结构更新统一编译为 RequestPatch；CREATE、方案后更新和反问恢复共享作用域时间语义；不把“下午去公园”误投影为出发时间。 |
 | S-PC3 | `82a32f6` | “一整天”成为可观测软覆盖目标，影响结构优先级、候选评分和 warning，不成为硬失败或伪造等待。 |
+| S-PC4 | `391eed7` | 动态 Rule completion 覆盖未注册必需序列；类型化 `trip_time_scope` 贯通 CREATE/Patch/恢复并取代 `rule_id` 语义推断。 |
 
-当前验收基线为 `82a32f6e080498c3bc619fa4fe8cd36faba37886`，工作树干净，评测报告记录 `dirty=false`。
+当前验收基线为 `391eed7b6cfa28c2c2f8253f4dd62dbb8937a60d`，工作树干净，评测报告记录 `dirty=false`。
 
 ## 确定性验证
 
-- 后端全量：`483 passed`，`39` 个 subtests。
+- 后端全量：`487 passed`，`39` 个 subtests。
 - `compileall` 通过，`git diff --check` 无代码内容错误。
-- **C0 Rule Intent + Rule Retrieval（干净重跑）**：任务 `33/36`；必需断言 `196/206`；硬约束安全 `7/7`；冲突归因 `4/4`；修改执行 `9/9`，修改 setup `9/10`。
+- **C0 Rule Intent + Rule Retrieval（PC4 干净重跑）**：任务 `33/36`；必需断言 `196/200`（固定口径 `196/206`）；硬约束安全 `7/7`；冲突归因 `4/4`；修改执行 `9/9`，修改 setup `9/10`。
 - **C2 Rule Intent + Hybrid Retrieval（干净重跑）**：任务 `36/36`；必需断言 `208/208`；硬约束安全 `7/7`；冲突归因 `4/4`；修改链路 `10/10`；Beam 无 Legacy fallback。
-- C2 稳态 BGE 检索约 P50/P95 `159/319 ms`；冷启动约 `39.6 s`，单独记录，不混入稳态延迟。
+- C2 稳态 BGE 检索约 P50/P95 `163/231 ms`；冷启动约 `33.1 s`，单独记录，不混入稳态延迟。
 
-这组结果说明：结构、作用域时间和全天软目标没有破坏确定性主链路；Hybrid 仍补齐 Rule-only 的语义证据缺口。C0 的三条失败为两个 grounding 证据缺口（晚饭偏好、雨天室内）和一条修改 setup/fixture 行为差异，不能归因于 PC3 的硬约束回归。
+这组结果说明：结构、作用域时间、全天软目标和 Rule fallback completion 没有破坏确定性主链路；Hybrid 仍补齐 Rule-only 的语义证据缺口。PC4 后 C0 的三条失败仍是两个 grounding 证据缺口（晚饭偏好、雨天室内）和一条修改 setup/fixture 行为差异，不能归因于规划正确性回归；C2 保持全量通过。
 
 报告：
 
-- [C0 clean](../../artifacts/evals/S-PC3_C0_clean_20261009/report.md)
-- [C2 clean](../../artifacts/evals/S-PC3_C2_clean_20261009/report.md)
+- [C0 clean](../../artifacts/evals/S-PC4_C0_clean_20261009/report.md)
+- [C2 clean](../../artifacts/evals/S-PC4_C2_clean_20261009/report.md)
 - [PC3 implementation](s_pc3_time_coverage_20261009.md)
+- [PC4 implementation](s_pc4_planning_correctness_close_20261009.md)
 
 ## PlanningIntent 真实小样本
 
@@ -64,4 +66,3 @@ S-PC1、S-PC2、S-PC3 已完成，第一阶段停止门达到：Planner 不再�
 2. 为全天覆盖补充更多真实交互回归，并在需要时扩展 DemoWorld 数据；
 3. 修正 C0 中已知的 grounding fixture/证据缺口及修改 setup 真值口径；
 4. 若要发布新的 Resume V2 指标，应在后续业务改动后重新跑完整 C0–C4/B0/B3，而不是复用本阶段小样本。
-
