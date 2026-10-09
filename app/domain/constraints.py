@@ -192,6 +192,18 @@ class ConstraintPatch(BaseModel):
     # a clock; the compiler then asks for the exact departure time.
     departure_period: TimeScope | None = None
     time_window_text: str | None = None
+    # A stop-scoped period is deliberately separate from the trip window.
+    # For example, “下午去公园” must not move the whole trip start to 14:00.
+    activity_time_scope: TimeScope | None = None
+    activity_time_text: str | None = None
+    # Structure edits are request mutations, not preferences.  ``required``
+    # replaces the explicit ordered role sequence; ``add`` appends roles while
+    # preserving the active sequence.  ``clear_structure`` clears both.
+    exact_stop_count: int | None = Field(default=None, ge=1, le=4)
+    required_stop_roles: tuple[StopRole, ...] = ()
+    add_required_stop_roles: tuple[StopRole, ...] = ()
+    structure_hint_text: str | None = None
+    clear_structure: bool = False
     # ``origin_text`` is the route's starting point.  It is intentionally
     # distinct from ``planning_area_text``: saying "from Wangjing" does not
     # mean the user wants every stop inside Wangjing, and saying "play in
@@ -206,6 +218,18 @@ class ConstraintPatch(BaseModel):
     diet_tags: tuple[str, ...] = ()
     avoid: tuple[str, ...] = ()
     clear_fields: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_structure_operations(self) -> "ConstraintPatch":
+        if self.clear_structure and (
+            self.exact_stop_count is not None
+            or self.required_stop_roles
+            or self.add_required_stop_roles
+        ):
+            raise ValueError("clear_structure cannot be combined with structure updates")
+        if self.required_stop_roles and self.add_required_stop_roles:
+            raise ValueError("replace and append role updates cannot be combined")
+        return self
 
 
 class CriterionStrength(str, Enum):
@@ -385,7 +409,7 @@ class PeriodProposal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["period"] = "period"
-    event: Literal["trip", "departure", "return"]
+    event: Literal["trip", "departure", "return", "activity"]
     period: TimeScope
     evidence: str = Field(min_length=1)
 
@@ -396,7 +420,7 @@ class PeriodProposal(BaseModel):
                 "period_scope_invalid",
                 "an explicit range must use trip_range",
             )
-        if self.event != "trip" and self.period == TimeScope.ALL_DAY:
+        if self.event in {"departure", "return"} and self.period == TimeScope.ALL_DAY:
             raise PydanticCustomError(
                 "departure_period_invalid",
                 "departure and return periods must be a day period",
@@ -685,6 +709,10 @@ class PlanRequest(BaseModel):
     revision: int = Field(default=0, ge=0)
 
     planning_window: PlanningWindow = Field(default_factory=PlanningWindow)
+    # Preserve the user's coarse scope separately from the executable clock
+    # bounds.  In particular, ``all_day`` is a soft coverage objective; it
+    # must not be reconstructed from a derived window or rule identifier.
+    trip_time_scope: ConstraintValue[TimeScope] | None = None
     duration_minutes: ConstraintValue[int] | None = None
     location: ConstraintValue[GeoLocation] | None = None
     # Optional search center for the requested activity area.  The route still
@@ -706,6 +734,9 @@ class PlanRequest(BaseModel):
     require_availability_confirmation: bool = False
     exact_stop_count: ConstraintValue[int] | None = None
     required_stop_roles: ConstraintValue[tuple[StopRole, ...]] | None = None
+    # A bounded stop-scoped timing hint.  It is intentionally not a second
+    # planning window; schedulers may consume it as a soft objective later.
+    activity_time_scope: ConstraintValue[TimeScope] | None = None
     total_distance_km: ConstraintValue[float] | None = None
 
 

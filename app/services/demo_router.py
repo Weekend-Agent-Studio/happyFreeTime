@@ -35,17 +35,15 @@ from app.domain.turn import (
     TurnTargetProposal,
 )
 from app.services.enrichment import TemporalCompiler
-from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.router_extractor import RouterContext, TurnInterpreterResult
 
 
-def _parse_budget_amount(value: str) -> int | None:
-    """Parse the small Chinese amount vocabulary used by the Demo Router.
+def _parse_finite_chinese_number(value: str) -> int | None:
+    """Parse the bounded Chinese number vocabulary used by the Demo Router.
 
-    This is intentionally bounded and only turns an amount already anchored by
-    ``人均/每人`` into a number.  It is not a general natural-language number
-    parser; an unrecognized amount remains raw evidence and Gate can ask for a
-    concrete budget.
+    This is intentionally bounded rather than a general natural-language
+    number parser.  Callers decide whether the number is a budget, station
+    count, or another field; an unrecognized value remains raw evidence.
     """
 
     if value.isdigit():
@@ -238,13 +236,13 @@ class DemoRouter:
         if date_text is None:
             date_text = TemporalCompiler.extract_unresolved_date_text(text)
         departure_match = re.search(
-            r"(?:(?:上午|早上|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
+            r"(?:(?:上午|早上|早|下午|晚上)\s*)?(?:\d{1,2}[:：]\d{2}|[一二三四五六七八九十两]+点(?:半|[一二三四五六七八九十两]+分?)?)"
             r"\s*(?:准时\s*)?(?:出发|离开)",
             text,
         )
         departure_period_match = re.search(
-            r"(?:上午|早上|下午|晚上|夜里|夜间).{0,8}(?:出发|出门|离开)|"
-            r"(?:出发|出门|离开).{0,8}(?:上午|早上|下午|晚上|夜里|夜间)",
+            r"(?:上午|早上|早|下午|晚上|夜里|夜间).{0,8}(?:出发|出门|离开)|"
+            r"(?:出发|出门|离开).{0,8}(?:上午|早上|早|下午|晚上|夜里|夜间)",
             text,
         )
         time_proposals: list[TimeProposal] = []
@@ -528,7 +526,16 @@ class DemoRouter:
             if matched is not None:
                 trip_text = trip_text.replace(matched.group(0), " ", 1)
         trip_time_text, trip_scope, trip_window = TemporalCompiler.extract_time(trip_text)
-        if trip_time_text and trip_window is not None:
+        activity_scope = TemporalCompiler.extract_activity_period(trip_text)
+        if trip_time_text and activity_scope is not None and trip_scope is not None:
+            time_proposals.append(
+                PeriodProposal(
+                    event="activity",
+                    period=activity_scope,
+                    evidence=trip_time_text,
+                )
+            )
+        elif trip_time_text and trip_window is not None:
             time_proposals.append(
                 TripRangeProposal(
                     start=trip_window.start,
@@ -576,7 +583,7 @@ class DemoRouter:
             adults=party_size,
             budget_text=budget_match.group(0) if budget_match else None,
             budget_per_person=(
-                _parse_budget_amount(budget_match.group("amount"))
+                _parse_finite_chinese_number(budget_match.group("amount"))
                 if budget_match
                 else None
             ),
@@ -657,6 +664,7 @@ class DemoRouter:
             return None
         date_text, _, _, _, _ = TemporalCompiler.extract_date(value)
         time_text, scope, explicit_window = TemporalCompiler.extract_time(value)
+        activity_scope = TemporalCompiler.extract_activity_period(value)
         departure_period = TemporalCompiler.extract_departure_period(value)
         departure = None
         clock_like = re.search(
@@ -692,15 +700,74 @@ class DemoRouter:
             if keyword in value
         )
         avoid = ("博物馆",) if "不要博物馆" in value else ()
+        clear_structure = any(
+            phrase in value
+            for phrase in ("不用限制站数", "不限制站数", "不限站数", "站数不限")
+        )
+        count_match = re.search(
+            r"(?:改成|改为|总共|一共|正好|安排|规划)\s*"
+            r"(?P<count>\d+|零|一|两|二|三|四|五|六|七|八|九|十)\s*"
+            r"(?:站|个地方|个地点|处|家|个活动)",
+            value,
+        )
+        exact_stop_count = (
+            _parse_finite_chinese_number(count_match.group("count"))
+            if count_match
+            else None
+        )
+        role_mentions: list[tuple[int, StopRole]] = []
+        for role, phrases in (
+            (StopRole.LUNCH, ("午饭", "午餐")),
+            (StopRole.DINNER, ("晚饭", "晚餐")),
+            (StopRole.ACTIVITY, ("活动", "项目", "展览", "景点", "地方")),
+            (StopRole.MEAL, ("吃饭", "用餐")),
+        ):
+            for phrase in phrases:
+                match = re.search(re.escape(phrase), value)
+                if match is None:
+                    continue
+                tail = value[match.end() : match.end() + 4]
+                if role in {StopRole.LUNCH, StopRole.DINNER, StopRole.MEAL} and re.match(
+                    r"\s*(?:前|后|前后)", tail
+                ):
+                    continue
+                role_mentions.append((match.start(), role))
+                break
+        role_mentions.sort(key=lambda item: item[0])
+        # Keep the ordered sequence stable while removing adjacent duplicate
+        # mentions; repeated activity is meaningful only when explicitly said.
+        deduped_roles: list[StopRole] = []
+        for _, role in role_mentions:
+            if not deduped_roles or deduped_roles[-1] != role:
+                deduped_roles.append(role)
+        structure_roles = tuple(deduped_roles) if len(deduped_roles) >= 1 else ()
+        append_roles = (
+            structure_roles
+            if structure_roles and any(marker in value for marker in ("再安排", "再加", "增加"))
+            and not any(marker in value for marker in ("改成", "改为", "总共", "一共", "正好"))
+            else ()
+        )
+        replace_roles = () if append_roles else structure_roles
+        vague_structure = (
+            value
+            if any(phrase in value for phrase in ("多安排几个地方", "多安排几个地点", "多去几个地方"))
+            and exact_stop_count is None
+            else None
+        )
         has_patch_marker = any(
             marker in value
-            for marker in ("补充", "忘了说", "对了", "另外", "再加", "重新规划", "改到", "改成", "改为")
+            for marker in (
+                "补充", "忘了说", "对了", "另外", "再加", "重新规划", "改到", "改成", "改为",
+                "安排", "总共", "一共", "正好", "不用限制站数", "多安排几个",
+            )
         )
         if not (
             has_patch_marker or date_text or departure or departure_period or return_by
             or budget or strict_budget is not None or origin or preferences or diet_tags
             or avoid or max_distance or planning_area
             or scope is not None or explicit_window is not None
+            or exact_stop_count is not None or replace_roles or append_roles or clear_structure
+            or vague_structure
         ):
             return None
         return ConstraintPatch(
@@ -710,9 +777,30 @@ class DemoRouter:
             departure_period=departure_period,
             time_window_text=(
                 value
-                if time_text and departure is None and departure_period is None and return_by is None
+                if (
+                    time_text
+                    and departure is None
+                    and departure_period is None
+                    and return_by is None
+                    and activity_scope is None
+                )
                 else None
             ),
+            activity_time_scope=(
+                scope
+                if scope is not None and activity_scope is not None
+                else None
+            ),
+            activity_time_text=(
+                time_text
+                if time_text and activity_scope is not None
+                else None
+            ),
+            exact_stop_count=exact_stop_count,
+            required_stop_roles=replace_roles,
+            add_required_stop_roles=append_roles,
+            structure_hint_text=vague_structure,
+            clear_structure=clear_structure,
             origin_text=origin,
             planning_area_text=planning_area,
             budget_text=budget,

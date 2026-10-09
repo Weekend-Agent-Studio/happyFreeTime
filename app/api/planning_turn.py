@@ -967,8 +967,10 @@ def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:
                     )
                 )
     for field in (
+        "trip_time_scope",
         "exact_stop_count",
         "required_stop_roles",
+        "activity_time_scope",
         "duration_minutes",
         "location",
         "party",

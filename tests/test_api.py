@@ -360,7 +360,9 @@ class ApiTest(unittest.TestCase):
             "rule_based",
         )
         intent_payload = response_data["planning_intent_decision"]["intent"]
-        self.assertEqual(set(intent_payload), {"pace", "semantic_request"})
+        self.assertTrue(
+            {"pace", "semantic_request", "time_coverage"}.issubset(intent_payload)
+        )
         second_plan_id = plans[1]["plan_id"]
 
         view = self._session_view(session_id)

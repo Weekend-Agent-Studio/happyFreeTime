@@ -166,6 +166,25 @@ class TemporalCompiler:
         if not text:
             return None, None, None
         value = text.strip()
+        # Resolve explicit ranges before coarse period aliases. Otherwise
+        # “早九点到晚上八点” is truncated at the first period token.
+        clock_range = re.search(
+            r"(?P<start>(?:(?:上午|早上|早|中午|下午|晚上|夜里|夜间)\s*)?"
+            r"(?:\d{1,2}(?::|：)\d{1,2}|[零〇一二两三四五六七八九十]+点(?:半|[零〇一二三四五六七八九十]+分?)?))\s*"
+            r"(?:[-‐‑‒–—到至])\s*"
+            r"(?P<end>(?:(?:上午|早上|早|中午|下午|晚上|夜里|夜间)\s*)?"
+            r"(?:\d{1,2}(?::|：)\d{1,2}|[零〇一二两三四五六七八九十]+点(?:半|[零〇一二三四五六七八九十]+分?)?))",
+            value,
+        )
+        if clock_range:
+            start = cls.normalize_clock_text(clock_range.group("start"))
+            end = cls.normalize_clock_text(clock_range.group("end"))
+            if start is not None and end is not None:
+                try:
+                    return clock_range.group(0), TimeScope.EXPLICIT_RANGE, TimeWindow(start=start, end=end)
+                except ValueError:
+                    return clock_range.group(0), TimeScope.EXPLICIT_RANGE, None
+
         for phrase, scope in sorted(cls._TIME_SCOPE_ALIASES, key=lambda item: -len(item[0])):
             if phrase in value:
                 return phrase, scope, None
@@ -206,6 +225,7 @@ class TemporalCompiler:
         periods = (
             ("上午", TimeScope.MORNING),
             ("早上", TimeScope.MORNING),
+            ("早", TimeScope.MORNING),
             ("下午", TimeScope.AFTERNOON),
             ("晚上", TimeScope.EVENING),
             ("夜里", TimeScope.EVENING),
@@ -218,6 +238,41 @@ class TemporalCompiler:
                 rf"(?:出发|出门|离开).{{0,8}}{escaped}",
                 value,
             ):
+                return scope
+        return None
+
+    @classmethod
+    def extract_activity_period(cls, text: str | None) -> TimeScope | None:
+        """Extract a period attached to a concrete activity/stop phrase.
+
+        This is intentionally narrower than ``extract_time``.  A phrase such
+        as “下午出去玩” scopes the whole trip, while “下午去公园” scopes the
+        activity.  The Router/LLM supplies the semantic event in production;
+        this helper only gives the offline adapter the same bounded behavior.
+        """
+
+        if not text:
+            return None
+        value = text.strip()
+        periods = (
+            ("上午", TimeScope.MORNING),
+            ("早上", TimeScope.MORNING),
+            ("早", TimeScope.MORNING),
+            ("下午", TimeScope.AFTERNOON),
+            ("晚上", TimeScope.EVENING),
+            ("夜里", TimeScope.EVENING),
+            ("夜间", TimeScope.EVENING),
+        )
+        for phrase, scope in periods:
+            direct_stop = re.search(
+                rf"{re.escape(phrase)}.{{0,8}}(?<!出)(?:去|逛|看)",
+                value,
+            )
+            added_activity = re.search(
+                rf"{re.escape(phrase)}.{{0,8}}再安排.{{0,4}}(?:活动|项目|展览|景点)",
+                value,
+            )
+            if direct_stop or added_activity:
                 return scope
         return None
 
@@ -289,7 +344,7 @@ class TemporalCompiler:
             return None
         value = text.strip()
         match = re.search(
-            r"(?P<period>上午|早上|中午|下午|晚上|夜里|夜间)?\s*"
+            r"(?P<period>上午|早上|早|中午|下午|晚上|夜里|夜间)?\s*"
             r"(?P<hour>\d{1,2}|[零〇一二两三四五六七八九十]+)"
             r"(?:[:：](?P<minute>\d{1,2})|点(?P<half>半)|点(?P<cnminute>[零〇一二两三四五六七八九十]+)分?|点)?",
             value,
@@ -316,7 +371,7 @@ class TemporalCompiler:
             hour += 12
         elif period == "中午" and hour < 11:
             hour += 12
-        elif period in {"上午", "早上"} and hour == 12:
+        elif period in {"上午", "早上", "早"} and hour == 12:
             hour = 0
         if not 0 <= hour <= 23:
             return None

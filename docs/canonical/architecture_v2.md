@@ -357,7 +357,7 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | `RawConstraints` | Router 的有限 Proposal 字段 | date text/reference、location text、party、budget、distance 与软语义等；不直接交给 Planner |
 | `TimeProposal` | 有界时间语义提案 | target、exact/period、clock/period、evidence；由编译器解释时间作用域 |
 | `PlanningWindow` | Planner 使用的唯一时间窗口 | 带来源的 date/start_at/end_at，以及 start/end kind |
-| `PlanRequest` | Planner 的唯一约束快照 | `PlanningWindow`、地点、同行人、预算、距离、偏好、结构约束、revision |
+| `PlanRequest` | Planner 的唯一约束快照 | `PlanningWindow`、类型化 `trip_time_scope`、地点、同行人、预算、距离、偏好、结构约束、revision |
 | `RequestPatch` | 对一个 `PlanRequest` 的原子增量 | set/clear/list operations、source、field provenance、evidence |
 | `ClarificationIssue` | 机器可读的阻塞原因 | field、code、reason、expected type、options、request revision |
 | `ConstraintValue[T]` | 单字段审计信息 | value、source、raw text、confidence、rule id |
@@ -370,7 +370,7 @@ Graph 顶层状态可以继续使用 `TypedDict`，但跨节点内容必须是 P
 | `ToolObservation` | ToolBroker 返回的结构化观察 | data、source、freshness、confidence、errors |
 | `AgentDecision` | 模型对下一步的结构化提议 | continue、ask user、request capability、finish；由 Harness 校验 |
 | `PlanningRequest` | PlanningService 的版本化输入包 | `PlanRequest`、`PlanningIntent`、前置事实、可用记忆影响、previous plan/locks、budgets |
-| `PlanningIntent` | 规划语义输入 | `pace`、`semantic_request`（软目标、检索 query 与 evidence） |
+| `PlanningIntent` | 规划语义输入 | `pace`、`semantic_request`（软目标、检索 query 与 evidence）、可执行的 `time_coverage` 软目标 |
 | `PlanStructureProposal` | 模型 Wire 结构提案 | 有序 slots、core/optional、pace、grounded objectives、role queries、evidence refs |
 | `PlanSpec` | 可执行结构 | concrete 有序 StopRole 序列、稳定 spec ID；不含 optional slot |
 | `Stop` | 通用停靠点 | resource、arrival、start、end、cost、evidence |
@@ -494,7 +494,7 @@ sequenceDiagram
 4. `ConstraintEngine` 原子应用 Patch、检查跨字段冲突并递增 revision；`RequestReadinessPolicy` 检查地点、日期和完整时间窗等 Planner 必需字段。
 5. 有阻塞 Issue 时由 `QuestionPolicy` 生成确定性 `QuestionDecision` 并 interrupt；否则 Planner 只读取最终 `PlanRequest`。
 
-所有路径共用轻量时间契约：`PlanningWindow(date, start_at, end_at)`。每个值保留来源；开始/结束边界另有显式 `start_kind = trip_start | departure` 与 `end_kind = trip_end | return_deadline`。这不是完整 Temporal AST，也不把每种时间关系抽象成通用约束语言。
+所有路径共用轻量时间契约：`PlanningWindow(date, start_at, end_at)` 加上独立的类型化 `PlanRequest.trip_time_scope`。前者表示 Planner 可执行的时钟边界，后者保留用户表达的整体粗粒度范围（例如 `all_day`），供 `PlanningIntent.time_coverage` 编译为软目标；不能从派生窗口或 `rule_id` 反推全天语义。每个值保留来源；开始/结束边界另有显式 `start_kind = trip_start | departure` 与 `end_kind = trip_end | return_deadline`。这不是完整 Temporal AST，也不把每种时间关系抽象成通用约束语言。
 
 有限 `TimeProposal` 保留 target（trip/departure/return）、precision（exact/period）、clock/period 与 evidence。它保证不同作用域不会仅靠前端或 `rule_id` 猜测：例如“早上出去玩”形成整体时段，“早上出发”约束出发动作并可能要求补具体时刻，“晚上八点前回来”形成 return deadline。未提时间使用有来源、可见、可编辑的默认窗口，不因此反问。自然语言补充和顶部栏结构化编辑最终也写同一个 `PlanningWindow`。
 

@@ -361,6 +361,11 @@ class PlanningContextApplication:
                 continue
             if edit.operation == "clear":
                 clear_fields.append(field_name)
+                if field_name in {"planning_window.start_at", "planning_window.end_at"}:
+                    # Editing concrete bounds replaces a coarse trip scope
+                    # such as ``all_day``; keep the canonical request honest.
+                    if "trip_time_scope" not in clear_fields:
+                        clear_fields.append("trip_time_scope")
                 if field_name.endswith("start_at"):
                     set_fields["planning_window.start_kind"] = "trip_start"
                 if field_name.endswith("end_at"):
@@ -383,6 +388,8 @@ class PlanningContextApplication:
                 )
             if kind_field is not None:
                 set_fields[kind_field] = kind_value
+                if "trip_time_scope" not in clear_fields:
+                    clear_fields.append("trip_time_scope")
             set_fields[field_name] = ConstraintValue(
                 value=edit.value,
                 source=ConstraintSource.USER_EXPLICIT,

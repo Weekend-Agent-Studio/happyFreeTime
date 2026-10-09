@@ -140,7 +140,7 @@ replacement_criteria 和 evidence；check_weather 保留天气及可能触发规
 未明确表达的信息保持为空，不填默认值，不调用工具，不生成地点、价格、库存或路线事实。
 日期和时间必须保留原文证据：date_reference 只在原文支持时填写；时间只写入
 带 kind 的 time_proposals 判别结构：trip_range 只能有 start/end；event_clock 只能有
-event（departure/return）和 clock；period 只能有 event（trip/departure/return）和
+event（departure/return）和 clock；period 只能有 event（trip/departure/return/activity）和
 period（morning/afternoon/evening/all_day）。不要混用这些结构，也不要输出无关字段。
 “早上出去玩”是 period(event=trip, period=morning)；“早上出发”是
 period(event=departure, period=morning)；“早上九点出发”是
@@ -149,6 +149,12 @@ event_clock(event=return, clock=20:00)；“今晚/明晚”分别对应 today/t
 period(event=trip, period=evening)；“一整天/全天”对应 period(event=trip, period=all_day)。
 “10:00–16:00”使用 trip_range(start=10:00, end=16:00)。同一段 evidence 不得同时
 解释为 trip 和 departure 两个作用域。
+
+“下午去公园/下午安排一个活动”使用 period(event=activity, period=afternoon)，不要把它
+写成 trip 时间窗或 departure；只有“下午出去玩”才是 trip。已有方案的结构更新写入
+constraint_patch.exact_stop_count、required_stop_roles 或 add_required_stop_roles；“不用限制
+站数了”使用 clear_structure=true；“多安排几个地方”没有具体数字时保留
+structure_hint_text，系统会反问具体站数，不要猜一个数字。
 
 保留用户明确的站数、角色、距离、预算、同行人、偏好、饮食、场景和避开条件，并用
 evidence_map 记录需要追溯的字段。地点必须区分作用域：从某处出发填写

@@ -233,6 +233,7 @@ class RequestWorkflow:
             proposal=action.constraint_patch,
             actor=actor,
             environment=self._environment_provider(actor),
+            evidence_map=action.evidence_map,
         )
         result = self._engine.apply(
             active_request,

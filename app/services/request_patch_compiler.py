@@ -18,6 +18,7 @@ from app.domain.constraints import (
     PlanningWindow,
     RequestPatch,
     PeriodProposal,
+    StopRole,
     TimeProposal,
     TimeScope,
     TimeWindow,
@@ -87,17 +88,74 @@ class RequestPatchProposalCompiler:
             raw.exact_stop_count,
         )
         updates = dict(base_patch.set_fields)
+        clear_fields = list(base_patch.clear_fields)
         if window.date is not None:
             updates["planning_window.date"] = window.date
         updates["planning_window.start_at"] = window.start_at
         updates["planning_window.end_at"] = window.end_at
         updates["planning_window.start_kind"] = window.start_kind
         updates["planning_window.end_kind"] = window.end_kind
+        trip_period = next(
+            (
+                item
+                for item in interpretation.time_proposals
+                if isinstance(item, PeriodProposal) and item.event == "trip"
+            ),
+            None,
+        )
+        if trip_period is not None:
+            clear_fields = [
+                field for field in clear_fields if field != "trip_time_scope"
+            ]
+            updates["trip_time_scope"] = ConstraintValue[TimeScope](
+                value=trip_period.period,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=trip_period.evidence,
+                rule_id=f"time.trip.scope.{trip_period.period.value}.v1",
+            )
+        elif any(isinstance(item, TripRangeProposal) for item in interpretation.time_proposals):
+            # An explicit clock range supersedes a previously inferred coarse
+            # scope when this compiler is used to resume or compose a patch.
+            updates.pop("trip_time_scope", None)
+            clear_fields.append("trip_time_scope")
+        activity_period = next(
+            (
+                item
+                for item in interpretation.time_proposals
+                if isinstance(item, PeriodProposal) and item.event == "activity"
+            ),
+            None,
+        )
+        if activity_period is not None:
+            updates["activity_time_scope"] = ConstraintValue[TimeScope](
+                value=activity_period.period,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=activity_period.evidence,
+                rule_id=f"time.activity.{activity_period.period.value}.v1",
+            )
+        if raw.exact_stop_count is not None:
+            updates["exact_stop_count"] = ConstraintValue[int](
+                value=raw.exact_stop_count,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=interpretation.evidence_map.get("exact_stop_count"),
+                rule_id="plan_structure.exact_stop_count.v1",
+            )
+        if raw.required_stop_roles:
+            updates["required_stop_roles"] = ConstraintValue[tuple[StopRole, ...]](
+                value=raw.required_stop_roles,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=interpretation.evidence_map.get("required_stop_roles"),
+                rule_id="plan_structure.required_stop_roles.v1",
+            )
         evidence = dict(base_patch.evidence)
 
         return RequestPatchCompilation(
             patch=base_patch.model_copy(
-                update={"set_fields": updates, "evidence": evidence}
+                update={
+                    "set_fields": updates,
+                    "clear_fields": tuple(dict.fromkeys(clear_fields)),
+                    "evidence": evidence,
+                }
             ),
             issues=issues,
             assumptions=tuple(assumptions),
