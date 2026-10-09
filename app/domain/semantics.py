@@ -123,8 +123,15 @@ class TimeCoverageObjective(BaseModel):
     def validate_target_periods(self) -> "TimeCoverageObjective":
         if len(self.target_periods) != len(set(self.target_periods)):
             raise ValueError("time coverage periods must be unique")
-        if TimeScope.EXPLICIT_RANGE in self.target_periods:
-            raise ValueError("explicit range is not a coverage period")
+        allowed = {
+            TimeScope.MORNING,
+            TimeScope.AFTERNOON,
+            TimeScope.EVENING,
+        }
+        if not set(self.target_periods).issubset(allowed):
+            raise ValueError(
+                "time coverage periods must be morning, afternoon, or evening"
+            )
         return self
 
 

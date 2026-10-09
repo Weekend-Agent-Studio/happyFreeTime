@@ -38,13 +38,12 @@ from app.services.enrichment import TemporalCompiler
 from app.services.router_extractor import RouterContext, TurnInterpreterResult
 
 
-def _parse_budget_amount(value: str) -> int | None:
-    """Parse the small Chinese amount vocabulary used by the Demo Router.
+def _parse_finite_chinese_number(value: str) -> int | None:
+    """Parse the bounded Chinese number vocabulary used by the Demo Router.
 
-    This is intentionally bounded and only turns an amount already anchored by
-    ``人均/每人`` into a number.  It is not a general natural-language number
-    parser; an unrecognized amount remains raw evidence and Gate can ask for a
-    concrete budget.
+    This is intentionally bounded rather than a general natural-language
+    number parser.  Callers decide whether the number is a budget, station
+    count, or another field; an unrecognized value remains raw evidence.
     """
 
     if value.isdigit():
@@ -584,7 +583,7 @@ class DemoRouter:
             adults=party_size,
             budget_text=budget_match.group(0) if budget_match else None,
             budget_per_person=(
-                _parse_budget_amount(budget_match.group("amount"))
+                _parse_finite_chinese_number(budget_match.group("amount"))
                 if budget_match
                 else None
             ),
@@ -712,7 +711,7 @@ class DemoRouter:
             value,
         )
         exact_stop_count = (
-            _parse_budget_amount(count_match.group("count"))
+            _parse_finite_chinese_number(count_match.group("count"))
             if count_match
             else None
         )

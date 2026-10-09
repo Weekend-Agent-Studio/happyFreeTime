@@ -709,6 +709,10 @@ class PlanRequest(BaseModel):
     revision: int = Field(default=0, ge=0)
 
     planning_window: PlanningWindow = Field(default_factory=PlanningWindow)
+    # Preserve the user's coarse scope separately from the executable clock
+    # bounds.  In particular, ``all_day`` is a soft coverage objective; it
+    # must not be reconstructed from a derived window or rule identifier.
+    trip_time_scope: ConstraintValue[TimeScope] | None = None
     duration_minutes: ConstraintValue[int] | None = None
     location: ConstraintValue[GeoLocation] | None = None
     # Optional search center for the requested activity area.  The route still

@@ -34,6 +34,7 @@ from app.services.request_patch_compiler import RequestPatchProposalCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
 from app.services.router_extractor import RouterContext
+from app.api.planning_turn import _dump_constraint_summary
 
 
 class RequestPatchCompilerTest(unittest.TestCase):
@@ -217,9 +218,40 @@ class RequestPatchCompilerTest(unittest.TestCase):
         self.assertIsInstance(outcome, ResolvedRequest)
         self.assertEqual(outcome.request.planning_window.start_at.value, "09:00")
         self.assertEqual(outcome.request.planning_window.end_at.value, "21:00")
+        self.assertEqual(outcome.request.trip_time_scope.value, TimeScope.ALL_DAY)
         self.assertNotIn("充分利用全天", outcome.request.preferences)
         intent = RuleBasedPlanningIntentProvider().decide(outcome.request).intent
         self.assertEqual(intent.pace, PlanPace.FULL)
+
+    def test_explicit_range_does_not_inherit_all_day_scope(self) -> None:
+        _, _, all_day = self._compile("周六玩一整天")
+        self.assertIsInstance(all_day, ResolvedRequest)
+        exact = self.router.interpret("周六早九点到晚上八点出去玩", self.context)
+        enrichment = self.enrichment.enrich(exact, self.actor, self.environment)
+        compilation = self.compiler.compile(exact, enrichment.request_patch, self.environment)
+        outcome = self.engine.apply(
+            all_day.request,
+            compilation.patch.model_copy(
+                update={"base_revision": all_day.request.revision}
+            ),
+            issues=compilation.issues,
+        )
+
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertIsNone(outcome.request.trip_time_scope)
+        self.assertIsNone(
+            RuleBasedPlanningIntentProvider().decide(outcome.request).intent.time_coverage
+        )
+
+    def test_constraint_summary_projects_typed_trip_scope(self) -> None:
+        _, _, outcome = self._compile("周六玩一整天")
+        self.assertIsInstance(outcome, ResolvedRequest)
+
+        summary = _dump_constraint_summary({"active_request": outcome.request})
+        item = next(item for item in summary if item.field == "trip_time_scope")
+
+        self.assertEqual(item.value, TimeScope.ALL_DAY.value)
+        self.assertEqual(item.evidence, "一整天")
 
     def test_fuzzy_afternoon_window_reaches_an_explicit_dinner_role(self) -> None:
         _, compilation, outcome = self._compile("下午约会，安排活动和晚饭")

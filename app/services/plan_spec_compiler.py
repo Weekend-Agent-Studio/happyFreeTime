@@ -293,7 +293,8 @@ class PlanSpecCompiler:
             return explicit
         partial = _is_partial_structure(constraints)
         fallback = _build_rule_plan_specs(constraints, rule_baseline)
-        if partial:
+        dynamic_completion = _needs_dynamic_completion(constraints, fallback)
+        if partial or dynamic_completion:
             # Include deterministic completions for the no-model/provider
             # fallback path.  Known Rule shapes are still useful, but they no
             # longer define which partial structures are legal.
@@ -302,7 +303,7 @@ class PlanSpecCompiler:
                 fallback,
             )
         if proposal is None:
-            if not fallback and partial:
+            if not fallback and (partial or dynamic_completion):
                 return PlanSpecChoices(
                     proposal_status="not_used",
                     diagnostic_code="structure_capacity_insufficient",
@@ -555,6 +556,34 @@ def _is_partial_structure(constraints: PlanRequest) -> bool:
     return exact_count is not None and len(_explicit_roles(constraints)) < exact_count
 
 
+def _needs_dynamic_completion(
+    constraints: PlanRequest,
+    rule_specs: tuple[PlanSpec, ...],
+) -> bool:
+    """Detect when the private Rule shapes cannot cover a required sequence.
+
+    ``required_stop_roles`` is an ordered lower bound, not a lookup key.  If
+    no registered Rule shape can contain it, generate a small role-only
+    completion space rather than silently dropping the requirement or asking
+    the user to repair an internal fallback failure.
+    """
+
+    required_roles = _explicit_roles(constraints)
+    if not required_roles:
+        return False
+    exact_count = (
+        constraints.exact_stop_count.value
+        if constraints.exact_stop_count is not None
+        else None
+    )
+    if exact_count is not None:
+        return len(required_roles) < exact_count
+    return not any(
+        _contains_compatible_subsequence(spec.roles, required_roles)
+        for spec in rule_specs
+    )
+
+
 def _minimum_stop_count(constraints: PlanRequest) -> int:
     """Return the minimum concrete stops for an executable proposal.
 
@@ -583,10 +612,18 @@ def _build_dynamic_completion_specs(
         if constraints.exact_stop_count is not None
         else None
     )
-    if exact_count is None:
-        return ()
     required_roles = _explicit_roles(constraints)
-    pool = list(_DYNAMIC_ROLE_POOL)
+    if exact_count is None and not required_roles:
+        return ()
+    # Generic ``MEAL`` is an input vocabulary used by the legacy two-stop
+    # rule, not a good filler role for a newly synthesized structure.  Dynamic
+    # completion should choose concrete lunch/dinner anchors; retain MEAL only
+    # when the user explicitly asked for a generic meal role.
+    pool = [
+        role
+        for role in _DYNAMIC_ROLE_POOL
+        if role != StopRole.MEAL or StopRole.MEAL in required_roles
+    ]
     for role in required_roles:
         if role not in pool:
             pool.append(role)
@@ -595,9 +632,18 @@ def _build_dynamic_completion_specs(
     if exact_count == 1 and not required_roles:
         raw_sequences = ((StopRole.ACTIVITY,),)
     else:
-        raw_sequences = product(tuple(pool), repeat=exact_count)
-    for roles in raw_sequences:
-        roles = tuple(roles)
+        lengths = (
+            (exact_count,)
+            if exact_count is not None
+            else range(max(2, len(required_roles)), 5)
+        )
+        raw_sequences = (
+            roles
+            for length in lengths
+            for roles in product(tuple(pool), repeat=length)
+        )
+    for raw_roles in raw_sequences:
+        roles = tuple(raw_roles)
         if not _meaningful_sequence(roles):
             continue
         assignment = _required_role_assignment(required_roles, roles)

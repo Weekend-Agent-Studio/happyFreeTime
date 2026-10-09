@@ -9,7 +9,7 @@
 ## 实现
 
 - `PlanningIntent.time_coverage` 保存目标时段和用户证据。
-- Rule Intent 从 `time.trip.all_day.v1` 派生上午、下午；明确晚饭或晚间活动时再加入晚上。
+- Rule Intent 从类型化的 `PlanRequest.trip_time_scope=all_day` 派生上午、下午；明确晚饭或晚间活动时再加入晚上，不从派生窗口或 `rule_id` 猜测全天。
 - LLM Intent 不能丢弃该目标，仍由 Harness 从用户时间证据派生。
 - PlanSpec 编译时优先给覆盖目标更匹配的结构，但不把结构变成硬门槛。
 - 本地估算和路线复核后的 Plan 都加入 `planning.time_coverage.v1` 评分。

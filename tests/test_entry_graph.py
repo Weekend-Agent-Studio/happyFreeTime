@@ -9,6 +9,8 @@ from app.domain.constraints import (
     ClarificationAction,
     CommandOperation,
     ConstraintPatch,
+    ConstraintSource,
+    ConstraintValue,
     ConversationCommand,
     GeoLocation,
     IdentityType,
@@ -114,6 +116,22 @@ class EntryGraphTest(unittest.TestCase):
         restored = serializer.loads_typed(serializer.dumps_typed(conflict))
 
         self.assertEqual(restored, conflict)
+
+    def test_typed_trip_scope_is_checkpoint_serializable(self) -> None:
+        request = planning_constraints().model_copy(
+            update={
+                "trip_time_scope": ConstraintValue(
+                    value=TimeScope.ALL_DAY,
+                    source=ConstraintSource.USER_INFERRED,
+                    raw_text="一整天",
+                    rule_id="time.trip.scope.all_day.v1",
+                )
+            }
+        )
+        serializer = checkpoint_serializer()
+        restored = serializer.loads_typed(serializer.dumps_typed(request))
+
+        self.assertEqual(restored, request)
 
     def test_active_plan_time_supplement_is_not_misclassified_as_replacement(self) -> None:
         interpretation = DemoRouter().interpret(

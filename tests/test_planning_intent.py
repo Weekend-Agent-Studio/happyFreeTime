@@ -126,6 +126,14 @@ class PlanningIntentProviderTest(unittest.TestCase):
             end="21:00",
             start_rule_id="time.trip.all_day.v1",
             end_rule_id="time.trip.all_day.v1",
+        ).model_copy(
+            update={
+                "trip_time_scope": ConstraintValue[TimeScope](
+                    value=TimeScope.ALL_DAY,
+                    source=ConstraintSource.USER_INFERRED,
+                    raw_text="一整天",
+                )
+            }
         )
 
         intent = RuleBasedPlanningIntentProvider().decide(constraints).intent
@@ -148,6 +156,11 @@ class PlanningIntentProviderTest(unittest.TestCase):
             end_rule_id="time.trip.all_day.v1",
         ).model_copy(
             update={
+                "trip_time_scope": ConstraintValue[TimeScope](
+                    value=TimeScope.ALL_DAY,
+                    source=ConstraintSource.USER_INFERRED,
+                    raw_text="一整天",
+                ),
                 "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
                     value=(StopRole.DINNER,),
                     source=ConstraintSource.USER_EXPLICIT,

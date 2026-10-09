@@ -344,6 +344,112 @@ class PlanSpecCompilerTest(unittest.TestCase):
             any(StopRole.DINNER in spec.roles for spec in choices.fallback_specs)
         )
 
+    def test_unregistered_required_sequence_gets_bounded_rule_completion(self) -> None:
+        constraints = self.constraints.model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(
+                        StopRole.ACTIVITY,
+                        StopRole.ACTIVITY,
+                        StopRole.ACTIVITY,
+                    ),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="活动、活动、活动",
+                )
+            }
+        )
+
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, None)
+
+        self.assertEqual(choices.proposal_status, "not_used")
+        # With no model proposal, the deterministic completion is the active
+        # preferred path (``fallback_specs`` is reserved for a rejected
+        # proposal).  It must still contain the unregistered required
+        # sequence rather than collapsing to a registered one-stop shape.
+        self.assertTrue(choices.preferred_specs)
+        self.assertLessEqual(len(choices.preferred_specs), 24)
+        self.assertTrue(
+            any(
+                spec.roles[:3]
+                == (
+                    StopRole.ACTIVITY,
+                    StopRole.ACTIVITY,
+                    StopRole.ACTIVITY,
+                )
+                for spec in choices.preferred_specs
+            )
+        )
+
+    def test_rule_completion_binds_required_meals_to_concrete_roles(self) -> None:
+        constraints = self.constraints.model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(StopRole.ACTIVITY, StopRole.LUNCH, StopRole.ACTIVITY),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="活动、午饭、活动",
+                )
+            }
+        )
+
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, None)
+
+        self.assertTrue(choices.preferred_specs)
+        self.assertTrue(
+            any(
+                spec.roles
+                == (
+                    StopRole.ACTIVITY,
+                    StopRole.LUNCH,
+                    StopRole.ACTIVITY,
+                )
+                for spec in choices.preferred_specs
+            )
+        )
+
+    def test_rejected_model_proposal_uses_dynamic_rule_completion(self) -> None:
+        constraints = self.constraints.model_copy(
+            update={
+                "required_stop_roles": ConstraintValue[tuple[StopRole, ...]](
+                    value=(
+                        StopRole.ACTIVITY,
+                        StopRole.ACTIVITY,
+                        StopRole.ACTIVITY,
+                    ),
+                    source=ConstraintSource.USER_EXPLICIT,
+                )
+            }
+        )
+        rejected = PlanStructureProposal(
+            schema_version="plan-structure-proposal.v3",
+            slots=[{"role": "activity", "inclusion": "core"}],
+        )
+
+        choices = PlanSpecCompiler().compile(constraints, self.baseline, rejected)
+
+        self.assertEqual(choices.proposal_status, "rejected")
+        self.assertEqual(choices.diagnostic_code, "explicit_roles_not_preserved")
+        self.assertTrue(choices.fallback_specs)
+        self.assertTrue(
+            any(
+                spec.roles[:3]
+                == (
+                    StopRole.ACTIVITY,
+                    StopRole.ACTIVITY,
+                    StopRole.ACTIVITY,
+                )
+                for spec in choices.fallback_specs
+            )
+        )
+        self.assertTrue(
+            all(spec.roles.count(StopRole.LUNCH) <= 1 for spec in choices.preferred_specs)
+        )
+        self.assertTrue(
+            all(
+                StopRole.MEAL not in spec.roles
+                for spec in choices.preferred_specs
+            )
+        )
+
     def test_partial_structure_reports_capacity_shortage(self) -> None:
         constraints = with_planning_window(
             planning_constraints(time_end="14:30"),

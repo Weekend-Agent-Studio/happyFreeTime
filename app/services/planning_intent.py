@@ -234,12 +234,11 @@ def build_rule_based_planning_intent(
 
 
 def _is_all_day_request(constraints: PlanRequest) -> bool:
-    """Recognize the compiled all-day window without inventing user preference text."""
+    """Read the typed trip scope; never infer semantics from rule identifiers."""
 
-    window = constraints.planning_window
-    return any(
-        bound is not None and bound.rule_id == "time.trip.all_day.v1"
-        for bound in (window.start_at, window.end_at)
+    return (
+        constraints.trip_time_scope is not None
+        and constraints.trip_time_scope.value == TimeScope.ALL_DAY
     )
 
 
@@ -271,17 +270,7 @@ def _build_time_coverage_objective(
         )
     ):
         periods.append(TimeScope.EVENING)
-    evidence = next(
-        (
-            bound.raw_text
-            for bound in (
-                constraints.planning_window.start_at,
-                constraints.planning_window.end_at,
-            )
-            if bound is not None and bound.raw_text
-        ),
-        "一整天",
-    )
+    evidence = constraints.trip_time_scope.raw_text or "一整天"
     return TimeCoverageObjective(
         target_periods=tuple(periods),
         strength="preferred",
@@ -634,6 +623,11 @@ def _build_context(
                 else None
             ),
         },
+        "trip_time_scope": (
+            constraints.trip_time_scope.value.value
+            if constraints.trip_time_scope is not None
+            else None
+        ),
         "exact_stop_count": (
             constraints.exact_stop_count.value
             if constraints.exact_stop_count is not None

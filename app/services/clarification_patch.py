@@ -171,6 +171,7 @@ class ClarificationPatchCompiler:
             return self._single_field_patch(
                 request, "planning_window", default_window,
                 source=ConstraintSource.DEFAULT_RULE,
+                clear_fields=("trip_time_scope",) if field == "time_window" else (),
             )
         if field in {"max_distance_km", "total_distance_km", "budget_per_person"}:
             clear = (field,)
@@ -190,10 +191,12 @@ class ClarificationPatchCompiler:
         value: object,
         *,
         source: ConstraintSource = ConstraintSource.USER_EXPLICIT,
+        clear_fields: tuple[str, ...] = (),
     ) -> RequestPatch:
         return RequestPatch(
             base_revision=request.revision,
             set_fields={field: value},
+            clear_fields=clear_fields,
             source=source,
         )
 

@@ -128,6 +128,18 @@ class RequestPatchUpdateCompiler:
                     if scope == TimeScope.EXPLICIT_RANGE
                     else f"time.trip.{scope.value}.v1"
                 )
+                if scope == TimeScope.EXPLICIT_RANGE:
+                    updates.pop("trip_time_scope", None)
+                    clear_fields.append("trip_time_scope")
+                else:
+                    clear_fields = [
+                        field for field in clear_fields if field != "trip_time_scope"
+                    ]
+                    updates["trip_time_scope"] = self._value(
+                        scope,
+                        proposal.time_window_text,
+                        f"time.trip.scope.{scope.value}.patch.v1",
+                    )
                 updates["planning_window.start_at"] = ConstraintValue[str](
                     value=window.start,
                     source=source,
@@ -276,8 +288,16 @@ class RequestPatchUpdateCompiler:
     def _compile_clears(target: list[str], fields: tuple[str, ...]) -> None:
         aliases = {
             "date": ("planning_window.date",),
-            "time_scope": ("planning_window.start_at", "planning_window.end_at"),
-            "time_window": ("planning_window.start_at", "planning_window.end_at"),
+            "time_scope": (
+                "planning_window.start_at",
+                "planning_window.end_at",
+                "trip_time_scope",
+            ),
+            "time_window": (
+                "planning_window.start_at",
+                "planning_window.end_at",
+                "trip_time_scope",
+            ),
             "departure_at": ("planning_window.start_at",),
             "return_by": ("planning_window.end_at",),
         }

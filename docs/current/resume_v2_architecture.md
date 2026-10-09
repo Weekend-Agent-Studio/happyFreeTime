@@ -90,7 +90,7 @@ H4 后，Graph 运行时只接受 `interpret_with_runtime() -> TurnInterpreterRe
 
 ### PlanRequest、RequestPatch 与 QuestionPolicy
 
-`PlanRequest` 是 Planner 唯一读取的规划条件快照。自然语言入口由 `EnrichmentService` 与 `RequestPatchProposalCompiler` 把 Router Wire Proposal 编译为一个 `RequestPatch`；顶部栏由类型化 API DTO 编译为同一 Patch；反问恢复由字段级 Compiler 生成 Patch。三类入口都交给纯确定性的 `ConstraintEngine` 原子应用、校验 revision、跨字段硬冲突并更新请求 revision。模型不直接写 PlanRequest，也不裁定硬约束。
+`PlanRequest` 是 Planner 唯一读取的规划条件快照。自然语言入口由 `EnrichmentService` 与 `RequestPatchProposalCompiler` 把 Router Wire Proposal 编译为一个 `RequestPatch`；顶部栏由类型化 API DTO 编译为同一 Patch；反问恢复由字段级 Compiler 生成 Patch。三类入口都交给纯确定性的 `ConstraintEngine` 原子应用、校验 revision、跨字段硬冲突并更新请求 revision。模型不直接写 PlanRequest，也不裁定硬约束。`PlanRequest.trip_time_scope` 独立保存用户表达的整体粗粒度时间语义，避免从派生时钟窗口或规则 ID 猜测“一整天”。
 
 `ConstraintEngine` 的结果分为 `ResolvedRequest`、`NeedsClarification` 和 `ConflictedRequest`。`QuestionPolicy` 只处理结构化 Issue 与当前交互条件，以确定性规则决定是否阻断并渲染模板问题；它不从 `RawConstraints` 或用户原话里二次抽取约束，也不调用 LLM。`RawConstraints` 仍是 Router Proposal 的有限抽取 DTO，不是 Planner 输入或执行状态。
 
@@ -108,7 +108,7 @@ H4 后，Graph 运行时只接受 `interpret_with_runtime() -> TurnInterpreterRe
 
 ### PlanningIntent、Proposal 与 PlanSpecCompiler
 
-模型每次规划至多输出一个 `PlanStructureProposal v3` Wire DTO，其中可以同时包含 1–4 个有序角色 slot、core/optional、pace、受证据约束的 objectives 和角色级检索 query。模型没有输出第二份 `PlanningIntent` 或可执行 `PlanSpec`：Harness 从 proposal 投影出内部 `PlanningIntent`（仅 `pace + semantic_request`），再由 `PlanSpecCompiler` 把结构部分编译为一个或多个 concrete `PlanSpec`。optional slot 只存在于 proposal，Compiler 将其有界展开；`PlanSpec` 本身只有确定的有序角色序列。
+模型每次规划至多输出一个 `PlanStructureProposal v3` Wire DTO，其中可以同时包含 1–4 个有序角色 slot、core/optional、pace、受证据约束的 objectives 和角色级检索 query。模型没有输出第二份 `PlanningIntent` 或可执行 `PlanSpec`：Harness 从 proposal 投影出内部 `PlanningIntent`（`pace + semantic_request + time_coverage`），再由 `PlanSpecCompiler` 把结构部分编译为一个或多个 concrete `PlanSpec`。optional slot 只存在于 proposal，Compiler 将其有界展开；`PlanSpec` 本身只有确定的有序角色序列。`time_coverage` 由类型化 `PlanRequest.trip_time_scope` 编译而来，只参与软排序和 warning。
 
 用户显式站数/角色由同一个 `PlanSpecCompiler` 预检并保持优先；没有 LLM 提案时，Rule baseline 也由该 Compiler 内的私有工厂直接生成 `PlanSpec`。旧 `PlanSkeleton` 领域模型、注册表和转换 Adapter 已删除。PlanSpecCompiler 负责结构合法性、用户显式结构优先级、证据引用和稳定 ID；它不证明 POI、路线、营业或时间轴可行，这些由搜索、Scheduler、Provider 和 Verifier 处理。
 
@@ -136,7 +136,7 @@ Beam 是默认主路径。Legacy Search 仅通过显式实验模式或 Beam 在�
 - finalist 才调用 Route Provider 重建真实或 replay 时间线；
 - 最终由 Verifier 检查路线、时间窗、营业、预算、距离、返程和 Availability。
 
-当前没有完整 Temporal AST。Planner 只读一个 `PlanningWindow(date, start_at, end_at)`；开始/结束各自携带 `ConstraintValue` 来源，`start_kind` 为 `trip_start | departure`，`end_kind` 为 `trip_end | return_deadline`。Router 仅在时间作用域有歧义时提出轻量 `TimeProposal(target, precision, clock/period, evidence)`。默认窗口可见、可编辑；未提时间采用默认窗口，不因此反问。“早上出去玩”影响整体窗口，“早上出发”只约束出发并可能进入字段级澄清，“晚上八点前回来”以 return deadline 进入硬校验。时间含义来自显式 kind，不由前端或 rule_id 推断。
+当前没有完整 Temporal AST。Planner 只读一个 `PlanningWindow(date, start_at, end_at)`，而 `PlanRequest.trip_time_scope` 单独保留整体粗粒度时间语义；开始/结束各自携带 `ConstraintValue` 来源，`start_kind` 为 `trip_start | departure`，`end_kind` 为 `trip_end | return_deadline`。Router 仅在时间作用域有歧义时提出轻量 `TimeProposal(target, precision, clock/period, evidence)`。默认窗口可见、可编辑；未提时间采用默认窗口，不因此反问。“早上出去玩”影响整体窗口，“早上出发”只约束出发并可能进入字段级澄清，“晚上八点前回来”以 return deadline 进入硬校验。全天覆盖从类型化 `trip_time_scope` 编译，不能从派生窗口或 rule_id 推断；其余时间含义来自显式 kind。
 
 ## 🔌 Provider、数据和降级
 
