@@ -945,16 +945,17 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
         self.assertEqual(missing.plans, [])
         self.assertNotIn("plan_structure", missing.conflict.fields)
-        self.assertIn("time_window", missing.conflict.fields)
+        self.assertIn("required_stop_roles", missing.conflict.fields)
+        self.assertEqual(missing.conflict.code, "NO_CANDIDATES_FOR_REQUIRED_ROLES")
+        self.assertEqual(missing.recovery_reason.stage.value, "retrieval")
         self.assertEqual(budget.plans, [])
         self.assertEqual(budget.conflict.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
         self.assertEqual(budget.conflict.fields, ["budget_per_person"])
-        self.assertEqual(
-            budget.conflict.relaxation_options,
-            ["提高人均预算", "取消严格预算限制"],
-        )
+        self.assertEqual(budget.recovery_reason.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
+        self.assertEqual(budget.recovery_reason.fields, ("budget_per_person",))
         self.assertEqual(unavailable_result.plans, [])
         self.assertIn("availability", unavailable_result.conflict.fields)
+        self.assertEqual(unavailable_result.recovery_reason.stage.value, "availability")
 
     def test_dinner_only_still_rejects_off_anchor_and_closed_restaurants(self) -> None:
         off_anchor = with_planning_window(
@@ -1168,8 +1169,9 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         ).plan(planning_constraints(budget=1_000, time_end="18:00"))
 
         self.assertFalse(result.plans)
-        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_LOCAL_REPLAN")
+        self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_AVAILABILITY")
         self.assertIn("availability", result.conflict.fields)
+        self.assertEqual(result.recovery_reason.diagnostics.rejected_by_availability, 3)
         self.assertLessEqual(availability.calls, 6)
     def test_afternoon_request_can_produce_activity_break_dinner(self) -> None:
         catalog = InMemoryCatalog(
@@ -1474,10 +1476,8 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result.plans, [])
         self.assertEqual(result.conflict.fields, ["opening_hours"])
-        self.assertEqual(
-            result.conflict.relaxation_options,
-            ["调整到店时间或选择营业时段更匹配的地点"],
-        )
+        self.assertEqual(result.recovery_reason.stage.value, "route")
+        self.assertEqual(result.recovery_reason.fields, ("opening_hours",))
         self.assertEqual(len(route_provider.requests), 24)
 
     def test_route_verification_budget_is_counted_by_legs_for_three_stop_plans(self) -> None:
@@ -1977,7 +1977,8 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertEqual(result.plans, [])
         self.assertIsNotNone(result.conflict)
         self.assertIn("duration_minutes", result.conflict.fields)
-        self.assertTrue(any("时长" in item for item in result.conflict.relaxation_options))
+        self.assertEqual(result.recovery_reason.stage.value, "scheduling")
+        self.assertIn("duration_minutes", result.recovery_reason.fields)
 
     def test_strict_budget_does_not_hide_a_duration_conflict(self) -> None:
         catalog = InMemoryCatalog(
@@ -2002,9 +2003,10 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         result = PlanningService(catalog=catalog).plan(constraints)
 
         self.assertEqual(result.plans, [])
-        self.assertEqual(result.conflict.code, "NO_FEASIBLE_PLAN")
+        self.assertEqual(result.conflict.code, "NO_SCHEDULE_WITHIN_TIME_WINDOW")
         self.assertNotIn("双站", result.conflict.message)
         self.assertEqual(result.conflict.fields, ["duration_minutes"])
+        self.assertEqual(result.recovery_reason.stage.value, "scheduling")
 
     def test_unrelated_budget_violation_does_not_hide_a_weather_conflict(self) -> None:
         catalog = InMemoryCatalog(
@@ -2032,7 +2034,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             planning_constraints(budget=100, strict_budget=True, time_end="20:00")
         )
 
-        self.assertEqual(result.conflict.code, "NO_FEASIBLE_PLAN")
+        self.assertEqual(result.conflict.code, "NO_CANDIDATES_FOR_WEATHER")
         self.assertNotIn("双站", result.conflict.message)
         self.assertIn("weather", result.conflict.fields)
         self.assertNotIn("budget_per_person", result.conflict.fields)
@@ -2538,6 +2540,32 @@ class NativePlanningBehaviorTest(unittest.TestCase):
         self.assertEqual(result.plans, [])
         self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
         self.assertIn("total_distance_km", result.conflict.fields)
+
+    def test_local_distance_failure_reports_distance_stage(self) -> None:
+        catalog = InMemoryCatalog(
+            [
+                candidate("activity", ResourceType.ACTIVITY, "城市展览", ["展览"]),
+                candidate("restaurant", ResourceType.RESTAURANT, "附近简餐", ["简餐"]),
+            ]
+        )
+        constraints = planning_constraints(
+            max_distance_km=30, time_end="20:00"
+        ).model_copy(
+            update={
+                "total_distance_km": ConstraintValue[float](
+                    value=0.1,
+                    source=ConstraintSource.USER_EXPLICIT,
+                )
+            }
+        )
+
+        result = PlanningService(catalog=catalog).plan(constraints)
+
+        self.assertEqual(result.plans, [])
+        self.assertEqual(result.conflict.code, "NO_PLAN_WITHIN_DISTANCE")
+        self.assertIn("total_distance_km", result.conflict.fields)
+        self.assertEqual(result.recovery_reason.stage.value, "route")
+        self.assertGreater(result.recovery_reason.diagnostics.rejected_by_route, 0)
 
     def test_diversification_keeps_a_price_diverse_plan_over_a_similar_cheap_one(self) -> None:
         catalog = InMemoryCatalog(

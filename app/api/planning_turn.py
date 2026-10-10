@@ -24,7 +24,7 @@ from app.domain.constraints import (
     PlanRequest,
     RequestPatch,
 )
-from app.domain.planning import Plan
+from app.domain.planning import CandidateSet, Plan
 from app.domain.providers import WeatherFact
 from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
 from app.domain.runtime import RuntimeDecision
@@ -35,6 +35,7 @@ from app.domain.run_trace import (
     RunEventStatus,
     RunStage,
 )
+from app.domain.recovery import RecoveryActionResponse
 from app.domain.semantics import SemanticRequest
 from app.orchestration.entry_graph import EnvironmentProvider, checkpoint_config
 from app.persistence.repositories import SessionRepository
@@ -126,14 +127,26 @@ class PlanningTurnApplication:
             if pending_snapshot.next and pending_snapshot.interrupts
             else None
         )
+        pending_kind = (
+            pending_interrupt.get("kind")
+            if isinstance(pending_interrupt, dict)
+            else None
+        )
         if pending_interrupt is not None and (
             not isinstance(pending_interrupt, dict)
-            or not pending_interrupt.get("clarification_id")
             or pending_interrupt.get("request_revision") is None
+            or (
+                pending_kind == "recovery_choice"
+                and not pending_interrupt.get("interaction_id")
+            )
+            or (
+                pending_kind != "recovery_choice"
+                and not pending_interrupt.get("clarification_id")
+            )
         ):
             raise PlanningApplicationError(
                 status_code=409,
-                detail="当前会话的旧反问状态已失效，请新建规划会话后继续。",
+                detail="当前会话的待处理交互已失效，请新建规划会话后继续。",
             )
 
         pending_values = getattr(pending_snapshot, "values", None) or {}
@@ -145,6 +158,88 @@ class PlanningTurnApplication:
             else PlanRequest.model_validate(active_value) if active_value is not None
             else PlanRequest()
         )
+        recovery_base_value = pending_values.get("recovery_base_request")
+        recovery_base_request = (
+            recovery_base_value
+            if isinstance(recovery_base_value, PlanRequest)
+            else PlanRequest.model_validate(recovery_base_value)
+            if recovery_base_value is not None
+            else None
+        )
+        pending_request_base_value = pending_values.get("pending_request_base")
+        pending_request_base = (
+            pending_request_base_value
+            if isinstance(pending_request_base_value, PlanRequest)
+            else PlanRequest.model_validate(pending_request_base_value)
+            if pending_request_base_value is not None
+            else None
+        )
+        # The committed request remains authoritative for persistence. A
+        # recovery draft is only the base for the recovery card / manual editor.
+        interaction_request = (
+            pending_request_base or recovery_base_request or active_request
+        )
+        planning_edit_request = interaction_request
+        if (
+            pending_kind == "recovery_choice"
+            and request.planning_context_patch is not None
+        ):
+            raise PlanningApplicationError(
+                status_code=409,
+                detail="请先选择恢复卡片中的操作；如需手动调整，请选择“手动调整条件”。",
+            )
+        if pending_kind == "recovery_choice":
+            if request.recovery_action is None:
+                raise PlanningApplicationError(
+                    status_code=409,
+                    detail="当前需要选择一项恢复操作；请使用当前恢复卡片中的操作。",
+                )
+            offered = pending_interrupt.get("actions", ())
+            selected = next(
+                (
+                    item
+                    for item in offered
+                    if isinstance(item, dict)
+                    and item.get("action_id") == request.recovery_action.action_id
+                ),
+                None,
+            )
+            reply = request.recovery_action
+            if (
+                reply.interaction_id != pending_interrupt.get("interaction_id")
+                or reply.request_revision != pending_interrupt.get("request_revision")
+                or reply.request_revision != interaction_request.revision
+                or reply.plan_version_id != pending_interrupt.get("plan_version_id")
+                or selected is None
+            ):
+                _emit_stale_recovery_rejection(event_sink, request.request_id)
+                raise PlanningApplicationError(
+                    status_code=409,
+                    detail="恢复操作已过期，请使用当前卡片中的选项。",
+                )
+            selected_kind = selected.get("kind")
+            if selected_kind == "request_field" and reply.field_value is None:
+                raise PlanningApplicationError(
+                    status_code=422,
+                    detail="该恢复操作需要填写新的条件值。",
+                )
+            if selected_kind != "request_field" and reply.field_value is not None:
+                raise PlanningApplicationError(
+                    status_code=422,
+                    detail="该恢复操作不接受额外字段值。",
+                )
+            if selected_kind == "request_field" and selected.get("input_type") == "choice":
+                if reply.field_value not in selected.get("choices", ()):
+                    raise PlanningApplicationError(
+                        status_code=422,
+                        detail="请选择恢复卡片提供的有效选项。",
+                    )
+        elif request.recovery_action is not None:
+            _emit_stale_recovery_rejection(event_sink, request.request_id)
+            raise PlanningApplicationError(
+                status_code=409,
+                detail="当前会话没有待处理的恢复操作。",
+            )
         if request.replan_current_request:
             if pending_interrupt is not None:
                 raise PlanningApplicationError(
@@ -162,7 +257,7 @@ class PlanningTurnApplication:
         compiled_context_patch: RequestPatch | None = None
         context_patch_issues: tuple[ClarificationIssue, ...] = ()
         if request.planning_context_patch is not None:
-            if request.planning_context_patch.base_revision != active_request.revision:
+            if request.planning_context_patch.base_revision != planning_edit_request.revision:
                 raise PlanningApplicationError(
                     status_code=409,
                     detail="规划条件已更新，请刷新后再修改顶部条件。",
@@ -172,14 +267,21 @@ class PlanningTurnApplication:
                 if isinstance(pending_interrupt, dict)
                 else None
             )
-            if pending_revision is not None and pending_revision != active_request.revision:
+            if pending_revision is not None and pending_revision != interaction_request.revision:
                 raise PlanningApplicationError(
                     status_code=409,
                     detail="当前反问已过期，请先刷新会话后再修改条件。",
                 )
 
         request_content = request.content
-        if request.planning_context_patch is not None:
+        if request.recovery_action is not None:
+            request_content = "[recovery-action]" + json.dumps(
+                request.recovery_action.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        elif request.planning_context_patch is not None:
             request_content = "[planning-context]" + json.dumps(
                 request.planning_context_patch.model_dump(mode="json"),
                 ensure_ascii=False,
@@ -269,6 +371,7 @@ class PlanningTurnApplication:
                 record_user_message=(
                     request.planning_context_patch is None
                     and not request.replan_current_request
+                    and request.recovery_action is None
                 ),
             )
         except ValueError as error:
@@ -292,7 +395,7 @@ class PlanningTurnApplication:
             if request.planning_context_patch is not None:
                 context_edit = self._planning_context_application.compile_edit(
                     request.planning_context_patch,
-                    request=active_request,
+                    request=planning_edit_request,
                     environment=self._environment_provider(actor),
                     pending_field=(
                         pending_interrupt.get("field")
@@ -306,7 +409,9 @@ class PlanningTurnApplication:
             # 否则将它作为新一轮用户目标调用 Graph。前端无需理解 Graph 状态机。
             snapshot = self._graph.get_state(config)
             if snapshot.next and snapshot.interrupts:
-                if compiled_context_patch is not None:
+                if request.recovery_action is not None:
+                    resume_value: object = request.recovery_action.model_dump(mode="json")
+                elif compiled_context_patch is not None:
                     resume_value = {
                         "kind": "planning_context_patch",
                         "clarification_id": pending_interrupt["clarification_id"],
@@ -444,7 +549,19 @@ class PlanningTurnApplication:
             current = self._graph.get_state(config)
             runtime_decisions = _dump_runtime_decisions(result, current)
             if current.next and current.interrupts:
-                question = current.interrupts[0].value
+                interaction_payload = current.interrupts[0].value
+                is_recovery = (
+                    isinstance(interaction_payload, dict)
+                    and interaction_payload.get("kind") == "recovery_choice"
+                )
+                question = None if is_recovery else interaction_payload
+                recovery = interaction_payload if is_recovery else None
+                recovery_summary = (
+                    recovery.get("reason", {}).get("public_summary", "")
+                    if isinstance(recovery, dict)
+                    and isinstance(recovery.get("reason"), dict)
+                    else ""
+                )
                 current_request_value = (getattr(current, "values", None) or {}).get("active_request")
                 current_request = (
                     current_request_value
@@ -453,22 +570,35 @@ class PlanningTurnApplication:
                     if current_request_value is not None
                     else active_request
                 )
+                display_request_value = (
+                    (getattr(current, "values", None) or {}).get("recovery_base_request")
+                )
+                display_request = (
+                    display_request_value
+                    if isinstance(display_request_value, PlanRequest)
+                    else PlanRequest.model_validate(display_request_value)
+                    if display_request_value is not None
+                    else current_request
+                )
+                candidate_set_value = (getattr(current, "values", None) or {}).get("candidate_set")
+                candidate_set = (
+                    candidate_set_value if isinstance(candidate_set_value, CandidateSet) else None
+                )
                 response = AgentResponse(
-                    status="needs_input",
-                    question=question,
+                    status="needs_recovery" if is_recovery else "needs_input",
+                    reply=recovery_summary,
+                    question=question if isinstance(question, dict) else None,
+                    recovery=recovery if isinstance(recovery, dict) else None,
                     assumptions=_dump_assumptions(result),
                     constraint_summary=_dump_constraint_summary(result),
-                    provider_facts=[],
-                    catalog_violations=[],
-                    catalog_warnings=[],
-                    warnings=[],
+                    **_candidate_set_response_fields(candidate_set),
                     poi_presentations=[],
                     runtime_decisions=runtime_decisions,
                     run_trace=run_observer.snapshot(),
                     planning_context=self.project_context(
                         user_id,
                         session_id,
-                        current_request,
+                        display_request,
                         pending_field=question.get("field") if isinstance(question, dict) else None,
                     ),
                 )
@@ -476,19 +606,34 @@ class PlanningTurnApplication:
                     user_id=user_id,
                     session_id=session_id,
                     planning_run_id=run.planning_run_id,
-                    status="needs_input",
+                    status="needs_recovery" if is_recovery else "needs_input",
                     response=response.model_dump(mode="json"),
-                    assistant_content=question["question"],
+                    assistant_content=(
+                        question["question"]
+                        if isinstance(question, dict)
+                        else recovery_summary
+                    ),
                     plans=[],
-                    active_request_json=current_request.model_dump_json(),
+                    active_request_json=active_request.model_dump_json(),
                 )
                 return response
 
             interpretation = result.get("interpretation")
             candidate_set = result.get("candidate_set")
+            recovery_resolution = result.get("recovery_resolution")
             reply = interpretation.reply if interpretation else ""
             plans = candidate_set.plans if candidate_set else []
             conflict = candidate_set.conflict if candidate_set else None
+            if recovery_resolution is not None:
+                candidate_set = None
+                plans = []
+                conflict = None
+                reply = {
+                    "cancel_turn": "已取消本轮规划，原有会话和方案保持不变。",
+                    "start_new_request": "已结束当前规划，可以直接发送新的需求。",
+                    "keep_current_plan": "已保留当前方案，失败的修改没有覆盖它。",
+                    "open_constraint_editor": "请在顶部条件栏手动调整；系统没有擅自修改规划条件。",
+                }.get(recovery_resolution, "恢复操作已结束。")
             context_saved = (
                 request.planning_context_patch is not None
                 and request.defer_planning
@@ -507,6 +652,16 @@ class PlanningTurnApplication:
                     if current_request_value is not None
                     else active_request
                 )
+            display_constraints_value = (
+                (getattr(current, "values", None) or {}).get("recovery_base_request")
+            )
+            display_constraints = (
+                display_constraints_value
+                if isinstance(display_constraints_value, PlanRequest)
+                else PlanRequest.model_validate(display_constraints_value)
+                if display_constraints_value is not None
+                else effective_constraints
+            )
             if plans:
                 reply = present_candidate_set(
                     candidate_set,
@@ -616,36 +771,10 @@ class PlanningTurnApplication:
             response = AgentResponse(
                 status="context_saved" if context_saved else "completed",
                 reply="" if context_saved else reply,
+                recovery_resolution=recovery_resolution,
                 assumptions=_dump_assumptions(result),
                 constraint_summary=_dump_constraint_summary(result),
-                plans=[plan.model_dump(mode="json") for plan in plans],
-                conflict=conflict.model_dump(mode="json") if conflict else None,
-                provider_facts=(
-                    [fact.model_dump(mode="json") for fact in candidate_set.provider_facts]
-                    if candidate_set
-                    else []
-                ),
-                catalog_violations=(
-                    [
-                        item.model_dump(mode="json")
-                        for item in candidate_set.catalog_violations
-                    ]
-                    if candidate_set
-                    else []
-                ),
-                catalog_warnings=(
-                    [
-                        item.model_dump(mode="json")
-                        for item in candidate_set.catalog_warnings
-                    ]
-                    if candidate_set
-                    else []
-                ),
-                warnings=(
-                    [item.model_dump(mode="json") for item in candidate_set.warnings]
-                    if candidate_set
-                    else []
-                ),
+                **_candidate_set_response_fields(candidate_set),
                 poi_presentations=[
                     item.model_dump(mode="json")
                     for item in self._presentation_provider.present_many(
@@ -657,134 +786,7 @@ class PlanningTurnApplication:
                     )
                 ],
                 plan_version_id=plan_version_id,
-                planning_intent_decision=(
-                    candidate_set.planning_intent_decision.model_dump(mode="json")
-                    if candidate_set and candidate_set.planning_intent_decision is not None
-                    else None
-                ),
-                retrieval_evidence=(
-                    [
-                        item.model_dump(mode="json")
-                        for item in candidate_set.retrieval_evidence
-                    ]
-                    if candidate_set
-                    else []
-                ),
                 runtime_decisions=runtime_decisions,
-                retrieval_mode=(candidate_set.retrieval_mode if candidate_set else None),
-                retrieval_index_version=(
-                    candidate_set.retrieval_index_version if candidate_set else None
-                ),
-                search_mode=(candidate_set.search_mode if candidate_set else None),
-                search_beam_width=(
-                    candidate_set.search_beam_width if candidate_set else None
-                ),
-                search_max_expansions=(
-                    candidate_set.search_max_expansions if candidate_set else None
-                ),
-                search_theoretical_combinations=(
-                    candidate_set.search_theoretical_combinations
-                    if candidate_set
-                    else None
-                ),
-                search_expansions=(
-                    candidate_set.search_expansions if candidate_set else None
-                ),
-                search_finalist_count=(
-                    candidate_set.search_finalist_count if candidate_set else None
-                ),
-                search_pruned_by=(
-                    candidate_set.search_pruned_by if candidate_set else {}
-                ),
-                search_traces=(
-                    [
-                        item.model_dump(mode="json")
-                        for item in candidate_set.search_traces
-                    ]
-                    if candidate_set
-                    else []
-                ),
-                primary_search_mode=(
-                    candidate_set.primary_search_mode if candidate_set else None
-                ),
-                legacy_fallback_used=(
-                    candidate_set.legacy_fallback_used if candidate_set else False
-                ),
-                legacy_fallback_reason=(
-                    candidate_set.legacy_fallback_reason if candidate_set else None
-                ),
-                beam_expansions=(
-                    candidate_set.beam_expansions if candidate_set else None
-                ),
-                beam_finalist_count=(
-                    candidate_set.beam_finalist_count if candidate_set else None
-                ),
-                legacy_expansions=(
-                    candidate_set.legacy_expansions if candidate_set else None
-                ),
-                accepted_plan_spec_ids=(
-                    candidate_set.accepted_plan_spec_ids if candidate_set else []
-                ),
-                planning_intent_proposal_schema_version=(
-                    candidate_set.planning_intent_proposal_schema_version
-                    if candidate_set
-                    else None
-                ),
-                planning_intent_proposal_slots=(
-                    candidate_set.planning_intent_proposal_slots
-                    if candidate_set
-                    else []
-                ),
-                planning_intent_proposal_rejected=(
-                    candidate_set.planning_intent_proposal_rejected
-                    if candidate_set
-                    else False
-                ),
-                planning_intent_proposal_compiled=(
-                    candidate_set.planning_intent_proposal_compiled
-                    if candidate_set
-                    else False
-                ),
-                planning_intent_preferred_spec_ids=(
-                    candidate_set.planning_intent_preferred_spec_ids
-                    if candidate_set
-                    else []
-                ),
-                planning_intent_fallback_spec_ids=(
-                    candidate_set.planning_intent_fallback_spec_ids
-                    if candidate_set
-                    else []
-                ),
-                planning_intent_structure_fallback_used=(
-                    candidate_set.planning_intent_structure_fallback_used
-                    if candidate_set
-                    else False
-                ),
-                planning_intent_structure_fallback_attempted=(
-                    candidate_set.planning_intent_structure_fallback_attempted
-                    if candidate_set
-                    else False
-                ),
-                planning_intent_structure_fallback_reason=(
-                    candidate_set.planning_intent_structure_fallback_reason
-                    if candidate_set
-                    else None
-                ),
-                planning_intent_structure_fallback_stage=(
-                    candidate_set.planning_intent_structure_fallback_stage
-                    if candidate_set
-                    else None
-                ),
-                planning_intent_preferred_failure_fields=(
-                    candidate_set.planning_intent_preferred_failure_fields
-                    if candidate_set
-                    else []
-                ),
-                planning_intent_fallback_failure_fields=(
-                    candidate_set.planning_intent_fallback_failure_fields
-                    if candidate_set
-                    else []
-                ),
                 conversation_command=(
                     interpretation.conversation_command.model_dump(mode="json")
                     if interpretation
@@ -815,7 +817,7 @@ class PlanningTurnApplication:
                 planning_context=self.project_context(
                     user_id,
                     session_id,
-                    effective_constraints,
+                    display_constraints,
                     just_planned=bool(plans),
                 ),
             )
@@ -858,6 +860,23 @@ def _dump_assumptions(result: dict) -> list[dict]:
         item.model_dump(mode="json") if hasattr(item, "model_dump") else item
         for item in assumptions
     ]
+
+
+def _candidate_set_response_fields(candidate_set: CandidateSet | None) -> dict[str, Any]:
+    """Project planner evidence once for both completed and recovery responses.
+
+    Recovery is an interaction layered over the failed candidate set, not a
+    replacement for the conflict/provider/search evidence that produced it.
+    Fields that are internal domain-only data are excluded by intersecting the
+    two explicit Pydantic contracts.
+    """
+
+    if candidate_set is None:
+        return {}
+    response_fields = set(AgentResponse.model_fields)
+    candidate_fields = set(CandidateSet.model_fields)
+    shared_fields = (response_fields & candidate_fields) - {"recovery_reason"}
+    return candidate_set.model_dump(mode="json", include=shared_fields)
 
 
 def _dump_runtime_decisions(result: dict, snapshot: object | None = None) -> list[dict]:
@@ -922,6 +941,37 @@ def _modification_reply(plan_diffs: list) -> str:
             f"替换为“{replacement.after_name}”；{locked_text}。"
         )
     return f"找到 {count} 个单站替换方案；{locked_text}，每个候选都已重新核验。"
+
+
+def _emit_stale_recovery_rejection(
+    event_sink: Callable[[PlanningRunEvent], None] | None,
+    request_id: str,
+) -> None:
+    """Emit a safe transient trace for a rejected stale action, if streaming."""
+
+    if event_sink is None:
+        return
+    observer = InMemoryRunObserver(
+        f"recovery-rejected-{request_id}",
+        on_event=event_sink,
+    )
+    observer.record(
+        PlanningRunEventDraft(
+            stage=RunStage.RECOVERY_ACTION,
+            status=RunEventStatus.STARTED,
+            message_key="recovery.action_started",
+            public_message="正在验证恢复操作",
+        )
+    )
+    observer.record(
+        PlanningRunEventDraft(
+            stage=RunStage.RECOVERY_ACTION,
+            status=RunEventStatus.FAILED,
+            message_key="recovery.stale_rejected",
+            public_message="恢复选项已过期，请使用当前卡片中的选项",
+            public_details={"reason_code": "stale_action"},
+        )
+    )
 
 
 def _dump_constraint_summary(result: dict) -> list[ConstraintSummaryItem]:

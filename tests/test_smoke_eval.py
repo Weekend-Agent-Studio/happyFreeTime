@@ -39,7 +39,7 @@ class SmokeEvalTest(unittest.TestCase):
                 "total_distance_km": 0.1,
             },
             "expected_outcome": ExpectedOutcome.CONFLICT,
-            "expected_conflict_code": "NO_FEASIBLE_PLAN",
+            "expected_conflict_code": "NO_PLAN_WITHIN_DISTANCE",
             "expected_conflict_fields": ["total_distance_km"],
             "tags": ["hard_constraint"],
         })

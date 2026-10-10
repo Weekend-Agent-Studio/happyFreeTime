@@ -267,8 +267,9 @@ class ConstraintEngineTest(unittest.TestCase):
         self.assertEqual(request.revision, 0)
 
     def test_departure_must_precede_return_deadline(self) -> None:
+        request = self._ready_request()
         result = self.engine.apply(
-            self._ready_request(),
+            request,
             RequestPatch(
                 base_revision=0,
                 set_fields={
@@ -289,6 +290,28 @@ class ConstraintEngineTest(unittest.TestCase):
         self.assertIsInstance(result, ConflictedRequest)
         self.assertEqual(result.conflict.code, "DEPARTURE_NOT_BEFORE_RETURN_BY")
         self.assertEqual(result.conflict.fields, ["departure_at", "return_by"])
+        self.assertEqual(request.revision, 0)
+        self.assertEqual(request.planning_window.start_at.value, "14:00")
+        self.assertIsNotNone(result.candidate_request)
+        assert result.candidate_request is not None
+        self.assertEqual(result.candidate_request.revision, request.revision)
+
+        recovered = self.engine.apply(
+            result.candidate_request,
+            RequestPatch(
+                base_revision=request.revision,
+                set_fields={
+                    "planning_window.start_at": ConstraintValue[str](
+                        value="19:30",
+                        source=ConstraintSource.USER_EXPLICIT,
+                    ),
+                },
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+        )
+        self.assertIsInstance(recovered, ResolvedRequest)
+        self.assertEqual(recovered.request.revision, request.revision + 1)
+        self.assertEqual(recovered.request.planning_window.start_at.value, "19:30")
 
     def test_strict_budget_without_amount_requests_clarification_atomically(self) -> None:
         request = self._ready_request().model_copy(update={"preferences": ["清淡"]})

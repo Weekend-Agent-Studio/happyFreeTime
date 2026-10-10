@@ -1,4 +1,5 @@
 import tempfile
+import json
 import unittest
 import uuid
 from datetime import date, datetime, timezone
@@ -9,7 +10,21 @@ from fastapi.testclient import TestClient
 
 from app.api.application import create_app
 from app.api.schemas import MessageRequest
-from app.domain.constraints import EventClockProposal, GeoLocation, Intent, Interpretation, PeriodProposal, RawConstraints, StopRole, TimeScope, TripRangeProposal
+from app.domain.constraints import (
+    ConstraintSource,
+    ConstraintValue,
+    EventClockProposal,
+    GeoLocation,
+    Intent,
+    Interpretation,
+    PeriodProposal,
+    PlanRequest,
+    PlanningWindow,
+    RawConstraints,
+    StopRole,
+    TimeScope,
+    TripRangeProposal,
+)
 from app.domain.providers import (
     AvailabilityStatus,
     GeoPoint,
@@ -27,6 +42,7 @@ from app.providers.weather import (
     ReplayWeatherProvider,
     clear_mock_weather,
 )
+from app.orchestration.entry_graph import checkpoint_config
 from app.services.enrichment import EnvironmentContext
 from app.services.catalog import InMemoryCatalog
 from app.services.demo_router import DemoRouter
@@ -46,7 +62,11 @@ def _exact_time(target: str, clock: str, evidence: str) -> EventClockProposal:
 
 
 class RuleRouter(InterpretationRouter):
+    def __init__(self) -> None:
+        self.calls = 0
+
     def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+        self.calls += 1
         if "只安排一家晚饭" in user_input:
             return Interpretation(
                 primary_intent=Intent.PLAN_OUTING,
@@ -253,9 +273,10 @@ class ApiTest(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def _build_app(self):
+        self.router = RuleRouter()
         return create_app(
             database_path=Path(self.temp_dir.name) / "api.db",
-            router=RuleRouter(),
+            router=self.router,
             environment_provider=lambda _: self.environment,
             weather_provider=ReplayWeatherProvider(
                 store=self.replay_store,
@@ -1233,24 +1254,286 @@ class ApiTest(unittest.TestCase):
         self.assertIsNone(weather["degraded_reason"])
         self.assertTrue(any(fact["kind"] == "availability" for fact in facts))
 
+    def test_failed_structured_replacement_keeps_the_active_plan_version(self) -> None:
+        restaurant = candidate(
+            "recovery-restaurant",
+            ResourceType.RESTAURANT,
+            "保留晚餐",
+            ["餐厅"],
+        )
+        activity = candidate(
+            "recovery-activity",
+            ResourceType.ACTIVITY,
+            "原活动",
+            ["展览"],
+        )
+        app = create_app(
+            database_path=Path(self.temp_dir.name) / "failed-replacement.db",
+            router=RuleRouter(),
+            environment_provider=lambda _: self.environment,
+            weather_provider=ReplayWeatherProvider(
+                store=self.replay_store,
+                clock=lambda: datetime(2026, 8, 15, 8, 1, tzinfo=timezone.utc),
+            ),
+            route_provider=FixedReplayRouteProvider(),
+            catalog=InMemoryCatalog([restaurant, activity]),
+        )
+        with TestClient(app) as client:
+            session_id = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            initial_response = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={"request_id": "failed-replacement-create", "content": "今天下午出去玩"},
+            )
+            self.assertEqual(initial_response.status_code, 200, initial_response.text)
+            initial = initial_response.json()["data"]
+            selected_plan = next(
+                plan
+                for plan in initial["plans"]
+                if {stop["resource_id"] for stop in plan["stops"]}
+                >= {"recovery-restaurant", "recovery-activity"}
+            )
+            selected = client.post(
+                f"/api/sessions/{session_id}/plans/{selected_plan['plan_id']}/select",
+                headers=self.headers,
+            )
+            self.assertEqual(selected.status_code, 200, selected.text)
+            target_index = next(
+                index
+                for index, stop in enumerate(selected_plan["stops"])
+                if stop["resource_id"] == "recovery-activity"
+            )
+
+            failed = client.post(
+                f"/api/sessions/{session_id}/messages",
+                headers=self.headers,
+                json={
+                    "request_id": "failed-replacement-attempt",
+                    "content": "换成完全不存在的活动",
+                    "conversation_command": {
+                        "operation": "replace",
+                        "base_plan_version_id": initial["plan_version_id"],
+                        "base_plan_id": selected_plan["plan_id"],
+                        "target": {
+                            "stop_index": target_index,
+                            "resource_id": "recovery-activity",
+                            "role": "activity",
+                            "raw_text": "原活动",
+                        },
+                        "replacement_criteria": [
+                            {
+                                "kind": "semantic",
+                                "text": "绝对不存在的演示检索目标",
+                                "strength": "preferred",
+                            }
+                        ],
+                    },
+                },
+            )
+            self.assertEqual(failed.status_code, 200, failed.text)
+            response = failed.json()["data"]
+            self.assertEqual(response["status"], "needs_recovery")
+            self.assertEqual(response["recovery"]["reason"]["kind"], "modification_failed")
+            self.assertTrue(
+                any(action["kind"] == "keep_current_plan" for action in response["recovery"]["actions"])
+            )
+
+            view = client.get(f"/api/sessions/{session_id}", headers=self.headers).json()["data"]
+            self.assertEqual(view["active_plan_version_id"], initial["plan_version_id"])
+            self.assertEqual(view["selected_plan_id"], selected_plan["plan_id"])
+            self.assertEqual(
+                [plan["plan_id"] for plan in view["plans"]],
+                [plan["plan_id"] for plan in initial["plans"]],
+            )
+
     def test_blocking_question_resumes_on_the_next_message(self) -> None:
         session_id = self._create_session()
+        fixture = json.loads(
+            (Path(__file__).parents[1] / "evals" / "hitl_recovery_multiturn_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        scenario = fixture["cases"][0]
+        first_step, answer_step, stale_step, action_step = scenario["steps"]
 
-        first = self._send_message(session_id, "今天下午出去玩，别超预算")
+        first = self._send_message(session_id, first_step["content"])
 
-        self.assertEqual(first.json()["data"]["status"], "needs_input")
-        self.assertEqual(first.json()["data"]["question"]["field"], "budget_per_person")
+        first_data = first.json()["data"]
+        self.assertEqual(first_data["status"], first_step["expect"]["status"])
+        self.assertEqual(first_data["question"]["field"], first_step["expect"]["question_field"])
+        self.assertEqual(self.router.calls, 1)
 
-        second = self._send_message(session_id, "人均200")
+        second = self._send_message(session_id, answer_step["content"])
 
-        self.assertEqual(second.json()["data"]["status"], "completed")
-        self.assertEqual(second.json()["data"]["plans"], [])
+        recovery = second.json()["data"]
+        self.assertEqual(recovery["status"], answer_step["expect"]["status"])
+        self.assertEqual(recovery["conflict"]["code"], answer_step["expect"]["conflict_code"])
+        self.assertEqual(self.router.calls, 1)
+        self.assertEqual(recovery["plans"], [])
         self.assertEqual(
-            second.json()["data"]["conflict"]["code"],
+            recovery["conflict"]["code"],
             "NO_PLAN_WITHIN_STRICT_BUDGET",
         )
+        self.assertTrue(
+            any(fact["kind"] == "weather" for fact in recovery["provider_facts"])
+        )
+        self.assertIn("search_traces", recovery)
+        self.assertEqual(recovery["recovery"]["reason"]["code"], answer_step["expect"]["conflict_code"])
+        waiting_recovery_events = [
+            event
+            for event in recovery["run_trace"]["events"]
+            if event["stage"] == "recovery"
+        ]
+        self.assertEqual(
+            [event["status"] for event in waiting_recovery_events],
+            ["started", "waiting_input"],
+        )
+        top_bar_edit_while_recovery_is_pending = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "content": "改一下地点",
+                "planning_context_patch": {
+                    "base_revision": recovery["recovery"]["request_revision"],
+                    "where": {"operation": "set", "value": "朝阳区"},
+                },
+            },
+        )
+        self.assertEqual(top_bar_edit_while_recovery_is_pending.status_code, 409)
+        relax_budget = next(
+            item
+            for item in recovery["recovery"]["actions"]
+            if item["action_id"].startswith(stale_step["action_id_prefix"])
+        )
+        stale = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "content": "按这个条件尝试",
+                "recovery_action": {
+                    "interaction_id": "stale-interaction",
+                    "action_id": relax_budget["action_id"],
+                    "request_revision": relax_budget["request_revision"],
+                    "plan_version_id": relax_budget["plan_version_id"],
+                },
+            },
+        )
+        self.assertEqual(stale.status_code, stale_step["expect_http_status"])
+        latest = self._session_view(session_id)["latest_response"]
+        self.assertEqual(
+            latest["recovery"]["interaction_id"],
+            recovery["recovery"]["interaction_id"],
+        )
 
-    def test_blocking_question_exposes_options_and_accepts_scoped_reply(self) -> None:
+        self.assertEqual(
+            action_step["content_source"],
+            "action_label",
+            "typed action transcripts must exercise the UI's label content, not natural-language interpretation",
+        )
+
+        resumed = self.client.post(
+            f"/api/sessions/{session_id}/messages",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "content": relax_budget["label"],
+                "recovery_action": {
+                    "interaction_id": recovery["recovery"]["interaction_id"],
+                    "action_id": relax_budget["action_id"],
+                    "request_revision": relax_budget["request_revision"],
+                    "plan_version_id": relax_budget["plan_version_id"],
+                },
+            },
+        )
+        self.assertEqual(resumed.status_code, 200, resumed.text)
+        resumed_data = resumed.json()["data"]
+        self.assertEqual(resumed_data["status"], action_step["expect"]["status"])
+        self.assertGreaterEqual(len(resumed_data["plans"]), action_step["expect"]["minimum_plans"])
+        self.assertEqual(self.router.calls, scenario["expected_router_calls"])
+        self.assertEqual(self.router.calls, 1)
+        events = resumed.json()["data"]["run_trace"]["events"]
+        for stage in ("recovery", "recovery_action"):
+            stage_events = [event for event in events if event["stage"] == stage]
+            self.assertEqual(
+                [event["status"] for event in stage_events],
+                ["started", "completed"],
+            )
+
+    def test_session_projects_recovery_draft_and_only_commits_resolved_editor_patch(self) -> None:
+        session_id = self._create_session()
+        graph = self.client.app.state.planning_turn_application._graph
+        committed = PlanRequest()
+        draft = PlanRequest(
+            revision=0,
+            planning_window=PlanningWindow(
+                date=ConstraintValue(
+                    value=date(2026, 10, 10),
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="明天",
+                ),
+                start_at=ConstraintValue(
+                    value="09:00",
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="09:00",
+                ),
+                end_at=ConstraintValue(
+                    value="18:00",
+                    source=ConstraintSource.USER_EXPLICIT,
+                    raw_text="18:00",
+                ),
+            ),
+            location=ConstraintValue(
+                value=GeoLocation(
+                    city="北京市",
+                    district="朝阳区",
+                    address="未提交的恢复草稿",
+                    latitude=39.92,
+                    longitude=116.44,
+                ),
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text="草稿位置",
+            ),
+            budget_per_person=ConstraintValue(
+                value=200,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text="人均200",
+            ),
+            strict_budget=True,
+        )
+        graph.update_state(
+            checkpoint_config(session_id),
+            {"active_request": committed, "recovery_base_request": draft},
+        )
+
+        before = self.client.get(
+            f"/api/sessions/{session_id}", headers=self.headers
+        ).json()["data"]
+        self.assertEqual(before["planning_context"]["where"]["display_value"], "未提交的恢复草稿")
+        self.assertEqual(before["planning_context"]["budget"]["value"]["amount"], 200)
+        self.assertIsNone(before["active_constraints"])
+
+        saved = self.client.patch(
+            f"/api/sessions/{session_id}/planning-context",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "patch": {
+                    "base_revision": 0,
+                    "budget": {"mode": "per_person", "amount": 350, "strict": False},
+                },
+            },
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        after = self.client.get(
+            f"/api/sessions/{session_id}", headers=self.headers
+        ).json()["data"]
+        self.assertEqual(after["active_constraints"]["location"]["value"]["address"], "未提交的恢复草稿")
+        self.assertEqual(after["active_constraints"]["budget_per_person"]["value"], 350)
+        self.assertFalse(after["active_constraints"]["strict_budget"])
+
+    def test_blocking_question_exposes_options_and_scoped_reply_can_surface_recovery(self) -> None:
         session_id = self._create_session()
         first = self._send_message(session_id, "今天下午出去玩，别超预算")
         body = first.json()["data"]
@@ -1274,7 +1557,11 @@ class ApiTest(unittest.TestCase):
             },
         )
         self.assertEqual(second.status_code, 200, second.text)
-        self.assertEqual(second.json()["data"]["status"], "completed")
+        self.assertEqual(second.json()["data"]["status"], "needs_recovery")
+        self.assertEqual(
+            second.json()["data"]["conflict"]["code"],
+            "NO_PLAN_WITHIN_STRICT_BUDGET",
+        )
 
     def test_stale_clarification_reply_is_rejected_before_new_run(self) -> None:
         session_id = self._create_session()
@@ -1322,7 +1609,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(cancelled.json()["data"]["status"], "completed")
         self.assertIn("取消", cancelled.json()["data"]["reply"])
 
-    def test_sqlite_checkpoint_restores_pending_question_after_app_restart(self) -> None:
+    def test_sqlite_checkpoint_restores_question_before_recovery_after_app_restart(self) -> None:
         database_path = Path(self.temp_dir.name) / "clarification-restart.db"
         with TestClient(
             create_app(
@@ -1366,7 +1653,11 @@ class ApiTest(unittest.TestCase):
                 },
             )
         self.assertEqual(resumed.status_code, 200, resumed.text)
-        self.assertEqual(resumed.json()["data"]["status"], "completed")
+        self.assertEqual(resumed.json()["data"]["status"], "needs_recovery")
+        self.assertEqual(
+            resumed.json()["data"]["conflict"]["code"],
+            "NO_PLAN_WITHIN_STRICT_BUDGET",
+        )
 
     def test_other_user_cannot_read_or_write_the_session(self) -> None:
         session_id = self._create_session()

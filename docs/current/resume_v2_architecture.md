@@ -1,6 +1,6 @@
 # Resume V2 当前架构
 
-_Resume V2 当前实现快照；核对日期：2026-10-07。S-CORE2A–E 与 S-CORE3A–H4 已在当前架构分支完成；发布 tag 仍是冻结评测基线。_
+_Resume V2 当前实现快照；核对日期：2026-10-09。S-CORE2A–E 与 S-CORE3A–H4 已在主线完成；S-HITL1–4 的恢复实现正在 `codex/s-hitl-recovery` 验收，尚未合入或发布。_
 
 ---
 
@@ -41,6 +41,7 @@ flowchart TB
         app --> turn[🧠 Router / DemoRouter + DecisionContext]
         turn --> action[⚙️ TurnCompiler → CompiledNextAction]
         action --> compile[⚙️ Request/Patch Workflow]
+        action -->|ModifySelectedPlan| modify[✏️ 定向方案修改]
         compile --> engine{🧭 ConstraintEngine}
         engine -->|NeedsClarification| policy[❓ ReadinessPolicy / QuestionPolicy]
         policy --> pause[🔒 Interrupt and SQLite checkpoint]
@@ -48,6 +49,15 @@ flowchart TB
         engine -->|Resolved| ready[✅ RequestReadinessPolicy]
         ready -->|ready| intent[🧠 PlanningIntent projection]
         engine -->|Conflict| conflict[⚠️ Structured conflict]
+        engine -->|硬约束冲突| recovery[⚖️ RecoveryPolicy]
+        verify -->|无可行方案| failure[RecoveryReasonAdapter]
+        modify -->|修改失败| failure
+        failure --> recovery
+        recovery -->|默认条件且本轮未尝试| auto[一次有界自动恢复]
+        auto --> patch
+        recovery -->|需用户决定| recovery_pause[恢复选择 interrupt]
+        recovery_pause -->|typed RecoveryAction| recovery_action[应用 Patch / 字段值]
+        recovery_action --> engine
         topbar[顶部栏 typed Patch] --> patch[RequestPatch]
         reply[字段级反问回答] --> patch
         action -->|ApplyRequestPatch| patch
@@ -63,7 +73,7 @@ flowchart TB
         facts --> verify[🛡️ Verifier and bounded repair]
     end
 
-    verify --> advice[🧠 Grounded Advisor or rule fallback]
+    verify -->|成功| advice[🧠 Grounded Advisor or rule fallback]
     advice --> state[💾 Plan Version and Session Snapshot]
     state --> output([📤 CandidateSet, conflict, or question])
     output --> api
@@ -95,6 +105,16 @@ H4 后，Graph 运行时只接受 `interpret_with_runtime() -> TurnInterpreterRe
 `ConstraintEngine` 的结果分为 `ResolvedRequest`、`NeedsClarification` 和 `ConflictedRequest`。`QuestionPolicy` 只处理结构化 Issue 与当前交互条件，以确定性规则决定是否阻断并渲染模板问题；它不从 `RawConstraints` 或用户原话里二次抽取约束，也不调用 LLM。`RawConstraints` 仍是 Router Proposal 的有限抽取 DTO，不是 Planner 输入或执行状态。
 
 反问由 `interrupt/resume` 恢复。每个待问 Issue 绑定 `clarification_id + request_revision`；用户回答由字段 Compiler 限定在当前字段，顶部栏 Patch 可解决对应 Issue。旧 ID/revision 被拒绝为明确的 stale 状态；有效回答不会把整段对话重新送回 Router。
+
+### Planning failure recovery（S-HITL1–4 验收中）
+
+字段反问与规划失败恢复是两种策略、同一类 Graph 交互：`QuestionPolicy` 处理缺失/模糊字段；`RecoveryPolicy` 处理硬冲突、无可行方案和定向修改失败。失败先由 `RecoveryReasonAdapter` 从原始 `ConstraintConflict`、搜索统计和 Provider finding 投影出带真实阶段、字段与安全诊断的 `RecoveryReason`；底层 finding 仍保留，不让 Planner 依赖 UI 动作。
+
+`RecoveryPolicy` 只读取结构化请求和失败事实，返回有限判别联合 `RecoveryAction`。动作 payload 才是执行依据，label 只用于展示；点击动作不重新调用 Router。恢复 Patch 仍由 `ConstraintEngine` 原子校验，成功后回到原 Planning 或 Modification 路径。旧的 `relaxation_options` 字符串按钮及前端 label→意图映射已删除。
+
+系统只允许对来源为 `DEFAULT_RULE`、`DERIVED` 或 `SYSTEM_CONTEXT` 的默认/内部距离条件进行一次自动尝试；显式或用户推断的限制必须由用户确认。自动动作先经 ConstraintEngine 预检，本轮 `auto_recovery_attempted` 后不再自动尝试；再次失败转为用户可选的 RecoveryChoice。修改失败不创建 Plan Version 或不完整 PlanDiff，并保留“保留当前方案”选项。顶部栏直接编辑在恢复卡片待处理时被拒绝；选择“手动调整条件”后，原约束草稿才交给顶部栏，不会提前覆盖已提交请求。
+
+Graph 的待处理交互是 `FieldClarificationInteraction | RecoveryChoiceInteraction`；恢复响应绑定 `interaction_id + action_id + request_revision + plan_version_id`，旧操作、错版本和重复动作被拒绝。恢复状态由版本化 checkpoint namespace 隔离，开发旧 checkpoint 不做迁移。HITL Fixture 当前覆盖 9 个确定性失败→动作合同；它不是完整的真实模型多轮成功率基准。Graph/API 的人工恢复覆盖和发布级 C/B 评测仍以 S-HITL 收口报告为准。
 
 ### CREATE、约束修改与局部替换
 
@@ -161,7 +181,7 @@ Beam 是默认主路径。Legacy Search 仅通过显式实验模式或 Beam 在�
 
 Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单、预订、叫车或长期用户记忆模块。
 
-当前 Graph 状态以 `active_request`、一个 `pending_issue`、待应用 Patch、方案/候选结果和运行诊断为主；Enrichment 结果只作为瞬时输出，假设与地理编码事实按需单独存储。`CHECKPOINT_SCHEMA_VERSION=planner-core3e-v1`。Repository 是 `PlanRequest`、PlanVersion 和 selected plan 的产品事实来源；其中尚未生成 PlanVersion 的草稿/最新编辑请求也写入 SessionSnapshot，checkpoint 只保存暂停位置、pending interaction 和本轮临时状态。旧开发 checkpoint 不做读取 Adapter，需新建开发会话；本轮不主动删除用户本地消息和历史记录。
+当前 Graph 状态以 `active_request`、一个 `pending_interaction`、待应用 Patch、方案/候选结果和运行诊断为主；恢复阶段另保存当前失败事实、未提交的冲突草稿、自动恢复标记和已用动作 ID。Enrichment 结果只作为瞬时输出，假设与地理编码事实按需单独存储。S-HITL 使用 `CHECKPOINT_SCHEMA_VERSION=planner-hitl1-v1`，旧开发 checkpoint 不做读取 Adapter，需新建开发会话；本轮不主动删除用户本地消息和历史记录。Repository 是 `PlanRequest`、PlanVersion 和 selected plan 的产品事实来源；尚未生成 PlanVersion 的已保存请求也写入 SessionSnapshot，checkpoint 只保存暂停位置、pending interaction 和本轮临时状态。
 
 ## 📊 当前评测证据
 
@@ -199,6 +219,7 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 | 语义入口 | app/services/router_extractor.py、app/services/demo_router.py |
 | 请求编译与执行 | app/services/enrichment.py、app/services/request_patch_compiler.py、app/services/request_patch_update.py、app/services/constraint_engine.py |
 | 反问策略与恢复 | app/services/question_policy.py、app/services/clarification_patch.py、app/services/clarification.py |
+| 规划失败恢复 | app/domain/recovery.py、app/services/recovery_policy.py、app/services/recovery_reason_adapter.py |
 | 规划与结构 | app/services/planning.py、app/services/planning_intent.py、app/services/plan_spec_compiler.py |
 | Provider | app/providers/ |
 | 持久化 | app/persistence/ |

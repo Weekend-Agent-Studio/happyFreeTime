@@ -43,7 +43,7 @@ import {
 
 import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessageStream, updatePlanningContext } from "./api";
 import { AmapPlanMap } from "./AmapPlanMap";
-import { clarificationSection, PlanningContextBar, type ContextSection } from "./PlanningContextBar";
+import { clarificationSection, PlanningContextBar, type ContextOpenTarget } from "./PlanningContextBar";
 import { projectRunProgress, type RunStageViewModel } from "./runProgress";
 import type {
   AgentResponse,
@@ -60,6 +60,9 @@ import type {
   PlanWarning,
   PoiPresentation,
   ProviderFact,
+  RecoveryAction,
+  RecoveryActionRequest,
+  RecoveryChoice,
   RecommendationAdvice,
   ReplacementCriterion,
   RouteLeg,
@@ -174,6 +177,7 @@ function statusLabel(status: string): string {
     active: "等待开始",
     running: "规划中",
     needs_input: "待补充信息",
+    needs_recovery: "等待选择恢复操作",
     completed: "已生成方案",
     failed: "上次失败",
   };
@@ -185,6 +189,8 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     status: response.status ?? "completed",
     reply: response.reply ?? "",
     question: response.question ?? null,
+    recovery: response.recovery ?? null,
+    recovery_resolution: response.recovery_resolution ?? null,
     assumptions: response.assumptions ?? [],
     constraint_summary: response.constraint_summary ?? [],
     plans: response.plans ?? [],
@@ -528,7 +534,7 @@ function App() {
   const [error, setError] = useState("");
   const [response, setResponse] = useState<AgentResponse | null>(null);
   const [planningContext, setPlanningContext] = useState<PlanningContextSummary | null>(null);
-  const [contextFocus, setContextFocus] = useState<ContextSection | null>(null);
+  const [contextFocus, setContextFocus] = useState<ContextOpenTarget | null>(null);
   const [inspectedResponse, setInspectedResponse] = useState<AgentResponse | null>(null);
   const [viewedPlanId, setViewedPlanId] = useState<string | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
@@ -539,7 +545,7 @@ function App() {
   const [newRequestMode, setNewRequestMode] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 900px)");
-  const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string; conversationCommand?: ConversationCommand; clarificationReply?: ClarificationReply } | null>(null);
+  const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string; conversationCommand?: ConversationCommand; clarificationReply?: ClarificationReply; recoveryAction?: RecoveryActionRequest } | null>(null);
   const [replacementDraft, setReplacementDraft] = useState<ReplacementDraft | null>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -653,15 +659,15 @@ function App() {
     conversationEndRef.current?.scrollIntoView?.({ block: "end", behavior: loading ? "smooth" : "auto" });
   }, [loading, messages, restoring]);
 
-  async function submit(content: string, conversationCommand?: ConversationCommand, clarificationReply?: ClarificationReply) {
-    const trimmed = content.trim() || (
+  async function submit(content: string, conversationCommand?: ConversationCommand, clarificationReply?: ClarificationReply, recoveryAction?: RecoveryActionRequest) {
+    const trimmed = content.trim() || (recoveryAction ? "选择恢复操作" :
       replacementDraft
         ? `更换第 ${replacementDraft.stopIndex + 1} 站`
         : ""
     );
     if (!trimmed || loading || restoring) return;
     const effectiveClarificationReply = clarificationReply ?? (
-      response?.question?.clarification_id && !conversationCommand
+      response?.question?.clarification_id && !conversationCommand && !recoveryAction
         ? {
           clarification_id: response.question.clarification_id,
           request_revision: response.question.request_revision,
@@ -690,10 +696,12 @@ function App() {
           === JSON.stringify(conversationCommand ?? null)
         && JSON.stringify(failedRequest.clarificationReply ?? null)
           === JSON.stringify(effectiveClarificationReply ?? null)
+        && JSON.stringify(failedRequest.recoveryAction ?? null)
+          === JSON.stringify(recoveryAction ?? null)
       );
       const requestId = isRetry ? failedRequest.requestId : crypto.randomUUID();
-      if (!isRetry) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
-      setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply });
+      if (!isRetry && !recoveryAction) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
+      setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply, recoveryAction });
       const nextResponse = await sendMessageStream(
         activeSession,
         trimmed,
@@ -704,9 +712,11 @@ function App() {
         }),
         conversationCommand,
         effectiveClarificationReply,
+        recoveryAction,
       );
       setFailedRequest(null);
-      setNewRequestMode(false);
+      setNewRequestMode(nextResponse.recovery_resolution === "start_new_request");
+      if (nextResponse.recovery_resolution === "open_constraint_editor") setContextFocus("all");
       setResponse(nextResponse);
       setPlanningContext(nextResponse.planning_context ?? null);
       if (nextResponse.plans.length) {
@@ -853,6 +863,21 @@ function App() {
     );
   }
 
+  function onRecoveryAction(
+    action: RecoveryAction,
+    interaction: RecoveryChoice,
+    fieldValue?: string,
+  ) {
+    if (loading || restoring) return;
+    void submit(action.label, undefined, undefined, {
+      interaction_id: interaction.interaction_id,
+      action_id: action.action_id,
+      request_revision: action.request_revision,
+      plan_version_id: action.plan_version_id,
+      ...(fieldValue !== undefined ? { field_value: fieldValue } : {}),
+    });
+  }
+
   function resetSession() {
     sessionIdRef.current = null;
     activePlanVersionIdRef.current = null;
@@ -967,7 +992,7 @@ function App() {
       <AppHeader
         sessionTitle={recentSessions.find((item) => item.session_id === sessionId)?.title ?? "周末规划"}
         context={planningContext}
-        busy={loading || restoring}
+        busy={loading || restoring || Boolean(response?.recovery)}
         externalOpen={contextFocus}
         onExternalOpenHandled={() => setContextFocus(null)}
         onSave={updateContext}
@@ -985,6 +1010,7 @@ function App() {
                 key={message.id}
                 message={message}
                 loading={loading || restoring}
+                activeRecoveryInteractionId={response?.recovery?.interaction_id ?? null}
                 selectedPlan={message.response === detailResponse ? inspectorPlan : message.response?.plans[0]}
                 selectedPlanId={selectedPlanId}
                 showMobileDetails={Boolean(isMobile && !mobileDetailOpen && message.response === detailResponse)}
@@ -993,8 +1019,8 @@ function App() {
                  onOpenInspector={() => message.response && openInspectorForResponse(message.response, "trip")}
                  onOpenRoute={(index) => message.response && openInspectorForResponse(message.response, "map", index)}
                  onReplaceStop={startReplacement}
-                 onChooseConflict={setInput}
                  onClarificationOption={(option) => message.response?.question && onClarificationOption(option, message.response.question)}
+                 onRecoveryAction={(action, interaction, value) => onRecoveryAction(action, interaction, value)}
                  onOpenContext={() => openContextForClarification(message.response?.question?.field)}
               />)}
               {loading ? <ThinkingRow events={progressEvents} /> : null}
@@ -1023,13 +1049,13 @@ function App() {
               </div>
             </section>
           ) : null}
-          {response?.question ? <div className="clarification-status" role="status">{newRequestMode ? "正在输入新的规划需求" : `正在回答：${response.question.field ?? "待补充信息"}`}</div> : null}
+          {response?.recovery ? <div className="clarification-status" role="status">请选择上方恢复操作；这些操作会按当前条件重新检查。</div> : response?.question || newRequestMode ? <div className="clarification-status" role="status">{newRequestMode ? "正在输入新的规划需求" : `正在回答：${response?.question?.field ?? "待补充信息"}`}</div> : null}
           <form className="composer" onSubmit={onSubmit}>
-            <label className="sr-only" htmlFor="planning-input">{response?.question ? (newRequestMode ? "输入新的规划需求" : "补充这个信息后继续") : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
+            <label className="sr-only" htmlFor="planning-input">{response?.recovery ? "请先选择恢复操作" : response?.question ? (newRequestMode ? "输入新的规划需求" : "补充这个信息后继续") : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
             <div className="composer-row">
               <div className="composer-tools" aria-hidden="true"><Plus size={19} /><Compass size={18} /><Settings2 size={18} /></div>
-              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={newRequestMode ? "描述新的规划需求……" : response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring} />
-              <button type="submit" disabled={loading || restoring || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
+              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.recovery ? "请先选择上方的恢复方式" : newRequestMode ? "描述新的规划需求……" : response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring || Boolean(response?.recovery)} />
+              <button type="submit" disabled={loading || restoring || Boolean(response?.recovery) || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
             </div>
           </form>
         </div>
@@ -1062,7 +1088,7 @@ function AppHeader({ sessionTitle, context, busy, externalOpen, onExternalOpenHa
   sessionTitle: string;
   context: PlanningContextSummary | null;
   busy: boolean;
-  externalOpen: ContextSection | null;
+  externalOpen: ContextOpenTarget | null;
   onExternalOpenHandled: () => void;
   onSave: (patch: PlanningContextPatch) => Promise<void>;
   onReplan: () => Promise<void>;
@@ -1164,9 +1190,66 @@ function ButlerAvatar() {
   return <span className="butler-avatar" aria-hidden="true"><Compass size={18} /></span>;
 }
 
-function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onChooseConflict, onClarificationOption, onOpenContext }: {
+function RecoveryCard({ interaction, loading, active, onChoose }: {
+  interaction: RecoveryChoice;
+  loading: boolean;
+  active: boolean;
+  onChoose: (action: RecoveryAction, interaction: RecoveryChoice, fieldValue?: string) => void;
+}) {
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const heading = interaction.reason.kind === "hard_conflict"
+    ? "当前条件存在冲突"
+    : interaction.reason.kind === "modification_failed"
+      ? "这次修改暂未成功"
+      : "当前条件下暂未找到可行方案";
+
+  return (
+    <section className="recovery-card" role="group" aria-label="规划恢复选项">
+      <div className="recovery-card-heading"><CircleAlert size={16} aria-hidden="true" /><strong>{heading}</strong></div>
+      <p>{interaction.reason.public_summary}</p>
+      {!active ? <small className="recovery-resolved-note">此恢复选项已结束，不能重复执行。</small> : null}
+      {active ? (
+      <div className="recovery-action-list">
+        {interaction.actions.map((action) => action.kind === "request_field" ? (
+          <div className="recovery-field-action" key={action.action_id}>
+            <strong>{action.label}</strong>
+            {action.description ? <small>{action.description}</small> : null}
+            {action.input_type === "choice" ? (
+              <div className="recovery-choice-options">
+                {action.choices.map((choice) => (
+                  <button type="button" key={choice} disabled={loading} onClick={() => onChoose(action, interaction, choice)}>{choice}</button>
+                ))}
+              </div>
+            ) : (
+              <div className="recovery-field-entry">
+                <input
+                  aria-label={action.label}
+                  type={action.input_type === "number" ? "number" : action.input_type === "clock" ? "time" : "text"}
+                  value={fieldValues[action.action_id] ?? ""}
+                  onChange={(event) => setFieldValues((current) => ({ ...current, [action.action_id]: event.target.value }))}
+                  disabled={loading || !active}
+                />
+                <button type="button" disabled={loading || !active || !(fieldValues[action.action_id] ?? "").trim()} onClick={() => onChoose(action, interaction, fieldValues[action.action_id])}>{action.label}</button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button className="recovery-action-button" type="button" key={action.action_id} disabled={loading || !active} onClick={() => onChoose(action, interaction)}>
+            <span>{action.label}</span>
+            {action.description ? <small>{action.description}</small> : null}
+          </button>
+        ))}
+      </div>
+      ) : null}
+      {active ? <small className="recovery-safety-note">选择项会按当前条件重新校验；系统不会保证调整后一定有方案。</small> : null}
+    </section>
+  );
+}
+
+function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onClarificationOption, onRecoveryAction, onOpenContext }: {
   message: ChatMessage;
   loading: boolean;
+  activeRecoveryInteractionId: string | null;
   selectedPlan?: Plan;
   selectedPlanId: string | null;
   showMobileDetails: boolean;
@@ -1175,8 +1258,8 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
   onOpenInspector: () => void;
   onOpenRoute: (legIndex: number) => void;
   onReplaceStop: (plan: Plan, stopIndex: number) => void;
-  onChooseConflict: (option: string) => void;
   onClarificationOption: (option: ClarificationOption) => void;
+  onRecoveryAction: (action: RecoveryAction, interaction: RecoveryChoice, fieldValue?: string) => void;
   onOpenContext: () => void;
 }) {
   const usesStructuredResponse = Boolean(
@@ -1184,6 +1267,7 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
       message.response.plans.length > 0
       || message.response.conflict
       || message.response.question?.options?.length
+      || message.response.recovery
     ),
   );
   return (
@@ -1205,10 +1289,17 @@ function ChatBubble({ message, loading, selectedPlan, selectedPlanId, showMobile
             {message.response.question.allow_free_text === false ? <small>请使用上面的选项继续，避免重复询问。</small> : <small>也可以在下方直接输入。</small>}
           </section>
         ) : null}
+        {message.response?.recovery ? (
+          <RecoveryCard
+            interaction={message.response.recovery}
+            loading={loading}
+            active={activeRecoveryInteractionId === message.response.recovery.interaction_id && message.response.status === "needs_recovery"}
+            onChoose={onRecoveryAction}
+          />
+        ) : null}
         {message.response?.conflict ? (
           <section className="conflict-panel" role="status">
             <strong>{message.response.conflict.message}</strong>
-            <div>{message.response.conflict.relaxation_options.map((option) => <button type="button" key={option} onClick={() => onChooseConflict(option)}>{option}</button>)}</div>
           </section>
         ) : null}
         {message.response?.plans.length ? (

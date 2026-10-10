@@ -96,6 +96,8 @@ PlanRequest
 
 用户在 When 面板选择日期，或回答“早上九点”。这两种输入都由对应 Adapter 产生类型化 `RequestPatch`，绕过 Router，但仍经过同一个 `ConstraintEngine`。缺少 Planner 必需字段时，`RequestReadinessPolicy` 交给 `QuestionPolicy`，Graph 用 interrupt/checkpoint 暂停；恢复时只更新待补字段，并校验 clarification ID 和 request revision。
 
+规划失败恢复与字段反问是两种策略，不是一个开放 Agent Loop：字段缺失或模糊由 `QuestionPolicy` 提问；硬冲突、无可行方案和修改失败由 `RecoveryPolicy` 根据结构化失败事实给出有限 `RecoveryAction`。只有系统默认的距离限制允许自动尝试放宽一次；显式约束必须由用户确认。按钮携带 action ID 和类型化 payload，不再把按钮文案送回 Router；恢复 Patch 仍由 `ConstraintEngine` 校验，并复用原规划/修改链路。该恢复实现目前仍在独立分支验收，发布结论以完整 API、前端和 C/B 回归通过后的报告为准。
+
 ## 这次重构没有改变什么
 
 S-CORE3 主要收敛控制面，不是重写 Planner。Catalog 过滤、Hybrid Retrieval、Beam 搜索、时间轴、Provider 和 Verifier 仍是独立的确定性执行层；Advisor 也在 Graph 外部，只能引用已验证的 Plan/Evidence/Fact。没有在本轮引入长期记忆、MCP、真实预订、完整 Temporal AST 或新的搜索算法。

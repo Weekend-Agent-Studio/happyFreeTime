@@ -152,7 +152,7 @@
       "total_distance_km": 0.1
     },
     "expected_outcome": "conflict",
-    "expected_conflict_code": "NO_FEASIBLE_PLAN",
+    "expected_conflict_code": "NO_PLAN_WITHIN_DISTANCE",
     "expected_conflict_fields": ["total_distance_km"],
     "tags": ["planning", "total_distance", "conflict", "hard_constraint"]
   },
@@ -174,7 +174,7 @@
       "max_distance_km": 0.1
     },
     "expected_outcome": "conflict",
-    "expected_conflict_code": "NO_FEASIBLE_PLAN",
+    "expected_conflict_code": "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
     "expected_conflict_fields": ["max_distance_km"],
     "tags": ["planning", "max_distance", "hard_constraint"]
   },

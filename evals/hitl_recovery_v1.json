@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "suite": "hitl_recovery_policy_contract_v1",
+  "review_status": "reviewed deterministic recovery-contract cases",
+  "scope_note": "These cases validate failure-to-action policy contracts. Graph interrupt/resume behavior is exercised by tests/test_entry_graph.py; this file is not a live-model or full conversation success benchmark.",
+  "cases": [
+    {
+      "case_id": "default_distance_can_auto_recover_once",
+      "request": {
+        "revision": 0,
+        "max_distance_km": {
+          "value": 8,
+          "source": "default_rule",
+          "rule_id": "distance.default.v1"
+        }
+      },
+      "reason": {
+        "code": "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
+        "kind": "no_feasible_plan",
+        "stage": "retrieval",
+        "fields": ["max_distance_km"],
+        "request_revision": 0,
+        "public_summary": "当前搜索范围内没有足够候选。",
+        "diagnostics": {
+          "current_max_distance_km": 8,
+          "nearest_candidate_distance_km": 10.6,
+          "constraint_sources": {"max_distance_km": "default_rule"}
+        }
+      },
+      "expected": {
+        "auto_action": true,
+        "distance_patch": 11,
+        "required_action_kinds": ["apply_request_patch", "open_constraint_editor"]
+      }
+    },
+    {
+      "case_id": "explicit_distance_requires_confirmation",
+      "request": {
+        "revision": 2,
+        "max_distance_km": {
+          "value": 8,
+          "source": "user_explicit",
+          "raw_text": "八公里内"
+        }
+      },
+      "reason": {
+        "code": "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
+        "kind": "no_feasible_plan",
+        "stage": "retrieval",
+        "fields": ["max_distance_km"],
+        "request_revision": 2,
+        "public_summary": "当前搜索范围内没有足够候选。",
+        "diagnostics": {
+          "current_max_distance_km": 8,
+          "nearest_candidate_distance_km": 10.6,
+          "constraint_sources": {"max_distance_km": "user_explicit"}
+        }
+      },
+      "expected": {
+        "auto_action": false,
+        "distance_patch": 11,
+        "distance_patch_source": "session_confirmed",
+        "required_action_kinds": ["apply_request_patch", "open_constraint_editor"]
+      }
+    },
+    {
+      "case_id": "departure_after_return_offers_field_repairs",
+      "request": {
+        "revision": 4,
+        "planning_window": {
+          "start_at": {"value": "21:00", "source": "user_explicit"},
+          "end_at": {"value": "20:00", "source": "user_explicit"},
+          "start_kind": "departure",
+          "end_kind": "return_deadline"
+        }
+      },
+      "reason": {
+        "code": "DEPARTURE_NOT_BEFORE_RETURN_BY",
+        "kind": "hard_conflict",
+        "stage": "constraint_compilation",
+        "fields": ["departure_at", "return_by"],
+        "request_revision": 4,
+        "public_summary": "出发时间晚于最晚返程时间。"
+      },
+      "expected": {
+        "auto_action": false,
+        "required_action_ids": ["edit-departure_at-r4", "edit-return_by-r4"],
+        "required_action_kinds": ["request_field", "open_constraint_editor"]
+      }
+    },
+    {
+      "case_id": "strict_budget_can_become_soft_only_by_choice",
+      "request": {
+        "revision": 1,
+        "budget_per_person": {"value": 200, "source": "user_explicit"},
+        "strict_budget": true
+      },
+      "reason": {
+        "code": "NO_PLAN_WITHIN_STRICT_BUDGET",
+        "kind": "no_feasible_plan",
+        "stage": "verification",
+        "fields": ["budget_per_person"],
+        "request_revision": 1,
+        "public_summary": "当前严格预算内没有可行方案。"
+      },
+      "expected": {
+        "auto_action": false,
+        "required_patch": {"strict_budget": false},
+        "required_action_kinds": ["apply_request_patch", "request_field"]
+      }
+    },
+    {
+      "case_id": "too_many_stops_offers_one_step_reduction",
+      "request": {
+        "revision": 3,
+        "exact_stop_count": {"value": 4, "source": "user_explicit"},
+        "required_stop_roles": {
+          "value": ["activity", "lunch", "dinner"],
+          "source": "user_explicit"
+        }
+      },
+      "reason": {
+        "code": "NO_SCHEDULE_WITHIN_TIME_WINDOW",
+        "kind": "no_feasible_plan",
+        "stage": "scheduling",
+        "fields": ["exact_stop_count"],
+        "request_revision": 3,
+        "public_summary": "当前可用时间不足以安排四站。"
+      },
+      "expected": {
+        "auto_action": false,
+        "required_patch": {"exact_stop_count": 3},
+        "required_action_kinds": ["apply_request_patch", "open_constraint_editor"]
+      }
+    },
+    {
+      "case_id": "failed_modification_keeps_current_plan_available",
+      "request": {
+        "revision": 7,
+        "max_distance_km": {"value": 8, "source": "user_explicit"}
+      },
+      "reason": {
+        "code": "NO_VALID_REPLACEMENT",
+        "kind": "modification_failed",
+        "stage": "modification",
+        "fields": ["max_distance_km"],
+        "request_revision": 7,
+        "plan_version_id": "plan-v7",
+        "public_summary": "没有找到满足替换条件的站点。"
+      },
+      "current_plan_version_id": "plan-v7",
+      "expected": {
+        "auto_action": false,
+        "required_action_kinds": ["keep_current_plan", "open_constraint_editor"]
+      }
+    },
+    {
+      "case_id": "unknown_failure_does_not_invent_numeric_relaxation",
+      "request": {"revision": 5},
+      "reason": {
+        "code": "FUTURE_FAILURE_CODE",
+        "kind": "no_feasible_plan",
+        "stage": "verification",
+        "fields": [],
+        "request_revision": 5,
+        "public_summary": "当前条件下暂未找到可行方案。"
+      },
+      "expected": {
+        "auto_action": false,
+        "forbidden_action_kinds": ["apply_request_patch"],
+        "required_action_kinds": ["open_constraint_editor", "cancel_turn"]
+      }
+    },
+    {
+      "case_id": "stale_revision_has_no_executable_actions",
+      "request": {"revision": 6},
+      "reason": {
+        "code": "FUTURE_FAILURE_CODE",
+        "kind": "no_feasible_plan",
+        "stage": "verification",
+        "fields": [],
+        "request_revision": 5,
+        "public_summary": "当前条件下暂未找到可行方案。"
+      },
+      "expected": {
+        "stale": true,
+        "auto_action": false,
+        "action_count": 0
+      }
+    },
+    {
+      "case_id": "availability_question_uses_backend_choices",
+      "request": {"revision": 9},
+      "reason": {
+        "code": "NO_PLAN_AFTER_AVAILABILITY",
+        "kind": "no_feasible_plan",
+        "stage": "availability",
+        "fields": ["availability"],
+        "request_revision": 9,
+        "public_summary": "当前时段的营业状态未能确认。"
+      },
+      "expected": {
+        "auto_action": false,
+        "availability_choices": ["必须确认", "不需要确认"],
+        "required_action_kinds": ["request_field"]
+      }
+    }
+  ]
+}

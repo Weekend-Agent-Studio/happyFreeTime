@@ -16,6 +16,7 @@ import uuid
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from langchain_core.runnables import RunnableConfig
@@ -69,9 +70,26 @@ from app.domain.planning import (
     StopType,
 )
 from app.domain.run_trace import PlanningRunEventDraft, RunEventStatus, RunObserver, RunStage
+from app.domain.recovery import (
+    ApplyRequestPatchAction,
+    CancelTurnAction,
+    FieldClarificationInteraction,
+    KeepCurrentPlanAction,
+    OpenConstraintEditorAction,
+    PendingInteraction,
+    RecoveryActionResponse,
+    RecoveryChoiceInteraction,
+    RecoveryDiagnostics,
+    RecoveryKind,
+    RecoveryReason,
+    RecoveryStage,
+    ReplanCurrentRequestAction,
+    RequestFieldAction,
+    StartNewRequestAction,
+)
 
 
-CHECKPOINT_SCHEMA_VERSION = "planner-core3e-v1"
+CHECKPOINT_SCHEMA_VERSION = "planner-hitl1-v1"
 
 
 def checkpoint_config(session_id: str) -> dict[str, dict[str, str]]:
@@ -164,8 +182,12 @@ from app.services.question_policy import QuestionPolicyContext, QuestionPolicy
 from app.services.clarification import ClarificationResolution, ClarificationResolver
 from app.services.clarification_patch import ClarificationPatchCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
-from app.services.constraint_engine import ConstraintEngine, ResolvedRequest
+from app.services.constraint_engine import (
+    ConflictedRequest,
+    ConstraintEngine,
+)
 from app.services.request_patch_compiler import RequestPatchProposalCompiler
+from app.services.recovery_policy import RecoveryPolicy
 from app.services.router_extractor import RouterContext, TurnInterpreterResult
 from app.domain.turn import (
     AnswerQuery,
@@ -181,6 +203,7 @@ from app.domain.turn import (
 from app.orchestration.workflows import (
     ClarificationWorkflow,
     ModificationWorkflow,
+    RecoveryWorkflow,
     RequestWorkflow,
     WorkflowOutcome,
     WorkflowRoute,
@@ -221,6 +244,9 @@ class PendingInteractionState(TypedDict, total=False):
     pending_issue: QuestionDecision | None
     pending_modification: PendingModification | None
     clarification_resolution: str | None
+    pending_interaction: PendingInteraction | None
+    pending_request_base: PlanRequest | None
+    recovery_continuation: str | None
 
 
 class TurnInputState(TypedDict, total=False):
@@ -250,6 +276,18 @@ class TurnResultState(TypedDict, total=False):
     # ready field remains a response diagnostic, not a route input.
     workflow_route: str | None
     workflow_outcome: str | None
+    active_recovery_reason: RecoveryReason | None
+    # A contradictory but otherwise well-formed proposal is kept only while
+    # awaiting a recovery choice.  It never replaces the committed request.
+    recovery_base_request: PlanRequest | None
+    recovery_response: RecoveryActionResponse | None
+    recovery_auto_action: ApplyRequestPatchAction | None
+    recovery_prevalidated_request: PlanRequest | None
+    recovery_auto_failed: bool
+    auto_recovery_attempted: bool
+    used_recovery_action_ids: tuple[str, ...]
+    recovery_resolution: str | None
+    new_request_pending: bool
 
 
 class EntryState(
@@ -325,7 +363,6 @@ def build_entry_graph(
         clarification_patch_compiler=clarification_patch_compiler,
         environment_provider=environment_provider,
         prepare_question=_prepare_question_decision,
-        question_payload=_question_payload,
         coerce_reply=_coerce_clarification_reply,
         runtime_decision=_clarification_runtime_decision,
         resolved_request_value=_resolved_request_value,
@@ -344,16 +381,29 @@ def build_entry_graph(
         )
         actor = state["actor"]
         environment = environment_provider(actor)
-        previous_user_act = user_act_kind_for_action(state.get("next_action"))
+        start_fresh_request = state.get("new_request_pending", False)
+        previous_user_act = (
+            None
+            if start_fresh_request
+            else user_act_kind_for_action(state.get("next_action"))
+        )
         decision_context = DecisionContextBuilder.build(
-            request=state.get("active_request"),
-            selected_plan=state.get("selected_plan"),
-            active_plan_version_id=state.get("active_plan_version_id"),
-            pending_issue=state.get("pending_issue"),
-            pending_modification=state.get("pending_modification"),
-            has_plans=state.get("has_plans", False),
+            request=None if start_fresh_request else state.get("active_request"),
+            selected_plan=None if start_fresh_request else state.get("selected_plan"),
+            active_plan_version_id=(
+                None if start_fresh_request else state.get("active_plan_version_id")
+            ),
+            pending_issue=None if start_fresh_request else state.get("pending_issue"),
+            pending_modification=(
+                None if start_fresh_request else state.get("pending_modification")
+            ),
+            has_plans=(False if start_fresh_request else state.get("has_plans", False)),
             previous_user_act=previous_user_act,
-            last_system_outcome=state.get("workflow_outcome"),
+            last_system_outcome=(
+                "start_new_request"
+                if start_fresh_request
+                else state.get("workflow_outcome")
+            ),
         )
         structured_command = state.get("conversation_command_override")
         if structured_command is not None:
@@ -383,8 +433,14 @@ def build_entry_graph(
                 RouterContext(
                     current_date=environment.now.date(),
                     timezone=actor.timezone,
-                    has_plans=state.get("has_plans", False),
-                    has_selected_plan=state.get("selected_plan") is not None,
+                    has_plans=(
+                        False if start_fresh_request else state.get("has_plans", False)
+                    ),
+                    has_selected_plan=(
+                        False
+                        if start_fresh_request
+                        else state.get("selected_plan") is not None
+                    ),
                     previous_user_act=previous_user_act,
                     decision_context=decision_context,
                 ),
@@ -409,6 +465,7 @@ def build_entry_graph(
             "pending_patch": None,
             "pending_issues": (),
             "pending_issue": None,
+            "pending_interaction": None,
             "candidate_set": None,
             "ready_for_planning": False,
             "condition_requests_plan": False,
@@ -419,6 +476,24 @@ def build_entry_graph(
             "pending_modification": None,
             "workflow_route": None,
             "workflow_outcome": None,
+            "active_recovery_reason": None,
+            "recovery_base_request": None,
+            "recovery_response": None,
+            "recovery_auto_action": None,
+            "recovery_resolution": None,
+            "auto_recovery_attempted": False,
+            "used_recovery_action_ids": (),
+            "new_request_pending": False,
+            **(
+                {
+                    "active_request": PlanRequest(),
+                    "has_plans": False,
+                    "selected_plan": None,
+                    "active_plan_version_id": None,
+                }
+                if start_fresh_request
+                else {}
+            ),
         }
 
     def route_after_router(state: EntryState) -> str:
@@ -527,7 +602,11 @@ def build_entry_graph(
             ),
             **request_workflow.apply_patch(
                 state,
-                request=state.get("active_request") or PlanRequest(),
+                request=(
+                    state.get("recovery_base_request")
+                    or state.get("active_request")
+                    or PlanRequest()
+                ),
                 patch=patch,
                 issues=state.get("request_patch_issues", ()),
             ).as_state(),
@@ -646,6 +725,7 @@ def build_entry_graph(
             return {
                 "ready_for_planning": False,
                 "workflow_route": WorkflowRoute.ASK_QUESTION.value,
+                "pending_interaction": _field_interaction(existing_issue),
             }
         action = state.get("next_action")
         decision = question_policy.decide(
@@ -687,11 +767,17 @@ def build_entry_graph(
                 public_message="还需要补充一项规划信息",
                 public_details={"field": decision.field} if decision.field else {},
             )
+        prepared_decision = (
+            _prepare_question_decision(decision)
+            if decision.need_question
+            else None
+        )
         return {
             "pending_issue": (
-                _prepare_question_decision(decision)
-                if decision.need_question
-                else None
+                prepared_decision
+            ),
+            "pending_interaction": (
+                _field_interaction(prepared_decision)
             ),
             "pending_patch": (
                 RequestPatch(
@@ -713,6 +799,9 @@ def build_entry_graph(
         }
 
     def route_after_gate(state: EntryState) -> str:
+        candidate_set = state.get("candidate_set")
+        if candidate_set is not None and candidate_set.recovery_reason is not None:
+            return "decide_recovery"
         return state.get("workflow_route") or END
 
     def planning_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
@@ -724,10 +813,25 @@ def build_entry_graph(
             candidate_set = candidate_set.model_copy(
                 update={"provider_facts": [geocoding_fact, *candidate_set.provider_facts]}
             )
+        active_recovery_reason = candidate_set.recovery_reason
+        observer = run_observer_from_config(config)
+        if active_recovery_reason is None and _recovery_stage_is_open(observer):
+            _trace(
+                config,
+                stage=RunStage.RECOVERY,
+                status=RunEventStatus.COMPLETED,
+                message_key="recovery.auto_recovery_completed",
+                public_message="恢复后规划完成",
+            )
         return {
             "candidate_set": candidate_set,
+            "active_recovery_reason": active_recovery_reason,
             "ready_for_planning": True,
-            "workflow_route": WorkflowRoute.END.value,
+            "workflow_route": (
+                "decide_recovery"
+                if active_recovery_reason is not None
+                else WorkflowRoute.END.value
+            ),
             "runtime_decisions": (
                 *state.get("runtime_decisions", ()),
                 *(
@@ -743,8 +847,188 @@ def build_entry_graph(
             ),
         }
 
-    def ask_question_node(state: EntryState) -> dict[str, object]:
-        return clarification_workflow.resume(state).as_state()
+    def decide_recovery_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        candidate_set = state.get("candidate_set")
+        reason = state.get("active_recovery_reason") or (
+            candidate_set.recovery_reason if candidate_set is not None else None
+        )
+        if reason is None:
+            return recovery_workflow.decide(state).as_state()
+
+        _trace_recovery_started(config)
+        result = recovery_workflow.decide(state)
+        if result.updates.get("recovery_auto_failed"):
+            _trace(
+                config,
+                stage=RunStage.AUTO_RECOVERY,
+                status=RunEventStatus.STARTED,
+                message_key="recovery.auto_recovery_started",
+                public_message="正在尝试一次安全的默认条件调整",
+                public_details={"reason_code": reason.code},
+            )
+            _trace(
+                config,
+                stage=RunStage.AUTO_RECOVERY,
+                status=RunEventStatus.FAILED,
+                message_key="recovery.auto_recovery_failed",
+                public_message="自动调整未通过约束校验，未修改规划条件",
+                public_details={"reason_code": "constraint_engine_rejected"},
+            )
+        elif result.route == WorkflowRoute.APPLY_RECOVERY_ACTION:
+            _trace(
+                config,
+                stage=RunStage.AUTO_RECOVERY,
+                status=RunEventStatus.STARTED,
+                message_key="recovery.auto_recovery_started",
+                public_message="正在尝试一次安全的默认条件调整",
+                public_details={"reason_code": reason.code},
+            )
+        return result.as_state()
+
+    def interrupt_for_recovery_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        reason = state.get("active_recovery_reason")
+        interaction = state.get("pending_interaction")
+        if (
+            reason is None
+            or not isinstance(interaction, RecoveryChoiceInteraction)
+        ):
+            raise ValueError("recovery interrupt requires a pending recovery interaction")
+        try:
+            answer = interrupt(interaction.model_dump(mode="json"))
+        except GraphInterrupt:
+            # ``interrupt`` replays this node from the top on resume. Emit the
+            # wait event only for the invocation that actually suspends; the
+            # resumed request gets its own recovery STARTED event at apply.
+            _trace_recovery_waiting(config, reason)
+            raise
+        return {
+            "recovery_response": RecoveryActionResponse.model_validate(answer),
+            "workflow_route": WorkflowRoute.APPLY_RECOVERY_ACTION.value,
+        }
+
+    def apply_recovery_action_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        automatic = state.get("recovery_auto_action")
+        trace_stage = (
+            RunStage.AUTO_RECOVERY
+            if automatic is not None
+            else RunStage.RECOVERY_ACTION
+        )
+        reason = state.get("active_recovery_reason")
+        _trace_recovery_started(config)
+        if automatic is None:
+            _trace(
+                config,
+                stage=trace_stage,
+                status=RunEventStatus.STARTED,
+                message_key="recovery.action_started",
+                public_message="正在应用你选择的恢复操作",
+                public_details={"reason_code": reason.code if reason else "unknown"},
+            )
+
+        result = recovery_workflow.apply_action(state)
+        if automatic is not None and result.outcome == WorkflowOutcome.RECOVERY_ACTION_REJECTED:
+            status = RunEventStatus.FAILED
+            message_key = "recovery.auto_recovery_failed"
+            public_message = "自动调整未通过约束检查，原条件保持不变"
+        elif (
+            automatic is None
+            and result.outcome == WorkflowOutcome.RECOVERY_ACTION_REJECTED
+            and result.route == WorkflowRoute.DECIDE_RECOVERY
+        ):
+            # This request will return a fresh recovery card. Mark the action
+            # stage as waiting instead of emitting a second terminal stage.
+            status = RunEventStatus.WAITING_INPUT
+            message_key = "recovery.action_rejected_waiting"
+            public_message = "这项调整未通过约束检查，正在准备新的恢复选项"
+        elif result.outcome == WorkflowOutcome.RECOVERY_ACTION_REJECTED:
+            status = RunEventStatus.FAILED
+            message_key = "recovery.action_rejected"
+            public_message = "这项调整未通过约束检查，原条件保持不变"
+        else:
+            status = RunEventStatus.COMPLETED
+            message_key = "recovery.action_applied"
+            public_message = (
+                "恢复操作已应用"
+                if result.route != WorkflowRoute.ASK_QUESTION
+                else "还需要补充一项具体条件"
+            )
+        _trace(
+            config,
+            stage=trace_stage,
+            status=status,
+            message_key=message_key,
+            public_message=public_message,
+            public_details={"reason_code": reason.code if reason else "unknown"},
+        )
+        if result.route in {WorkflowRoute.ASK_QUESTION, WorkflowRoute.END} and _recovery_stage_is_open(
+            run_observer_from_config(config)
+        ):
+            _trace(
+                config,
+                stage=RunStage.RECOVERY,
+                status=RunEventStatus.COMPLETED,
+                message_key="recovery.action_transitioned",
+                public_message=(
+                    "已转入字段补充流程"
+                    if result.route == WorkflowRoute.ASK_QUESTION
+                    else "恢复操作已结束"
+                ),
+            )
+        return result.as_state()
+    def route_after_recovery_decision(state: EntryState) -> str:
+        return state.get("workflow_route") or WorkflowRoute.END.value
+
+    def route_after_recovery_action(state: EntryState) -> str:
+        return state.get("workflow_route") or WorkflowRoute.END.value
+
+    def ask_question_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
+        decision = state.get("pending_issue")
+        if decision is None:
+            raise ValueError("ask_question requires a QuestionDecision")
+        observer = run_observer_from_config(config)
+        is_resuming = observer is not None and not any(
+            event.stage == RunStage.CLARIFY for event in observer.snapshot().events
+        )
+        if is_resuming:
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
+                status=RunEventStatus.STARTED,
+                message_key="clarify.resume_started",
+                public_message="正在处理你补充的规划信息",
+                public_details={"field": decision.field} if decision.field else {},
+            )
+        answer = interrupt(_question_payload(decision))
+        result = clarification_workflow.resume(state, answer=answer)
+        if is_resuming:
+            status = (
+                RunEventStatus.WAITING_INPUT
+                if result.route == WorkflowRoute.ASK_QUESTION
+                else RunEventStatus.FAILED
+                if result.outcome == WorkflowOutcome.CONSTRAINT_PATCH_CONFLICT
+                else RunEventStatus.COMPLETED
+            )
+            _trace(
+                config,
+                stage=RunStage.CLARIFY,
+                status=status,
+                message_key=(
+                    "clarify.waiting_input"
+                    if status == RunEventStatus.WAITING_INPUT
+                    else "clarify.failed"
+                    if status == RunEventStatus.FAILED
+                    else "clarify.completed"
+                ),
+                public_message=(
+                    "仍需要补充一项规划信息"
+                    if status == RunEventStatus.WAITING_INPUT
+                    else "补充信息未能应用，规划条件保持不变"
+                    if status == RunEventStatus.FAILED
+                    else "补充信息已整理"
+                ),
+                public_details={"field": decision.field} if decision.field else {},
+            )
+        return result.as_state()
 
     graph = StateGraph(EntryState)
     graph.add_node("router", router_node)
@@ -756,6 +1040,9 @@ def build_entry_graph(
     graph.add_node("gate", gate_node)
     graph.add_node("ask_question", ask_question_node)
     graph.add_node("planning", planning_node)
+    graph.add_node("decide_recovery", decide_recovery_node)
+    graph.add_node("apply_recovery_action", apply_recovery_action_node)
+    graph.add_node("interrupt_for_recovery", interrupt_for_recovery_node)
     graph.add_conditional_edges(
         START,
         route_after_start,
@@ -769,7 +1056,12 @@ def build_entry_graph(
     graph.add_conditional_edges(
         "apply_request_patch",
         route_after_patch,
-        {"ask_question": "ask_question", "planning": "planning", END: END},
+        {
+            "ask_question": "ask_question",
+            "planning": "planning",
+            "decide_recovery": "decide_recovery",
+            END: END,
+        },
     )
     graph.add_conditional_edges(
         "router",
@@ -784,18 +1076,33 @@ def build_entry_graph(
     graph.add_conditional_edges(
         "compile_patch",
         route_after_patch,
-        {"ask_question": "ask_question", "planning": "planning", END: END},
+        {
+            "ask_question": "ask_question",
+            "planning": "planning",
+            "decide_recovery": "decide_recovery",
+            END: END,
+        },
     )
     graph.add_conditional_edges(
         "modify_plan",
         route_after_modify,
-        {"ask_question": "ask_question", "planning": "planning", END: END},
+        {
+            "ask_question": "ask_question",
+            "planning": "planning",
+            "decide_recovery": "decide_recovery",
+            END: END,
+        },
     )
     graph.add_edge("compile_request", "gate")
     graph.add_conditional_edges(
         "gate",
         route_after_gate,
-        {"ask_question": "ask_question", "planning": "planning", END: END},
+        {
+            "ask_question": "ask_question",
+            "planning": "planning",
+            "decide_recovery": "decide_recovery",
+            END: END,
+        },
     )
     graph.add_conditional_edges(
         "ask_question",
@@ -806,15 +1113,101 @@ def build_entry_graph(
             "modify_plan": "modify_plan",
             "planning": "planning",
             "ask_question": "ask_question",
+            "decide_recovery": "decide_recovery",
             END: END,
         },
     )
-    graph.add_edge("planning", END)
+    recovery_workflow = RecoveryWorkflow(
+        policy=RecoveryPolicy(),
+        constraint_engine=constraint_engine,
+        clarification_patch_compiler=clarification_patch_compiler,
+        question_policy=question_policy,
+        environment_provider=environment_provider,
+        prepare_question=_prepare_question_decision,
+    )
+    graph.add_conditional_edges(
+        "planning",
+        route_after_planning,
+        {"decide_recovery": "decide_recovery", END: END},
+    )
+    graph.add_conditional_edges(
+        "decide_recovery",
+        route_after_recovery_decision,
+        {
+            "apply_recovery_action": "apply_recovery_action",
+            "interrupt_for_recovery": "interrupt_for_recovery",
+            END: END,
+        },
+    )
+    graph.add_conditional_edges(
+        "interrupt_for_recovery",
+        lambda state: state.get("workflow_route") or "apply_recovery_action",
+        {"apply_recovery_action": "apply_recovery_action", END: END},
+    )
+    graph.add_conditional_edges(
+        "apply_recovery_action",
+        route_after_recovery_action,
+        {
+            "planning": "planning",
+            "modify_plan": "modify_plan",
+            "decide_recovery": "decide_recovery",
+            "ask_question": "ask_question",
+            "gate": "gate",
+            END: END,
+        },
+    )
     if checkpointer is None:
-        checkpointer = MemorySaver(
-            serde=checkpoint_serializer()
-        )
+        checkpointer = MemorySaver(serde=checkpoint_serializer())
     return graph.compile(checkpointer=checkpointer)
+
+
+def _trace_recovery_started(config: object | None) -> None:
+    observer = run_observer_from_config(cast(RunnableConfig | None, config))
+    if observer is None or any(
+        event.stage == RunStage.RECOVERY for event in observer.snapshot().events
+    ):
+        return
+    _trace(
+        config,
+        stage=RunStage.RECOVERY,
+        status=RunEventStatus.STARTED,
+        message_key="recovery.decision",
+        public_message="正在判断可安全采取的恢复方式",
+    )
+
+
+def _recovery_stage_is_open(observer: RunObserver | None) -> bool:
+    if observer is None:
+        return False
+    events = [
+        event for event in observer.snapshot().events
+        if event.stage == RunStage.RECOVERY
+    ]
+    return bool(events and events[-1].status == RunEventStatus.STARTED)
+
+
+def _trace_recovery_waiting(
+    config: object | None,
+    reason: RecoveryReason,
+) -> None:
+    """Record one request-scoped recovery wait without duplicating a stage."""
+
+    observer = run_observer_from_config(cast(RunnableConfig | None, config))
+    if not any(
+        event.stage == RunStage.RECOVERY
+        for event in (observer.snapshot().events if observer is not None else ())
+    ):
+        _trace_recovery_started(config)
+    if not _recovery_stage_is_open(observer):
+        return
+    _trace(
+        config,
+        stage=RunStage.RECOVERY,
+        status=RunEventStatus.WAITING_INPUT,
+        message_key="recovery.waiting_for_recovery_choice",
+        public_message="需要你选择如何调整规划条件",
+        public_details={"reason_code": reason.code},
+    )
 
 
 def _prepare_question_decision(decision: QuestionDecision) -> QuestionDecision:
@@ -832,6 +1225,23 @@ def _prepare_question_decision(decision: QuestionDecision) -> QuestionDecision:
             "options": options,
             "allow_free_text": decision.allow_free_text and decision.attempt < decision.max_attempts,
         }
+    )
+
+
+def _field_interaction(
+    decision: QuestionDecision | None,
+) -> FieldClarificationInteraction | None:
+    if (
+        decision is None
+        or not decision.need_question
+        or decision.clarification_id is None
+        or decision.request_revision is None
+    ):
+        return None
+    return FieldClarificationInteraction(
+        interaction_id=decision.clarification_id,
+        request_revision=decision.request_revision,
+        decision=decision,
     )
 
 
@@ -876,6 +1286,7 @@ def _question_payload(decision: QuestionDecision) -> dict[str, object]:
     """Serialize only safe, bounded interruption data to the client."""
 
     return {
+        "kind": "field_clarification",
         "field": decision.field,
         "issue_kind": decision.issue_kind,
         "request_revision": decision.request_revision,
@@ -926,10 +1337,16 @@ def _resolved_request_value(request: PlanRequest, field: str) -> object | None:
 
 
 def route_after_clarification(state: EntryState) -> str:
+    candidate_set = state.get("candidate_set")
+    if candidate_set is not None and candidate_set.recovery_reason is not None:
+        return "decide_recovery"
     return state.get("workflow_route") or END
 
 
 def route_after_patch(state: EntryState) -> str:
+    candidate_set = state.get("candidate_set")
+    if candidate_set is not None and candidate_set.recovery_reason is not None:
+        return "decide_recovery"
     return state.get("workflow_route") or END
 
 
@@ -943,7 +1360,19 @@ def route_after_start(state: EntryState) -> str:
 
 def route_after_modify(state: EntryState) -> str:
     """Only incomplete mutations enter the interrupt/resume path."""
+    if state.get("workflow_route") == WorkflowRoute.ASK_QUESTION.value:
+        return WorkflowRoute.ASK_QUESTION.value
+    candidate_set = state.get("candidate_set")
+    if candidate_set is not None and candidate_set.recovery_reason is not None:
+        return "decide_recovery"
     return state.get("workflow_route") or END
+
+
+def route_after_planning(state: EntryState) -> str:
+    candidate_set = state.get("candidate_set")
+    if candidate_set is not None and candidate_set.recovery_reason is not None:
+        return "decide_recovery"
+    return END
 
 
 def _clarification_runtime_decision(
@@ -983,7 +1412,10 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             CatalogSource,
             ConstraintViolation,
             ConstraintSource,
+            ApplyRequestPatchAction,
+            CancelTurnAction,
             DateReference,
+            FieldClarificationInteraction,
             Assumption,
             IdentityType,
             Intent,
@@ -993,6 +1425,11 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             CriterionStrength,
             ConversationCommand,
             PlanRequest,
+            RecoveryChoiceInteraction,
+            RecoveryDiagnostics,
+            RecoveryKind,
+            RecoveryReason,
+            RecoveryStage,
             PlanningWindow,
             RequestPatch,
             ConstraintValue,
@@ -1011,6 +1448,12 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             PriceKind,
             ResourceType,
             QuestionDecision,
+            RecoveryActionResponse,
+            RequestFieldAction,
+            ReplanCurrentRequestAction,
+            KeepCurrentPlanAction,
+            OpenConstraintEditorAction,
+            StartNewRequestAction,
             ProviderMode,
             ProviderSource,
             AvailabilityFact,

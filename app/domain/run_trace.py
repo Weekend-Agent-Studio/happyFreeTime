@@ -26,6 +26,9 @@ class RunStage(StrEnum):
     CONSTRUCT = "construct"
     VERIFY = "verify"
     MODIFY = "modify"
+    RECOVERY = "recovery"
+    AUTO_RECOVERY = "auto_recovery"
+    RECOVERY_ACTION = "recovery_action"
     ADVISE = "advise"
 
 

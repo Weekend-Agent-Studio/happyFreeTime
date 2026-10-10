@@ -35,3 +35,4 @@ artifacts/evals/
 # Curated public documentation lives under docs/current, docs/releases,
 # docs/status, docs/interview, docs/learning, docs/canonical and docs/adr.
 /docs/local/
+/.tmp/

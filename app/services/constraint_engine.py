@@ -52,6 +52,10 @@ class ConflictedRequest(BaseModel):
 
     status: Literal["conflict"] = "conflict"
     conflict: ConstraintConflict
+    # Present only when the values passed field/schema validation and the
+    # cross-field rules found a contradiction.  Callers may keep this as an
+    # uncommitted recovery draft; it is never the active request by itself.
+    candidate_request: PlanRequest | None = None
 
 
 ConstraintEngineResult = Annotated[
@@ -230,7 +234,13 @@ class ConstraintEngine:
 
         cross_field_result = self._validate_cross_fields(candidate)
         if cross_field_result is not None:
-            return cross_field_result
+            return cross_field_result.model_copy(
+                update={
+                    "candidate_request": candidate.model_copy(
+                        update={"revision": request.revision}
+                    )
+                }
+            )
 
         if candidate.strict_budget and candidate.budget_per_person is None:
             return NeedsClarification(
@@ -286,11 +296,6 @@ class ConstraintEngine:
                         if departure_return_conflict
                         else ["planning_window.start_at", "planning_window.end_at"]
                     ),
-                    relaxation_options=(
-                        ["提前出发", "延后最晚到家时间"]
-                        if departure_return_conflict
-                        else ["调整行程开始或结束时间"]
-                    ),
                 )
             )
         exact_count = (
@@ -309,7 +314,6 @@ class ConstraintEngine:
                     code="STOP_COUNT_BELOW_REQUIRED_ROLES",
                     message="总站数不能少于明确要求的站点角色数。",
                     fields=["exact_stop_count", "required_stop_roles"],
-                    relaxation_options=["增加总站数", "减少必需站点"],
                 )
             )
         if (
@@ -321,7 +325,6 @@ class ConstraintEngine:
                     code="DUPLICATE_MEAL_ROLE",
                     message="同一行程不能重复要求午饭或晚饭角色。",
                     fields=["required_stop_roles"],
-                    relaxation_options=["保留一个用餐时段"],
                 )
             )
         return None

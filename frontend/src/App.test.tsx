@@ -97,7 +97,7 @@ describe("planning workspace", () => {
     api.renameSession.mockResolvedValue(undefined);
     api.createSession.mockResolvedValue("session-test");
     api.sendMessage.mockResolvedValue(response);
-    api.sendMessageStream.mockImplementation((sessionId: string, content: string, requestId: string, _onProgress: unknown, conversationCommand: unknown, clarificationReply: unknown) => api.sendMessage(sessionId, content, requestId, conversationCommand, clarificationReply));
+    api.sendMessageStream.mockImplementation((sessionId: string, content: string, requestId: string, _onProgress: unknown, conversationCommand: unknown, clarificationReply: unknown, recoveryAction: unknown) => api.sendMessage(sessionId, content, requestId, conversationCommand, clarificationReply, recoveryAction));
     api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
   });
 
@@ -895,7 +895,6 @@ describe("planning workspace", () => {
       conflict: {
         code: "departure_after_return",
         message: conflictMessage,
-        relaxation_options: ["调整返程时间"],
       },
     });
     render(<App />);
@@ -905,6 +904,60 @@ describe("planning workspace", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(conflictMessage);
     expect(screen.getAllByText(conflictMessage)).toHaveLength(1);
     expect(screen.getByRole("status").closest(".message")).toHaveClass("structured-turn");
+  });
+
+  it("executes a backend recovery action as a typed request without adding a fake user message", async () => {
+    const user = userEvent.setup();
+    const recoveryResponse: AgentResponse = {
+      ...response,
+      status: "needs_recovery",
+      reply: "当前条件下暂未找到可行方案。",
+      plans: [],
+      recovery: {
+        kind: "recovery_choice",
+        interaction_id: "recovery-1",
+        request_revision: 3,
+        plan_version_id: null,
+        reason: {
+          code: "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
+          kind: "no_feasible_plan",
+          stage: "retrieval",
+          fields: ["max_distance_km"],
+          request_revision: 3,
+          plan_version_id: null,
+          public_summary: "当前条件下暂未找到可行方案。",
+          diagnostics: { current_max_distance_km: 8 },
+        },
+        actions: [{
+          kind: "apply_request_patch",
+          action_id: "expand-distance-r3-12",
+          label: "尝试扩大到 12 公里并重新规划",
+          description: "这是一次尝试，不保证一定能找到方案。",
+          request_revision: 3,
+          plan_version_id: null,
+          continuation: "plan",
+          patch: { base_revision: 3, set_fields: { max_distance_km: 12 } },
+        }],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(recoveryResponse).mockResolvedValueOnce(response);
+
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排今天出行");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("group", { name: "规划恢复选项" });
+    expect(screen.getByRole("button", { name: /修改Where/ })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /尝试扩大到 12 公里/ }));
+
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls.at(-1)?.[5]).toEqual({
+      interaction_id: "recovery-1",
+      action_id: "expand-distance-r3-12",
+      request_revision: 3,
+      plan_version_id: null,
+    });
+    expect(document.querySelectorAll(".message.user")).toHaveLength(1);
+    expect(screen.getByText("此恢复选项已结束，不能重复执行。")).toBeInTheDocument();
   });
 
   it("lets a pending clarification switch into an explicit new request", async () => {

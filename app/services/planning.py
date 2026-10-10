@@ -66,6 +66,7 @@ from app.domain.providers import (
     WeatherRequest,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.recovery import RecoveryStage
 from app.domain.run_trace import PlanningRunEventDraft, RunEventStatus, RunObserver, RunStage
 from app.domain.semantics import TimeCoverageObjective, compile_replacement_semantics
 from app.providers.route import LocalEstimateRouteProvider, RouteProvider
@@ -90,6 +91,7 @@ from app.services.plan_spec_compiler import (
     PlanSpecChoices,
     PlanSpecCompiler,
 )
+from app.services.recovery_reason_adapter import RecoveryReasonAdapter
 from app.services.candidate_retriever import (
     CandidateRetriever,
     RetrievalRequest,
@@ -475,6 +477,9 @@ class PlanningService:
         if time_conflict is not None:
             return CandidateSet(
                 conflict=time_conflict,
+                recovery_reason=RecoveryReasonAdapter().from_conflict(
+                    time_conflict, constraints
+                ),
                 runtime_decision=runtime_decision,
             )
 
@@ -503,6 +508,11 @@ class PlanningService:
             conflict_code = explicit_choices.conflict.code
             return CandidateSet(
                 conflict=explicit_choices.conflict,
+                recovery_reason=RecoveryReasonAdapter().from_conflict(
+                    explicit_choices.conflict,
+                    constraints,
+                    stage=RecoveryStage.PLAN_STRUCTURE,
+                ),
                 runtime_decision=self._not_run_runtime(
                     (
                         "unsupported_plan_structure"
@@ -609,6 +619,11 @@ class PlanningService:
                 )
                 return CandidateSet(
                     conflict=plan_choices.conflict,
+                    recovery_reason=RecoveryReasonAdapter().from_conflict(
+                        plan_choices.conflict,
+                        constraints,
+                        stage=RecoveryStage.PLAN_STRUCTURE,
+                    ),
                     planning_intent_decision=planning_intent_decision,
                     runtime_decision=runtime_decision,
                 )
@@ -619,21 +634,18 @@ class PlanningService:
                     code="NO_FEASIBLE_PLAN",
                     message="最晚到家时间留给规划的可用时长不足，无法安排可执行行程。",
                     fields=["return_by"],
-                    relaxation_options=["提前出发", "延后最晚到家时间"],
                 )
             elif explicit_window:
                 conflict = ConstraintConflict(
                     code="NO_FEASIBLE_PLAN",
                     message="指定时间范围内没有可执行的行程结构。",
                     fields=["time_window"],
-                    relaxation_options=["扩大可用时间范围"],
                 )
             else:
                 conflict = ConstraintConflict(
                     code="NO_PLAN_SPEC",
                     message="当前请求没有可执行的行程结构。",
                     fields=["plan_structure"],
-                    relaxation_options=["放宽站点结构限制"],
                 )
             self._trace(
                 observer,
@@ -645,6 +657,15 @@ class PlanningService:
             )
             return CandidateSet(
                 conflict=conflict,
+                recovery_reason=RecoveryReasonAdapter().from_conflict(
+                    conflict,
+                    constraints,
+                    stage=(
+                        RecoveryStage.SCHEDULING
+                        if deadline is not None or explicit_window
+                        else RecoveryStage.PLAN_STRUCTURE
+                    ),
+                ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
             )
@@ -1148,14 +1169,21 @@ class PlanningService:
                 if constraints.budget_per_person
                 else None
             )
+            conflict = ConstraintConflict(
+                code="NO_PLAN_WITHIN_STRICT_BUDGET",
+                message=f"当前目录中没有满足人均 {budget} 元严格预算的可行行程方案。",
+                fields=["budget_per_person"],
+            )
             return CandidateSet(
                 provider_facts=[weather],
                 catalog_violations=catalog_result.violations,
-                conflict=ConstraintConflict(
-                    code="NO_PLAN_WITHIN_STRICT_BUDGET",
-                    message=f"当前目录中没有满足人均 {budget} 元严格预算的可行行程方案。",
-                    fields=["budget_per_person"],
-                    relaxation_options=["提高人均预算", "取消严格预算限制"],
+                conflict=conflict,
+                recovery_reason=RecoveryReasonAdapter().from_conflict(
+                    conflict,
+                    constraints,
+                    search_traces=local_result.search_traces,
+                    catalog_violations=catalog_result.violations,
+                    route_failure_field_sets=route_failure_field_sets,
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
@@ -1183,46 +1211,37 @@ class PlanningService:
             reported_failure_fields = (
                 universal_failure_fields or route_failure_fields
             )
+            availability_failed_all = bool(route_failure_field_sets) and all(
+                "availability" in finding for finding in route_failure_field_sets
+            )
+            conflict = ConstraintConflict(
+                code=(
+                    "NO_PLAN_AFTER_AVAILABILITY"
+                    if availability_failed_all
+                    else "NO_PLAN_AFTER_LOCAL_REPLAN"
+                    if exhausted_repair_chain
+                    else "NO_PLAN_AFTER_ROUTE_VERIFICATION"
+                ),
+                message=(
+                    "动态可用性复核后，没有确认有位或可执行的候选地点。"
+                    if availability_failed_all
+                    else "路线和整单可行性复核后，候选方案均违反硬约束。"
+                ),
+                fields=sorted(
+                    set(reported_failure_fields)
+                    | set(_meal_anchor_conflict_fields(constraints))
+                ),
+            )
             return CandidateSet(
                 provider_facts=[weather],
                 catalog_violations=catalog_result.violations,
-                conflict=ConstraintConflict(
-                    code=(
-                        "NO_FEASIBLE_PLAN"
-                        if (
-                            constraints.require_availability_confirmation
-                            and "availability" in reported_failure_fields
-                        )
-                        else "NO_PLAN_AFTER_LOCAL_REPLAN"
-                        if exhausted_repair_chain
-                        else "NO_PLAN_AFTER_ROUTE_VERIFICATION"
-                    ),
-                    message=(
-                        "动态可用性复核后，没有确认有位或可执行的候选地点。"
-                        if "availability" in reported_failure_fields
-                        else "路线和整单可行性复核后，候选方案均违反硬约束。"
-                    ),
-                    fields=[
-                        field
-                        for field in (
-                            "required_stop_roles",
-                            "plan_structure",
-                            "departure_at",
-                            "time_window",
-                            "duration_minutes",
-                            "max_distance_km",
-                            "opening_hours",
-                            "meal_window",
-                            "return_by",
-                            "total_distance_km",
-                            "availability",
-                        )
-                        if field in reported_failure_fields
-                    ]
-                    + _meal_anchor_conflict_fields(constraints),
-                    relaxation_options=_route_relaxation_options(
-                        reported_failure_fields
-                    ),
+                conflict=conflict,
+                recovery_reason=RecoveryReasonAdapter().from_conflict(
+                    conflict,
+                    constraints,
+                    search_traces=local_result.search_traces,
+                    catalog_violations=catalog_result.violations,
+                    route_failure_field_sets=route_failure_field_sets,
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
@@ -1256,6 +1275,12 @@ class PlanningService:
             )
             if field in local_result.rejected_fields
         ]
+        empty_role_pool = any(
+            trace.rejected_by.get("empty_role_pool", 0)
+            for trace in local_result.search_traces
+        )
+        if empty_role_pool and constraints.required_stop_roles is not None:
+            conflict_fields.append("required_stop_roles")
         # Catalog hard filters can eliminate every candidate before local
         # skeleton enumeration.  Preserve those concrete rejection fields
         # (distance, budget, opening hours, etc.) instead of falling through
@@ -1265,26 +1290,18 @@ class PlanningService:
             for violation in catalog_result.violations
             if violation.field
         }
-        if "weather" not in local_result.rejected_fields:
-            conflict_fields.extend(
-                field
-                for field in (
-                    "budget_per_person",
-                    "max_distance_km",
-                    "total_distance_km",
-                    "opening_hours",
-                    "weather",
-                    "party",
-                )
-                if field in catalog_fields
-            )
-        if any(
+        # Catalog rejections explain a failed run only when no candidate made
+        # it into local search.  Once search ran, rejected POIs are incidental:
+        # report the plan-level findings instead of mixing unrelated opening,
+        # date, or radius filters into the final diagnosis.
+        no_catalog_candidates = not catalog_result.candidates
+        if no_catalog_candidates and "weather" not in local_result.rejected_fields:
+            conflict_fields.extend(sorted(catalog_fields))
+        if no_catalog_candidates and any(
             violation.code == "outside_basic_opening_hours"
             for violation in catalog_result.violations
         ):
             conflict_fields.append("opening_hours")
-        if not conflict_fields:
-            conflict_fields = ["time_window", "max_distance_km", "party"]
         conflict_fields = [
             *dict.fromkeys(
                 [
@@ -1293,29 +1310,75 @@ class PlanningService:
                 ]
             )
         ]
-        relaxation_options = []
-        if "duration_minutes" in conflict_fields:
-            relaxation_options.extend(["增加可用时长", "缩短停留时长"])
-        if "max_distance_km" in conflict_fields:
-            relaxation_options.append("扩大距离范围")
-        if "total_distance_km" in conflict_fields:
-            relaxation_options.append("放宽全程距离限制或选择更近的地点")
-        if "return_by" in conflict_fields:
-            relaxation_options.append("延后最晚到家时间或缩短行程")
-        if "budget_per_person" in conflict_fields:
-            relaxation_options.append("提高人均预算")
-        if "weather" in conflict_fields:
-            relaxation_options.extend(["选择室内活动", "调整出行日期"])
-        if "party" in conflict_fields:
-            relaxation_options.append("调整活动偏好")
+        if no_catalog_candidates and catalog_fields:
+            if "max_distance_km" in conflict_fields:
+                failure_code = "NO_CANDIDATES_WITHIN_SEARCH_RADIUS"
+            elif "opening_hours" in conflict_fields:
+                failure_code = "NO_CANDIDATES_WITHIN_OPENING_HOURS"
+            elif "weather" in conflict_fields:
+                failure_code = "NO_CANDIDATES_FOR_WEATHER"
+            else:
+                failure_code = "NO_CANDIDATES_AFTER_HARD_FILTER"
+        else:
+            rejected_counts: dict[str, int] = {}
+            for trace in local_result.search_traces:
+                for field, count in trace.rejected_by.items():
+                    rejected_counts[field] = rejected_counts.get(field, 0) + count
+            time_rejections = sum(
+                rejected_counts.get(field, 0)
+                for field in (
+                    "departure_at",
+                    "duration_minutes",
+                    "time_window",
+                    "return_by",
+                    "meal_window",
+                )
+            )
+            distance_rejections = sum(
+                rejected_counts.get(field, 0)
+                for field in ("max_distance_km", "total_distance_km")
+            )
+
+            # Local composition checks use a conservative straight-line route
+            # estimate before any Route Provider call. When both time and
+            # distance findings exist, report the dominant observed rejection
+            # instead of letting field-list order mislabel a distance failure
+            # as a scheduling failure.
+            if distance_rejections > time_rejections:
+                failure_code = "NO_PLAN_WITHIN_DISTANCE"
+            elif time_rejections:
+                failure_code = "NO_SCHEDULE_WITHIN_TIME_WINDOW"
+            elif distance_rejections or {
+                "max_distance_km",
+                "total_distance_km",
+            } & set(conflict_fields):
+                failure_code = "NO_PLAN_WITHIN_DISTANCE"
+            elif "opening_hours" in conflict_fields:
+                failure_code = "NO_CANDIDATES_WITHIN_OPENING_HOURS"
+            elif "weather" in conflict_fields:
+                failure_code = "NO_CANDIDATES_FOR_WEATHER"
+            elif empty_role_pool:
+                failure_code = (
+                    "NO_CANDIDATES_FOR_REQUIRED_ROLES"
+                    if constraints.required_stop_roles is not None
+                    else "NO_CANDIDATES_FOR_PLAN_STRUCTURE"
+                )
+            else:
+                failure_code = "NO_FEASIBLE_PLAN"
+        conflict = ConstraintConflict(
+            code=failure_code,
+            message="当前目录中没有满足全部硬约束的可行行程方案。",
+            fields=conflict_fields,
+        )
         return CandidateSet(
             provider_facts=[weather],
             catalog_violations=catalog_result.violations,
-            conflict=ConstraintConflict(
-                code="NO_FEASIBLE_PLAN",
-                message="当前目录中没有满足全部硬约束的可行行程方案。",
-                fields=conflict_fields,
-                relaxation_options=relaxation_options,
+            conflict=conflict,
+            recovery_reason=RecoveryReasonAdapter().from_conflict(
+                conflict,
+                constraints,
+                search_traces=local_result.search_traces,
+                catalog_violations=catalog_result.violations,
             ),
             planning_intent_decision=planning_intent_decision,
             runtime_decision=runtime_decision,
@@ -1357,7 +1420,6 @@ class PlanningService:
                 "UNSUPPORTED_MODIFICATION",
                 "当前只支持在已选择方案中替换一个明确站点。",
                 fields=["conversation_command"],
-                relaxation_options=["先选择方案，再点击某一站的“换这站”"],
             )
 
         target_matches = _resolve_stop_reference(selected_plan, command.target)
@@ -1378,7 +1440,6 @@ class PlanningService:
                 "INVALID_MODIFICATION_TARGET",
                 "当前站点缺少可用于替换的行程角色。",
                 fields=["target_reference", "plan_structure"],
-                relaxation_options=["重新生成方案后重试"],
             )
 
         # The UI does not need to send locks: every non-target position is an
@@ -1403,7 +1464,6 @@ class PlanningService:
                     "INVALID_MODIFICATION_TARGETS",
                     "替换目标不能同时作为保留站点。",
                     fields=["target_reference", "locked_stop"],
-                    relaxation_options=["选择不同的替换目标"],
                 )
             if lock[0] not in {index for index, _ in explicit_locks}:
                 explicit_locks.append(lock)
@@ -1413,21 +1473,18 @@ class PlanningService:
                 "UNSUPPORTED_MODIFICATION_STRUCTURE",
                 "当前方案的站点数量不在可替换范围内。",
                 fields=["plan_structure"],
-                relaxation_options=["重新生成 1 到 4 站方案"],
             )
         if any(stop.role is None for stop in selected_plan.stops):
             return _modification_conflict(
                 "UNSUPPORTED_MODIFICATION_STRUCTURE",
                 "当前方案缺少完整的站点角色，无法安全匹配替换候选。",
                 fields=["plan_structure"],
-                relaxation_options=["重新生成方案后重试"],
             )
         if not selected_plan.skeleton_id:
             return _modification_conflict(
                 "UNSUPPORTED_MODIFICATION_STRUCTURE",
                 "当前方案缺少可恢复的骨架信息，无法安全保持站点顺序。",
                 fields=["plan_structure"],
-                relaxation_options=["重新生成方案后重试"],
             )
 
         selected_spec = PlanSpec(
@@ -1475,7 +1532,6 @@ class PlanningService:
                         code="LOCKED_STOP_UNAVAILABLE",
                         message="原方案中的非目标站点当前无法满足目录约束，系统没有擅自解除固定位置。",
                         fields=["locked_stop"],
-                        relaxation_options=["重新选择方案或放宽当前约束"],
                     ),
                 )
             )
@@ -1510,7 +1566,6 @@ class PlanningService:
                 "NO_REPLACEMENT_CANDIDATES",
                 "当前目录中没有与该站点角色兼容的其他候选。",
                 fields=["replacement", "catalog"],
-                relaxation_options=["放宽时间、距离或预算约束"],
             )
 
         criteria = command.replacement_criteria
@@ -1758,7 +1813,6 @@ class PlanningService:
                         code=conflict_code,
                         message=conflict_message,
                         fields=["replacement"] + (["route_distance"] if needs_shorter_route else []),
-                        relaxation_options=["允许距离相近的地点" if needs_shorter_route else "放宽时间、距离或预算约束"],
                     ),
                     retrieval_runtime_decision=retrieval_runtime_decision,
                     retrieval_mode=retrieved_replacements.mode,
@@ -3855,7 +3909,6 @@ def _planning_time_conflict(
             code="DEPARTURE_NOT_BEFORE_RETURN_BY",
             message="准时出发必须早于最晚到家时间。",
             fields=["departure_at", "return_by"],
-            relaxation_options=["提前出发或延后最晚到家时间"],
         )
 
     window = constraints.planning_window.clock_bounds
@@ -3870,7 +3923,6 @@ def _planning_time_conflict(
             code="DEPARTURE_OUTSIDE_TIME_WINDOW",
             message="指定的准时出发时刻不在可用时间窗内。",
             fields=["departure_at", "time_window"],
-            relaxation_options=["调整出发时刻或可用时间窗"],
         )
     return None
 
@@ -3931,25 +3983,6 @@ def _meal_anchor_conflict_fields(
         if window_end < anchor_start or window_start > anchor_end:
             return ["meal_window"]
     return []
-
-
-def _route_relaxation_options(fields: set[str]) -> list[str]:
-    options: list[str] = []
-    if fields & {"time_window", "duration_minutes"}:
-        options.extend(["延长可用时间", "缩短停留时长"])
-    if "max_distance_km" in fields:
-        options.append("选择路程更短的地点")
-    if "opening_hours" in fields:
-        options.append("调整到店时间或选择营业时段更匹配的地点")
-    if "meal_window" in fields:
-        options.append("调整活动时长或顺序，使用餐落在常规用餐时段")
-    if "return_by" in fields:
-        options.append("延后最晚到家时间或缩短行程")
-    if "total_distance_km" in fields:
-        options.append("放宽全程距离限制或选择更近的地点")
-    if "availability" in fields:
-        options.append("重新确认余位或更换地点")
-    return options
 
 
 def _candidate_terms(candidate: StopCandidate) -> set[str]:
@@ -4023,7 +4056,6 @@ def _modification_conflict(
     message: str,
     *,
     fields: list[str],
-    relaxation_options: list[str],
 ) -> PlanModificationResult:
     """Build a failed modification result without leaking partial candidates."""
 
@@ -4033,7 +4065,6 @@ def _modification_conflict(
                 code=code,
                 message=message,
                 fields=fields,
-                relaxation_options=relaxation_options,
             )
         )
     )

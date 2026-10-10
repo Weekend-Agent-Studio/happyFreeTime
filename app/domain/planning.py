@@ -34,6 +34,7 @@ from app.domain.providers import (
     WeatherFact,
 )
 from app.domain.runtime import RuntimeDecision
+from app.domain.recovery import RecoveryReason
 
 
 class StopType(str, Enum):
@@ -292,7 +293,6 @@ class ConstraintConflict(BaseModel):
     code: str
     message: str
     fields: list[str] = Field(default_factory=list)
-    relaxation_options: list[str] = Field(default_factory=list)
 
 
 class PlanWarning(BaseModel):
@@ -316,6 +316,7 @@ class CandidateSet(BaseModel):
 
     plans: list[Plan] = Field(default_factory=list)
     conflict: ConstraintConflict | None = None
+    recovery_reason: RecoveryReason | None = None
     provider_facts: list[WeatherFact | GeocodingFact | AvailabilityFact] = Field(default_factory=list)
     catalog_violations: list[ConstraintViolation] = Field(default_factory=list)
     catalog_warnings: list[CatalogWarning] = Field(default_factory=list)
