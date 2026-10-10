@@ -13,6 +13,7 @@ from app.domain.constraints import (
 )
 from app.domain.runtime import RuntimeDecision
 from app.domain.run_trace import PlanningRunTrace
+from app.domain.recovery import RecoveryActionResponse, RecoveryChoiceInteraction
 
 
 T = TypeVar("T")
@@ -182,6 +183,7 @@ class MessageRequest(BaseModel):
     request_id: str = Field(min_length=8, max_length=64)
     content: str = Field(min_length=1, max_length=4000)
     clarification_reply: ClarificationReply | None = None
+    recovery_action: RecoveryActionResponse | None = None
     # Structured UI actions bypass semantic interpretation but still enter the
     # same Graph authorization and planning service.  It is additive so old
     # natural-language clients remain valid.
@@ -198,6 +200,7 @@ class MessageRequest(BaseModel):
             value is not None
             for value in (
                 self.clarification_reply,
+                self.recovery_action,
                 self.conversation_command,
                 self.planning_context_patch,
             )
@@ -264,9 +267,16 @@ class AgentResponse(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    status: str
+    status: Literal["completed", "needs_input", "needs_recovery", "context_saved"]
     reply: str = ""
     question: dict[str, Any] | None = None
+    recovery: RecoveryChoiceInteraction | None = None
+    recovery_resolution: Literal[
+        "cancel_turn",
+        "start_new_request",
+        "keep_current_plan",
+        "open_constraint_editor",
+    ] | None = None
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
     constraint_summary: list[ConstraintSummaryItem] = Field(default_factory=list)
     plans: list[dict[str, Any]] = Field(default_factory=list)

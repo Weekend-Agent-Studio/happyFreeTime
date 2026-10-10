@@ -11,8 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Callable, Mapping
-
-from langgraph.types import interrupt
+import uuid
 
 from app.domain.constraints import (
     ActorContext,
@@ -31,6 +30,21 @@ from app.domain.constraints import (
     Intent,
 )
 from app.domain.planning import CandidateSet, ConstraintConflict
+from app.domain.recovery import (
+    ApplyRequestPatchAction,
+    CancelTurnAction,
+    FieldClarificationInteraction,
+    KeepCurrentPlanAction,
+    OpenConstraintEditorAction,
+    RecoveryAction,
+    RecoveryActionResponse,
+    RecoveryChoiceInteraction,
+    RecoveryReason,
+    RecoveryStage,
+    ReplanCurrentRequestAction,
+    RequestFieldAction,
+    StartNewRequestAction,
+)
 from app.domain.runtime import RuntimeDecision
 from app.domain.run_trace import RunObserver
 from app.services.clarification import ClarificationResolution, ClarificationResolver
@@ -39,12 +53,15 @@ from app.services.constraint_engine import (
     ConflictedRequest,
     ConstraintEngine,
     NeedsClarification as ConstraintNeedsClarification,
+    ResolvedRequest,
 )
 from app.services.enrichment import EnvironmentContext, EnrichmentService
 from app.services.planning import PlanningService
 from app.services.question_policy import QuestionPolicy, QuestionPolicyContext
 from app.services.request_patch_compiler import RequestPatchProposalCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
+from app.services.recovery_reason_adapter import RecoveryReasonAdapter
+from app.services.recovery_policy import RecoveryPolicy
 from app.domain.turn import (
     ApplyRequestPatch,
     CompiledNextAction,
@@ -65,6 +82,9 @@ class WorkflowRoute(StrEnum):
     MODIFY_PLAN = "modify_plan"
     GATE = "gate"
     ASK_QUESTION = "ask_question"
+    DECIDE_RECOVERY = "decide_recovery"
+    INTERRUPT_FOR_RECOVERY = "interrupt_for_recovery"
+    APPLY_RECOVERY_ACTION = "apply_recovery_action"
     PLANNING = "planning"
     END = "__end__"
 
@@ -79,6 +99,28 @@ class WorkflowOutcome(StrEnum):
     MODIFICATION = "modification"
     CLARIFICATION = "clarification"
     CONFLICT = "conflict"
+    RECOVERY = "recovery"
+    RECOVERY_ACTION_APPLIED = "recovery_action_applied"
+    RECOVERY_ACTION_REJECTED = "recovery_action_rejected"
+    RECOVERY_ACTION_FINISHED = "recovery_action_finished"
+
+
+def _candidate_set_for_conflict(
+    conflict: ConstraintConflict,
+    request: PlanRequest,
+    *,
+    stage: RecoveryStage = RecoveryStage.CONSTRAINT_COMPILATION,
+    plan_version_id: str | None = None,
+) -> CandidateSet:
+    return CandidateSet(
+        conflict=conflict,
+        recovery_reason=RecoveryReasonAdapter().from_conflict(
+            conflict,
+            request,
+            stage=stage,
+            plan_version_id=plan_version_id,
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -91,6 +133,20 @@ class WorkflowResult:
 
     def as_state(self) -> dict[str, object]:
         result = dict(self.updates)
+        if "pending_issue" in result:
+            decision = result.get("pending_issue")
+            result["pending_interaction"] = (
+                FieldClarificationInteraction(
+                    interaction_id=decision.clarification_id,
+                    request_revision=decision.request_revision,
+                    decision=decision,
+                )
+                if isinstance(decision, QuestionDecision)
+                and decision.need_question
+                and decision.clarification_id is not None
+                and decision.request_revision is not None
+                else None
+            )
         result["workflow_route"] = self.route.value
         if self.outcome is not None:
             result["workflow_outcome"] = self.outcome.value
@@ -177,11 +233,18 @@ class RequestWorkflow:
                 outcome=WorkflowOutcome.CREATE,
             )
         if isinstance(outcome, ConflictedRequest):
+            # Keep the committed request unchanged.  A fully parsed candidate
+            # is retained separately as a draft so the user can repair the
+            # conflicting field without losing the other supplied values.
+            conflict_request = outcome.candidate_request or PlanRequest()
             return WorkflowResult(
                 updates={
                     **common,
-                    "candidate_set": CandidateSet(conflict=outcome.conflict),
+                    "candidate_set": _candidate_set_for_conflict(
+                        outcome.conflict, conflict_request
+                    ),
                     "active_request": PlanRequest(),
+                    "recovery_base_request": outcome.candidate_request,
                     "pending_patch": None,
                     "pending_issues": (),
                     "pending_issue": None,
@@ -207,7 +270,7 @@ class RequestWorkflow:
         *,
         action: ApplyRequestPatch,
     ) -> WorkflowResult:
-        active_request = state.get("active_request")
+        active_request = state.get("recovery_base_request") or state.get("active_request")
         if active_request is None:
             question = self._prepare_question(
                 QuestionDecision(
@@ -241,10 +304,11 @@ class RequestWorkflow:
             issues=compilation.issues,
         )
         if isinstance(result, ConstraintNeedsClarification):
+            candidate_request = result.request or active_request
             question = self._prepare_question(
                 self._question_policy.decide(
                     intent_for_action(action),
-                    result.request or active_request,
+                    candidate_request,
                     QuestionPolicyContext(
                         has_plans=bool(state.get("has_plans", False)),
                         selected_plan_index=state["interpretation"].selected_plan_index,
@@ -254,7 +318,22 @@ class RequestWorkflow:
             )
             return WorkflowResult(
                 updates={
-                    **({"active_request": result.request} if result.request is not None else {}),
+                    **(
+                        {"active_request": result.request}
+                        if result.request is not None
+                        and state.get("recovery_base_request") is None
+                        else {}
+                    ),
+                    **(
+                        {"recovery_base_request": candidate_request}
+                        if state.get("recovery_base_request") is not None
+                        else {}
+                    ),
+                    **(
+                        {"pending_request_base": candidate_request}
+                        if state.get("recovery_base_request") is not None
+                        else {}
+                    ),
                     "pending_issue": question,
                     "pending_patch": None if result.request is not None else compilation.patch,
                     "pending_issues": () if result.request is not None else compilation.issues or (result.issue,),
@@ -263,9 +342,13 @@ class RequestWorkflow:
                 outcome=WorkflowOutcome.CONSTRAINT_PATCH,
             )
         if isinstance(result, ConflictedRequest):
+            recovery_request = result.candidate_request or active_request
             return WorkflowResult(
                 updates={
-                    "candidate_set": CandidateSet(conflict=result.conflict),
+                    "candidate_set": _candidate_set_for_conflict(
+                        result.conflict, recovery_request
+                    ),
+                    "recovery_base_request": result.candidate_request,
                     "pending_issue": None,
                     "pending_patch": None,
                     "pending_issues": (),
@@ -276,6 +359,7 @@ class RequestWorkflow:
         return WorkflowResult(
             updates={
                 "active_request": result.request,
+                "recovery_base_request": None,
                 "pending_issue": None,
                 "pending_patch": None,
                 "pending_issues": (),
@@ -326,7 +410,24 @@ class RequestWorkflow:
                 )
             return WorkflowResult(
                 updates={
-                    **({"active_request": result.request} if result.request is not None else {}),
+                    **(
+                        {"active_request": result.request}
+                        if result.request is not None
+                        and state.get("recovery_base_request") is None
+                        and state.get("pending_request_base") is None
+                        else {}
+                    ),
+                    **(
+                        {"recovery_base_request": candidate}
+                        if state.get("recovery_base_request") is not None
+                        else {}
+                    ),
+                    **(
+                        {"pending_request_base": candidate}
+                        if state.get("pending_request_base") is not None
+                        or state.get("recovery_base_request") is not None
+                        else {}
+                    ),
                     "pending_issue": question,
                     "pending_patch": patch if result.request is None else None,
                     "pending_issues": issues or (result.issue,),
@@ -339,9 +440,15 @@ class RequestWorkflow:
                 outcome=WorkflowOutcome.CLARIFICATION,
             )
         if isinstance(result, ConflictedRequest):
+            recovery_request = result.candidate_request or request
             return WorkflowResult(
                 updates={
-                    "candidate_set": CandidateSet(conflict=result.conflict),
+                    "candidate_set": _candidate_set_for_conflict(
+                        result.conflict, recovery_request
+                    ),
+                    "recovery_base_request": result.candidate_request,
+                    "pending_request_base": None,
+                    "recovery_continuation": None,
                     "pending_issue": None,
                     "pending_patch": None,
                     "pending_issues": (),
@@ -355,6 +462,9 @@ class RequestWorkflow:
         return WorkflowResult(
             updates={
                 "active_request": result.request,
+                "recovery_base_request": None,
+                "pending_request_base": None,
+                "recovery_continuation": None,
                 "candidate_set": None,
                 "pending_issue": None,
                 "pending_patch": None,
@@ -367,6 +477,8 @@ class RequestWorkflow:
             route=(
                 WorkflowRoute.END
                 if state.get("defer_planning", False) or not changed
+                else WorkflowRoute.MODIFY_PLAN
+                if state.get("recovery_continuation") == "modify"
                 else WorkflowRoute.PLANNING
             ),
             outcome=(
@@ -477,6 +589,20 @@ class ModificationWorkflow:
             command=action.command,
             observer=observer,
         )
+        candidate_set = outcome.candidate_set
+        if candidate_set is not None and candidate_set.conflict is not None:
+            candidate_set = candidate_set.model_copy(
+                update={
+                    "recovery_reason": RecoveryReasonAdapter().from_conflict(
+                        candidate_set.conflict,
+                        active_request,
+                        stage=RecoveryStage.MODIFICATION,
+                        plan_version_id=state.get("active_plan_version_id"),
+                        search_traces=candidate_set.search_traces,
+                        catalog_violations=candidate_set.catalog_violations,
+                    )
+                }
+            )
         question = outcome.question
         if question is not None:
             question = question.model_copy(update={
@@ -499,7 +625,7 @@ class ModificationWorkflow:
                 evidence=command.evidence,
             )
         updates = {
-            "candidate_set": outcome.candidate_set,
+            "candidate_set": candidate_set,
             "plan_diffs": outcome.plan_diffs,
             "pending_issue": prepared,
             "pending_modification": pending,
@@ -507,10 +633,10 @@ class ModificationWorkflow:
                 *state.get("runtime_decisions", ()),
                 outcome.runtime_decision,
                 *(
-                    (outcome.candidate_set.retrieval_runtime_decision,)
+                    (candidate_set.retrieval_runtime_decision,)
                     if (
-                        outcome.candidate_set is not None
-                        and outcome.candidate_set.retrieval_runtime_decision is not None
+                        candidate_set is not None
+                        and candidate_set.retrieval_runtime_decision is not None
                     )
                     else ()
                 ),
@@ -534,7 +660,6 @@ class ClarificationWorkflow:
         clarification_patch_compiler: ClarificationPatchCompiler,
         environment_provider: EnvironmentProvider,
         prepare_question: PrepareQuestion,
-        question_payload: Callable[[QuestionDecision], dict[str, object]],
         coerce_reply: Callable[[object], ClarificationReply],
         runtime_decision: Callable[[QuestionDecision, ClarificationReply, ClarificationResolution], RuntimeDecision],
         resolved_request_value: Callable[[PlanRequest, str], object | None],
@@ -545,17 +670,15 @@ class ClarificationWorkflow:
         self._patch_compiler = clarification_patch_compiler
         self._environment_provider = environment_provider
         self._prepare_question = prepare_question
-        self._question_payload = question_payload
         self._coerce_reply = coerce_reply
         self._runtime_decision = runtime_decision
         self._resolved_request_value = resolved_request_value
         self._patch_resolves_issue = patch_resolves_issue
 
-    def resume(self, state: DurableState) -> WorkflowResult:
+    def resume(self, state: DurableState, *, answer: object) -> WorkflowResult:
         decision = state.get("pending_issue")
         if decision is None:
             raise ValueError("ask_question requires a QuestionDecision")
-        answer = interrupt(self._question_payload(decision))
         context_patch_answer = (
             answer
             if isinstance(answer, dict) and answer.get("kind") == "planning_context_patch"
@@ -569,15 +692,29 @@ class ClarificationWorkflow:
             )
         else:
             reply = self._coerce_reply(answer)
-        request = state.get("active_request") or PlanRequest()
+        request = (
+            state.get("pending_request_base")
+            or state.get("active_request")
+            or PlanRequest()
+        )
         expected_revision = decision.request_revision
         if decision.clarification_id and reply.clarification_id != decision.clarification_id:
-            return self._stale("STALE_CLARIFICATION_ID", "clarification_id")
+            return self._stale(
+                "STALE_CLARIFICATION_ID",
+                "clarification_id",
+                state.get("active_request") or PlanRequest(),
+                state.get("active_plan_version_id"),
+            )
         if expected_revision is not None and (
             request.revision != expected_revision
             or reply.request_revision != expected_revision
         ):
-            return self._stale("STALE_CLARIFICATION_REVISION", "request_revision")
+            return self._stale(
+                "STALE_CLARIFICATION_REVISION",
+                "request_revision",
+                state.get("active_request") or PlanRequest(),
+                state.get("active_plan_version_id"),
+            )
 
         if context_patch_answer is not None:
             patch = RequestPatch.model_validate(context_patch_answer.get("request_patch"))
@@ -632,6 +769,9 @@ class ClarificationWorkflow:
                         "candidate_set": None,
                         "plan_diffs": (),
                         "pending_modification": None,
+                        "pending_request_base": None,
+                        "recovery_continuation": None,
+                        "recovery_base_request": None,
                         "clarification_resolution": outcome.status.value,
                         "runtime_decisions": (*state.get("runtime_decisions", ()), trace),
                     },
@@ -643,6 +783,8 @@ class ClarificationWorkflow:
                     "pending_issue": None,
                     "pending_patch": None,
                     "pending_issues": (),
+                    "pending_request_base": None,
+                    "recovery_continuation": None,
                     "clarification_resolution": outcome.status.value,
                     "interpretation": outcome.interpretation,
                     "runtime_decisions": (*state.get("runtime_decisions", ()), trace),
@@ -726,6 +868,14 @@ class ClarificationWorkflow:
                 )
             )
             updates = dict(result.updates)
+            if result.route == WorkflowRoute.ASK_QUESTION:
+                updates["pending_request_base"] = (
+                    result.updates.get("active_request")
+                    or state.get("pending_request_base")
+                    or request
+                )
+            else:
+                updates["pending_request_base"] = None
             updates["assumptions"] = tuple(assumptions)
             updates["clarification_resolution"] = status
             updates["runtime_decisions"] = (
@@ -739,6 +889,20 @@ class ClarificationWorkflow:
                 ),
             )
             route = result.route
+            continuation = state.get("recovery_continuation")
+            if (
+                route != WorkflowRoute.ASK_QUESTION
+                and continuation in {"plan", "modify"}
+                and result.outcome != WorkflowOutcome.CONSTRAINT_PATCH_CONFLICT
+                and result.updates.get("candidate_set") is None
+            ):
+                route = (
+                    WorkflowRoute.MODIFY_PLAN
+                    if continuation == "modify"
+                    else WorkflowRoute.PLANNING
+                )
+                updates["recovery_continuation"] = None
+                updates["pending_request_base"] = None
             # A clarification raised during CREATE must return to QuestionPolicy
             # before planning; an update to an existing request may plan
             # immediately once the patch is resolved.
@@ -793,7 +957,12 @@ class ClarificationWorkflow:
         )
 
     @staticmethod
-    def _stale(code: str, field: str) -> WorkflowResult:
+    def _stale(
+        code: str,
+        field: str,
+        request: PlanRequest,
+        plan_version_id: str | None = None,
+    ) -> WorkflowResult:
         conflict = ConstraintConflict(
             code=code,
             message=(
@@ -805,7 +974,12 @@ class ClarificationWorkflow:
         )
         return WorkflowResult(
             updates={
-                "candidate_set": CandidateSet(conflict=conflict),
+                "candidate_set": _candidate_set_for_conflict(
+                    conflict,
+                    request,
+                    stage=RecoveryStage.CONSTRAINT_COMPILATION,
+                    plan_version_id=plan_version_id,
+                ),
                 "pending_issue": None,
                 "pending_patch": None,
                 "pending_issues": (),
@@ -815,3 +989,449 @@ class ClarificationWorkflow:
             route=WorkflowRoute.END,
             outcome=WorkflowOutcome.CONSTRAINT_PATCH_CONFLICT,
         )
+
+
+class RecoveryWorkflow:
+    """Apply one typed recovery decision/action and return a graph state delta.
+
+    LangGraph owns interrupts and edges. This module owns the deterministic
+    business transition behind recovery: validating the offered action,
+    applying its typed patch, and projecting conflicts or field questions.
+    """
+
+    def __init__(
+        self,
+        *,
+        policy: RecoveryPolicy,
+        constraint_engine: ConstraintEngine,
+        clarification_patch_compiler: ClarificationPatchCompiler,
+        question_policy: QuestionPolicy,
+        environment_provider: EnvironmentProvider,
+        prepare_question: PrepareQuestion,
+    ) -> None:
+        self._policy = policy
+        self._engine = constraint_engine
+        self._patch_compiler = clarification_patch_compiler
+        self._question_policy = question_policy
+        self._environment_provider = environment_provider
+        self._prepare_question = prepare_question
+        self._reason_adapter = RecoveryReasonAdapter()
+
+    def decide(self, state: DurableState) -> WorkflowResult:
+        candidate_set = state.get("candidate_set")
+        reason = state.get("active_recovery_reason") or (
+            candidate_set.recovery_reason if candidate_set is not None else None
+        )
+        request = self._request_for(state)
+        if not isinstance(reason, RecoveryReason):
+            return WorkflowResult(
+                updates={"active_recovery_reason": None},
+                route=WorkflowRoute.END,
+                outcome=WorkflowOutcome.RECOVERY,
+            )
+
+        plan_version_id = state.get("active_plan_version_id")
+        if reason.plan_version_id is None and plan_version_id is not None:
+            reason = reason.model_copy(update={"plan_version_id": plan_version_id})
+        decision = self._policy.decide(
+            reason,
+            request,
+            current_plan_version_id=plan_version_id,
+        )
+        used_actions = tuple(state.get("used_recovery_action_ids", ()))
+        decision = decision.model_copy(
+            update={
+                "actions": tuple(
+                    action for action in decision.actions
+                    if action.action_id not in used_actions
+                ),
+                "auto_action": (
+                    None
+                    if state.get("auto_recovery_attempted", False)
+                    else decision.auto_action
+                ),
+            }
+        )
+        if decision.stale:
+            conflict = ConstraintConflict(
+                code="STALE_RECOVERY_REASON",
+                message="规划状态已更新，这组恢复操作已失效，请基于当前条件重新规划。",
+                fields=["request_revision"],
+            )
+            return WorkflowResult(
+                updates={
+                    "candidate_set": CandidateSet(conflict=conflict),
+                    "active_recovery_reason": None,
+                    "pending_interaction": None,
+                    "workflow_outcome": WorkflowOutcome.CONFLICT.value,
+                },
+                route=WorkflowRoute.END,
+                outcome=WorkflowOutcome.CONFLICT,
+            )
+
+        auto_action = decision.auto_action
+        auto_attempted = False
+        auto_failed = False
+        if auto_action is not None and auto_action.auto_eligible:
+            auto_attempted = True
+            checked = self._engine.apply(request, auto_action.patch)
+            if isinstance(checked, ResolvedRequest):
+                return WorkflowResult(
+                    updates={
+                        "active_recovery_reason": reason,
+                        "recovery_auto_action": auto_action,
+                        "recovery_prevalidated_request": checked.request,
+                        "recovery_auto_failed": False,
+                        "auto_recovery_attempted": True,
+                        "used_recovery_action_ids": (*used_actions, auto_action.action_id),
+                    },
+                    route=WorkflowRoute.APPLY_RECOVERY_ACTION,
+                    outcome=WorkflowOutcome.RECOVERY,
+                )
+            auto_failed = True
+            decision = decision.model_copy(update={"auto_action": None})
+
+        interaction = RecoveryChoiceInteraction(
+            interaction_id=uuid.uuid4().hex,
+            request_revision=request.revision,
+            plan_version_id=plan_version_id,
+            reason=reason,
+            actions=decision.actions,
+        )
+        return WorkflowResult(
+            updates={
+                "active_recovery_reason": reason,
+                "recovery_auto_action": None,
+                "recovery_prevalidated_request": None,
+                "recovery_auto_failed": auto_failed,
+                "pending_interaction": interaction,
+                "auto_recovery_attempted": (
+                    state.get("auto_recovery_attempted", False) or auto_attempted
+                ),
+            },
+            route=WorkflowRoute.INTERRUPT_FOR_RECOVERY,
+            outcome=WorkflowOutcome.RECOVERY,
+        )
+
+    def apply_action(self, state: DurableState) -> WorkflowResult:
+        automatic = state.get("recovery_auto_action")
+        reason = state.get("active_recovery_reason")
+        request = self._request_for(state)
+        plan_version_id = state.get("active_plan_version_id")
+        response = state.get("recovery_response")
+        action: RecoveryAction | None
+
+        if automatic is not None:
+            if not isinstance(automatic, ApplyRequestPatchAction) or not automatic.auto_eligible:
+                raise ValueError("automatic recovery action is not eligible")
+            if automatic.request_revision != request.revision:
+                raise ValueError("stale automatic recovery action reached execution")
+            action = automatic
+        else:
+            interaction = state.get("pending_interaction")
+            if (
+                not isinstance(reason, RecoveryReason)
+                or not isinstance(response, RecoveryActionResponse)
+                or not isinstance(interaction, RecoveryChoiceInteraction)
+            ):
+                raise ValueError("recovery action requires a current response")
+            if (
+                response.request_revision != request.revision
+                or response.plan_version_id != plan_version_id
+                or response.plan_version_id != reason.plan_version_id
+                or interaction.interaction_id != response.interaction_id
+                or interaction.request_revision != response.request_revision
+                or interaction.plan_version_id != response.plan_version_id
+            ):
+                raise ValueError("stale recovery action reached workflow execution")
+            action = next(
+                (item for item in interaction.actions if item.action_id == response.action_id),
+                None,
+            )
+            if action is None:
+                raise ValueError("recovery action id is not available")
+            if (
+                action.request_revision != request.revision
+                or action.plan_version_id != plan_version_id
+            ):
+                raise ValueError("offered recovery action is stale")
+
+        if isinstance(action, ApplyRequestPatchAction):
+            checked_request = state.get("recovery_prevalidated_request")
+            result = (
+                ResolvedRequest(request=checked_request)
+                if automatic is not None and isinstance(checked_request, PlanRequest)
+                else self._engine.apply(request, action.patch)
+            )
+            return self._apply_patch_result(
+                state,
+                result,
+                request=request,
+                continuation=action.continuation,
+                action_id=action.action_id,
+                automatic=automatic is not None,
+            )
+
+        if isinstance(action, RequestFieldAction):
+            if automatic is not None or not isinstance(response, RecoveryActionResponse):
+                raise ValueError("field recovery action requires a user-provided value")
+            if response.field_value is None:
+                raise ValueError("field recovery action requires a field value")
+            if action.field == "availability":
+                patch = (
+                    RequestPatch(
+                        base_revision=request.revision,
+                        set_fields={
+                            "require_availability_confirmation": response.field_value == "必须确认"
+                        },
+                        source=ConstraintSource.USER_EXPLICIT,
+                    )
+                    if response.field_value in action.choices
+                    else None
+                )
+            else:
+                patch = self._patch_compiler.compile_answer(
+                    field=action.field,
+                    value=response.field_value,
+                    request=request,
+                    actor=state["actor"],
+                    environment=self._environment_provider(state["actor"]),
+                )
+            if patch is None:
+                return self._ask_for_field(state, action, request)
+            return self._apply_patch_result(
+                state,
+                self._engine.apply(request, patch),
+                request=request,
+                continuation=action.continuation,
+                action_id=action.action_id,
+                automatic=False,
+            )
+
+        used = tuple(state.get("used_recovery_action_ids", ()))
+        common = {
+            "pending_interaction": None,
+            "recovery_response": None,
+            "recovery_auto_action": None,
+            "recovery_prevalidated_request": None,
+            "recovery_auto_failed": False,
+            "active_recovery_reason": None,
+            "pending_issue": None,
+            "pending_patch": None,
+            "pending_issues": (),
+            "pending_request_base": None,
+            "recovery_continuation": None,
+            "used_recovery_action_ids": (
+                used if automatic is not None else (*used, action.action_id)
+            ),
+        }
+        if isinstance(action, ReplanCurrentRequestAction):
+            return WorkflowResult(
+                updates={
+                    **common,
+                    "candidate_set": None,
+                    "recovery_base_request": None,
+                    "recovery_resolution": action.kind,
+                },
+                route=WorkflowRoute.PLANNING,
+                outcome=WorkflowOutcome.RECOVERY_ACTION_APPLIED,
+            )
+        if isinstance(action, OpenConstraintEditorAction):
+            # The failed request remains an uncommitted draft. The next typed
+            # edit uses it as its base; only a resolved Engine result promotes it.
+            return WorkflowResult(
+                updates={
+                    **common,
+                    "candidate_set": None,
+                    "recovery_resolution": action.kind,
+                },
+                route=WorkflowRoute.END,
+                outcome=WorkflowOutcome.RECOVERY_ACTION_FINISHED,
+            )
+
+        updates: dict[str, object] = {
+            **common,
+            "candidate_set": None,
+            "recovery_base_request": None,
+            "recovery_resolution": action.kind,
+        }
+        if isinstance(action, StartNewRequestAction):
+            updates.update(
+                {
+                    "active_request": PlanRequest(),
+                    "has_plans": False,
+                    "selected_plan": None,
+                    "active_plan_version_id": None,
+                    "new_request_pending": True,
+                }
+            )
+        elif not isinstance(action, (KeepCurrentPlanAction, CancelTurnAction)):
+            raise ValueError("unsupported recovery action")
+        return WorkflowResult(
+            updates=updates,
+            route=WorkflowRoute.END,
+            outcome=WorkflowOutcome.RECOVERY_ACTION_FINISHED,
+        )
+
+    def _apply_patch_result(
+        self,
+        state: DurableState,
+        result: object,
+        *,
+        request: PlanRequest,
+        continuation: str,
+        action_id: str,
+        automatic: bool,
+    ) -> WorkflowResult:
+        used = tuple(state.get("used_recovery_action_ids", ()))
+        used_actions = used if automatic else (*used, action_id)
+        common = {
+            "recovery_response": None,
+            "recovery_auto_action": None,
+            "recovery_prevalidated_request": None,
+            "pending_interaction": None,
+            "used_recovery_action_ids": used_actions,
+        }
+        if isinstance(result, ResolvedRequest):
+            return WorkflowResult(
+                updates={
+                    **common,
+                    "active_request": result.request,
+                    "recovery_base_request": None,
+                    "active_recovery_reason": None,
+                    "candidate_set": None,
+                    "pending_issue": None,
+                    "pending_patch": None,
+                    "pending_issues": (),
+                    "pending_request_base": None,
+                    "recovery_continuation": None,
+                    "recovery_resolution": None,
+                },
+                route=(
+                    WorkflowRoute.MODIFY_PLAN
+                    if continuation == "modify"
+                    else WorkflowRoute.PLANNING
+                ),
+                outcome=WorkflowOutcome.RECOVERY_ACTION_APPLIED,
+            )
+
+        if isinstance(result, ConstraintNeedsClarification):
+            return self._ask_for_field(
+                state,
+                RequestFieldAction(
+                    action_id=action_id,
+                    kind="request_field",
+                    label="补充规划条件",
+                    description="",
+                    request_revision=request.revision,
+                    plan_version_id=state.get("active_plan_version_id"),
+                    continuation=continuation,
+                    field=result.issue.field,
+                    input_type="text",
+                ),
+                result.request or request,
+                issue=result.issue,
+                action_consumed=not automatic,
+            )
+
+        conflict = (
+            result.conflict
+            if isinstance(result, ConflictedRequest)
+            else ConstraintConflict(
+                code="RECOVERY_PATCH_REJECTED",
+                message="这项调整未通过约束检查，原条件保持不变。",
+                fields=[],
+            )
+        )
+        candidate_request = (
+            result.candidate_request
+            if isinstance(result, ConflictedRequest)
+            else None
+        )
+        reason = self._reason_adapter.from_conflict(
+            conflict,
+            candidate_request or request,
+            stage=RecoveryStage.CONSTRAINT_COMPILATION,
+            plan_version_id=state.get("active_plan_version_id"),
+        )
+        return WorkflowResult(
+            updates={
+                **common,
+                "candidate_set": CandidateSet(conflict=conflict, recovery_reason=reason),
+                "recovery_base_request": candidate_request or request,
+                "active_recovery_reason": reason,
+                "pending_issue": None,
+                "pending_patch": None,
+                "pending_issues": (),
+                "pending_request_base": None,
+                "recovery_continuation": None,
+            },
+            route=WorkflowRoute.DECIDE_RECOVERY,
+            outcome=WorkflowOutcome.RECOVERY_ACTION_REJECTED,
+        )
+
+    def _ask_for_field(
+        self,
+        state: DurableState,
+        action: RequestFieldAction,
+        request: PlanRequest,
+        *,
+        issue: ClarificationIssue | None = None,
+        action_consumed: bool = True,
+    ) -> WorkflowResult:
+        field_issue = issue or ClarificationIssue(
+            field=action.field,
+            code="RECOVERY_FIELD_VALUE_REQUIRED",
+            reason="recovery_field_value_not_resolved",
+            expected_value_type=action.input_type,
+            request_revision=request.revision,
+            allow_free_text=action.input_type != "choice",
+        )
+        question = self._question_policy.decide(
+            Intent.REFINE_PLAN,
+            request,
+            QuestionPolicyContext(has_plans=bool(state.get("has_plans", False))),
+            issue=field_issue,
+        ).model_copy(
+            update={
+                "max_attempts": 2,
+                "allow_free_text": (
+                    field_issue.allow_free_text and action.input_type != "choice"
+                ),
+            }
+        )
+        decision = self._prepare_question(question)
+        used = tuple(state.get("used_recovery_action_ids", ()))
+        updates: dict[str, object] = {
+            "recovery_base_request": state.get("recovery_base_request"),
+            "pending_request_base": request,
+            "recovery_continuation": action.continuation,
+            "candidate_set": None,
+            "active_recovery_reason": None,
+            "recovery_response": None,
+            "recovery_auto_action": None,
+            "recovery_prevalidated_request": None,
+            "pending_interaction": None,
+            "pending_issue": decision,
+            "pending_patch": RequestPatch(
+                base_revision=request.revision,
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+            "pending_issues": (issue,) if issue is not None else (),
+            "used_recovery_action_ids": (
+                used if not action_consumed else (*used, action.action_id)
+            ),
+        }
+        return WorkflowResult(
+            updates=updates,
+            route=WorkflowRoute.ASK_QUESTION,
+            outcome=WorkflowOutcome.CLARIFICATION,
+        )
+
+    @staticmethod
+    def _request_for(state: DurableState) -> PlanRequest:
+        request = (
+            state.get("recovery_base_request")
+            or state.get("active_request")
+        )
+        return request if isinstance(request, PlanRequest) else PlanRequest()

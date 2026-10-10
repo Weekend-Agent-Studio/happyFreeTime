@@ -5,11 +5,13 @@ import unittest
 from app.domain.constraints import ConstraintSource, ConstraintValue, PlanRequest
 from app.domain.recovery import (
     ApplyRequestPatchAction,
+    OpenConstraintEditorAction,
     RecoveryDiagnostics,
     RecoveryKind,
     RecoveryReason,
     RecoveryStage,
     RequestFieldAction,
+    StartNewRequestAction,
 )
 from app.services.recovery_policy import RecoveryPolicy
 
@@ -139,6 +141,51 @@ class RecoveryPolicyTests(unittest.TestCase):
                 and item.field == "max_distance_km"
                 for item in decision.actions
             )
+        )
+        self.assertTrue(
+            any(isinstance(item, OpenConstraintEditorAction) for item in decision.actions)
+        )
+
+    def test_failure_without_editable_fields_offers_manual_condition_editor(self) -> None:
+        reason = self.reason(code="NO_CANDIDATES_FOR_PLAN_STRUCTURE").model_copy(
+            update={"fields": ()}
+        )
+        decision = self.policy.decide(reason, PlanRequest(revision=3))
+
+        editor = next(
+            item
+            for item in decision.actions
+            if isinstance(item, OpenConstraintEditorAction)
+        )
+        self.assertEqual(editor.label, "手动调整条件")
+        self.assertEqual(editor.continuation, "finish")
+        self.assertIsNone(editor.plan_version_id)
+
+    def test_start_new_request_action_is_bound_to_current_plan_version(self) -> None:
+        reason = self.reason().model_copy(update={"plan_version_id": "plan-v7"})
+        decision = self.policy.decide(
+            reason,
+            PlanRequest(revision=3),
+            current_plan_version_id="plan-v7",
+        )
+
+        action = next(
+            item for item in decision.actions if isinstance(item, StartNewRequestAction)
+        )
+        self.assertEqual(action.plan_version_id, "plan-v7")
+
+    def test_unrecognized_hard_conflict_still_offers_manual_editor(self) -> None:
+        reason = self.reason(code="FUTURE_HARD_CONFLICT").model_copy(
+            update={
+                "kind": RecoveryKind.HARD_CONFLICT,
+                "fields": ("future_constraint",),
+            }
+        )
+
+        decision = self.policy.decide(reason, PlanRequest(revision=3))
+
+        self.assertTrue(
+            any(isinstance(item, OpenConstraintEditorAction) for item in decision.actions)
         )
 
     def test_policy_output_is_deterministic_and_action_label_is_display_only(self) -> None:

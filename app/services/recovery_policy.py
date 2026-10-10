@@ -13,6 +13,7 @@ from app.domain.recovery import (
     ApplyRequestPatchAction,
     CancelTurnAction,
     KeepCurrentPlanAction,
+    OpenConstraintEditorAction,
     RecoveryDecision,
     RecoveryField,
     RecoveryKind,
@@ -28,6 +29,7 @@ _MAX_RECOVERY_DISTANCE_KM = 30.0
 _DISTANCE_FAILURE_CODES = frozenset(
     {
         "NO_CANDIDATES_AFTER_HARD_FILTER",
+        "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
         "NO_PLAN_AFTER_ROUTE_VERIFICATION",
         "NO_PLAN_WITHIN_DISTANCE",
         "NO_VALID_REPLACEMENT",
@@ -40,16 +42,12 @@ _FIELD_INPUTS: dict[RecoveryField, tuple[str, str]] = {
     "departure_at": ("出发时间", "clock"),
     "return_by": ("最晚到家时间", "clock"),
     "budget_per_person": ("人均预算", "number"),
-    "strict_budget": ("预算方式", "choice"),
     "max_distance_km": ("搜索范围", "number"),
     "total_distance_km": ("全程距离上限", "number"),
     "location": ("出发地点", "text"),
     "planning_area": ("活动区域", "text"),
     "exact_stop_count": ("站点数量", "number"),
-    "required_stop_roles": ("必需站点", "choice"),
-    "availability": ("营业与可用时段", "choice"),
-    "target_reference": ("要修改的站点", "choice"),
-    "replacement_criteria": ("替换条件", "text"),
+    "availability": ("营业确认方式", "choice"),
 }
 
 
@@ -123,7 +121,11 @@ class RecoveryPolicy:
                     description="方案可能超过当前预算，生成后请核对价格。",
                     request_revision=request.revision,
                     plan_version_id=plan_version_id,
-                    continuation="compile_patch",
+                    continuation=(
+                        "modify"
+                        if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                        else "plan"
+                    ),
                     patch=RequestPatch(
                         base_revision=request.revision,
                         set_fields={"strict_budget": False},
@@ -153,7 +155,7 @@ class RecoveryPolicy:
                         description="会按剩余条件重新生成并验证整套行程。",
                         request_revision=request.revision,
                         plan_version_id=plan_version_id,
-                        continuation="compile_patch",
+                        continuation="plan",
                         patch=RequestPatch(
                             base_revision=request.revision,
                             set_fields={"exact_stop_count": current_count - 1},
@@ -176,9 +178,18 @@ class RecoveryPolicy:
                     description="修改后会重新检查约束并规划。",
                     request_revision=request.revision,
                     plan_version_id=plan_version_id,
-                    continuation="clarify_field",
+                    continuation=(
+                        "modify"
+                        if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                        else "plan"
+                    ),
                     field=field,
                     input_type=input_type,
+                    choices=(
+                        ("必须确认", "不需要确认")
+                        if field == "availability"
+                        else ()
+                    ),
                 )
             )
 
@@ -192,6 +203,23 @@ class RecoveryPolicy:
                     request_revision=request.revision,
                     plan_version_id=plan_version_id,
                     continuation="plan",
+                )
+            )
+
+        if reason.kind in {
+            RecoveryKind.HARD_CONFLICT,
+            RecoveryKind.NO_FEASIBLE_PLAN,
+            RecoveryKind.MODIFICATION_FAILED,
+        }:
+            actions.append(
+                OpenConstraintEditorAction(
+                    action_id=f"edit-constraints-r{request.revision}",
+                    kind="open_constraint_editor",
+                    label="手动调整条件",
+                    description="打开条件编辑；系统不会替你修改任何约束。",
+                    request_revision=request.revision,
+                    plan_version_id=plan_version_id,
+                    continuation="finish",
                 )
             )
 
@@ -222,6 +250,7 @@ class RecoveryPolicy:
                     kind="start_new_request",
                     label="开始新需求",
                     request_revision=request.revision,
+                    plan_version_id=plan_version_id,
                     continuation="finish",
                 ),
             )
@@ -263,7 +292,11 @@ class RecoveryPolicy:
             description="这是一次扩大搜索范围的尝试，不保证一定能找到方案。",
             request_revision=request.revision,
             plan_version_id=plan_version_id,
-            continuation="compile_patch",
+            continuation=(
+                "modify"
+                if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                else "plan"
+            ),
             auto_eligible=auto_eligible,
             patch=RequestPatch(
                 base_revision=request.revision,

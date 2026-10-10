@@ -309,6 +309,25 @@ h2, h3, p { margin-top: 0; }
 .clarification-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
 .clarification-options button { min-height: 36px; color: #2369ad; background: rgba(255,255,255,.86); border: 1px solid rgba(69,130,195,.3); border-radius: 10px; padding: 7px 11px; font-size: 12px; font-weight: 700; }
 .clarification-options button:disabled { opacity: .5; }
+.recovery-card { margin: 9px 0 0; padding: 14px; color: #24334a; background: #fbfcfd; border: 1px solid #d9e1ea; border-radius: 13px; }
+.recovery-card-heading { display: flex; align-items: center; gap: 8px; color: #273c54; }
+.recovery-card > p { margin: 7px 0 12px; padding: 0; color: #52647a; background: transparent; box-shadow: none; font-size: 13px; line-height: 1.55; }
+.recovery-action-list { display: grid; gap: 8px; }
+.recovery-action-button, .recovery-field-action { display: grid; gap: 4px; width: 100%; padding: 10px 12px; text-align: left; color: #263b52; background: #fff; border: 1px solid #dce4ec; border-radius: 10px; }
+.recovery-action-button { cursor: pointer; }
+.recovery-action-button:hover:not(:disabled), .recovery-choice-options button:hover:not(:disabled) { border-color: #8ea8c3; background: #f7faff; }
+.recovery-action-button span, .recovery-field-action > strong { font-size: 12px; font-weight: 700; }
+.recovery-action-button small, .recovery-field-action > small { color: #748398; font-size: 11px; line-height: 1.4; }
+.recovery-field-entry { display: flex; gap: 7px; margin-top: 5px; }
+.recovery-field-entry input { min-width: 0; flex: 1; padding: 7px 9px; border: 1px solid #d9e1ea; border-radius: 8px; }
+.recovery-field-entry button, .recovery-choice-options button { min-height: 34px; padding: 6px 10px; color: #29435f; background: #f5f8fb; border: 1px solid #d9e1ea; border-radius: 8px; font-size: 11px; font-weight: 700; }
+.recovery-choice-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.recovery-action-button:disabled, .recovery-field-entry button:disabled, .recovery-choice-options button:disabled { opacity: .5; cursor: wait; }
+.recovery-safety-note { display: block; margin-top: 10px; color: #8290a0; font-size: 10px; line-height: 1.45; }
+.recovery-editor-chooser > p { margin: 14px 22px; color: #647287; font-size: 13px; }
+.recovery-editor-sections { display: grid; gap: 7px; padding: 0 22px 20px; }
+.recovery-editor-sections button { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 9px; min-height: 44px; padding: 8px 10px; text-align: left; color: #2b3f55; background: #f8fafc; border: 1px solid #e1e7ee; border-radius: 9px; }
+.recovery-editor-sections button small { color: #8793a1; font-size: 11px; }
 .clarification-context-link { margin-top: 9px; padding: 0; color: #2369ad; background: transparent; border: 0; font-size: 11px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .clarification-context-link:disabled { opacity: .5; }
 .clarification-status { margin: 0 3px 7px; color: #35658e; font-size: 11px; font-weight: 700; }

@@ -236,6 +236,17 @@ def create_app(
             else PlanRequest.model_validate(request_value) if request_value is not None
             else PlanRequest()
         )
+        draft_value = (
+            graph_values.get("pending_request_base")
+            or graph_values.get("recovery_base_request")
+        )
+        display_request = (
+            draft_value
+            if isinstance(draft_value, PlanRequest)
+            else PlanRequest.model_validate(draft_value)
+            if draft_value is not None
+            else active_request
+        )
         pending_value = (
             graph_snapshot.interrupts[0].value
             if graph_snapshot.next and graph_snapshot.interrupts
@@ -267,7 +278,7 @@ def create_app(
                 "planning_context": planning_turn_application.project_context(
                     x_user_id,
                     session_id,
-                    active_request,
+                    display_request,
                     pending_field=pending_field,
                 ).model_dump(mode="json"),
                 "plan_versions": [

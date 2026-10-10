@@ -2680,6 +2680,9 @@ def _actual_outcome(row: dict[str, Any] | None) -> Literal["plan", "question", "
         return "question"
     if row.get("conflict"):
         return "conflict"
+    # A recovery card is not itself a terminal planning outcome. If it wraps a
+    # real conflict, score the conflict; without that evidence the API contract
+    # is incomplete and remains unknown rather than being counted as success.
     return "unknown"
 
 
@@ -2922,6 +2925,20 @@ def _advisor_final_grounding(row: dict[str, Any]) -> dict[str, bool | None]:
         for item in (row.get("constraint_summary") or [])
         if item.get("field")
     }
+    # `planning_window` is a derived domain concept, not a literal
+    # ConstraintSummary field. Its public grounding can come from an explicit
+    # trip window or from temporal bounds that define the effective window.
+    constraint_field_aliases = {
+        "planning_window": {
+            "time_window",
+            "time_window_start",
+            "time_window_end",
+            "departure_at",
+            "departure_period",
+            "return_by",
+            "trip_time_scope",
+        }
+    }
     need_ok = True
     for need in advice.get("understood_needs") or []:
         need_id = str(need.get("need_id") or "")
@@ -2931,7 +2948,11 @@ def _advisor_final_grounding(row: dict[str, Any]) -> dict[str, bool | None]:
                 known_evidence_ids
             )
         elif need_id.startswith("constraint."):
-            need_ok = need_ok and need_id[11:] in constraint_fields
+            field = need_id[11:]
+            grounded = field in constraint_fields or bool(
+                constraint_fields & constraint_field_aliases.get(field, set())
+            )
+            need_ok = need_ok and grounded
         else:
             need_ok = False
     referenced_ok = bool(advice_plans) and all(

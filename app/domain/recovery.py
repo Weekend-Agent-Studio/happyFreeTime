@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.domain.constraints import ConstraintSource, RequestPatch
+from app.domain.constraints import (
+    ConstraintSource,
+    QuestionDecision,
+    RequestPatch,
+)
 
 
 class RecoveryKind(StrEnum):
@@ -60,6 +65,12 @@ class RecoveryDiagnostics(BaseModel):
     rejected_by_time_window: int = Field(default=0, ge=0)
     rejected_by_route: int = Field(default=0, ge=0)
     rejected_by_availability: int = Field(default=0, ge=0)
+    structures_considered: int = Field(default=0, ge=0)
+    combinations_expanded: int = Field(default=0, ge=0)
+    route_candidates: int = Field(default=0, ge=0)
+    route_provider_requests: int = Field(default=0, ge=0)
+    route_verification_failures: int = Field(default=0, ge=0)
+    rejected_by_hard_filter: int = Field(default=0, ge=0)
     constraint_sources: dict[str, ConstraintSource] = Field(default_factory=dict)
 
     @field_validator("constraint_sources")
@@ -71,6 +82,8 @@ class RecoveryDiagnostics(BaseModel):
         allowed = {
             "date",
             "time_window",
+            "time_window_start",
+            "time_window_end",
             "departure_at",
             "return_by",
             "budget_per_person",
@@ -81,6 +94,8 @@ class RecoveryDiagnostics(BaseModel):
             "planning_area",
             "exact_stop_count",
             "required_stop_roles",
+            "party",
+            "duration_minutes",
         }
         if not set(value).issubset(allowed):
             raise ValueError("constraint source keys must be known planning fields")
@@ -95,7 +110,10 @@ class RecoveryReason(BaseModel):
     code: str = Field(min_length=1, max_length=80)
     kind: RecoveryKind
     stage: RecoveryStage
-    fields: tuple[RecoveryField, ...] = ()
+    # Failure fields come from heterogeneous domain findings. Keep their
+    # vocabulary open but constrained to safe identifiers; user-editable
+    # fields remain the separate, finite RecoveryField literal above.
+    fields: tuple[str, ...] = ()
     request_revision: int = Field(ge=0)
     plan_version_id: str | None = Field(default=None, min_length=1, max_length=128)
     public_summary: str = Field(min_length=1, max_length=240)
@@ -103,7 +121,15 @@ class RecoveryReason(BaseModel):
 
     @field_validator("fields")
     @classmethod
-    def validate_unique_fields(cls, value: tuple[RecoveryField, ...]) -> tuple[RecoveryField, ...]:
+    def validate_unique_fields(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        safe_field_path = re.compile(
+            r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*"
+        )
+        if any(
+            len(field) > 64 or safe_field_path.fullmatch(field) is None
+            for field in value
+        ):
+            raise ValueError("recovery fields must be safe lowercase identifiers")
         if len(value) != len(set(value)):
             raise ValueError("recovery fields must be unique")
         return value
@@ -135,6 +161,7 @@ class RequestFieldAction(_RecoveryAction):
     kind: Literal["request_field"] = "request_field"
     field: RecoveryField
     input_type: Literal["text", "number", "clock", "choice"]
+    choices: tuple[str, ...] = ()
 
 
 class ReplanCurrentRequestAction(_RecoveryAction):
@@ -153,15 +180,64 @@ class KeepCurrentPlanAction(_RecoveryAction):
     kind: Literal["keep_current_plan"] = "keep_current_plan"
 
 
+class OpenConstraintEditorAction(_RecoveryAction):
+    """End the recovery card and let the user edit conditions explicitly."""
+
+    kind: Literal["open_constraint_editor"] = "open_constraint_editor"
+
+
 RecoveryAction: TypeAlias = Annotated[
     ApplyRequestPatchAction
     | RequestFieldAction
     | ReplanCurrentRequestAction
     | CancelTurnAction
     | StartNewRequestAction
-    | KeepCurrentPlanAction,
+    | KeepCurrentPlanAction
+    | OpenConstraintEditorAction,
     Field(discriminator="kind"),
 ]
+
+
+class FieldClarificationInteraction(BaseModel):
+    """Projection of the existing field-level QuestionPolicy interrupt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["field_clarification"] = "field_clarification"
+    interaction_id: str = Field(min_length=1, max_length=128)
+    request_revision: int = Field(ge=0)
+    decision: QuestionDecision
+
+
+class RecoveryChoiceInteraction(BaseModel):
+    """A recoverable planning failure with backend-owned typed actions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["recovery_choice"] = "recovery_choice"
+    interaction_id: str = Field(min_length=1, max_length=128)
+    request_revision: int = Field(ge=0)
+    plan_version_id: str | None = Field(default=None, min_length=1, max_length=128)
+    reason: RecoveryReason
+    actions: tuple[RecoveryAction, ...]
+
+
+PendingInteraction: TypeAlias = Annotated[
+    FieldClarificationInteraction | RecoveryChoiceInteraction,
+    Field(discriminator="kind"),
+]
+
+
+class RecoveryActionResponse(BaseModel):
+    """Optimistically-concurrent response to one currently offered recovery action."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    interaction_id: str = Field(min_length=1, max_length=128)
+    action_id: str = Field(min_length=1, max_length=120)
+    request_revision: int = Field(ge=0)
+    plan_version_id: str | None = Field(default=None, min_length=1, max_length=128)
+    field_value: str | None = Field(default=None, max_length=1000)
 
 
 class RecoveryDecision(BaseModel):
@@ -173,4 +249,3 @@ class RecoveryDecision(BaseModel):
     actions: tuple[RecoveryAction, ...] = ()
     auto_action: ApplyRequestPatchAction | None = None
     stale: bool = False
-

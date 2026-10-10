@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "suite": "hitl_recovery_multiturn_v1",
+  "review_status": "reviewed deterministic API transcript",
+  "scope_note": "This suite executes a real HTTP conversation through clarification, recovery interrupt, stale-action rejection, and typed recovery resume. It is deterministic demo-world coverage, not a live-model benchmark.",
+  "cases": [
+    {
+      "case_id": "strict_budget_clarification_then_typed_recovery",
+      "steps": [
+        {
+          "kind": "message",
+          "content": "今天下午出去玩，别超预算",
+          "expect": {
+            "status": "needs_input",
+            "question_field": "budget_per_person"
+          }
+        },
+        {
+          "kind": "message",
+          "content": "人均200",
+          "expect": {
+            "status": "needs_recovery",
+            "conflict_code": "NO_PLAN_WITHIN_STRICT_BUDGET"
+          }
+        },
+        {
+          "kind": "stale_recovery_action",
+          "action_id_prefix": "use-budget-as-preference-",
+          "expect_http_status": 409
+        },
+        {
+          "kind": "recovery_action",
+          "action_id_prefix": "use-budget-as-preference-",
+          "content_source": "action_label",
+          "expect": {
+            "status": "completed",
+            "minimum_plans": 1
+          }
+        }
+      ],
+      "expected_router_calls": 1
+    }
+  ]
+}

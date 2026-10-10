@@ -276,6 +276,9 @@ export type RunStage =
   | "construct"
   | "verify"
   | "modify"
+  | "recovery"
+  | "auto_recovery"
+  | "recovery_action"
   | "advise";
 
 export type RunEventStatus = "started" | "completed" | "fallback" | "failed" | "waiting_input";
@@ -380,9 +383,52 @@ export type PlanningContextPatch = {
   preferences?: { add?: PreferenceTag[]; remove?: PreferenceTag[] };
 };
 
+export type RecoveryAction = {
+  action_id: string;
+  label: string;
+  description: string;
+  request_revision: number;
+  plan_version_id: string | null;
+  continuation: "compile_patch" | "plan" | "modify" | "clarify_field" | "finish";
+} & (
+  | { kind: "request_field"; field: string; input_type: "text" | "number" | "clock" | "choice"; choices: string[] }
+  | { kind: "apply_request_patch"; patch: unknown; auto_eligible?: boolean }
+  | { kind: "replan_current_request" }
+  | { kind: "cancel_turn" }
+  | { kind: "start_new_request" }
+  | { kind: "keep_current_plan" }
+  | { kind: "open_constraint_editor" }
+);
+
+export type RecoveryChoice = {
+  kind: "recovery_choice";
+  interaction_id: string;
+  request_revision: number;
+  plan_version_id: string | null;
+  reason: {
+    code: string;
+    kind: "hard_conflict" | "no_feasible_plan" | "modification_failed";
+    stage: string;
+    fields: string[];
+    request_revision: number;
+    plan_version_id: string | null;
+    public_summary: string;
+    diagnostics: Record<string, unknown>;
+  };
+  actions: RecoveryAction[];
+};
+
+export type RecoveryActionRequest = {
+  interaction_id: string;
+  action_id: string;
+  request_revision: number;
+  plan_version_id: string | null;
+  field_value?: string | null;
+};
+
 export type AgentResponse = {
   /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
-  status: "completed" | "needs_input" | "context_saved";
+  status: "completed" | "needs_input" | "needs_recovery" | "context_saved";
   reply: string;
   question: {
     field: string | null;
@@ -396,13 +442,14 @@ export type AgentResponse = {
     allow_free_text?: boolean;
     options?: ClarificationOption[];
   } | null;
+  recovery?: RecoveryChoice | null;
+  recovery_resolution?: "cancel_turn" | "start_new_request" | "keep_current_plan" | "open_constraint_editor" | null;
   assumptions: Assumption[];
   constraint_summary: ConstraintSummaryItem[];
   plans: Plan[];
   conflict: {
     code: string;
     message: string;
-    relaxation_options: string[];
   } | null;
   provider_facts: ProviderFact[];
   catalog_violations: CatalogViolation[];

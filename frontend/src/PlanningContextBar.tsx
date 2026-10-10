@@ -3,6 +3,7 @@ import { CalendarDays, CircleDollarSign, MapPin, SlidersHorizontal, Users, X } f
 import type { FieldEdit, PlanningContextPatch, PlanningContextSummary, PreferenceCategory, PreferenceTag } from "./types";
 
 export type ContextSection = "where" | "when" | "who" | "budget" | "preferences";
+export type ContextOpenTarget = ContextSection | "all";
 
 const SECTIONS: Array<{ id: ContextSection; label: string; icon: typeof MapPin }> = [
   { id: "where", label: "Where", icon: MapPin },
@@ -78,12 +79,13 @@ export function PlanningContextBar({
 }: {
   context: PlanningContextSummary | null;
   busy: boolean;
-  externalOpen: ContextSection | null;
+  externalOpen: ContextOpenTarget | null;
   onExternalOpenHandled: () => void;
   onSave: (patch: PlanningContextPatch) => Promise<void>;
   onReplan: () => Promise<void>;
 }) {
   const [section, setSection] = useState<ContextSection | null>(null);
+  const [sectionChooserOpen, setSectionChooserOpen] = useState(false);
   const [where, setWhere] = useState("");
   const [whereClear, setWhereClear] = useState(false);
   const [date, setDate] = useState("");
@@ -155,7 +157,8 @@ export function PlanningContextBar({
 
   useEffect(() => {
     if (externalOpen) {
-      open(externalOpen);
+      if (externalOpen === "all") setSectionChooserOpen(true);
+      else open(externalOpen);
       onExternalOpenHandled();
     }
   // External clarification navigation is an event, not a controlled dialog state.
@@ -164,6 +167,7 @@ export function PlanningContextBar({
 
   function close() {
     if (!saving) setSection(null);
+    if (!saving) setSectionChooserOpen(false);
   }
 
   async function replan() {
@@ -286,6 +290,26 @@ export function PlanningContextBar({
           </button>;
         })}
       </nav>
+      {sectionChooserOpen ? (
+        <div className="planning-context-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+          <section className="planning-context-dialog recovery-editor-chooser" role="dialog" aria-modal="true" aria-labelledby="recovery-editor-title">
+            <header>
+              <div><small>规划恢复</small><h2 id="recovery-editor-title">手动调整条件</h2></div>
+              <button type="button" aria-label="关闭" onClick={close}><X size={18} /></button>
+            </header>
+            <p>选择要修改的条件。保存后可按新条件重新规划。</p>
+            <div className="recovery-editor-sections">
+              {SECTIONS.map(({ id, label, icon: Icon }) => (
+                <button type="button" key={id} onClick={() => { setSectionChooserOpen(false); open(id); }}>
+                  <Icon size={17} aria-hidden="true" />
+                  <span>{label}</span>
+                  <small>{id === "when" ? whenSummary(context) : context?.[id]?.display_value ?? "设置"}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
       {context && (context.plan_stale || (context.ready_for_planning && !context.has_active_plan)) ? (
         <div className="planning-context-notice" role="status">
           <span>{context.plan_stale ? "条件已更新，当前方案基于旧条件。" : "规划条件已就绪。"}</span>

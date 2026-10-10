@@ -12,6 +12,7 @@ from app.evaluation.resume_release import (
     _EvaluationGeocodingProvider,
     _annotate_runtime_timing,
     _aggregate_results,
+    _actual_outcome,
     _advisor_metrics,
     _failure_details,
     _runtime_summary,
@@ -30,6 +31,25 @@ DATASET_PATH = ROOT / "evals" / "resume_release_cases.json"
 
 
 class ResumeReleaseEvaluationTest(unittest.TestCase):
+    def test_recovery_is_scored_as_its_underlying_conflict_not_success(self) -> None:
+        self.assertEqual(
+            _actual_outcome(
+                {
+                    "status": "needs_recovery",
+                    "plans": [],
+                    "conflict": {"code": "NO_PLAN_WITHIN_STRICT_BUDGET"},
+                    "recovery": {"actions": [{"action_id": "relax-budget"}]},
+                }
+            ),
+            "conflict",
+        )
+        self.assertEqual(
+            _actual_outcome(
+                {"status": "needs_recovery", "plans": [], "recovery": {"actions": []}}
+            ),
+            "unknown",
+        )
+
     def test_light_flavor_label_uses_query_and_grounded_semantics(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)
         case = next(
@@ -817,6 +837,28 @@ class ResumeReleaseEvaluationTest(unittest.TestCase):
         self.assertEqual(metrics["recommended_plan_id_valid_rate"]["value"], 1.0)
         self.assertEqual(metrics["advisor_provider_attempts"], 1)
         self.assertEqual(metrics["advisor_input_tokens"], 10)
+
+    def test_advisor_planning_window_grounding_uses_temporal_constraint_fields(self) -> None:
+        from app.evaluation.resume_release import _advisor_final_grounding
+
+        row = {
+            "plans": [{"plan_id": "p1"}],
+            "constraint_summary": [
+                {"field": "departure_at"},
+                {"field": "return_by"},
+            ],
+            "recommendation_advice": {
+                "recommended_plan_id": "p1",
+                "understood_needs": [
+                    {"need_id": "constraint.planning_window"}
+                ],
+                "plans": [{"plan_id": "p1"}],
+            },
+        }
+        self.assertTrue(_advisor_final_grounding(row)["understood_need"])
+
+        row["constraint_summary"] = [{"field": "budget"}]
+        self.assertFalse(_advisor_final_grounding(row)["understood_need"])
 
     def test_downstream_assertions_are_not_evaluable_after_missing_plan(self) -> None:
         dataset = load_resume_release_dataset(DATASET_PATH)

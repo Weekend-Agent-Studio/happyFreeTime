@@ -274,10 +274,6 @@ class PlanSpecCompiler:
                 code="UNSUPPORTED_PLAN_STRUCTURE",
                 message="当前请求指定的站点数量或角色组合无法编译为可执行结构。",
                 fields=fields,
-                relaxation_options=[
-                    "调整站点数量或角色组合",
-                    "移除明确的结构限制，交给系统选择默认骨架",
-                ],
             ),
             explicit_structure=True,
         )
@@ -516,7 +512,6 @@ def _explicit_structure_conflict(
             code="UNSUPPORTED_PLAN_STRUCTURE",
             message="必需站点数量超过了用户指定的总站数。",
             fields=fields,
-            relaxation_options=["增加站点数量", "减少必需站点"],
         )
     lunch = _first_index(required_roles, StopRole.LUNCH)
     dinner = _first_index(required_roles, StopRole.DINNER)
@@ -529,7 +524,6 @@ def _explicit_structure_conflict(
             code="UNSUPPORTED_PLAN_STRUCTURE",
             message="午饭和晚饭的顺序或重复要求无法组成可执行结构。",
             fields=fields,
-            relaxation_options=["调整餐食顺序", "减少重复餐食要求"],
         )
 
     # A lone break is not a meaningful outing.  Keep this deterministic
@@ -539,7 +533,6 @@ def _explicit_structure_conflict(
             code="UNSUPPORTED_PLAN_STRUCTURE",
             message="单独安排休息站点无法组成可执行行程。",
             fields=fields,
-            relaxation_options=["增加一个活动站点", "移除休息站点限制"],
         )
 
     if required_roles and not _capacity_is_feasible(required_roles, constraints):
@@ -724,7 +717,6 @@ def _capacity_conflict(constraints: PlanRequest) -> ConstraintConflict:
         code="NO_FEASIBLE_PLAN",
         message="指定时间范围内连满足站点结构的最短行程都无法安排。",
         fields=["time_window", "plan_structure"],
-        relaxation_options=["扩大可用时间范围", "减少站点或餐食要求"],
     )
 
 

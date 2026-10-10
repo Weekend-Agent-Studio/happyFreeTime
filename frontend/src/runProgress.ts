@@ -17,6 +17,9 @@ const STAGE_LABELS: Record<RunStage, string> = {
   construct: "组合候选行程",
   verify: "核对路线和硬约束",
   modify: "处理方案修改",
+  recovery: "处理规划失败",
+  auto_recovery: "尝试自动调整默认条件",
+  recovery_action: "应用恢复操作",
   advise: "生成推荐说明",
 };
 

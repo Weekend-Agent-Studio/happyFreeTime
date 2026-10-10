@@ -289,3 +289,70 @@ test("clarification card opens When and resolves through the same topbar request
   });
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
 });
+
+test("recovery card submits a typed action and resumes planning", async ({ page }) => {
+  const recoveryResponse = structuredClone(response) as Record<string, unknown>;
+  recoveryResponse.status = "needs_recovery";
+  recoveryResponse.reply = "";
+  recoveryResponse.plans = [];
+  recoveryResponse.conflict = {
+    code: "NO_PLAN_WITHIN_STRICT_BUDGET",
+    message: "当前严格预算内没有可行方案。",
+  };
+  recoveryResponse.recovery = {
+    kind: "recovery_choice",
+    interaction_id: "recovery-budget-1",
+    request_revision: 2,
+    plan_version_id: null,
+    reason: {
+      code: "NO_PLAN_WITHIN_STRICT_BUDGET",
+      kind: "no_feasible_plan",
+      stage: "verification",
+      fields: ["budget_per_person"],
+      request_revision: 2,
+      plan_version_id: null,
+      public_summary: "当前严格预算内没有可行方案。",
+      diagnostics: {},
+    },
+    actions: [{
+      kind: "apply_request_patch",
+      action_id: "use-budget-as-preference-r2",
+      label: "把预算改为参考条件并重新规划",
+      description: "方案可能超过当前预算，生成后请核对价格。",
+      request_revision: 2,
+      plan_version_id: null,
+      continuation: "plan",
+      patch: { base_revision: 2, set_fields: { strict_budget: false } },
+    }],
+  };
+
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/sessions/offline-session/messages/stream", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (body.recovery_action) {
+      submitted = body;
+      await route.fulfill(streamResponse(response));
+      return;
+    }
+    await route.fulfill(streamResponse(recoveryResponse));
+  });
+
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩，别超预算");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.getByRole("group", { name: "规划恢复选项" })).toBeVisible();
+  await page.getByRole("button", { name: /把预算改为参考条件并重新规划/ }).click();
+
+  await expect.poll(() => submitted).not.toBeNull();
+  expect(submitted).toMatchObject({
+    recovery_action: {
+      interaction_id: "recovery-budget-1",
+      action_id: "use-budget-as-preference-r2",
+      request_revision: 2,
+      plan_version_id: null,
+    },
+  });
+  expect(submitted).not.toHaveProperty("conversation_command");
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+  await expect(page.getByText("此恢复选项已结束，不能重复执行。")).toBeVisible();
+});

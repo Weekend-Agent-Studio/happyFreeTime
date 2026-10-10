@@ -367,6 +367,12 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertIsNotNone(result.conflict)
         self.assertEqual(result.conflict.code, "NO_PLAN_AFTER_ROUTE_VERIFICATION")
         self.assertEqual(result.conflict.fields, ["time_window"])
+        self.assertEqual(result.recovery_reason.stage.value, "route")
+        self.assertEqual(result.recovery_reason.fields, ("time_window",))
+        self.assertEqual(
+            result.recovery_reason.diagnostics.route_verification_failures,
+            12,
+        )
         self.assertGreater(len(route_provider.requests), 0)
 
     def test_route_verification_reports_next_day_departure_as_a_conflict(self) -> None:
@@ -427,7 +433,8 @@ class PlanningServiceTest(unittest.TestCase):
         self.assertEqual(result.conflict.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
         self.assertIn("预算", result.conflict.message)
         self.assertNotIn("双站", result.conflict.message)
-        self.assertTrue(result.conflict.relaxation_options)
+        self.assertEqual(result.recovery_reason.code, "NO_PLAN_WITHIN_STRICT_BUDGET")
+        self.assertIn("budget_per_person", result.recovery_reason.fields)
 
     def test_rain_eliminates_weather_sensitive_outdoor_stops_but_keeps_indoor_stops(self) -> None:
         rainy_weather = WeatherFact(
