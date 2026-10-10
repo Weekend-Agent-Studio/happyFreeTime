@@ -40,9 +40,9 @@ Live latency 仅作为该次运行观察值，不与稳定态或其他变体混�
 ## Live B0/B3
 
 - B0（Downstream Rule）：任务成功 `30/36`，硬约束 `7/7`，冲突归因 `4/4`，P50/P95 `1520/2055ms`。本次结果是单次 Live 观测，不作为跨架构确定性结论。
-- B3（Grounded Advice）：Runner 执行了 36 条，但 27 条遇到外部模型 Provider `status=402`；其中 26 次出现在 TurnInterpreter、1 次出现在 Advisor。该状态是 Provider 额度/计费错误，不是网络瞬断。B3 的 `9/36` 成功率、`0/4` 冲突指标受外部错误污染，标记为**不可用于产品质量比较**，不重试至通过。
+- B3（Grounded Advice）：额度恢复后的有效完整运行执行 `36/36`，任务成功 `34/36`，硬约束 `7/7`、冲突归因 `4/4`、修改链路 `10/10`；Advisor 接受 `23/27`，其余 `4/27` 因 grounding 校验安全回退。两条任务失败为 `plan_parents_novel_not_tiring`（返回反问而非方案）与 `clarify_unknown_date`（直接生成方案而未反问日期）。P50/P95 为 `5113/11530ms`；该次含 BGE 冷启动，延迟仅作单次观测。完整报告见 [B3 quota retry](../../artifacts/evals/S-HITL5C_B3_20261010_full_quota_retry/report.md)。
 
-因此本次发布验收的代码与离线门槛通过，但 Live B3 门槛尚未有效完成。待 Provider 额度恢复后只需重跑 B3；无需重跑 C0–C4 或 B0。额度恢复前不应把这轮 B3 报成成功或失败的产品质量指标。
+此前 B3 的 `status=402` 运行无效；额度恢复后第一次补跑因保守预算上限不足，15 条在 HTTP 执行前被跳过，也无效。上面的完整运行提高了预算上限并覆盖全部 36 条，没有再次出现 Provider 额度错误或 Runner 预算跳过。无需重跑 C0–C4 或 B0。
 
 ## 失败归因修正
 
@@ -50,4 +50,4 @@ Planner 现在依据已有搜索 Trace 的实际 `rejected_by` 计数区分时�
 
 ## Git 状态与后续
 
-代码尚未推送或创建 PR。发布分支保留 B3 的明确外部阻塞，不将不完整 Live 指标伪装成完整绿灯。建议 Provider 额度恢复后补跑 B3，确认有效结果后再推送并创建 PR。
+代码尚未推送或创建 PR。S-HITL5 的后端、前端、E2E、Frozen C0–C4 与有效 Live B0/B3 验收现已完成；Live 结果为单次样本，不代表稳定线上成功率。推送与 PR 尚待单独执行。
