@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import redirect_stderr
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from app.domain.providers import GeocodeRequest, GeocodeResolution
 from app.evaluation.resume_release import _EvaluationGeocodingProvider
@@ -14,7 +17,9 @@ from evals.run_s_rx_multiturn import (
     _replacement_diff_invariants,
     _snapshot_delta,
     _step_precondition,
+    _load_live_model_environment,
     load_suite,
+    main as run_s_rx_runner,
 )
 from evals.resume_release_dataset import load_resume_release_dataset
 
@@ -54,6 +59,50 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
         self.assertFalse(
             _is_publishable_baseline(**{**common, "executed_case_count": 23})
         )
+
+    def test_live_runner_loads_project_dotenv_before_using_model_credentials(self) -> None:
+        def load_project_env(path: Path) -> None:
+            self.assertEqual(path, ROOT / ".env")
+            import os
+
+            os.environ["LLM_API"] = "test-only-credential"
+
+        with patch.dict("os.environ", {"LLM_API": ""}, clear=False):
+            with patch("dotenv.load_dotenv", side_effect=load_project_env) as load_env:
+                _load_live_model_environment()
+
+            load_env.assert_called_once_with(ROOT / ".env")
+
+    def test_live_runner_fails_clearly_when_dotenv_has_no_model_credential(self) -> None:
+        with patch.dict("os.environ", {"LLM_API": ""}, clear=False):
+            with patch("dotenv.load_dotenv", return_value=False):
+                with self.assertRaisesRegex(RuntimeError, "LLM_API"):
+                    _load_live_model_environment()
+
+    def test_live_cli_fails_before_provider_setup_when_dotenv_has_no_key(self) -> None:
+        stderr = StringIO()
+        arguments = [
+            "run_s_rx_multiturn",
+            "--variant",
+            "B0_DOWNSTREAM_RULE",
+            "--allow-llm",
+            "--max-model-calls",
+            "62",
+            "--case-id",
+            "planning_area_not_required_without_area",
+            "--output",
+            str(ROOT / "artifacts" / "evals" / "unused-live-preflight.json"),
+        ]
+        with patch.dict("os.environ", {"LLM_API": ""}, clear=False):
+            with patch("sys.argv", arguments):
+                with patch("dotenv.load_dotenv", return_value=False) as load_env:
+                    with redirect_stderr(stderr):
+                        with self.assertRaises(SystemExit) as raised:
+                            run_s_rx_runner()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("LLM_API is required", stderr.getvalue())
+        load_env.assert_called_once_with(ROOT / ".env")
 
     def test_all_seed_cases_exist_and_have_oracles(self) -> None:
         suite = load_suite(ROOT / "evals" / "s_rx_multiturn_v1.json")

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 import time
@@ -140,6 +141,16 @@ def _is_publishable_baseline(
         and executed_case_count == selected_case_count
         and not git_dirty
     )
+
+
+def _load_live_model_environment() -> None:
+    """Load the project-local live-model configuration without exposing it."""
+
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+    if not os.getenv("LLM_API"):
+        raise RuntimeError("LLM_API is required before starting a live S-RX evaluation")
 
 
 def _session_view(client: TestClient, session_id: str) -> dict[str, Any]:
@@ -1119,6 +1130,11 @@ def main() -> int:
             f"conservative upper bound is {estimated_budget} model attempts; "
             f"select fewer cases or raise --max-model-calls"
         )
+    if uses_live_model:
+        try:
+            _load_live_model_environment()
+        except RuntimeError as error:
+            parser.error(str(error))
     dependencies = _build_evaluation_dependencies(variant)
     temp_root = ROOT / "artifacts" / "evals"
     temp_root.mkdir(parents=True, exist_ok=True)
