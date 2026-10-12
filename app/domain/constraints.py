@@ -184,7 +184,13 @@ class ConstraintPatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    date_text: str | None = None
+    date_text: str | None = Field(
+        default=None,
+        description=(
+            "用户原文中的日期表达。未提日期时留空；提到日期但无法确定时，"
+            "保留原文短语（例如‘等忙完那天’或‘10月17日’），不要静默省略或改用默认日期。"
+        ),
+    )
     return_by_text: str | None = None
     departure_at_text: str | None = None
     # A finite departure-period hint is distinct from the itinerary's overall
@@ -208,13 +214,34 @@ class ConstraintPatch(BaseModel):
     # distinct from ``planning_area_text``: saying "from Wangjing" does not
     # mean the user wants every stop inside Wangjing, and saying "play in
     # Chaoyang" does not move the route origin there.
-    origin_text: str | None = None
-    planning_area_text: str | None = None
+    origin_text: str | None = Field(
+        default=None,
+        description="用户明确指定的出发地，例如‘从望京出发’；不是活动搜索区域。",
+    )
+    planning_area_text: str | None = Field(
+        default=None,
+        description=(
+            "用户明确指定的活动/搜索区域，例如‘在朝阳区玩’或‘去太古里附近’；"
+            "不是出发地。只有该区域无法解析时才需要澄清。"
+        ),
+    )
     budget_text: str | None = None
-    max_distance_text: str | None = None
+    max_distance_text: str | None = Field(
+        default=None,
+        description=(
+            "用户明确提出的空间距离上限/半径表达；只用于真实距离边界，"
+            "‘少走路/别太累/不想走太多’是软偏好，不得放入此字段。"
+        ),
+    )
     total_distance_text: str | None = None
     strict_budget: bool | None = None
-    preferences: tuple[str, ...] = ()
+    preferences: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "非阻塞体验偏好或软目标，例如‘少走路’‘别太累’；"
+            "不要仅因其未量化而生成必答反问。"
+        ),
+    )
     diet_tags: tuple[str, ...] = ()
     avoid: tuple[str, ...] = ()
     clear_fields: tuple[str, ...] = ()
@@ -447,7 +474,13 @@ class RawConstraints(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    date_text: str | None = None
+    date_text: str | None = Field(
+        default=None,
+        description=(
+            "用户原文中的日期表达。未提日期时留空；提到日期但无法确定时，"
+            "保留原文短语（例如‘等忙完那天’或‘10月17日’），不要静默省略或改用默认日期。"
+        ),
+    )
     # Date understanding remains explicit until the request compiler resolves it.
     date_reference: DateReference | None = None
     weekday: Weekday | None = None
@@ -459,8 +492,17 @@ class RawConstraints(BaseModel):
     # Keep the semantic scope selected by the Router until the request
     # compiler resolves it.  A single ambiguous ``location_text`` field made
     # origin and destination-area requests indistinguishable downstream.
-    origin_text: str | None = None
-    planning_area_text: str | None = None
+    origin_text: str | None = Field(
+        default=None,
+        description="用户明确指定的出发地，例如‘从望京出发’；不是活动搜索区域。",
+    )
+    planning_area_text: str | None = Field(
+        default=None,
+        description=(
+            "用户明确指定的活动/搜索区域，例如‘在朝阳区玩’或‘去太古里附近’；"
+            "不是出发地。只有该区域无法解析时才需要澄清。"
+        ),
+    )
     adults: int | None = Field(default=None, ge=0)
     children: int | None = Field(default=None, ge=0)
     child_age: int | None = Field(default=None, ge=0, le=17)
@@ -471,9 +513,21 @@ class RawConstraints(BaseModel):
     # 仅在用户明确要求“确认有位/必须可预约”时置为 True。普通探索性
     # 规划允许 UNKNOWN，但必须由 Verifier 生成显式提醒。
     require_availability_confirmation: bool = False
-    max_distance_text: str | None = None
+    max_distance_text: str | None = Field(
+        default=None,
+        description=(
+            "用户明确提出的空间距离上限/半径表达；只用于真实距离边界，"
+            "‘少走路/别太累/不想走太多’是软偏好，不得放入此字段。"
+        ),
+    )
     max_distance_km: float | None = Field(default=None, gt=0)
-    preferences: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(
+        default_factory=list,
+        description=(
+            "非阻塞的体验偏好或软目标，例如‘少走路’‘别太累’‘浪漫’；"
+            "不应仅因偏好不够量化而触发反问。"
+        ),
+    )
     diet_tags: list[str] = Field(default_factory=list)
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)

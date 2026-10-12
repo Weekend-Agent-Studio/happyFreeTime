@@ -309,6 +309,12 @@ h2, h3, p { margin-top: 0; }
 .clarification-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
 .clarification-options button { min-height: 36px; color: #2369ad; background: rgba(255,255,255,.86); border: 1px solid rgba(69,130,195,.3); border-radius: 10px; padding: 7px 11px; font-size: 12px; font-weight: 700; }
 .clarification-options button:disabled { opacity: .5; }
+.clarification-date-picker { display: grid; gap: 7px; margin-top: 12px; }
+.clarification-date-picker label { color: #52647a; font-size: 12px; }
+.clarification-date-picker > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.clarification-date-picker input { min-height: 38px; padding: 6px 10px; color: #25364a; background: #fff; border: 1px solid #cbd7e4; border-radius: 9px; font: inherit; }
+.clarification-date-picker button { min-height: 38px; padding: 7px 13px; color: #fff; background: #1b1d20; border: 0; border-radius: 9px; font-size: 12px; font-weight: 700; }
+.clarification-date-picker button:disabled { opacity: .45; }
 .recovery-card { margin: 9px 0 0; padding: 14px; color: #24334a; background: #fbfcfd; border: 1px solid #d9e1ea; border-radius: 13px; }
 .recovery-card-heading { display: flex; align-items: center; gap: 8px; color: #273c54; }
 .recovery-card > p { margin: 7px 0 12px; padding: 0; color: #52647a; background: transparent; box-shadow: none; font-size: 13px; line-height: 1.55; }

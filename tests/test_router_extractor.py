@@ -429,7 +429,7 @@ class TurnInterpreterTest(unittest.TestCase):
         self.assertEqual(runtime.input_tokens, 21)
         self.assertEqual(runtime.output_tokens, 8)
         self.assertEqual(runtime.wire_schema_version, "turn-proposal.v2")
-        self.assertEqual(runtime.prompt_version, "turn-interpreter.v4")
+        self.assertEqual(runtime.prompt_version, "turn-interpreter.v6")
 
     def test_prompt_contains_bounded_context_without_provider_facts(self) -> None:
         model = FakeStructuredModel([TurnProposal(act=ChitchatProposal())])
@@ -442,6 +442,28 @@ class TurnInterpreterTest(unittest.TestCase):
         self.assertIn("TurnProposal", prompt)
         self.assertNotIn("天气事实", prompt)
         self.assertNotIn("resource_id", prompt)
+
+    def test_prompt_distinguishes_unresolved_date_soft_walking_and_area_scope(self) -> None:
+        model = FakeStructuredModel([TurnProposal(act=ChitchatProposal())])
+        TurnInterpreter(model).interpret_with_runtime(
+            "等忙完那天带父母出去，少走点路，想在朝阳区玩",
+            RouterContext(current_date=date(2026, 8, 12)),
+        )
+        prompt = "\n".join(str(message.content) for message in model.calls[0])
+
+        self.assertIn("等忙完那天", prompt)
+        self.assertIn("日期未提及", prompt)
+        self.assertIn("日期已提及但无法确定", prompt)
+        self.assertIn("10月17日", prompt)
+        self.assertIn("不能自行补写年份", prompt)
+        self.assertIn("少走路/别太累", prompt)
+        self.assertIn("max_distance_text", prompt)
+        self.assertIn("在朝阳区玩", prompt)
+        self.assertIn("origin_text", prompt)
+        self.assertIn("等忙完那天", RawConstraints.model_fields["date_text"].description)
+        self.assertIn("少走路", RawConstraints.model_fields["max_distance_text"].description)
+        self.assertIn("出发地", RawConstraints.model_fields["origin_text"].description)
+        self.assertIn("活动/搜索区域", RawConstraints.model_fields["planning_area_text"].description)
 
     def test_retries_once_then_returns_safe_clarification(self) -> None:
         model = FakeStructuredModel([{"invalid": True}, {"still_invalid": True}])

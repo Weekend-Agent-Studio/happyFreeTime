@@ -208,17 +208,25 @@ class RequestPatchProposalCompiler:
         request_revision: int,
     ) -> tuple[ConstraintValue[Date] | None, ClarificationIssue | None]:
         raw = interpretation.raw_constraints
-        resolved = TemporalCompiler.resolve_date(
-            raw.date_reference,
-            current_date=current_date,
-            weekday=raw.weekday,
-            week_offset=raw.week_offset,
-            absolute_date=raw.absolute_date,
+        yearless_month_day = TemporalCompiler.is_yearless_month_day(raw.date_text)
+        resolved = (
+            TemporalCompiler.normalize_date(raw.date_text, current_date)
+            if yearless_month_day
+            else TemporalCompiler.resolve_date(
+                raw.date_reference,
+                current_date=current_date,
+                weekday=raw.weekday,
+                week_offset=raw.week_offset,
+                absolute_date=raw.absolute_date,
+            )
         )
         if resolved is None and raw.date_text:
             resolved = TemporalCompiler.normalize_date(raw.date_text, current_date)
         if resolved is not None:
-            explicit_absolute = raw.date_reference == DateReference.ABSOLUTE
+            explicit_absolute = (
+                raw.date_reference == DateReference.ABSOLUTE
+                and not yearless_month_day
+            )
             return (
                 ConstraintValue[Date](
                     value=resolved,

@@ -134,6 +134,34 @@ class PlanModificationTest(unittest.TestCase):
             {"planning_window.start_at", "planning_window.start_kind"},
         )
 
+    def test_date_clarification_accepts_yearless_month_day(self) -> None:
+        request = planning_constraints()
+        patch = ClarificationPatchCompiler(self._patch_compiler()).compile_answer(
+            field="date",
+            value="10月17日",
+            request=request,
+            actor=self._patch_actor(),
+            environment=self._patch_environment(),
+        )
+        self.assertIsNotNone(patch)
+        result = ConstraintEngine().apply(request, patch)
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertEqual(result.request.planning_window.date.value.isoformat(), "2026-10-17")
+
+    def test_date_clarification_accepts_date_picker_iso_value(self) -> None:
+        request = planning_constraints()
+        patch = ClarificationPatchCompiler(self._patch_compiler()).compile_answer(
+            field="date",
+            value="2026-10-17",
+            request=request,
+            actor=self._patch_actor(),
+            environment=self._patch_environment(),
+        )
+        self.assertIsNotNone(patch)
+        result = ConstraintEngine().apply(request, patch)
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertEqual(result.request.planning_window.date.value.isoformat(), "2026-10-17")
+
     def test_constraint_patch_proposal_is_shared_with_demo_adapter(self) -> None:
         period = DemoRouter.patch_proposal_from_text("补充一下，下午才出发", has_plans=True)
         exact = DemoRouter.patch_proposal_from_text("改成下午两点出发", has_plans=True)

@@ -264,11 +264,10 @@ class RequestPatchUpdateCompiler:
         )
 
     def _compile_date(self, text: str, environment: EnvironmentContext) -> ConstraintValue[Date] | None:
-        raw, reference, weekday, week_offset, absolute = TemporalCompiler.extract_date(text)
-        value = TemporalCompiler.resolve_date(reference, current_date=environment.now.date(), weekday=weekday, week_offset=week_offset, absolute_date=absolute)
+        value = TemporalCompiler.normalize_date(text, environment.now.date())
         if value is None:
             return None
-        return self._value(value, raw or text, "date.patch.v1")
+        return self._value(value, text, "date.patch.v1")
 
     @staticmethod
     def _compile_time_window(text: str) -> tuple[TimeScope, TimeWindow] | None:
