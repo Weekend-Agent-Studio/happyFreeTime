@@ -47,6 +47,7 @@ from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.router_extractor import RouterContext
 from app.domain.planning import PlanSlotProposal, PlanStructureProposal
 from app.domain.planning import ConstraintConflict
+from app.domain.run_trace import InMemoryRunObserver, RunEventStatus, RunStage
 from app.domain.recovery import (
     OpenConstraintEditorAction,
     RecoveryChoiceInteraction,
@@ -490,10 +491,16 @@ class EntryGraphTest(unittest.TestCase):
             environment_provider=lambda _: environment,
             catalog=InMemoryCatalog([far_activity]),
         )
+        observer = InMemoryRunObserver("run-default-distance-recovery")
 
         result = graph.invoke(
             {"user_input": "今天下午出去玩", "actor": actor},
-            config={"configurable": {"thread_id": actor.session_id}},
+            config={
+                "configurable": {
+                    "thread_id": actor.session_id,
+                    "run_observer": observer,
+                }
+            },
         )
 
         self.assertEqual(len(result["candidate_set"].plans), 1)
@@ -504,6 +511,20 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertTrue(result["auto_recovery_attempted"])
         self.assertNotIn("__interrupt__", result)
+        structure_events = [
+            event
+            for event in observer.snapshot().events
+            if event.stage == RunStage.STRUCTURE
+        ]
+        self.assertEqual(
+            [event.status for event in structure_events],
+            [
+                RunEventStatus.STARTED,
+                RunEventStatus.COMPLETED,
+                RunEventStatus.STARTED,
+                RunEventStatus.COMPLETED,
+            ],
+        )
 
     def test_explicit_distance_failure_interrupts_without_auto_relaxation(self) -> None:
         class ExplicitDistanceRouter(InterpretationRouter):

@@ -13,7 +13,7 @@ S-TRACE6 已完成本地收口。它没有改变 Router、PlanningIntent、Retri
 ### 6A：公开阶段生命周期
 
 - 创建流程使用七个公开阶段：`understand`、`compile_request`、`structure`、`retrieve`、`construct`、`verify`、`advise`。
-- 每个阶段最多一次 `started` 和一次 terminal 状态：`completed`、`fallback`、`failed` 或 `waiting_input`。
+- 每个阶段同一时刻最多有一个活动生命周期；终态后允许在同一 run 中再次开始（例如有界自动恢复重进规划）。Trace 保留每次尝试和顺序，前端仍投影为每阶段一行并显示最近状态。
 - Observer 连续分配 `sequence`，根据阶段开始/结束时间计算 `duration_ms`，限制事件数量，并校验公开详情的安全长度和格式。
 - `waiting_input` 是正常交互终态；公开事件不包含 Prompt、模型原始输出、隐藏推理、密钥、堆栈或原始异常。
 - `RuntimeDecision`、`SearchTrace` 和 Evidence 不迁移到公开 Trace。

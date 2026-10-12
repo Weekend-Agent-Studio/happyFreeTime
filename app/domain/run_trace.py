@@ -199,9 +199,9 @@ class InMemoryRunObserver:
             RunEventStatus.WAITING_INPUT,
         }
         if event.status == RunEventStatus.STARTED:
-            if previous is not None:
+            if previous == RunEventStatus.STARTED:
                 raise ValueError(
-                    f"trace stage {event.stage.value} cannot start twice"
+                    f"trace stage {event.stage.value} already has an active lifecycle"
                 )
         elif event.status in terminal_statuses:
             if previous != RunEventStatus.STARTED:

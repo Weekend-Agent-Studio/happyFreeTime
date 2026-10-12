@@ -88,7 +88,7 @@ class PlanningRunTraceContractTest(unittest.TestCase):
         self.assertIsNotNone(trace.events[1].duration_ms)
         self.assertGreaterEqual(trace.events[1].duration_ms or 0, 0)
 
-    def test_observer_rejects_duplicate_stage_lifecycle_events(self) -> None:
+    def test_observer_allows_sequential_stage_lifecycles_but_rejects_overlap(self) -> None:
         observer = InMemoryRunObserver("run-3")
         started = PlanningRunEventDraft(
             stage=RunStage.STRUCTURE,
@@ -117,6 +117,29 @@ class PlanningRunTraceContractTest(unittest.TestCase):
                     public_message="结构再次完成",
                 )
             )
+
+        observer.record(started)
+        observer.record(
+            PlanningRunEventDraft(
+                stage=RunStage.STRUCTURE,
+                status=RunEventStatus.COMPLETED,
+                message_key="structure.completed_retry",
+                public_message="恢复后的结构完成",
+            )
+        )
+
+        events = observer.snapshot().events
+        self.assertEqual([event.sequence for event in events], [1, 2, 3, 4])
+        self.assertEqual(
+            [event.status for event in events],
+            [
+                RunEventStatus.STARTED,
+                RunEventStatus.COMPLETED,
+                RunEventStatus.STARTED,
+                RunEventStatus.COMPLETED,
+            ],
+        )
+        self.assertIsNotNone(events[3].duration_ms)
 
     def test_observer_closes_open_stages_with_safe_failure(self) -> None:
         observer = InMemoryRunObserver("run-4")
