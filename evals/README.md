@@ -52,3 +52,24 @@ model calls explicit. Reports are written under `artifacts/evals/`. Future
 draft additions remain exploratory and require `--allow-draft`; the frozen
 35-case E2E set can now be selected as reviewed. The MVP still does not
 automatically promote labels or hide failures.
+
+## S-RX multi-turn reviewed runner
+
+`s_rx_multiturn_v1.json` is a reviewed HTTP replay suite for clarification,
+recovery, top-bar edits, new-request resets, and plan modification. It contains
+24 cases, including database-grounded regressions for repeated area questions,
+automatic replanning, and distance scope. Human-approved behavior is documented
+in `s_rx_multiturn_v1/review.md`; reviewed labels do not imply the suite has been
+run or passed.
+
+```powershell
+python -m evals.run_s_rx_multiturn `
+  --variant offline_sanity `
+  --case-id distance_conflict_requires_consent `
+  --output artifacts/evals/S-RX1_smoke/report.json
+```
+
+Live variants require `--allow-llm` and a conservative `--max-model-calls`.
+The runner stops a scripted branch when its required question or action was not
+offered, reports remaining steps as `not_exercised`, and does not submit
+synthetic answers/actions that would create spurious HTTP failures.

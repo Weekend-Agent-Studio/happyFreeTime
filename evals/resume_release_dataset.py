@@ -105,6 +105,9 @@ class EvaluationFixtures(BaseModel):
     weather: Literal["default", "rainy"] = "default"
     availability: Literal["default", "all_unavailable"] = "default"
     geocoding: Literal["default", "resolved", "not_found", "ambiguous"] = "default"
+    geocoding_by_location: dict[
+        str, Literal["resolved", "not_found", "ambiguous"]
+    ] = Field(default_factory=dict)
 
 
 class ResumeReleaseCase(BaseModel):
