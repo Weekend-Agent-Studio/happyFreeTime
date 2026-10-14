@@ -248,6 +248,21 @@ class RequestPatchCompilerTest(unittest.TestCase):
         self.assertEqual(result.request.planning_window.start_at.value, "14:00")
         self.assertEqual(result.request.planning_window.end_at.value, "18:00")
 
+    def test_total_distance_scope_does_not_become_search_radius(self) -> None:
+        interpretation, compilation, outcome = self._compile(
+            "明天下午出去玩，全程不超过10公里"
+        )
+
+        self.assertEqual(interpretation.raw_constraints.total_distance_km, 10.0)
+        self.assertIsNone(interpretation.raw_constraints.max_distance_km)
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertEqual(outcome.request.total_distance_km.value, 10.0)
+        self.assertEqual(outcome.request.max_distance_km.value, 8.0)
+        self.assertEqual(
+            outcome.request.max_distance_km.source,
+            ConstraintSource.DEFAULT_RULE,
+        )
+
     def test_patch_structure_is_compiled_through_request_update(self) -> None:
         compiler = RequestPatchUpdateCompiler()
         _, _, ready = self._compile("周六出去玩")

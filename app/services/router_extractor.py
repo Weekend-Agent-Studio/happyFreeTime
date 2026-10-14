@@ -66,7 +66,7 @@ _INFERRED_FIELD_DIAGNOSTIC_CODES = frozenset(
 )
 
 WIRE_SCHEMA_VERSION = "turn-proposal.v2"
-PROMPT_VERSION = "turn-interpreter.v6"
+PROMPT_VERSION = "turn-interpreter.v7"
 
 
 @dataclass(frozen=True)
@@ -180,6 +180,12 @@ raw_constraints.origin_text；希望在某区域活动填写 planning_area_text�
 只有确实缺少规划执行必需的信息时才触发反问；偏好可先作为软目标参与排序。
 
 距离表达保留原文，不把“附近/别太远”改写成用户未说过的精确路线事实。
+距离字段必须按作用域区分：起点周边、搜索半径或单段距离边界填写
+max_distance_text/max_distance_km；“全程”“总路程”“总距离”填写
+total_distance_text/total_distance_km。比如“全程必须控制在 5 公里内”只能进入
+total_distance_text，不能进入 max_distance_text。明确的中文数值也可以归一化，
+例如“全程零点一公里”同时保留原文并填写 total_distance_km=0.1；无法可靠归一化时
+只保留原文，交给编译器反问。
 已有方案时，预算、返程时间、少辣、安静等补充使用 patch_constraints；只有明确替换某站
 时使用 replace_stop。非阻塞的模糊偏好可以只保留原文，不要把它们误判为待补硬约束。
 """

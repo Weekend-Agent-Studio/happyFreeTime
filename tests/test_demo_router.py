@@ -105,6 +105,8 @@ class DemoRouterTest(unittest.TestCase):
 
         self.assertEqual(result.raw_constraints.total_distance_km, 10.0)
         self.assertEqual(result.raw_constraints.total_distance_text, "全程不超过10公里")
+        self.assertIsNone(result.raw_constraints.max_distance_km)
+        self.assertIsNone(result.raw_constraints.max_distance_text)
 
     def test_preserves_unresolved_return_deadline_for_the_question_gate(self) -> None:
         result = self.router.interpret(

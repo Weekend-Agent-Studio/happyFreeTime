@@ -429,7 +429,7 @@ class TurnInterpreterTest(unittest.TestCase):
         self.assertEqual(runtime.input_tokens, 21)
         self.assertEqual(runtime.output_tokens, 8)
         self.assertEqual(runtime.wire_schema_version, "turn-proposal.v2")
-        self.assertEqual(runtime.prompt_version, "turn-interpreter.v6")
+        self.assertEqual(runtime.prompt_version, "turn-interpreter.v7")
 
     def test_prompt_contains_bounded_context_without_provider_facts(self) -> None:
         model = FakeStructuredModel([TurnProposal(act=ChitchatProposal())])
@@ -458,10 +458,15 @@ class TurnInterpreterTest(unittest.TestCase):
         self.assertIn("不能自行补写年份", prompt)
         self.assertIn("少走路/别太累", prompt)
         self.assertIn("max_distance_text", prompt)
+        self.assertIn("total_distance_text", prompt)
+        self.assertIn("全程必须控制在 5 公里内", prompt)
+        self.assertIn("total_distance_km=0.1", prompt)
         self.assertIn("在朝阳区玩", prompt)
         self.assertIn("origin_text", prompt)
         self.assertIn("等忙完那天", RawConstraints.model_fields["date_text"].description)
         self.assertIn("少走路", RawConstraints.model_fields["max_distance_text"].description)
+        self.assertIn("整条行程所有路段总和", RawConstraints.model_fields["total_distance_text"].description)
+        self.assertIn("全程零点一公里", RawConstraints.model_fields["total_distance_km"].description)
         self.assertIn("出发地", RawConstraints.model_fields["origin_text"].description)
         self.assertIn("活动/搜索区域", RawConstraints.model_fields["planning_area_text"].description)
 

@@ -239,11 +239,18 @@ class ConstraintPatch(BaseModel):
     max_distance_text: str | None = Field(
         default=None,
         description=(
-            "用户明确提出的空间距离上限/半径表达；只用于真实距离边界，"
+            "用户明确提出的起点周边搜索范围或单段距离边界；例如‘附近 8 公里’。"
+            "‘全程/总路程/总距离’必须写入 total_distance_text，不得放入此字段；"
             "‘少走路/别太累/不想走太多’是软偏好，不得放入此字段。"
         ),
     )
-    total_distance_text: str | None = None
+    total_distance_text: str | None = Field(
+        default=None,
+        description=(
+            "用户对整条行程所有路段总和设置的上限；例如‘全程不超过 5 公里’。"
+            "只保留用户原文，不要改写成搜索半径。"
+        ),
+    )
     strict_budget: bool | None = None
     preferences: tuple[str, ...] = Field(
         default=(),
@@ -526,11 +533,19 @@ class RawConstraints(BaseModel):
     max_distance_text: str | None = Field(
         default=None,
         description=(
-            "用户明确提出的空间距离上限/半径表达；只用于真实距离边界，"
+            "用户明确提出的起点周边搜索范围或单段距离边界；例如‘附近 8 公里’。"
+            "‘全程/总路程/总距离’必须写入 total_distance_text，不得放入此字段；"
             "‘少走路/别太累/不想走太多’是软偏好，不得放入此字段。"
         ),
     )
-    max_distance_km: float | None = Field(default=None, gt=0)
+    max_distance_km: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "已明确归一化的起点周边搜索半径或单段距离上限（公里）；"
+            "不要把全程总路程填入此字段。"
+        ),
+    )
     preferences: list[str] = Field(
         default_factory=list,
         description=(
@@ -541,8 +556,21 @@ class RawConstraints(BaseModel):
     diet_tags: list[str] = Field(default_factory=list)
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
-    total_distance_text: str | None = None
-    total_distance_km: float | None = Field(default=None, gt=0)
+    total_distance_text: str | None = Field(
+        default=None,
+        description=(
+            "用户对整条行程所有路段总和设置的上限；例如‘全程不超过 5 公里’。"
+            "只保留用户原文，不要改写成搜索半径。"
+        ),
+    )
+    total_distance_km: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "已明确归一化的整条行程路段距离总和上限（公里）；"
+            "例如‘全程零点一公里’应为 0.1。"
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_temporal_contract(self) -> "RawConstraints":
