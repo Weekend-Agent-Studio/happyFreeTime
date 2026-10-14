@@ -1310,6 +1310,9 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertIsNone(cancelled["candidate_set"])
         self.assertIn("取消", cancelled["interpretation"].reply)
+        self.assertIsNone(cancelled["active_request"].planning_window.date)
+        self.assertIsNone(cancelled["active_request"].budget_per_person)
+        self.assertIsNone(cancelled["turn_base_request"])
 
     def test_new_request_during_clarification_does_not_carry_old_interpretation(self) -> None:
         class NewRequestRouter(InterpretationRouter):

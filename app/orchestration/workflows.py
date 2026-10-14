@@ -784,7 +784,15 @@ class ClarificationWorkflow:
                     "pending_patch": None,
                     "pending_issues": (),
                     "pending_request_base": None,
+                    "recovery_base_request": None,
                     "recovery_continuation": None,
+                    "active_request": (
+                        state.get("turn_base_request")
+                        or state.get("active_request")
+                        or PlanRequest()
+                    ),
+                    "turn_base_request": None,
+                    "ready_for_planning": False,
                     "clarification_resolution": outcome.status.value,
                     "interpretation": outcome.interpretation,
                     "runtime_decisions": (*state.get("runtime_decisions", ()), trace),
