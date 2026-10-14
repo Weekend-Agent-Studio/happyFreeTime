@@ -15,7 +15,7 @@ from typing import Sequence
 from app.domain.catalog import StopCandidate
 from app.domain.constraints import PlanRequest, StopRole
 from app.domain.providers import GeoPoint
-from app.services.itinerary_scheduler import TimelineScheduler
+from app.services.itinerary_scheduler import TimelineScheduler, scheduler_for_time_scope
 from app.services.opening_hours import visit_fits_opening_hours
 
 
@@ -106,7 +106,11 @@ def bounded_beam_search(
         if constraints.budget_per_person is not None
         else None
     )
-    scheduler = scheduler or TimelineScheduler()
+    scheduler = scheduler or scheduler_for_time_scope(
+        constraints.trip_time_scope.value
+        if constraints.trip_time_scope is not None
+        else None
+    )
     beam: list[SearchState] = [
         SearchState(
             selected_candidates=(),
@@ -137,15 +141,25 @@ def bounded_beam_search(
         )
         candidate_limit = min(config.max_candidates_per_slot, per_state_budget)
         for state in beam:
-            for candidate in pool[:candidate_limit]:
-                if expansions >= config.max_expansions:
-                    break
-                expansions += 1
-                if candidate.resource_id in {
-                    item.resource_id for item in state.selected_candidates
-                }:
+            selected_ids = {
+                item.resource_id for item in state.selected_candidates
+            }
+            considered_candidates = 0
+            # ``candidate_limit`` is a limit on usable candidates for this
+            # state, not on raw pool positions.  With repeated roles (for
+            # example activity -> lunch -> activity), a duplicate at the
+            # front of the pool must not consume the only bounded slot and
+            # starve the next distinct candidate.
+            for candidate in pool:
+                if candidate.resource_id in selected_ids:
                     _count(rejected, "duplicate_resource")
                     continue
+                if considered_candidates >= candidate_limit:
+                    break
+                if expansions >= config.max_expansions:
+                    break
+                considered_candidates += 1
+                expansions += 1
 
                 leg_distance = _haversine_km(state.current_location, candidate.location)
                 if (

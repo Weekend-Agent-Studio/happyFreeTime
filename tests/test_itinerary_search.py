@@ -119,6 +119,57 @@ class BoundedItinerarySearchTest(unittest.TestCase):
         self.assertLessEqual(result.stats.expansions, 80)
         self.assertLessEqual(result.stats.finalists, 6)
 
+    def test_repeated_role_does_not_lose_its_only_bounded_slot_to_duplicate(self) -> None:
+        """A repeated role must still reach a distinct candidate under a tight budget."""
+
+        constraints = planning_constraints(time_end="23:00").model_copy(
+            update={"max_distance_km": None}
+        )
+        activities = [
+            candidate(
+                "activity-0",
+                ResourceType.ACTIVITY,
+                "活动 0",
+                ["activity"],
+            ),
+            candidate(
+                "activity-1",
+                ResourceType.ACTIVITY,
+                "活动 1",
+                ["activity"],
+            ),
+        ]
+        lunch = candidate(
+            "lunch",
+            ResourceType.RESTAURANT,
+            "午饭",
+            ["restaurant"],
+        )
+        dinner = candidate(
+            "dinner",
+            ResourceType.RESTAURANT,
+            "晚饭",
+            ["restaurant"],
+        )
+
+        result = bounded_beam_search(
+            role_pools=(activities, [lunch], activities, [dinner]),
+            roles=(StopRole.ACTIVITY, StopRole.LUNCH, StopRole.ACTIVITY, StopRole.DINNER),
+            constraints=constraints,
+            origin=GeoPoint(latitude=39.9219, longitude=116.4436),
+            config=BeamSearchConfig(
+                beam_width=1,
+                max_expansions=4,
+                max_finalists=1,
+            ),
+        )
+
+        self.assertEqual(len(result.sequences), 1)
+        self.assertEqual(
+            [item.resource_id for item in result.sequences[0]],
+            ["activity-0", "lunch", "activity-1", "dinner"],
+        )
+
     def test_route_estimate_breaks_equal_semantic_ties(self) -> None:
         constraints = planning_constraints(time_end="22:00").model_copy(
             update={"max_distance_km": None}

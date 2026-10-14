@@ -85,6 +85,7 @@ from app.services.plan_verifier import (
 from app.services.itinerary_scheduler import (
     DEFAULT_TEMPORAL_POLICY,
     TimelineScheduler,
+    scheduler_for_time_scope,
 )
 from app.services.plan_spec import PlanSpec
 from app.services.plan_spec_compiler import (
@@ -1940,7 +1941,11 @@ class PlanningService:
         current_minutes = start_minutes
         rebuilt_stops: list[Stop] = []
         rebuilt_legs: list[RouteLeg] = []
-        scheduler = TimelineScheduler()
+        scheduler = scheduler_for_time_scope(
+            constraints.trip_time_scope.value
+            if constraints.trip_time_scope is not None
+            else None
+        )
 
         for stop in plan.stops:
             resource = candidate_by_id.get(stop.resource_id)
@@ -3322,7 +3327,11 @@ def _build_local_plan(
     for candidate in sequence:
         route_distances.append(_haversine_km(current_point, candidate.location))
         current_point = candidate.location
-    scheduler = TimelineScheduler()
+    scheduler = scheduler_for_time_scope(
+        constraints.trip_time_scope.value
+        if constraints.trip_time_scope is not None
+        else None
+    )
     estimated_timeline = scheduler.schedule(
         start_minutes=_planning_start_minutes(constraints),
         roles=plan_spec.roles,
