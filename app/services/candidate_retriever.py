@@ -125,7 +125,17 @@ class CandidateRetriever(Protocol):
 
 
 _OBJECTIVE_TERMS: dict[SoftObjectiveKind, tuple[str, ...]] = {
-    SoftObjectiveKind.LOW_FATIGUE: ("轻松", "不累", "松弛", "休闲", "少走", "可休息"),
+    SoftObjectiveKind.LOW_FATIGUE: (
+        "轻松",
+        "不累",
+        "松弛",
+        "休闲",
+        "少走",
+        "少走路",
+        "走路别太多",
+        "不想走太多",
+        "可休息",
+    ),
     SoftObjectiveKind.SHORTER_TRAVEL: ("近", "附近", "少走", "步行可达"),
     SoftObjectiveKind.FEWER_STOPS: ("少站", "不赶", "轻松"),
     SoftObjectiveKind.NOVELTY: ("新鲜", "新奇", "新意", "有意思", "展览", "主题"),
