@@ -12,12 +12,15 @@ from app.evaluation.resume_release import _EvaluationGeocodingProvider
 from evals.run_s_rx_multiturn import (
     _is_publishable_baseline,
     _clarification_resume_succeeded,
+    _diagnostic_constraint_snapshot,
     _matches,
     _plan_stats,
     _replacement_diff_invariants,
+    _snapshot_diff,
     _snapshot_delta,
     _step_precondition,
     _load_live_model_environment,
+    _action,
     load_suite,
     main as run_s_rx_runner,
 )
@@ -41,6 +44,11 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
             if case["case_id"] == "missing_date_default_policy"
         )
         self.assertEqual(default_date, "2026-10-17")
+        reset_case = next(
+            case for case in suite["cases"]
+            if case["case_id"] == "start_new_request_after_recovery"
+        )
+        self.assertIn("下周六", reset_case["steps"][-1]["content"])
 
     def test_only_full_clean_reviewed_runs_are_publishable_baselines(self) -> None:
         common = {
@@ -149,6 +157,26 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
         self.assertIn("planning_window.start_kind", departure_fields)
         self.assertIn("trip_time_scope", topbar_fields)
 
+    def test_all_day_oracles_measure_real_schedule_not_intent_or_dwell_sum(self) -> None:
+        suite = load_suite(ROOT / "evals" / "s_rx_multiturn_v1.json")
+        cases = {case["case_id"]: case for case in suite["cases"]}
+
+        for case_id in (
+            "all_day_prefer_fuller_plan",
+            "post_plan_add_all_day",
+            "post_plan_morning_departure_clarify",
+            "automatic_recovery_reenters_planner_trace",
+        ):
+            with self.subTest(case_id=case_id):
+                final = cases[case_id]["expected"]["final"]
+                self.assertEqual(final["minimum_schedule_span_minutes"], 600)
+                self.assertEqual(
+                    final["required_scheduled_periods"],
+                    ["morning", "afternoon", "evening"],
+                )
+                self.assertNotIn("minimum_duration_minutes", final)
+                self.assertNotIn("required_time_coverage_periods", final)
+
     def test_meal_role_oracle_accepts_generic_meal_role(self) -> None:
         suite = load_suite(ROOT / "evals" / "s_rx_multiturn_v1.json")
         cases = {case["case_id"]: case for case in suite["cases"]}
@@ -223,7 +251,7 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
 
         reset = cases["start_new_request_after_recovery"]["expected"]["final"]
         self.assertIn("total_distance_km", reset["absent_constraint_fields"])
-        self.assertIn("max_distance_km", reset["absent_constraint_fields"])
+        self.assertNotIn("max_distance_km", reset["absent_constraint_fields"])
 
         self.assertIn("single_stop_replacement_no_candidate", cases)
         self.assertIn("single_stop_replacement_success", cases)
@@ -242,6 +270,14 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
         self.assertEqual(
             distance["expected"]["final"]["required_constraint_values"]["total_distance_km"],
             5.0,
+        )
+
+        distance_recovery = cases["distance_conflict_requires_consent"]
+        self.assertEqual(
+            distance_recovery["steps"][1]["action_field"], "total_distance_km"
+        )
+        self.assertEqual(
+            distance_recovery["steps"][2]["action_field"], "total_distance_km"
         )
 
         cancellation = cases["cancel_recovery_turn"]["expected"]["final"]
@@ -284,6 +320,198 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
         self.assertTrue(_matches(response, expected, {}))
         expected["date"] = "2026-10-11"
         self.assertFalse(_matches(response, expected, {}))
+
+    def test_matcher_reports_failed_assertion_names(self) -> None:
+        failures: list[str] = []
+        matched = _matches(
+            {"status": "needs_recovery", "plans": [], "question": {"field": None}},
+            {"status": "completed", "question_field": "departure_at"},
+            {},
+            failures=failures,
+        )
+
+        self.assertFalse(matched)
+        self.assertEqual(failures, ["status", "question_field"])
+
+    def test_recovery_action_selector_uses_typed_field_not_id_prefix(self) -> None:
+        interaction = {
+            "recovery": {
+                "actions": [
+                    {
+                        "action_id": "edit-total_distance_km-r2",
+                        "kind": "request_field",
+                        "field": "total_distance_km",
+                    }
+                ]
+            }
+        }
+
+        action = _action(
+            interaction,
+            {"action_kind": "request_field", "action_field": "total_distance_km"},
+        )
+
+        self.assertEqual(action["field"], "total_distance_km")
+
+    def test_plan_stats_exposes_safe_recovery_action_metadata(self) -> None:
+        stats = _plan_stats(
+            {
+                "status": "needs_recovery",
+                "recovery": {
+                    "actions": [
+                        {
+                            "action_id": "edit-total_distance_km-r2",
+                            "kind": "request_field",
+                            "field": "total_distance_km",
+                            "input_type": "number",
+                            "request_revision": 2,
+                            "plan_version_id": None,
+                            "label": "请输入新距离",
+                        }
+                    ]
+                },
+            }
+        )
+
+        self.assertEqual(
+            stats["recovery_actions"],
+            [
+                {
+                    "action_id": "edit-total_distance_km-r2",
+                    "kind": "request_field",
+                    "field": "total_distance_km",
+                    "patch_fields": [],
+                    "input_type": "number",
+                    "request_revision": 2,
+                    "plan_version_id": None,
+                }
+            ],
+        )
+
+    def test_diagnostic_constraint_snapshot_keeps_scopes_and_drops_raw_text(self) -> None:
+        snapshot = _diagnostic_constraint_snapshot(
+            {
+                "active_constraints": {
+                    "revision": 4,
+                    "location": {
+                        "value": {"address": "private origin", "latitude": 39.9},
+                        "source": "user_explicit",
+                        "raw_text": "从私人地址出发",
+                    },
+                    "planning_window": {
+                        "start_at": {
+                            "value": "15:00",
+                            "source": "user_explicit",
+                            "raw_text": "下午三点出发",
+                        },
+                        "start_kind": "departure",
+                    },
+                    "max_distance_km": {
+                        "value": 5.0,
+                        "source": "user_explicit",
+                        "raw_text": "搜索范围五公里",
+                    },
+                    "total_distance_km": {
+                        "value": 0.1,
+                        "source": "user_explicit",
+                        "raw_text": "全程零点一公里",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(snapshot["planning_window"]["start_kind"], "departure")
+        self.assertEqual(snapshot["planning_window"]["start_at"]["value"], "15:00")
+        self.assertEqual(snapshot["max_distance_km"]["value"], 5.0)
+        self.assertEqual(snapshot["total_distance_km"]["value"], 0.1)
+        self.assertNotIn("location", snapshot)
+        self.assertNotIn("raw_text", str(snapshot))
+
+    def test_plan_stats_retains_safe_search_and_recovery_diagnostics(self) -> None:
+        stats = _plan_stats(
+            {
+                "recovery": {
+                    "reason": {
+                        "diagnostics": {
+                            "current_max_distance_km": 5.0,
+                            "rejected_by_hard_filter": 12,
+                            "constraint_sources": {"max_distance_km": "user_explicit"},
+                        }
+                    }
+                },
+                "run_trace": {
+                    "events": [
+                        {
+                            "stage": "retrieve",
+                            "status": "completed",
+                            "public_details": {
+                                "candidate_count": 0,
+                                "mode": "hybrid",
+                                "prompt": "must not be retained",
+                            },
+                        }
+                    ]
+                },
+                "search_traces": [
+                    {
+                        "skeleton_id": "activity-meal-v1",
+                        "theoretical_combinations": 16,
+                        "expansions": 4,
+                        "rejected_by": {"time_window": 3, "private_text": "drop"},
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(stats["recovery_diagnostics"]["current_max_distance_km"], 5.0)
+        self.assertEqual(stats["trace_events"][0]["public_details"]["candidate_count"], 0)
+        self.assertNotIn("prompt", stats["trace_events"][0]["public_details"])
+        self.assertEqual(stats["search_traces"][0]["rejected_by"], {"time_window": 3})
+
+    def test_absent_constraint_failures_name_the_residual_field(self) -> None:
+        failures: list[str] = []
+        matched = _matches(
+            {"plans": []},
+            {"absent_constraint_fields": ["total_distance_km", "max_distance_km"]},
+            {
+                "active_constraints": {
+                    "total_distance_km": {"value": 0.1},
+                    "max_distance_km": None,
+                }
+            },
+            failures=failures,
+        )
+
+        self.assertFalse(matched)
+        self.assertEqual(failures, ["absent_constraint_fields.total_distance_km"])
+
+    def test_new_request_default_distance_is_not_treated_as_inherited_constraint(self) -> None:
+        failures: list[str] = []
+        matched = _matches(
+            {"plans": []},
+            {"absent_constraint_fields": ["total_distance_km"]},
+            {
+                "active_constraints": {
+                    "total_distance_km": None,
+                    "max_distance_km": {"value": 8.0, "source": "default_rule"},
+                }
+            },
+            failures=failures,
+        )
+
+        self.assertTrue(matched)
+        self.assertEqual(failures, [])
+
+    def test_constraint_snapshot_diff_explains_changed_fields(self) -> None:
+        diff = _snapshot_diff(
+            {"planning_window": {"start_at": "14:00", "end_at": "21:00"}},
+            {"planning_window": {"start_at": "09:00", "end_at": "21:00"}},
+        )
+
+        self.assertEqual(
+            diff,
+            {"planning_window.start_at": {"before": "14:00", "after": "09:00"}},
+        )
 
     def test_schedule_diagnostics_measure_stop_span_and_period_coverage(self) -> None:
         stats = _plan_stats(

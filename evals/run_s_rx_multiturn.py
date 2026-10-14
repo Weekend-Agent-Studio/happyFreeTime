@@ -66,7 +66,9 @@ def load_suite(path: Path) -> dict[str, Any]:
             raise ValueError(f"case {case['case_id']} has unsupported steps: {sorted(unknown)}")
         for index, step in enumerate(steps):
             if step["kind"] in {"recovery_action", "stale_recovery_action"} and not (
-                step.get("action_kind") or step.get("action_id_prefix")
+                step.get("action_kind")
+                or step.get("action_id_prefix")
+                or step.get("action_field")
             ):
                 raise ValueError(
                     f"case {case['case_id']} step {index} must identify a recovery action"
@@ -181,6 +183,128 @@ def _constraint_snapshot(view: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_DIAGNOSTIC_REQUEST_FIELDS = (
+    "trip_time_scope",
+    "duration_minutes",
+    "budget_per_person",
+    "max_distance_km",
+    "total_distance_km",
+    "exact_stop_count",
+    "required_stop_roles",
+    "activity_time_scope",
+    "preferences",
+    "diet_tags",
+    "scene_tags",
+    "avoid",
+    "strict_budget",
+    "require_availability_confirmation",
+)
+
+
+def _safe_constraint_value(value: Any) -> Any:
+    """Keep normalized values and provenance while excluding raw user text."""
+
+    if isinstance(value, dict):
+        return {
+            key: value[key]
+            for key in ("value", "source")
+            if key in value
+        }
+    if isinstance(value, list):
+        return {"count": len(value)}
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _diagnostic_constraint_snapshot(view: dict[str, Any]) -> dict[str, Any]:
+    """Project only planning values useful for recovery diagnosis.
+
+    Location values and raw evidence text are intentionally omitted. The snapshot
+    is for fixed reviewed fixtures, and keeps distance/time/structure scopes
+    explicit so Router/Compiler field mistakes can be distinguished.
+    """
+
+    request = view.get("active_constraints") or {}
+    if not request:
+        return {"present": False}
+    result: dict[str, Any] = {
+        "revision": request.get("revision"),
+        "present": True,
+        "planning_window": {},
+    }
+    window = request.get("planning_window") or {}
+    for field in ("date", "start_at", "end_at"):
+        if window.get(field) is not None:
+            result["planning_window"][field] = _safe_constraint_value(window[field])
+    for field in ("start_kind", "end_kind"):
+        if window.get(field) is not None:
+            result["planning_window"][field] = window[field]
+    for field in _DIAGNOSTIC_REQUEST_FIELDS:
+        value = request.get(field)
+        if value is not None and value != []:
+            result[field] = _safe_constraint_value(value)
+    return result
+
+
+def _safe_trace_public_details(event: dict[str, Any]) -> dict[str, Any]:
+    details = event.get("public_details") or {}
+    if not isinstance(details, dict):
+        return {}
+    return {
+        key: details[key]
+        for key in ("mode", "candidate_count", "reason_code")
+        if key in details and isinstance(details[key], (str, int, float, bool, type(None)))
+    }
+
+
+def _safe_search_trace(trace: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "skeleton_id",
+        "theoretical_combinations",
+        "expansions",
+        "finalists",
+        "local_schedule_passes",
+        "route_candidates",
+        "route_provider_requests",
+        "route_leg_count",
+        "final_selected",
+    )
+    result = {field: trace[field] for field in fields if field in trace}
+    rejected_by = trace.get("rejected_by")
+    if isinstance(rejected_by, dict):
+        result["rejected_by"] = {
+            str(key): int(value)
+            for key, value in rejected_by.items()
+            if isinstance(value, (int, float))
+        }
+    return result
+
+
+def _safe_recovery_diagnostics(reason: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = reason.get("diagnostics") or {}
+    if not isinstance(diagnostics, dict):
+        return {}
+    fields = (
+        "current_max_distance_km",
+        "nearest_candidate_distance_km",
+        "requested_stop_count",
+        "required_role_count",
+        "available_minutes",
+        "optimistic_duration_minutes",
+        "rejected_by_time_window",
+        "rejected_by_route",
+        "rejected_by_availability",
+        "structures_considered",
+        "combinations_expanded",
+        "route_candidates",
+        "route_provider_requests",
+        "route_verification_failures",
+        "rejected_by_hard_filter",
+    )
+    return {field: diagnostics[field] for field in fields if field in diagnostics}
+
+
 def _request_constraint_value(view: dict[str, Any], field: str) -> Any:
     request = view.get("active_constraints") or {}
     if field in {"date", "start_at", "end_at", "departure_at", "return_by"}:
@@ -265,17 +389,50 @@ def _response_data(response) -> tuple[int, dict[str, Any]]:
     return response.status_code, (body.get("data") or {}) if isinstance(body, dict) else {}
 
 
+def _patch_action_fields(action: dict[str, Any]) -> set[str]:
+    patch = action.get("patch") or {}
+    set_fields = patch.get("set_fields") or {}
+    clear_fields = patch.get("clear_fields") or ()
+    fields: set[str] = set()
+    if isinstance(set_fields, dict):
+        fields.update(str(field) for field in set_fields)
+    fields.update(str(field) for field in clear_fields)
+    return fields
+
+
+def _recovery_action_fields(action: dict[str, Any]) -> set[str]:
+    fields = {str(action["field"])} if action.get("field") else set()
+    return fields | _patch_action_fields(action)
+
+
+def _safe_recovery_action(action: dict[str, Any]) -> dict[str, Any]:
+    """Keep identifiers and typed scope, not user-facing text or patch values."""
+
+    fields = sorted(_patch_action_fields(action))
+    return {
+        "action_id": action.get("action_id"),
+        "kind": action.get("kind"),
+        "field": action.get("field"),
+        "patch_fields": fields,
+        "input_type": action.get("input_type"),
+        "request_revision": action.get("request_revision"),
+        "plan_version_id": action.get("plan_version_id"),
+    }
+
+
 def _action(interaction: dict[str, Any], step: dict[str, Any]) -> dict[str, Any] | None:
     recovery = interaction.get("recovery") or {}
     actions = recovery.get("actions") or []
     action_kind = step.get("action_kind")
     prefix = step.get("action_id_prefix")
+    action_field = step.get("action_field")
     return next(
         (
             item
             for item in actions
             if (action_kind is None or item.get("kind") == action_kind)
             and (prefix is None or str(item.get("action_id", "")).startswith(prefix))
+            and (action_field is None or action_field in _recovery_action_fields(item))
         ),
         None,
     )
@@ -413,7 +570,10 @@ def _perform_step(
 
     response = client.patch(path, headers=headers, json=payload) if method == "PATCH" else client.post(path, headers=headers, json=payload)
     status_code, data = _response_data(response)
-    return status_code, data, {"kind": kind, "request_id": request_id}
+    meta = {"kind": kind, "request_id": request_id}
+    if kind in {"recovery_action", "stale_recovery_action"} and action is not None:
+        meta["selected_recovery_action"] = _safe_recovery_action(action)
+    return status_code, data, meta
 
 
 def _plan_stats(
@@ -473,11 +633,17 @@ def _plan_stats(
     runtime = runtime_decisions if runtime_decisions is not None else data.get("runtime_decisions") or []
     traces = search_traces if search_traces is not None else data.get("search_traces") or []
     trace_events = ((data.get("run_trace") or {}).get("events") or [])
+    recovery_reason = ((data.get("recovery") or {}).get("reason") or {})
     return {
         "status": data.get("status"),
         "question_field": (data.get("question") or {}).get("field"),
         "recovery_kind": ((data.get("recovery") or {}).get("reason") or {}).get("kind"),
         "recovery_code": ((data.get("recovery") or {}).get("reason") or {}).get("code"),
+        "recovery_diagnostics": _safe_recovery_diagnostics(recovery_reason),
+        "recovery_actions": [
+            _safe_recovery_action(item)
+            for item in (data.get("recovery") or {}).get("actions", [])
+        ],
         "recovery_action_kinds": [
             item.get("kind") for item in (data.get("recovery") or {}).get("actions", [])
         ],
@@ -515,13 +681,19 @@ def _plan_stats(
                 "input_tokens": item.get("input_tokens"),
                 "output_tokens": item.get("output_tokens"),
                 "fallback_reason": item.get("fallback_reason"),
+                "candidate_count": item.get("candidate_count"),
             }
             for item in (data.get("runtime_decisions") or [])
         ],
         "trace_events": [
-            {"stage": item.get("stage"), "status": item.get("status")}
+            {
+                "stage": item.get("stage"),
+                "status": item.get("status"),
+                "public_details": _safe_trace_public_details(item),
+            }
             for item in trace_events
         ],
+        "search_traces": [_safe_search_trace(item) for item in traces],
         "trace_run_id": (data.get("run_trace") or {}).get("run_id"),
         "trace_stage_starts": {
             stage: sum(
@@ -556,78 +728,145 @@ def _matches(
     view: dict[str, Any],
     *,
     runtime_decisions: list[dict[str, Any]] | None = None,
+    failures: list[str] | None = None,
 ) -> bool:
     actual = _plan_stats(data, runtime_decisions=runtime_decisions)
-    if "status" in expected and actual["status"] != expected["status"]:
-        return False
-    if "status_any" in expected and actual["status"] not in expected["status_any"]:
-        return False
-    if "question_field" in expected and actual["question_field"] != expected["question_field"]:
-        return False
-    if "recovery_code" in expected and actual["recovery_code"] != expected["recovery_code"]:
-        return False
-    if "recovery_resolution" in expected and actual["recovery_resolution"] != expected["recovery_resolution"]:
-        return False
-    if len(data.get("plans") or []) < int(expected.get("minimum_plans", 0)):
-        return False
-    if actual["status"] == "completed" and len(data.get("plans") or []) < int(
-        expected.get("minimum_plans_when_completed", 0)
-    ):
-        return False
-    if expected.get("no_plans") and data.get("plans"):
-        return False
+    matched = True
+
+    def require(condition: bool, assertion: str) -> None:
+        nonlocal matched
+        if not condition:
+            matched = False
+            if failures is not None:
+                failures.append(assertion)
+
+    if "status" in expected:
+        require(actual["status"] == expected["status"], "status")
+    if "status_any" in expected:
+        require(actual["status"] in expected["status_any"], "status_any")
+    if "question_field" in expected:
+        require(actual["question_field"] == expected["question_field"], "question_field")
+    if "recovery_code" in expected:
+        require(actual["recovery_code"] == expected["recovery_code"], "recovery_code")
+    if "recovery_resolution" in expected:
+        require(
+            actual["recovery_resolution"] == expected["recovery_resolution"],
+            "recovery_resolution",
+        )
+    require(
+        len(data.get("plans") or []) >= int(expected.get("minimum_plans", 0)),
+        "minimum_plans",
+    )
+    if actual["status"] == "completed":
+        require(
+            len(data.get("plans") or [])
+            >= int(expected.get("minimum_plans_when_completed", 0)),
+            "minimum_plans_when_completed",
+        )
+    if expected.get("no_plans"):
+        require(not data.get("plans"), "no_plans")
     if (
         actual["status"] == "completed"
         and expected.get("stop_count_when_completed") is not None
-        and expected["stop_count_when_completed"] not in actual["stop_counts"]
     ):
-        return False
-    if expected.get("stop_count") is not None and expected["stop_count"] not in actual["stop_counts"]:
-        return False
-    if expected.get("minimum_stops") is not None and not any(count >= expected["minimum_stops"] for count in actual["stop_counts"]):
-        return False
-    if expected.get("minimum_duration_minutes") is not None and not any(value >= expected["minimum_duration_minutes"] for value in actual["durations_minutes"]):
-        return False
-    if expected.get("minimum_schedule_span_minutes") is not None and not any(
-        value is not None and value >= expected["minimum_schedule_span_minutes"]
-        for value in actual["schedule_spans_minutes"]
-    ):
-        return False
-    if expected.get("required_roles") is not None and not any(
-        _contains_ordered(sequence, expected["required_roles"])
-        for sequence in actual["role_sequences"]
-    ):
-        return False
+        require(
+            expected["stop_count_when_completed"] in actual["stop_counts"],
+            "stop_count_when_completed",
+        )
+    if expected.get("stop_count") is not None:
+        require(expected["stop_count"] in actual["stop_counts"], "stop_count")
+    if expected.get("minimum_stops") is not None:
+        require(
+            any(count >= expected["minimum_stops"] for count in actual["stop_counts"]),
+            "minimum_stops",
+        )
+    if expected.get("minimum_duration_minutes") is not None:
+        require(
+            any(
+                value >= expected["minimum_duration_minutes"]
+                for value in actual["durations_minutes"]
+            ),
+            "minimum_duration_minutes",
+        )
+    if expected.get("minimum_schedule_span_minutes") is not None:
+        require(
+            any(
+                value is not None and value >= expected["minimum_schedule_span_minutes"]
+                for value in actual["schedule_spans_minutes"]
+            ),
+            "minimum_schedule_span_minutes",
+        )
+    if expected.get("required_roles") is not None:
+        require(
+            any(
+                _contains_ordered(sequence, expected["required_roles"])
+                for sequence in actual["role_sequences"]
+            ),
+            "required_roles",
+        )
     role_groups = expected.get("required_role_groups") or []
-    if role_groups and not any(
-        all(any(role in sequence for role in group) for group in role_groups)
-        for sequence in actual["role_sequences"]
-    ):
-        return False
-    if expected.get("required_objectives") is not None and not set(expected["required_objectives"]).issubset(actual["objectives"]):
-        return False
-    if expected.get("required_time_coverage_periods") is not None and not set(
-        expected["required_time_coverage_periods"]
-    ).issubset(actual["time_coverage_periods"]):
-        return False
-    if expected.get("required_scheduled_periods") is not None and not any(
-        set(expected["required_scheduled_periods"]).issubset(periods)
-        for periods in actual["scheduled_periods"]
-    ):
-        return False
+    if role_groups:
+        require(
+            any(
+                all(any(role in sequence for role in group) for group in role_groups)
+                for sequence in actual["role_sequences"]
+            ),
+            "required_role_groups",
+        )
+    if expected.get("required_objectives") is not None:
+        require(
+            set(expected["required_objectives"]).issubset(actual["objectives"]),
+            "required_objectives",
+        )
+    if expected.get("required_time_coverage_periods") is not None:
+        require(
+            set(expected["required_time_coverage_periods"]).issubset(
+                actual["time_coverage_periods"]
+            ),
+            "required_time_coverage_periods",
+        )
+    if expected.get("required_scheduled_periods") is not None:
+        require(
+            any(
+                set(expected["required_scheduled_periods"]).issubset(periods)
+                for periods in actual["scheduled_periods"]
+            ),
+            "required_scheduled_periods",
+        )
     if expected.get("required_party_values"):
         for field, value in expected["required_party_values"].items():
-            if actual["planning_context"]["party"].get(field) != value:
-                return False
-    if "router_attempts" in expected and actual["router_attempts"] != expected["router_attempts"]:
-        return False
+            require(
+                actual["planning_context"]["party"].get(field) == value,
+                f"required_party_values.{field}",
+            )
+    if "router_attempts" in expected:
+        require(actual["router_attempts"] == expected["router_attempts"], "router_attempts")
     if expected.get("forbid_recovery_action_kinds"):
-        if set(expected["forbid_recovery_action_kinds"]) & set(actual["recovery_action_kinds"]):
-            return False
-    if expected.get("required_recovery_action_kinds") and not set(
-        expected["required_recovery_action_kinds"]
-    ).issubset(actual["recovery_action_kinds"]):
-        return False
+        require(
+            not (
+                set(expected["forbid_recovery_action_kinds"])
+                & set(actual["recovery_action_kinds"])
+            ),
+            "forbid_recovery_action_kinds",
+        )
+    if expected.get("required_recovery_action_kinds"):
+        require(
+            set(expected["required_recovery_action_kinds"]).issubset(
+                actual["recovery_action_kinds"]
+            ),
+            "required_recovery_action_kinds",
+        )
+    if expected.get("required_recovery_action_fields"):
+        available_fields = {
+            field
+            for action in actual["recovery_actions"]
+            for field in ([action.get("field")] + action["patch_fields"])
+            if field
+        }
+        require(
+            set(expected["required_recovery_action_fields"]).issubset(available_fields),
+            "required_recovery_action_fields",
+        )
     if expected.get("required_constraint_values"):
         values = {
             item.get("field"): item.get("value")
@@ -635,36 +874,65 @@ def _matches(
             if isinstance(item, dict)
         }
         for field, value in expected["required_constraint_values"].items():
-            if values.get(field) != value:
-                return False
+            require(values.get(field) == value, f"required_constraint_values.{field}")
     if expected.get("different_constraint_values"):
         for field, value in expected["different_constraint_values"].items():
-            if _request_constraint_value(view, field) == value:
-                return False
+            require(
+                _request_constraint_value(view, field) != value,
+                f"different_constraint_values.{field}",
+            )
     for field in ("date", "start_at", "end_at"):
-        if field in expected and actual["planning_context"][field] != expected[field]:
-            return False
+        if field in expected:
+            require(
+                actual["planning_context"][field] == expected[field],
+                f"planning_context.{field}",
+            )
     if expected.get("preserve_active_plan_version"):
-        if not view.get("active_plan_version_id"):
-            return False
+        require(bool(view.get("active_plan_version_id")), "preserve_active_plan_version")
     for stage, count in expected.get("minimum_trace_stage_starts", {}).items():
-        if actual["trace_stage_starts"].get(stage, 0) < int(count):
-            return False
-    if expected.get("absent_constraint_fields") and any(
-        _request_constraint_value(view, field) is not None
-        for field in expected["absent_constraint_fields"]
-    ):
-        return False
+        require(
+            actual["trace_stage_starts"].get(stage, 0) >= int(count),
+            f"minimum_trace_stage_starts.{stage}",
+        )
+    if expected.get("absent_constraint_fields"):
+        for field in expected["absent_constraint_fields"]:
+            require(
+                _request_constraint_value(view, field) is None,
+                f"absent_constraint_fields.{field}",
+            )
     if actual["status"] == "needs_recovery":
-        if expected.get("preserve_active_plan_version_when_recovering") and not view.get(
-            "active_plan_version_id"
-        ):
-            return False
-        if expected.get("required_recovery_action_kinds_when_recovering") and not set(
-            expected["required_recovery_action_kinds_when_recovering"]
-        ).issubset(actual["recovery_action_kinds"]):
-            return False
-    return True
+        if expected.get("preserve_active_plan_version_when_recovering"):
+            require(
+                bool(view.get("active_plan_version_id")),
+                "preserve_active_plan_version_when_recovering",
+            )
+        if expected.get("required_recovery_action_kinds_when_recovering"):
+            require(
+                set(expected["required_recovery_action_kinds_when_recovering"]).issubset(
+                    actual["recovery_action_kinds"]
+                ),
+                "required_recovery_action_kinds_when_recovering",
+            )
+    return matched
+
+
+def _snapshot_diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    def flatten(value: Any, prefix: str = "") -> dict[str, Any]:
+        if isinstance(value, dict) and value:
+            result: dict[str, Any] = {}
+            for key, child in value.items():
+                path = f"{prefix}.{key}" if prefix else str(key)
+                result.update(flatten(child, path))
+            return result
+        return {prefix: value} if prefix else {}
+
+    before_values = flatten(before)
+    after_values = flatten(after)
+    return {
+        field: {"before": before_values.get(field), "after": after_values.get(field)}
+        for field in sorted(before_values.keys() | after_values.keys())
+        if before_values.get(field) != after_values.get(field)
+    }
 
 
 def _contains_ordered(actual: list[str], expected: list[str]) -> bool:
@@ -787,6 +1055,8 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
     application_exception_types: list[str] = []
     step_expectations_passed = True
     first_policy_passed: bool | None = None
+    first_policy_failures: list[str] = []
+    final_assertion_failures: list[str] = []
     runner_error: str | None = None
     flow_status = "completed"
     runtime_snapshot: list[dict[str, Any]] = []
@@ -821,6 +1091,15 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                         "step": index,
                         "kind": step["kind"],
                         "reason": missing_precondition,
+                        **(
+                            {
+                                "available_recovery_actions": _plan_stats(current).get(
+                                    "recovery_actions", []
+                                )
+                            }
+                            if missing_precondition == "matching_recovery_action_missing"
+                            else {}
+                        ),
                     }
                 )
                 transcript.append(
@@ -834,6 +1113,9 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                 )
                 flow_status = "not_exercised_precondition"
                 break
+            constraint_snapshot_before_step = _diagnostic_constraint_snapshot(
+                _session_view(client, session_id)
+            )
             if step["kind"] == "replace_stop":
                 before = _session_view(client, session_id)
                 active_before_replacement = before.get("active_plan_version_id")
@@ -909,16 +1191,33 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                 runtime_decisions=runtime_delta,
                 search_traces=search_delta,
             )
+            constraint_snapshot_after_step = _diagnostic_constraint_snapshot(
+                _session_view(client, session_id)
+            )
             safe.update({"step": index, "kind": step["kind"], "http_status": status_code})
+            safe["request_constraints_before"] = constraint_snapshot_before_step
+            safe["request_constraints_after"] = constraint_snapshot_after_step
+            safe["request_constraint_changes"] = _snapshot_diff(
+                constraint_snapshot_before_step,
+                constraint_snapshot_after_step,
+            )
+            if step_meta.get("selected_recovery_action") is not None:
+                safe["selected_recovery_action"] = step_meta["selected_recovery_action"]
             safe["execution_status"] = "executed"
             safe["assertions_passed"] = http_passed
+            step_failures: list[str] = []
+            if not http_passed:
+                step_failures.append("http_status")
             if "expect" in step and status_code == 200:
-                safe["assertions_passed"] = http_passed and _matches(
+                matches_step = _matches(
                     data,
                     step["expect"],
                     {},
                     runtime_decisions=runtime_delta,
+                    failures=step_failures,
                 )
+                safe["assertions_passed"] = http_passed and matches_step
+            safe["assertion_failures"] = step_failures
             step_expectations_passed = step_expectations_passed and bool(safe["assertions_passed"])
             transcript.append(safe)
             if status_code == 200:
@@ -930,7 +1229,12 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                         repeated_question_fields.append(question_field)
                     observed_question_fields.append(question_field)
             if index == 0:
-                first_policy_passed = _matches(data, case.get("expected", {}).get("first", {}), {})
+                first_policy_passed = _matches(
+                    data,
+                    case.get("expected", {}).get("first", {}),
+                    {},
+                    failures=first_policy_failures,
+                )
             if status_code >= 500:
                 application_http_errors += 1
                 flow_status = "application_http_error"
@@ -943,10 +1247,23 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
 
     expected_final = case.get("expected", {}).get("final", {})
     path_completed = not not_exercised_steps and flow_status == "completed"
+    final_matches = _matches(
+        current,
+        expected_final,
+        final_view,
+        failures=final_assertion_failures,
+    )
+    if not path_completed:
+        final_assertion_failures.append(f"path_not_completed:{flow_status}")
+    final_assertion_failures.extend(
+        f"step_{row.get('step')}:assertions_failed"
+        for row in transcript
+        if row.get("assertions_passed") is False
+    )
     final_passed = (
         path_completed
         and step_expectations_passed
-        and _matches(current, expected_final, final_view)
+        and final_matches
     )
     minimum_meaningful_increase = expected_final.get(
         "minimum_meaningful_stop_increase_over_initial_max"
@@ -962,6 +1279,8 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         final_passed = final_passed and any(
             count >= required_count for count in final_counts
         )
+        if not any(count >= required_count for count in final_counts):
+            final_assertion_failures.append("minimum_meaningful_stop_increase_over_initial_max")
     preserved_version: bool | None = None
     advanced_version: bool | None = None
     constraints_preserved: bool | None = None
@@ -972,6 +1291,8 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         ):
             preserved_version = final_view.get("active_plan_version_id") == active_before_replacement
             final_passed = final_passed and preserved_version
+            if not preserved_version:
+                final_assertion_failures.append("preserve_active_plan_version")
         elif (
             expected_final.get("new_active_plan_version_when_completed")
             and current.get("status") == "completed"
@@ -981,6 +1302,8 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                 and final_view.get("active_plan_version_id") != active_before_replacement
             )
             final_passed = final_passed and advanced_version
+            if not advanced_version:
+                final_assertion_failures.append("new_active_plan_version_when_completed")
     if constraints_before_replacement is not None:
         constraints_preserved = _constraint_snapshot(final_view) == constraints_before_replacement
     if expected_final.get("preserve_all_constraints"):
@@ -989,6 +1312,8 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
             and _constraint_snapshot(final_view) == constraints_before_replacement
         )
         final_passed = final_passed and constraints_preserved
+        if not constraints_preserved:
+            final_assertion_failures.append("preserve_all_constraints")
     if expected_final.get("preserve_constraints_except"):
         constraints_preserved = (
             constraints_before_update is not None
@@ -1002,6 +1327,8 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
             )
         )
         final_passed = final_passed and constraints_preserved
+        if not constraints_preserved:
+            final_assertion_failures.append("preserve_constraints_except")
     non_target_stops_preserved: bool | None = None
     if expected_final.get("preserve_non_target_stops") and current.get("status") == "completed":
         non_target_stops_preserved, target_stop_changed = _replacement_diff_invariants(
@@ -1010,8 +1337,12 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
             replacement_target_index,
         )
         final_passed = final_passed and bool(non_target_stops_preserved)
+        if not non_target_stops_preserved:
+            final_assertion_failures.append("preserve_non_target_stops")
         if expected_final.get("target_stop_changed"):
             final_passed = final_passed and bool(target_stop_changed)
+            if not target_stop_changed:
+                final_assertion_failures.append("target_stop_changed")
     if expected_final.get("target_stop_changed") and current.get("status") == "completed":
         if target_stop_changed is None:
             _, target_stop_changed = _replacement_diff_invariants(
@@ -1020,13 +1351,27 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                 replacement_target_index,
             )
             final_passed = final_passed and bool(target_stop_changed)
+            if not target_stop_changed:
+                final_assertion_failures.append("target_stop_changed")
+    constraint_snapshot_before = (
+        constraints_before_update
+        if constraints_before_update is not None
+        else constraints_before_replacement
+    )
+    constraint_changes = (
+        _snapshot_diff(constraint_snapshot_before, _constraint_snapshot(final_view))
+        if constraint_snapshot_before is not None
+        else {}
+    )
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     counts_as_task_success = bool(case.get("counts_as_task_success", True))
     return {
         "case_id": case["case_id"],
         "label_status": label_status,
         "first_policy_passed": first_policy_passed,
+        "first_policy_failures": first_policy_failures,
         "expected_interaction_outcome_success": final_passed,
+        "final_assertion_failures": final_assertion_failures,
         "counts_as_task_success": counts_as_task_success,
         "eventual_task_success": final_passed and counts_as_task_success,
         "clarification_attempted": any(row.get("kind") == "answer_question" and row.get("execution_status") == "executed" for row in transcript),
@@ -1047,6 +1392,7 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         "active_plan_version_preserved": preserved_version,
         "active_plan_version_advanced": advanced_version,
         "unchanged_constraints_preserved": constraints_preserved,
+        "constraint_change_fields": sorted(constraint_changes),
         "non_target_stops_preserved": non_target_stops_preserved,
         "target_stop_changed": target_stop_changed,
         "elapsed_ms": elapsed_ms,
