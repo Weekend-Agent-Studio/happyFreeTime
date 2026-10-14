@@ -99,6 +99,55 @@ class RequestPatchUpdateCompiler:
                 f"time.activity.{proposal.activity_time_scope.value}.patch.v1",
             )
 
+        # Keep a trip-level period as an executable constraint. ``all_day``
+        # is also accepted from a stop-scoped proposal as a bounded semantic
+        # fallback: an activity explicitly requested for the whole day must
+        # have a planning window that can contain it. Other activity periods
+        # remain stop-scoped and never widen the trip.
+        trip_scope = proposal.trip_time_scope
+        if trip_scope is None and proposal.activity_time_scope == TimeScope.ALL_DAY:
+            trip_scope = TimeScope.ALL_DAY
+        if trip_scope is not None and not proposal.time_window_text:
+            trip_window = TemporalCompiler.time_window_for_scope(trip_scope)
+            if trip_window is not None:
+                scope_text = evidence_map.get("trip_time_scope") or proposal.activity_time_text
+                updates["trip_time_scope"] = self._value(
+                    trip_scope,
+                    scope_text,
+                    f"time.trip.scope.{trip_scope.value}.patch.v1",
+                    source=ConstraintSource.USER_INFERRED,
+                )
+                current_window = base.planning_window
+                current_start = current_window.start_at
+                current_end = current_window.end_at
+                # A user-explicit departure/return or exact trip range wins;
+                # inferred/default bounds may be expanded to honor the new
+                # coarse trip scope.
+                if (
+                    current_start is None
+                    or current_start.source != ConstraintSource.USER_EXPLICIT
+                    or current_window.start_kind == "trip_start"
+                ):
+                    updates["planning_window.start_at"] = self._value(
+                        trip_window.start,
+                        scope_text,
+                        f"time.trip.{trip_scope.value}.patch.v1",
+                        source=ConstraintSource.USER_INFERRED,
+                    )
+                    updates["planning_window.start_kind"] = "trip_start"
+                if (
+                    current_end is None
+                    or current_end.source != ConstraintSource.USER_EXPLICIT
+                    or current_window.end_kind == "trip_end"
+                ):
+                    updates["planning_window.end_at"] = self._value(
+                        trip_window.end,
+                        scope_text,
+                        f"time.trip.{trip_scope.value}.patch.v1",
+                        source=ConstraintSource.USER_INFERRED,
+                    )
+                    updates["planning_window.end_kind"] = "trip_end"
+
         if proposal.date_text:
             date_value = self._compile_date(proposal.date_text, environment)
             if date_value is None:
@@ -280,8 +329,14 @@ class RequestPatchUpdateCompiler:
         return (scope, window) if window is not None else None
 
     @staticmethod
-    def _value(value, raw_text: str, rule_id: str) -> ConstraintValue:
-        return ConstraintValue(value=value, source=ConstraintSource.USER_EXPLICIT, raw_text=raw_text, rule_id=rule_id)
+    def _value(
+        value,
+        raw_text: str | None,
+        rule_id: str,
+        *,
+        source: ConstraintSource = ConstraintSource.USER_EXPLICIT,
+    ) -> ConstraintValue:
+        return ConstraintValue(value=value, source=source, raw_text=raw_text, rule_id=rule_id)
 
     @staticmethod
     def _compile_clears(target: list[str], fields: tuple[str, ...]) -> None:

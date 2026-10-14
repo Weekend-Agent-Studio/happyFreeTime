@@ -198,6 +198,16 @@ class ConstraintPatch(BaseModel):
     # a clock; the compiler then asks for the exact departure time.
     departure_period: TimeScope | None = None
     time_window_text: str | None = None
+    # A trip-scoped coarse period is distinct from a stop-scoped activity
+    # period. Keeping it explicit lets a post-plan turn such as “玩一整天”
+    # update the executable planning window instead of only recording a soft
+    # activity hint.
+    trip_time_scope: TimeScope | None = Field(
+        default=None,
+        description=(
+            "整体行程时间段，例如‘一整天’；不要用于‘下午去公园’这类单站时段。"
+        ),
+    )
     # A stop-scoped period is deliberately separate from the trip window.
     # For example, “下午去公园” must not move the whole trip start to 14:00.
     activity_time_scope: TimeScope | None = None

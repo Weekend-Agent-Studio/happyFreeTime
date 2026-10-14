@@ -160,6 +160,9 @@ date_reference 都留空，由产品默认日期策略处理；用户提到一�
 
 “下午去公园/下午安排一个活动”使用 period(event=activity, period=afternoon)，不要把它
 写成 trip 时间窗或 departure；只有“下午出去玩”才是 trip。已有方案的结构更新写入
+constraint_patch.trip_time_scope；“补充一下，想玩一整天”使用
+trip_time_scope=all_day，不能只写 activity_time_scope。stop-scoped activity_time_scope
+只用于“下午去公园”这类单站时段。
 constraint_patch.exact_stop_count、required_stop_roles 或 add_required_stop_roles；“不用限制
 站数了”使用 clear_structure=true；“多安排几个地方”没有具体数字时保留
 structure_hint_text，系统会反问具体站数，不要猜一个数字。

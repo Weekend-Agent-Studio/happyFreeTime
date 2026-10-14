@@ -183,6 +183,71 @@ class RequestPatchCompilerTest(unittest.TestCase):
         )
         self.assertEqual(outcome.request.activity_time_scope.value, TimeScope.AFTERNOON)
 
+    def test_all_day_activity_patch_expands_the_inferred_trip_window(self) -> None:
+        _, _, ready = self._compile("周六下午出去玩")
+        compilation = RequestPatchUpdateCompiler().compile_update_proposal(
+            base=ready.request,
+            proposal=ConstraintPatch(
+                activity_time_scope=TimeScope.ALL_DAY,
+                activity_time_text="玩一整天",
+            ),
+            actor=self.actor,
+            environment=self.environment,
+        )
+        result = self.engine.apply(
+            ready.request,
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertEqual(result.request.trip_time_scope.value, TimeScope.ALL_DAY)
+        self.assertEqual(result.request.planning_window.start_at.value, "09:00")
+        self.assertEqual(result.request.planning_window.end_at.value, "21:00")
+        self.assertEqual(result.request.activity_time_scope.value, TimeScope.ALL_DAY)
+
+    def test_all_day_activity_patch_preserves_explicit_departure(self) -> None:
+        _, _, ready = self._compile("周六早上九点出发")
+        compilation = RequestPatchUpdateCompiler().compile_update_proposal(
+            base=ready.request,
+            proposal=ConstraintPatch(
+                trip_time_scope=TimeScope.ALL_DAY,
+                activity_time_scope=TimeScope.ALL_DAY,
+                activity_time_text="玩一整天",
+            ),
+            actor=self.actor,
+            environment=self.environment,
+        )
+        result = self.engine.apply(
+            ready.request,
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertEqual(result.request.planning_window.start_at.value, "09:00")
+        self.assertEqual(result.request.planning_window.start_kind, "departure")
+        self.assertEqual(result.request.planning_window.end_at.value, "21:00")
+
+    def test_activity_scoped_period_stays_out_of_trip_window(self) -> None:
+        _, _, ready = self._compile("周六出去玩")
+        compilation = RequestPatchUpdateCompiler().compile_update_proposal(
+            base=ready.request,
+            proposal=ConstraintPatch(
+                activity_time_scope=TimeScope.AFTERNOON,
+                activity_time_text="下午去公园",
+            ),
+            actor=self.actor,
+            environment=self.environment,
+        )
+        result = self.engine.apply(
+            ready.request,
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertIsNone(result.request.trip_time_scope)
+        self.assertEqual(result.request.planning_window.start_at.value, "14:00")
+        self.assertEqual(result.request.planning_window.end_at.value, "18:00")
+
     def test_patch_structure_is_compiled_through_request_update(self) -> None:
         compiler = RequestPatchUpdateCompiler()
         _, _, ready = self._compile("周六出去玩")
@@ -269,6 +334,39 @@ class RequestPatchCompilerTest(unittest.TestCase):
         self.assertNotIn("充分利用全天", outcome.request.preferences)
         intent = RuleBasedPlanningIntentProvider().decide(outcome.request).intent
         self.assertEqual(intent.pace, PlanPace.FULL)
+
+    def test_create_activity_all_day_proposal_compiles_a_trip_window(self) -> None:
+        interpretation = self.router.interpret("周六出去玩", self.context).model_copy(
+            update={
+                "time_proposals": (
+                    PeriodProposal(
+                        event="activity",
+                        period=TimeScope.ALL_DAY,
+                        evidence="玩一整天",
+                    ),
+                )
+            }
+        )
+        enrichment = self.enrichment.enrich(
+            interpretation,
+            self.actor,
+            self.environment,
+        )
+        compilation = self.compiler.compile(
+            interpretation,
+            enrichment.request_patch,
+            self.environment,
+        )
+        outcome = self.engine.apply(
+            PlanRequest(),
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertEqual(outcome.request.trip_time_scope.value, TimeScope.ALL_DAY)
+        self.assertEqual(outcome.request.planning_window.start_at.value, "09:00")
+        self.assertEqual(outcome.request.planning_window.end_at.value, "21:00")
+        self.assertEqual(outcome.request.activity_time_scope.value, TimeScope.ALL_DAY)
 
     def test_explicit_range_does_not_inherit_all_day_scope(self) -> None:
         _, _, all_day = self._compile("周六玩一整天")
