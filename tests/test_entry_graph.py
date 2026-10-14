@@ -526,6 +526,65 @@ class EntryGraphTest(unittest.TestCase):
             ],
         )
 
+    def test_default_distance_auto_recovery_stops_after_one_ineffective_attempt(self) -> None:
+        class DistanceRouter(InterpretationRouter):
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(
+                        date_text="今天",
+                        exact_stop_count=1,
+                        required_stop_roles=(StopRole.ACTIVITY,),
+                    ),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        far_activity = candidate(
+            "very-far-activity", ResourceType.ACTIVITY, "远处公园", ["公园"]
+        ).model_copy(update={"location": GeoPoint(latitude=40.2, longitude=116.4436)})
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-default-distance-recovery-fails-once",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DistanceRouter(),
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog([far_activity]),
+        )
+
+        result = graph.invoke(
+            {"user_input": "今天下午出去玩", "actor": actor},
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        self.assertIn("__interrupt__", result)
+        self.assertEqual(result["active_request"].max_distance_km.value, 12.0)
+        self.assertTrue(result["auto_recovery_attempted"])
+        auto_ids = [
+            action_id
+            for action_id in result["used_recovery_action_ids"]
+            if action_id.startswith("auto-expand-distance-")
+        ]
+        self.assertEqual(auto_ids, ["auto-expand-distance-r1-12"])
+        interaction = result["__interrupt__"][0].value
+        self.assertEqual(interaction["kind"], "recovery_choice")
+        self.assertTrue(
+            any(
+                item["kind"] == "apply_request_patch"
+                and item["patch"]["set_fields"]["max_distance_km"] == 18.0
+                for item in interaction["actions"]
+            )
+        )
+
     def test_explicit_distance_failure_interrupts_without_auto_relaxation(self) -> None:
         class ExplicitDistanceRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
