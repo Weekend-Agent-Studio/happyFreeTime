@@ -585,6 +585,66 @@ class EntryGraphTest(unittest.TestCase):
             )
         )
 
+    def test_cancel_recovery_restores_request_committed_before_failed_turn(self) -> None:
+        class DistanceRouter(InterpretationRouter):
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(
+                        date_text="今天",
+                        exact_stop_count=1,
+                        required_stop_roles=(StopRole.ACTIVITY,),
+                    ),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        far_activity = candidate(
+            "cancel-draft-far-activity", ResourceType.ACTIVITY, "远处公园", ["公园"]
+        ).model_copy(update={"location": GeoPoint(latitude=40.2, longitude=116.4436)})
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-cancel-draft-restores-base",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DistanceRouter(),
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog([far_activity]),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+
+        first = graph.invoke(
+            {"user_input": "今天下午出去玩", "actor": actor},
+            config=config,
+        )
+        interaction = first["__interrupt__"][0].value
+        cancel = next(item for item in interaction["actions"] if item["kind"] == "cancel_turn")
+
+        cancelled = graph.invoke(
+            Command(
+                resume={
+                    "interaction_id": interaction["interaction_id"],
+                    "action_id": cancel["action_id"],
+                    "request_revision": cancel["request_revision"],
+                    "plan_version_id": cancel["plan_version_id"],
+                }
+            ),
+            config=config,
+        )
+
+        self.assertEqual(cancelled["recovery_resolution"], "cancel_turn")
+        self.assertIsNone(cancelled["active_request"].max_distance_km)
+        self.assertIsNone(cancelled["candidate_set"])
+        self.assertIsNone(cancelled["turn_base_request"])
+
     def test_explicit_distance_failure_interrupts_without_auto_relaxation(self) -> None:
         class ExplicitDistanceRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:

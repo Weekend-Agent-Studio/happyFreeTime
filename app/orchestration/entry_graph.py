@@ -288,6 +288,10 @@ class TurnResultState(TypedDict, total=False):
     used_recovery_action_ids: tuple[str, ...]
     recovery_resolution: str | None
     new_request_pending: bool
+    # Request committed before the current turn started.  A failed planning
+    # draft may temporarily become the active execution input, but cancelling
+    # that turn must restore this snapshot rather than persist the draft.
+    turn_base_request: PlanRequest | None
 
 
 class EntryState(
@@ -382,6 +386,11 @@ def build_entry_graph(
         actor = state["actor"]
         environment = environment_provider(actor)
         start_fresh_request = state.get("new_request_pending", False)
+        turn_base_request = (
+            PlanRequest()
+            if start_fresh_request
+            else state.get("active_request") or PlanRequest()
+        )
         previous_user_act = (
             None
             if start_fresh_request
@@ -484,6 +493,7 @@ def build_entry_graph(
             "auto_recovery_attempted": False,
             "used_recovery_action_ids": (),
             "new_request_pending": False,
+            "turn_base_request": turn_base_request,
             **(
                 {
                     "active_request": PlanRequest(),
