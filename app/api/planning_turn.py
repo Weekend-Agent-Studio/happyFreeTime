@@ -29,6 +29,7 @@ from app.domain.providers import WeatherFact
 from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
 from app.domain.runtime import RuntimeDecision
 from app.domain.run_trace import (
+    FailureEnvelope,
     InMemoryRunObserver,
     PlanningRunEventDraft,
     PlanningRunEvent,
@@ -839,19 +840,104 @@ class PlanningTurnApplication:
                 supersedes_version_id=supersedes_version_id,
             )
             return response
-        except Exception:
-            # Keep the public execution trace lifecycle closed even when an
-            # unexpected provider or application error aborts the turn. The
-            # observer only emits a bounded, generic failure event; raw error
-            # text and stack traces never enter the public response.
-            run_observer.fail_open_stages()
+        except Exception as error:
+            # Convert unexpected execution failures into a safe, persisted
+            # result.  The exception itself never crosses the application
+            # seam; callers receive a retry/exit-capable response instead of a
+            # silent failed run and a transient banner.
+            try:
+                run_observer.fail_open_stages()
+            except Exception:
+                # Trace finalization must not mask the original execution
+                # failure.  The snapshot remains safe even without a final
+                # synthetic event.
+                pass
+            failure = _failure_envelope(
+                error,
+                run_id=run.planning_run_id,
+                request_id=request.request_id,
+                trace=run_observer.snapshot(),
+            )
+            response = AgentResponse(
+                status="failed",
+                reply=failure.public_message,
+                failure=failure,
+                run_trace=failure.trace,
+            )
             self._repository.fail_planning_run(
                 user_id=user_id,
                 session_id=session_id,
                 planning_run_id=run.planning_run_id,
+                failure=failure,
+                assistant_content=failure.public_message,
             )
-            raise
+            return response
 
+def _failure_envelope(
+    error: Exception,
+    *,
+    run_id: str,
+    request_id: str,
+    trace: object,
+) -> FailureEnvelope:
+    """Project an internal exception into the small public failure contract."""
+
+    error_name = type(error).__name__.casefold()
+    transient_markers = (
+        "timeout",
+        "connection",
+        "ratelimit",
+        "rate_limit",
+        "temporar",
+        "upstream",
+    )
+    if isinstance(error, (TimeoutError, ConnectionError, OSError)) or any(
+        marker in error_name for marker in transient_markers
+    ):
+        diagnostic_code = "PROVIDER_TEMPORARY_FAILURE"
+        retryable = True
+        public_message = "外部服务暂时不可用，本轮没有修改当前方案，可以重试。"
+    elif isinstance(error, (ValueError, TypeError)):
+        diagnostic_code = "INPUT_VALIDATION_FAILURE"
+        retryable = False
+        public_message = "本轮规划条件或结构校验未完成，当前方案没有被修改。"
+    else:
+        diagnostic_code = "INTERNAL_EXECUTION_ERROR"
+        retryable = False
+        public_message = "本轮规划未能完成，当前方案没有被修改。可以开始新的规划。"
+
+    safe_trace = trace
+    events = getattr(trace, "events", ())
+    failed_events = [
+        event for event in events
+        if event.status == RunEventStatus.FAILED
+    ]
+    failure_stage = (
+        failed_events[-1].stage.value
+        if failed_events
+        else events[-1].stage.value
+        if events
+        else "unknown"
+    )
+    completed_events = [
+        event for event in events
+        if event.status in {
+            RunEventStatus.COMPLETED,
+            RunEventStatus.FALLBACK,
+            RunEventStatus.WAITING_INPUT,
+        }
+    ]
+    last_completed_stage = completed_events[-1].stage.value if completed_events else None
+    return FailureEnvelope(
+        run_id=run_id,
+        request_id=request_id,
+        failure_stage=failure_stage,
+        diagnostic_code=diagnostic_code,
+        retryable=retryable,
+        last_completed_stage=last_completed_stage,
+        public_message=public_message,
+        trace=safe_trace,
+    )
 
 
 def _dump_assumptions(result: dict) -> list[dict]:

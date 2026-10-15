@@ -12,7 +12,7 @@ from app.domain.constraints import (
     PartyProfile,
 )
 from app.domain.runtime import RuntimeDecision
-from app.domain.run_trace import PlanningRunTrace
+from app.domain.run_trace import FailureEnvelope, PlanningRunTrace
 from app.domain.recovery import RecoveryActionResponse, RecoveryChoiceInteraction
 
 
@@ -267,7 +267,7 @@ class AgentResponse(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["completed", "needs_input", "needs_recovery", "context_saved"]
+    status: Literal["completed", "needs_input", "needs_recovery", "context_saved", "failed"]
     reply: str = ""
     question: dict[str, Any] | None = None
     recovery: RecoveryChoiceInteraction | None = None
@@ -293,6 +293,7 @@ class AgentResponse(BaseModel):
     # Coarse, user-safe execution timeline.  Detailed model/search diagnostics
     # remain in their existing fields and are not duplicated here.
     run_trace: PlanningRunTrace | None = None
+    failure: FailureEnvelope | None = None
     retrieval_mode: str | None = None
     retrieval_index_version: str | None = None
     search_mode: str | None = None

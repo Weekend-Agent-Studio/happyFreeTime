@@ -302,6 +302,18 @@ export type PlanningRunTrace = {
   events: PlanningRunEvent[];
 };
 
+export type FailureEnvelope = {
+  schema_version: "planning-failure.v1";
+  run_id: string;
+  request_id: string;
+  failure_stage: string;
+  diagnostic_code: "PROVIDER_TEMPORARY_FAILURE" | "INPUT_VALIDATION_FAILURE" | "INTERNAL_EXECUTION_ERROR";
+  retryable: boolean;
+  last_completed_stage: string | null;
+  public_message: string;
+  trace: PlanningRunTrace;
+};
+
 export type ReplacementCriterion =
   | { kind: "semantic"; text: string; strength: "preferred" }
   | { kind: "route_objective"; metric: "total_route_distance"; direction: "decrease"; strength: "required" };
@@ -428,7 +440,7 @@ export type RecoveryActionRequest = {
 
 export type AgentResponse = {
   /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
-  status: "completed" | "needs_input" | "needs_recovery" | "context_saved";
+  status: "completed" | "needs_input" | "needs_recovery" | "context_saved" | "failed";
   reply: string;
   question: {
     field: string | null;
@@ -459,6 +471,7 @@ export type AgentResponse = {
   plan_version_id?: string | null;
   runtime_decisions?: RuntimeDecision[];
   run_trace?: PlanningRunTrace | null;
+  failure?: FailureEnvelope | null;
   retrieval_evidence?: EvidenceRef[];
   retrieval_mode?: string | null;
   retrieval_index_version?: string | null;

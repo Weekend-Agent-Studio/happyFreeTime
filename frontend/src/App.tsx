@@ -204,6 +204,7 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     retrieval_evidence: response.retrieval_evidence ?? [],
     runtime_decisions: response.runtime_decisions ?? [],
     run_trace: response.run_trace ?? null,
+    failure: response.failure ?? null,
     retrieval_mode: response.retrieval_mode ?? null,
     retrieval_index_version: response.retrieval_index_version ?? null,
     search_mode: response.search_mode ?? null,
@@ -714,7 +715,11 @@ function App() {
         effectiveClarificationReply,
         recoveryAction,
       );
-      setFailedRequest(null);
+      if (nextResponse.status === "failed" && nextResponse.failure?.retryable) {
+        setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply, recoveryAction });
+      } else {
+        setFailedRequest(null);
+      }
       setNewRequestMode(nextResponse.recovery_resolution === "start_new_request");
       if (nextResponse.recovery_resolution === "open_constraint_editor") setContextFocus("all");
       setResponse(nextResponse);
@@ -1022,6 +1027,7 @@ function App() {
                  onClarificationOption={(option, answerValue) => message.response?.question && onClarificationOption(option, message.response.question, answerValue)}
                  onRecoveryAction={(action, interaction, value) => onRecoveryAction(action, interaction, value)}
                  onOpenContext={() => openContextForClarification(message.response?.question?.field)}
+                 onRetry={message.response?.failure?.retryable && failedRequest?.requestId === message.response.failure.request_id ? () => void submit(failedRequest.content, failedRequest.conversationCommand, failedRequest.clarificationReply, failedRequest.recoveryAction) : undefined}
               />)}
               {loading ? <ThinkingRow events={progressEvents} /> : null}
               <div ref={conversationEndRef} aria-hidden="true" />
@@ -1246,7 +1252,7 @@ function RecoveryCard({ interaction, loading, active, onChoose }: {
   );
 }
 
-function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onClarificationOption, onRecoveryAction, onOpenContext }: {
+function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onClarificationOption, onRecoveryAction, onOpenContext, onRetry }: {
   message: ChatMessage;
   loading: boolean;
   activeRecoveryInteractionId: string | null;
@@ -1261,6 +1267,7 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
   onClarificationOption: (option: ClarificationOption, answerValue?: string | null) => void;
   onRecoveryAction: (action: RecoveryAction, interaction: RecoveryChoice, fieldValue?: string) => void;
   onOpenContext: () => void;
+  onRetry?: () => void;
 }) {
   const usesStructuredResponse = Boolean(
     message.response && (
@@ -1269,6 +1276,7 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
       || message.response.question?.options?.length
       || message.response.question?.field === "date"
       || message.response.recovery
+      || message.response.failure
     ),
   );
   return (
@@ -1314,6 +1322,19 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
         {message.response?.conflict ? (
           <section className="conflict-panel" role="status">
             <strong>{message.response.conflict.message}</strong>
+          </section>
+        ) : null}
+        {message.response?.failure ? (
+          <section className="conflict-panel failure-panel" role="alert">
+            <strong>{message.response.failure.public_message}</strong>
+            <small>
+              {message.response.failure.retryable
+                ? "当前方案未被修改，可以重试本轮或开始新的规划。"
+                : "当前方案未被修改，可以开始新的规划。"}
+            </small>
+            {message.response.failure.retryable && onRetry ? (
+              <button type="button" onClick={onRetry} disabled={loading}>重试本轮</button>
+            ) : null}
           </section>
         ) : null}
         {message.response?.plans.length ? (

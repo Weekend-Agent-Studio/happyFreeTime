@@ -153,6 +153,26 @@ class PlanningRunTrace(BaseModel):
         return self
 
 
+class FailureEnvelope(BaseModel):
+    """Safe, persisted description of an unexpected planning failure."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["planning-failure.v1"] = "planning-failure.v1"
+    run_id: str = Field(min_length=1, max_length=128)
+    request_id: str = Field(min_length=1, max_length=64)
+    failure_stage: str = Field(min_length=1, max_length=40)
+    diagnostic_code: Literal[
+        "PROVIDER_TEMPORARY_FAILURE",
+        "INPUT_VALIDATION_FAILURE",
+        "INTERNAL_EXECUTION_ERROR",
+    ]
+    retryable: bool
+    last_completed_stage: str | None = Field(default=None, max_length=40)
+    public_message: str = Field(min_length=1, max_length=240)
+    trace: PlanningRunTrace
+
+
 class PlanningRunEventDraft(BaseModel):
     """Input accepted by a request-scoped observer before sequencing."""
 
