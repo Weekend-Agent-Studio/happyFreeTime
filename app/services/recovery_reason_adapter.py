@@ -247,6 +247,11 @@ class RecoveryReasonAdapter:
         rejected_by_route = sum(
             rejected_by.get(reason, 0) for reason in _ROUTE_REJECTION_KEYS
         )
+        candidate_counts = [
+            trace.candidate_pool_count
+            for trace in traces
+            if trace.candidate_pool_count > 0
+        ]
         return RecoveryDiagnostics(
             current_max_distance_km=(
                 request.max_distance_km.value
@@ -266,5 +271,11 @@ class RecoveryReasonAdapter:
             route_provider_requests=sum(trace.route_provider_requests for trace in traces),
             route_verification_failures=len(route_failure_sets),
             rejected_by_hard_filter=len(violations),
+            retrieved_candidate_count=max(candidate_counts) if candidate_counts else None,
+            role_pool_entries=sum(trace.role_pool_entries for trace in traces),
+            local_schedule_passes=sum(trace.local_schedule_passes for trace in traces),
+            local_schedule_failures=sum(trace.local_schedule_failures for trace in traces),
+            finalist_count=sum(trace.finalists for trace in traces),
+            search_budget_exhausted=any(trace.search_budget_exhausted for trace in traces),
             constraint_sources=sources,
         )

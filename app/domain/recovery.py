@@ -71,6 +71,12 @@ class RecoveryDiagnostics(BaseModel):
     route_provider_requests: int = Field(default=0, ge=0)
     route_verification_failures: int = Field(default=0, ge=0)
     rejected_by_hard_filter: int = Field(default=0, ge=0)
+    retrieved_candidate_count: int | None = Field(default=None, ge=0)
+    role_pool_entries: int = Field(default=0, ge=0)
+    local_schedule_passes: int = Field(default=0, ge=0)
+    local_schedule_failures: int = Field(default=0, ge=0)
+    finalist_count: int = Field(default=0, ge=0)
+    search_budget_exhausted: bool = False
     constraint_sources: dict[str, ConstraintSource] = Field(default_factory=dict)
 
     @field_validator("constraint_sources")
