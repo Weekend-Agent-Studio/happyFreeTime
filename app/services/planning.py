@@ -2362,6 +2362,10 @@ def _collect_final_warnings(
                 total_duration_minutes=plan.total_duration_minutes,
                 available_minutes=plan.total_duration_minutes,
                 stop_count=len(plan.stops),
+                occupied_duration_minutes=(
+                    sum(stop.duration_minutes for stop in plan.stops)
+                    + sum(leg.duration_minutes for leg in plan.route_legs)
+                ),
             )
             if len(covered_periods) < len(time_coverage.target_periods):
                 missing = "、".join(
@@ -3440,6 +3444,10 @@ def _build_local_plan(
             total_duration_minutes=total_duration,
             available_minutes=maximum_minutes,
             stop_count=len(sequence),
+            occupied_duration_minutes=(
+                sum(item.duration_minutes for item in sequence)
+                + sum(_estimated_route_minutes(distance) for distance in route_distances)
+            ),
         )
     )
     total_distance = sum(route_distances)
@@ -3709,8 +3717,16 @@ def _time_coverage_score(
     total_duration_minutes: int,
     available_minutes: int,
     stop_count: int,
+    occupied_duration_minutes: int | None = None,
 ) -> tuple[float, str, list[str], tuple[TimeScope, ...]]:
-    """Score meaningful day-part coverage without creating a hard gate."""
+    """Score meaningful day-part coverage without creating a hard gate.
+
+    ``total_duration_minutes`` is elapsed wall-clock time and may include
+    scheduler-inserted meal waiting.  It must not be treated as meaningful
+    itinerary occupancy.  Callers that know route-leg durations should pass
+    ``occupied_duration_minutes`` so transit is counted while unallocated
+    waiting remains excluded; direct callers fall back to stop dwell time.
+    """
 
     if objective is None:
         return 0.0, "", [], ()
@@ -3750,21 +3766,29 @@ def _time_coverage_score(
 
     target_count = len(objective.target_periods)
     coverage_ratio = len(covered) / target_count if target_count else 0.0
-    utilization = min(
-        1.0,
-        max(0.0, total_duration_minutes / max(1, available_minutes)),
+    occupied_minutes = (
+        occupied_duration_minutes
+        if occupied_duration_minutes is not None
+        else sum(end - start for start, end, _ in intervals)
     )
+    occupied_minutes = max(0, occupied_minutes)
+    utilization = min(1.0, occupied_minutes / max(1, available_minutes))
+    elapsed_minutes = max(0, total_duration_minutes)
+    idle_minutes = max(0, elapsed_minutes - occupied_minutes)
     richness = min(1.0, max(0.0, (stop_count - 1) / 3.0))
     points = round(12.0 * coverage_ratio + 6.0 * utilization + 4.0 * richness, 1)
     message = (
         f"覆盖 {len(covered)}/{target_count} 个目标时段，"
-        f"时间利用率 {utilization:.0%}，结构丰富度 {richness:.0%}。"
+        f"有效时间利用率 {utilization:.0%}，结构丰富度 {richness:.0%}。"
     )
     evidence = [
         f"target_periods={','.join(period.value for period in objective.target_periods)}",
         f"covered_periods={','.join(period.value for period in covered) or 'none'}",
         *overlap_evidence,
         f"utilization={utilization:.3f}",
+        f"occupied_minutes={occupied_minutes}",
+        f"elapsed_minutes={elapsed_minutes}",
+        f"unallocated_minutes={idle_minutes}",
         f"stop_count={stop_count}",
         f"evidence={objective.evidence}",
     ]
@@ -3820,6 +3844,10 @@ def _refresh_verified_score(
         total_duration_minutes=plan.total_duration_minutes,
         available_minutes=maximum_minutes,
         stop_count=len(plan.stops),
+        occupied_duration_minutes=(
+            sum(stop.duration_minutes for stop in plan.stops)
+            + sum(leg.duration_minutes for leg in plan.route_legs)
+        ),
     )
     refreshed: list[ScoreContribution] = []
     for contribution in plan.score_breakdown:
