@@ -1510,6 +1510,8 @@ class ApiTest(unittest.TestCase):
         before = self.client.get(
             f"/api/sessions/{session_id}", headers=self.headers
         ).json()["data"]
+        self.assertEqual(before["planning_context"]["request_view"], "draft")
+        self.assertEqual(before["planning_context"]["committed_request_revision"], 0)
         self.assertEqual(before["planning_context"]["where"]["display_value"], "未提交的恢复草稿")
         self.assertEqual(before["planning_context"]["budget"]["value"]["amount"], 200)
         self.assertIsNone(before["active_constraints"])

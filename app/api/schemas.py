@@ -159,6 +159,11 @@ class PlanningContextSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_revision: int = Field(ge=0)
+    # ``request`` may be a recoverable draft while the committed request and
+    # its active PlanVersion remain unchanged.  Exposing this distinction keeps
+    # the context bar from making an uncommitted recovery candidate look final.
+    request_view: Literal["committed", "draft"] = "committed"
+    committed_request_revision: int | None = Field(default=None, ge=0)
     where: PlanningContextField
     when: PlanningContextWhen
     who: PlanningContextField

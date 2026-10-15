@@ -458,6 +458,60 @@ class EntryGraphTest(unittest.TestCase):
         self.assertIsNone(context.decision_context.selected_plan)
         self.assertIsNone(context.previous_user_act)
 
+    def test_explicit_new_request_phrase_drops_old_constraints_before_router(self) -> None:
+        class FreshRouter(InterpretationRouter):
+            def __init__(self) -> None:
+                self.contexts: list[RouterContext] = []
+
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                self.contexts.append(context)
+                return Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(
+                        date_text="今天",
+                        exact_stop_count=1,
+                        required_stop_roles=(StopRole.ACTIVITY,),
+                    ),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-explicit-new-request",
+            identity_type=IdentityType.DEMO,
+        )
+        router = FreshRouter()
+        graph = build_entry_graph(
+            router=router,
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog([]),
+        )
+
+        graph.invoke(
+            {
+                "user_input": "不按刚才的条件了，重新开始规划",
+                "actor": actor,
+                "has_plans": True,
+                "active_request": planning_constraints(),
+                "active_plan_version_id": "old-version",
+            },
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        context = router.contexts[-1]
+        self.assertFalse(context.has_plans)
+        self.assertFalse(context.has_selected_plan)
+        self.assertEqual(context.decision_context.request_lifecycle.value, "empty")
+        self.assertIsNone(context.decision_context.current_request)
+
     def test_default_distance_auto_recovers_once_then_uses_the_same_planner(self) -> None:
         class DistanceRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:

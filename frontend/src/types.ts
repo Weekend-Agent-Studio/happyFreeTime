@@ -356,6 +356,8 @@ export type PlanningContextField = {
 
 export type PlanningContextSummary = {
   request_revision: number;
+  request_view: "committed" | "draft";
+  committed_request_revision: number | null;
   planned_request_revision: number | null;
   has_active_plan: boolean;
   plan_stale: boolean;

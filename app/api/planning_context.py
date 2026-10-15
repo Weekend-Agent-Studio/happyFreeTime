@@ -64,6 +64,8 @@ class PlanningContextApplication:
         pending_interaction: object | None = None,
         planned_request_revision: int | None = None,
         has_active_plan: bool = False,
+        request_view: str = "committed",
+        committed_request_revision: int | None = None,
     ) -> PlanningContextSummary:
         """Build a display projection from the canonical request only."""
 
@@ -97,6 +99,14 @@ class PlanningContextApplication:
         )
         return PlanningContextSummary(
             request_revision=active.revision,
+            request_view=(
+                request_view if request_view in {"committed", "draft"} else "committed"
+            ),
+            committed_request_revision=(
+                committed_request_revision
+                if committed_request_revision is not None
+                else active.revision
+            ),
             where=self._context_field(
                 location.value.model_dump(mode="json") if location else None,
                 source=location.source if location else None,

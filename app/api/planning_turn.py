@@ -90,6 +90,8 @@ class PlanningTurnApplication:
         *,
         pending_field: str | None = None,
         just_planned: bool = False,
+        request_view: str = "committed",
+        committed_request_revision: int | None = None,
     ) -> PlanningContextSummary:
         snapshot = self._repository.get_session_snapshot(user_id, session_id)
         has_active_plan = bool(snapshot and snapshot.active_plan_version_id)
@@ -108,6 +110,12 @@ class PlanningTurnApplication:
             pending_interaction=pending_field,
             planned_request_revision=planned_revision,
             has_active_plan=has_active_plan or just_planned,
+            request_view=request_view,
+            committed_request_revision=(
+                committed_request_revision
+                if committed_request_revision is not None
+                else request.revision
+            ),
         )
 
     def handle(
@@ -601,6 +609,10 @@ class PlanningTurnApplication:
                         session_id,
                         display_request,
                         pending_field=question.get("field") if isinstance(question, dict) else None,
+                        request_view=(
+                            "draft" if display_request_value is not None else "committed"
+                        ),
+                        committed_request_revision=current_request.revision,
                     ),
                 )
                 self._repository.complete_planning_run(

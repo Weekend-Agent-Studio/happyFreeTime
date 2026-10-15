@@ -385,7 +385,19 @@ def build_entry_graph(
         )
         actor = state["actor"]
         environment = environment_provider(actor)
-        start_fresh_request = state.get("new_request_pending", False)
+        # An explicit reset phrase is a bounded conversation command, not a
+        # second parser. It prevents a clearly new request from inheriting the
+        # previous plan's structure/distance/avoid constraints while leaving
+        # ordinary topical changes to the semantic Router.
+        has_prior_context = bool(
+            state.get("has_plans")
+            or state.get("active_plan_version_id")
+            or state.get("active_request") is not None
+        )
+        start_fresh_request = bool(state.get("new_request_pending", False)) or (
+            has_prior_context
+            and _explicit_new_request_requested(state.get("user_input", ""))
+        )
         turn_base_request = (
             PlanRequest()
             if start_fresh_request
@@ -1585,6 +1597,33 @@ def _interpret_with_runtime(
             "Router interpret_with_runtime must return TurnInterpreterResult"
         )
     return result
+
+
+_EXPLICIT_NEW_REQUEST_PHRASES = (
+    "开始新需求",
+    "换个需求",
+    "换一个需求",
+    "重新开始规划",
+    "从头规划",
+    "不按刚才的",
+    "不用刚才的条件",
+    "清空刚才的条件",
+    "另一个行程",
+    "重新来一个",
+)
+
+
+def _explicit_new_request_requested(user_input: str) -> bool:
+    """Recognize only unambiguous, user-authored reset phrases.
+
+    This intentionally is not a general intent parser.  It is a small safety
+    boundary around the existing ``new_request_pending`` path: phrases such
+    as ``预算再少点`` or ``换个活动`` remain ordinary patches/modifications,
+    while an explicit request to discard the previous context starts clean.
+    """
+
+    normalized = "".join(str(user_input).split())
+    return any(phrase in normalized for phrase in _EXPLICIT_NEW_REQUEST_PHRASES)
 
 
 def default_environment_provider(actor: ActorContext) -> EnvironmentContext:
