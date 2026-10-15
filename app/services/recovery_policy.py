@@ -22,6 +22,7 @@ from app.domain.recovery import (
     ReplanCurrentRequestAction,
     RequestFieldAction,
     StartNewRequestAction,
+    RecoveryAction,
 )
 
 
@@ -255,11 +256,50 @@ class RecoveryPolicy:
                 ),
             )
         )
+        actions = self._bounded_actions(actions)
         return RecoveryDecision(
             reason=reason,
             actions=tuple(actions),
             auto_action=auto_action,
         )
+
+    @staticmethod
+    def _bounded_actions(actions: list[RecoveryAction]) -> list[RecoveryAction]:
+        """Keep suggestions small while preserving the fixed safety exits.
+
+        The policy may discover several fields from one failure, but showing
+        every editable field at once makes the card look like a menu of
+        guesses.  At most three evidence-backed suggestions are exposed; the
+        manual editor/keep/cancel/new-request controls remain available as a
+        separate safety area in the client.
+        """
+
+        fixed_types = (
+            OpenConstraintEditorAction,
+            KeepCurrentPlanAction,
+            CancelTurnAction,
+            StartNewRequestAction,
+        )
+        suggestions: list[RecoveryAction] = []
+        fixed: list[RecoveryAction] = []
+        seen: set[str] = set()
+        for action in actions:
+            if action.action_id in seen:
+                continue
+            seen.add(action.action_id)
+            (fixed if isinstance(action, fixed_types) else suggestions).append(action)
+
+        def priority(action: RecoveryAction) -> tuple[int, str]:
+            if isinstance(action, ApplyRequestPatchAction):
+                return (0, action.action_id)
+            if isinstance(action, ReplanCurrentRequestAction):
+                return (1, action.action_id)
+            if isinstance(action, RequestFieldAction):
+                return (2, action.action_id)
+            return (9, action.action_id)
+
+        suggestions.sort(key=priority)
+        return [*suggestions[:3], *fixed]
 
     @staticmethod
     def _next_distance(current: float, nearest: float | None) -> float | None:

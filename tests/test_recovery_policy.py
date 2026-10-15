@@ -12,6 +12,8 @@ from app.domain.recovery import (
     RecoveryStage,
     RequestFieldAction,
     StartNewRequestAction,
+    CancelTurnAction,
+    KeepCurrentPlanAction,
 )
 from app.services.recovery_policy import RecoveryPolicy
 
@@ -207,6 +209,45 @@ class RecoveryPolicyTests(unittest.TestCase):
         relabeled = action.model_copy(update={"label": "显示文字已改变"})
         self.assertEqual(action.patch, relabeled.patch)
         self.assertNotEqual(action.label, relabeled.label)
+
+    def test_policy_bounds_suggestions_but_keeps_safety_exits(self) -> None:
+        reason = self.reason().model_copy(
+            update={
+                "fields": (
+                    "max_distance_km",
+                    "total_distance_km",
+                    "return_by",
+                    "budget_per_person",
+                    "exact_stop_count",
+                ),
+                "kind": RecoveryKind.MODIFICATION_FAILED,
+                "plan_version_id": "plan-v3",
+            }
+        )
+        decision = self.policy.decide(
+            reason,
+            PlanRequest(revision=3),
+            current_plan_version_id="plan-v3",
+        )
+        suggestions = [
+            item
+            for item in decision.actions
+            if not isinstance(
+                item,
+                (
+                    OpenConstraintEditorAction,
+                    KeepCurrentPlanAction,
+                    CancelTurnAction,
+                    StartNewRequestAction,
+                ),
+            )
+        ]
+        self.assertLessEqual(len(suggestions), 3)
+        self.assertTrue(any(isinstance(item, KeepCurrentPlanAction) for item in decision.actions))
+        self.assertTrue(any(isinstance(item, CancelTurnAction) for item in decision.actions))
+        self.assertEqual(
+            len({item.action_id for item in decision.actions}), len(decision.actions)
+        )
 
 
 if __name__ == "__main__":
