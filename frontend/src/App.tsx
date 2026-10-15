@@ -110,6 +110,22 @@ type ReplacementDraft = {
 
 type ReplacementPreset = "similar" | "shorter" | "quiet" | "chatty" | "family";
 
+type RecoveryLifecycleStatus =
+  | "submitted"
+  | "awaiting_input"
+  | "succeeded"
+  | "still_failed"
+  | "cancelled"
+  | "finished"
+  | "retryable";
+
+type RecoveryLifecycle = {
+  actionId: string;
+  label: string;
+  status: RecoveryLifecycleStatus;
+  summary?: string;
+};
+
 const REPLACEMENT_PRESET_CRITERIA: Record<ReplacementPreset, ReplacementCriterion[]> = {
   similar: [],
   shorter: [{ kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" }],
@@ -524,6 +540,37 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
+function recoveryLifecycleFromResponse(response: AgentResponse): Pick<RecoveryLifecycle, "status" | "summary"> {
+  if (response.recovery_resolution === "cancel_turn") {
+    return { status: "cancelled", summary: "本轮已取消，原方案和已确认条件未修改。" };
+  }
+  if (response.recovery_resolution === "start_new_request") {
+    return { status: "finished", summary: "已开始新的规划需求，上一轮条件不会继续继承。" };
+  }
+  if (response.recovery_resolution === "keep_current_plan") {
+    return { status: "finished", summary: "已保留当前方案，原方案没有被修改。" };
+  }
+  if (response.recovery_resolution === "open_constraint_editor") {
+    return { status: "finished", summary: "已打开条件编辑器，请确认修改后再重新规划。" };
+  }
+  if (response.status === "needs_recovery") {
+    return { status: "still_failed", summary: "调整已应用，但当前条件下仍未找到可行方案；请从新的选项继续。" };
+  }
+  if (response.status === "needs_input") {
+    return { status: "awaiting_input", summary: response.question?.question ?? "调整已应用，还需要补充一个条件。" };
+  }
+  if (response.status === "completed" && response.plans.length > 0) {
+    return { status: "succeeded", summary: "调整已应用，新的方案已生成并重新核验。" };
+  }
+  if (response.status === "failed") {
+    return {
+      status: response.failure?.retryable ? "retryable" : "finished",
+      summary: response.failure?.public_message ?? "调整后本轮未能完成。",
+    };
+  }
+  return { status: "finished", summary: "恢复操作已处理。" };
+}
+
 function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
@@ -547,6 +594,7 @@ function App() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 900px)");
   const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string; conversationCommand?: ConversationCommand; clarificationReply?: ClarificationReply; recoveryAction?: RecoveryActionRequest } | null>(null);
+  const [recoveryLifecycle, setRecoveryLifecycle] = useState<Record<string, RecoveryLifecycle>>({});
   const [replacementDraft, setReplacementDraft] = useState<ReplacementDraft | null>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -572,6 +620,7 @@ function App() {
     setRestoring(true);
     setError("");
     setFailedRequest(null);
+    setRecoveryLifecycle({});
     try {
       const view = await getSession(nextSessionId);
       const restoredResponses = responsesFromSession(view);
@@ -610,6 +659,7 @@ function App() {
       setSelectedPlanId(null);
       setViewedPlanId(null);
       setReplacementDraft(null);
+      setRecoveryLifecycle({});
       setNewRequestMode(false);
       setFocusedLegIndex(null);
       if (sessionIdFromUrl() === nextSessionId) updateSessionUrl(null, true);
@@ -639,6 +689,7 @@ function App() {
         setSelectedPlanId(null);
         setViewedPlanId(null);
         setReplacementDraft(null);
+        setRecoveryLifecycle({});
         setNewRequestMode(false);
         setFocusedLegIndex(null);
         setFailedRequest(null);
@@ -677,6 +728,24 @@ function App() {
           } satisfies ClarificationReply
         : undefined
     );
+    const recoveryInteractionId = recoveryAction
+      ? response?.recovery?.interaction_id ?? null
+      : null;
+    const recoveryActionLabel = recoveryAction
+      ? response?.recovery?.actions.find((action) => action.action_id === recoveryAction.action_id)?.label
+        ?? recoveryAction.action_id
+      : null;
+    if (recoveryAction && recoveryInteractionId) {
+      setRecoveryLifecycle((current) => ({
+        ...current,
+        [recoveryInteractionId]: {
+          actionId: recoveryAction.action_id,
+          label: recoveryActionLabel ?? recoveryAction.action_id,
+          status: "submitted",
+          summary: "正在重新校验条件并规划方案……",
+        },
+      }));
+    }
     setLoading(true);
     setProgressEvents([]);
     setError("");
@@ -720,6 +789,16 @@ function App() {
       } else {
         setFailedRequest(null);
       }
+      if (recoveryAction && recoveryInteractionId) {
+        setRecoveryLifecycle((current) => ({
+          ...current,
+          [recoveryInteractionId]: {
+            actionId: recoveryAction.action_id,
+            label: recoveryActionLabel ?? recoveryAction.action_id,
+            ...recoveryLifecycleFromResponse(nextResponse),
+          },
+        }));
+      }
       setNewRequestMode(nextResponse.recovery_resolution === "start_new_request");
       if (nextResponse.recovery_resolution === "open_constraint_editor") setContextFocus("all");
       setResponse(nextResponse);
@@ -744,6 +823,17 @@ function App() {
       await refreshRecentSessions();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "请求失败，请稍后重试");
+      if (recoveryAction && recoveryInteractionId) {
+        setRecoveryLifecycle((current) => ({
+          ...current,
+          [recoveryInteractionId]: {
+            actionId: recoveryAction.action_id,
+            label: recoveryActionLabel ?? recoveryAction.action_id,
+            status: "retryable",
+            summary: "这次提交没有完成，当前恢复选项仍可重试。",
+          },
+        }));
+      }
       if (activeSession) await refreshRecentSessions();
     } finally {
       setLoading(false);
@@ -896,6 +986,7 @@ function App() {
     setSelectedPlanId(null);
     setViewedPlanId(null);
     setReplacementDraft(null);
+    setRecoveryLifecycle({});
     setFocusedLegIndex(null);
     setFailedRequest(null);
     setError("");
@@ -1016,6 +1107,7 @@ function App() {
                 message={message}
                 loading={loading || restoring}
                 activeRecoveryInteractionId={response?.recovery?.interaction_id ?? null}
+                recoveryLifecycle={recoveryLifecycle}
                 selectedPlan={message.response === detailResponse ? inspectorPlan : message.response?.plans[0]}
                 selectedPlanId={selectedPlanId}
                 showMobileDetails={Boolean(isMobile && !mobileDetailOpen && message.response === detailResponse)}
@@ -1196,10 +1288,39 @@ function ButlerAvatar() {
   return <span className="butler-avatar" aria-hidden="true"><Compass size={18} /></span>;
 }
 
-function RecoveryCard({ interaction, loading, active, onChoose }: {
+const RECOVERY_FIELD_LABELS: Record<string, string> = {
+  max_distance_km: "搜索范围",
+  total_distance_km: "全程距离上限",
+  exact_stop_count: "站点数量",
+  budget_per_person: "人均预算",
+  return_by: "最晚回家时间",
+  start_at: "出发时间",
+  end_at: "结束时间",
+  trip_time_scope: "出行时段",
+};
+
+function recoveryDisplayValue(value: unknown): string {
+  if (Array.isArray(value)) return value.join("、");
+  if (value && typeof value === "object") return "已更新";
+  if (value === null || value === undefined) return "已清除";
+  return String(value);
+}
+
+function recoveryPatchPreview(action: RecoveryAction): string | null {
+  if (action.kind !== "apply_request_patch" || !action.patch || typeof action.patch !== "object") return null;
+  const patch = action.patch as { set_fields?: Record<string, unknown>; clear_fields?: string[] };
+  const changes = Object.entries(patch.set_fields ?? {}).map(([field, value]) =>
+    `${RECOVERY_FIELD_LABELS[field] ?? field} → ${recoveryDisplayValue(value)}`,
+  );
+  for (const field of patch.clear_fields ?? []) changes.push(`${RECOVERY_FIELD_LABELS[field] ?? field} → 清除`);
+  return changes.length ? `将调整：${changes.join("；")}` : null;
+}
+
+function RecoveryCard({ interaction, loading, active, lifecycle, onChoose }: {
   interaction: RecoveryChoice;
   loading: boolean;
   active: boolean;
+  lifecycle?: RecoveryLifecycle;
   onChoose: (action: RecoveryAction, interaction: RecoveryChoice, fieldValue?: string) => void;
 }) {
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -1213,6 +1334,11 @@ function RecoveryCard({ interaction, loading, active, onChoose }: {
     <section className="recovery-card" role="group" aria-label="规划恢复选项">
       <div className="recovery-card-heading"><CircleAlert size={16} aria-hidden="true" /><strong>{heading}</strong></div>
       <p>{interaction.reason.public_summary}</p>
+      {lifecycle?.summary ? (
+        <p className={`recovery-lifecycle recovery-lifecycle-${lifecycle.status}`} role="status">
+          {lifecycle.status === "submitted" ? "正在应用：" : null}{lifecycle.summary}
+        </p>
+      ) : null}
       {!active ? <small className="recovery-resolved-note">此恢复选项已结束，不能重复执行。</small> : null}
       {active ? (
       <div className="recovery-action-list">
@@ -1242,6 +1368,7 @@ function RecoveryCard({ interaction, loading, active, onChoose }: {
         ) : (
           <button className="recovery-action-button" type="button" key={action.action_id} disabled={loading || !active} onClick={() => onChoose(action, interaction)}>
             <span>{action.label}</span>
+            {recoveryPatchPreview(action) ? <small className="recovery-preview">{recoveryPatchPreview(action)}</small> : null}
             {action.description ? <small>{action.description}</small> : null}
           </button>
         ))}
@@ -1252,10 +1379,11 @@ function RecoveryCard({ interaction, loading, active, onChoose }: {
   );
 }
 
-function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onClarificationOption, onRecoveryAction, onOpenContext, onRetry }: {
+function ChatBubble({ message, loading, activeRecoveryInteractionId, recoveryLifecycle, selectedPlan, selectedPlanId, showMobileDetails, onViewPlan, onChoosePlan, onOpenInspector, onOpenRoute, onReplaceStop, onClarificationOption, onRecoveryAction, onOpenContext, onRetry }: {
   message: ChatMessage;
   loading: boolean;
   activeRecoveryInteractionId: string | null;
+  recoveryLifecycle: Record<string, RecoveryLifecycle>;
   selectedPlan?: Plan;
   selectedPlanId: string | null;
   showMobileDetails: boolean;
@@ -1316,6 +1444,7 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
             interaction={message.response.recovery}
             loading={loading}
             active={activeRecoveryInteractionId === message.response.recovery.interaction_id && message.response.status === "needs_recovery"}
+            lifecycle={recoveryLifecycle[message.response.recovery.interaction_id]}
             onChoose={onRecoveryAction}
           />
         ) : null}

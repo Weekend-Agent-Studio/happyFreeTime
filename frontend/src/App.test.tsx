@@ -984,6 +984,7 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排今天出行");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("group", { name: "规划恢复选项" });
+    expect(screen.getByText("将调整：搜索范围 → 12")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /修改Where/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /尝试扩大到 12 公里/ }));
 
@@ -995,7 +996,60 @@ describe("planning workspace", () => {
       plan_version_id: null,
     });
     expect(document.querySelectorAll(".message.user")).toHaveLength(1);
+    expect(screen.getByText("调整已应用，新的方案已生成并重新核验。")).toBeInTheDocument();
     expect(screen.getByText("此恢复选项已结束，不能重复执行。")).toBeInTheDocument();
+  });
+
+  it("shows a completed recovery action separately from a later failed recovery", async () => {
+    const user = userEvent.setup();
+    const firstRecovery: AgentResponse = {
+      ...response,
+      status: "needs_recovery",
+      reply: "当前条件下暂未找到可行方案。",
+      plans: [],
+      recovery: {
+        kind: "recovery_choice",
+        interaction_id: "recovery-still-fails-1",
+        request_revision: 3,
+        plan_version_id: null,
+        reason: {
+          code: "NO_PLAN_WITHIN_DISTANCE",
+          kind: "no_feasible_plan",
+          stage: "verify",
+          fields: ["max_distance_km"],
+          request_revision: 3,
+          plan_version_id: null,
+          public_summary: "当前条件下暂未找到可行方案。",
+          diagnostics: {},
+        },
+        actions: [{
+          kind: "apply_request_patch",
+          action_id: "try-distance-15",
+          label: "尝试扩大到 15 公里并重新规划",
+          description: "可以尝试，但不保证一定有方案。",
+          request_revision: 3,
+          plan_version_id: null,
+          continuation: "plan",
+          patch: { base_revision: 3, set_fields: { max_distance_km: 15 } },
+        }],
+      },
+    };
+    const secondRecovery: AgentResponse = {
+      ...firstRecovery,
+      recovery: { ...firstRecovery.recovery!, interaction_id: "recovery-still-fails-2", request_revision: 4 },
+    };
+    api.sendMessage.mockResolvedValueOnce(firstRecovery).mockResolvedValueOnce(secondRecovery);
+
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排今天出行");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("group", { name: "规划恢复选项" });
+    await user.click(screen.getByRole("button", { name: /尝试扩大到 15 公里/ }));
+
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("调整已应用，但当前条件下仍未找到可行方案；请从新的选项继续。")).toBeInTheDocument();
+    expect(screen.getAllByRole("group", { name: "规划恢复选项" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /尝试扩大到 15 公里/ })).toHaveLength(1);
   });
 
   it("lets a pending clarification switch into an explicit new request", async () => {
