@@ -47,6 +47,7 @@ from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.router_extractor import RouterContext
 from app.domain.planning import PlanSlotProposal, PlanStructureProposal
 from app.domain.planning import ConstraintConflict
+from app.domain.run_trace import InMemoryRunObserver, RunEventStatus, RunStage
 from app.domain.recovery import (
     OpenConstraintEditorAction,
     RecoveryChoiceInteraction,
@@ -490,10 +491,16 @@ class EntryGraphTest(unittest.TestCase):
             environment_provider=lambda _: environment,
             catalog=InMemoryCatalog([far_activity]),
         )
+        observer = InMemoryRunObserver("run-default-distance-recovery")
 
         result = graph.invoke(
             {"user_input": "今天下午出去玩", "actor": actor},
-            config={"configurable": {"thread_id": actor.session_id}},
+            config={
+                "configurable": {
+                    "thread_id": actor.session_id,
+                    "run_observer": observer,
+                }
+            },
         )
 
         self.assertEqual(len(result["candidate_set"].plans), 1)
@@ -504,6 +511,139 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertTrue(result["auto_recovery_attempted"])
         self.assertNotIn("__interrupt__", result)
+        structure_events = [
+            event
+            for event in observer.snapshot().events
+            if event.stage == RunStage.STRUCTURE
+        ]
+        self.assertEqual(
+            [event.status for event in structure_events],
+            [
+                RunEventStatus.STARTED,
+                RunEventStatus.COMPLETED,
+                RunEventStatus.STARTED,
+                RunEventStatus.COMPLETED,
+            ],
+        )
+
+    def test_default_distance_auto_recovery_stops_after_one_ineffective_attempt(self) -> None:
+        class DistanceRouter(InterpretationRouter):
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(
+                        date_text="今天",
+                        exact_stop_count=1,
+                        required_stop_roles=(StopRole.ACTIVITY,),
+                    ),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        far_activity = candidate(
+            "very-far-activity", ResourceType.ACTIVITY, "远处公园", ["公园"]
+        ).model_copy(update={"location": GeoPoint(latitude=40.2, longitude=116.4436)})
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-default-distance-recovery-fails-once",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DistanceRouter(),
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog([far_activity]),
+        )
+
+        result = graph.invoke(
+            {"user_input": "今天下午出去玩", "actor": actor},
+            config={"configurable": {"thread_id": actor.session_id}},
+        )
+
+        self.assertIn("__interrupt__", result)
+        self.assertEqual(result["active_request"].max_distance_km.value, 12.0)
+        self.assertTrue(result["auto_recovery_attempted"])
+        auto_ids = [
+            action_id
+            for action_id in result["used_recovery_action_ids"]
+            if action_id.startswith("auto-expand-distance-")
+        ]
+        self.assertEqual(auto_ids, ["auto-expand-distance-r1-12"])
+        interaction = result["__interrupt__"][0].value
+        self.assertEqual(interaction["kind"], "recovery_choice")
+        self.assertTrue(
+            any(
+                item["kind"] == "apply_request_patch"
+                and item["patch"]["set_fields"]["max_distance_km"] == 18.0
+                for item in interaction["actions"]
+            )
+        )
+
+    def test_cancel_recovery_restores_request_committed_before_failed_turn(self) -> None:
+        class DistanceRouter(InterpretationRouter):
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(
+                        date_text="今天",
+                        exact_stop_count=1,
+                        required_stop_roles=(StopRole.ACTIVITY,),
+                    ),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        far_activity = candidate(
+            "cancel-draft-far-activity", ResourceType.ACTIVITY, "远处公园", ["公园"]
+        ).model_copy(update={"location": GeoPoint(latitude=40.2, longitude=116.4436)})
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-cancel-draft-restores-base",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=DistanceRouter(),
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog([far_activity]),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+
+        first = graph.invoke(
+            {"user_input": "今天下午出去玩", "actor": actor},
+            config=config,
+        )
+        interaction = first["__interrupt__"][0].value
+        cancel = next(item for item in interaction["actions"] if item["kind"] == "cancel_turn")
+
+        cancelled = graph.invoke(
+            Command(
+                resume={
+                    "interaction_id": interaction["interaction_id"],
+                    "action_id": cancel["action_id"],
+                    "request_revision": cancel["request_revision"],
+                    "plan_version_id": cancel["plan_version_id"],
+                }
+            ),
+            config=config,
+        )
+
+        self.assertEqual(cancelled["recovery_resolution"], "cancel_turn")
+        self.assertIsNone(cancelled["active_request"].max_distance_km)
+        self.assertIsNone(cancelled["candidate_set"])
+        self.assertIsNone(cancelled["turn_base_request"])
 
     def test_explicit_distance_failure_interrupts_without_auto_relaxation(self) -> None:
         class ExplicitDistanceRouter(InterpretationRouter):
@@ -1170,6 +1310,9 @@ class EntryGraphTest(unittest.TestCase):
         )
         self.assertIsNone(cancelled["candidate_set"])
         self.assertIn("取消", cancelled["interpretation"].reply)
+        self.assertIsNone(cancelled["active_request"].planning_window.date)
+        self.assertIsNone(cancelled["active_request"].budget_per_person)
+        self.assertIsNone(cancelled["turn_base_request"])
 
     def test_new_request_during_clarification_does_not_carry_old_interpretation(self) -> None:
         class NewRequestRouter(InterpretationRouter):

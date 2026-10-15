@@ -909,6 +909,15 @@ def _build_evaluation_app(
         route_provider=_EvaluationRouteProvider(clock=evaluation_clock),
         geocoding_provider=_EvaluationGeocodingProvider(
             resolution=case.fixtures.geocoding,
+            resolution_by_location=getattr(
+                case.fixtures, "geocoding_by_location", None
+            ),
+            point_by_location=getattr(
+                case.fixtures, "geocoding_points_by_location", None
+            ),
+            district_by_location=getattr(
+                case.fixtures, "geocoding_district_by_location", None
+            ),
             clock=evaluation_clock,
         ),
         availability_provider=_EvaluationAvailabilityProvider(
@@ -4039,6 +4048,9 @@ class _EvaluationGeocodingProvider:
         self,
         *,
         resolution: Literal["default", "resolved", "not_found", "ambiguous"],
+        resolution_by_location: dict[str, str] | None = None,
+        point_by_location: dict[str, dict[str, float]] | None = None,
+        district_by_location: dict[str, str] | None = None,
         clock: datetime,
     ) -> None:
         self._resolution = (
@@ -4046,20 +4058,35 @@ class _EvaluationGeocodingProvider:
             if resolution == "default"
             else GeocodeResolution(resolution)
         )
+        self._resolution_by_location = {
+            key.strip().casefold(): GeocodeResolution(value)
+            for key, value in (resolution_by_location or {}).items()
+        }
+        self._point_by_location = {
+            key.strip().casefold(): GeoPoint.model_validate(value)
+            for key, value in (point_by_location or {}).items()
+        }
+        self._district_by_location = {
+            key.strip().casefold(): value
+            for key, value in (district_by_location or {}).items()
+        }
         self._clock = clock
 
     def geocode(self, request: GeocodeRequest) -> GeocodingFact:
-        resolved = self._resolution == GeocodeResolution.RESOLVED
+        key = request.location_text.strip().casefold()
+        resolution = self._resolution_by_location.get(key, self._resolution)
+        resolved = resolution == GeocodeResolution.RESOLVED
         return GeocodingFact(
             request=request,
-            resolution=self._resolution,
+            resolution=resolution,
             point=(
-                GeoPoint(latitude=39.9219, longitude=116.4436)
+                self._point_by_location.get(key)
+                or GeoPoint(latitude=39.9219, longitude=116.4436)
                 if resolved
                 else None
             ),
             city=(request.city or "北京市") if resolved else None,
-            district="朝阳区" if resolved else None,
+            district=self._district_by_location.get(key, "朝阳区") if resolved else None,
             adcode="110105" if resolved else None,
             address=request.location_text if resolved else None,
             source=ProviderSource.REPLAY,

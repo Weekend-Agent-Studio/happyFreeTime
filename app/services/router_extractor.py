@@ -66,7 +66,7 @@ _INFERRED_FIELD_DIAGNOSTIC_CODES = frozenset(
 )
 
 WIRE_SCHEMA_VERSION = "turn-proposal.v2"
-PROMPT_VERSION = "turn-interpreter.v4"
+PROMPT_VERSION = "turn-interpreter.v7"
 
 
 @dataclass(frozen=True)
@@ -150,19 +150,44 @@ period(event=trip, period=evening)；“一整天/全天”对应 period(event=t
 “10:00–16:00”使用 trip_range(start=10:00, end=16:00)。同一段 evidence 不得同时
 解释为 trip 和 departure 两个作用域。
 
+“日期未提及”与“日期已提及但无法确定”必须区分：用户完全没有提日期时，date_text 和
+date_reference 都留空，由产品默认日期策略处理；用户提到一个无法确定的日期时，必须把
+原文保留在 raw_constraints.date_text，不要当成未提日期。例如“等忙完那天带家里人出去”
+应保留 date_text="等忙完那天"，不填写具体日期；编译器会据此反问。明确的“明天/周六”
+仍照常填写 date_reference 和相应字段，不能因为它是相对日期而反问。像“10月17日”这样
+没有年份的明确月日，必须保留在 date_text，不能自行补写年份或静默丢弃；确定性日期编译器
+会按当前年份解析尚未到来的日期，已过去或当年无效的日期会要求用户确认。
+
 “下午去公园/下午安排一个活动”使用 period(event=activity, period=afternoon)，不要把它
 写成 trip 时间窗或 departure；只有“下午出去玩”才是 trip。已有方案的结构更新写入
+constraint_patch.trip_time_scope；“补充一下，想玩一整天”使用
+trip_time_scope=all_day，不能只写 activity_time_scope。stop-scoped activity_time_scope
+只用于“下午去公园”这类单站时段。
 constraint_patch.exact_stop_count、required_stop_roles 或 add_required_stop_roles；“不用限制
 站数了”使用 clear_structure=true；“多安排几个地方”没有具体数字时保留
 structure_hint_text，系统会反问具体站数，不要猜一个数字。
 
 保留用户明确的站数、角色、距离、预算、同行人、偏好、饮食、场景和避开条件，并用
 evidence_map 记录需要追溯的字段。地点必须区分作用域：从某处出发填写
-raw_constraints.origin_text；希望在某区域活动填写 planning_area_text；“就在北京安排”
-不能静默变成精确出发点。普通“约会”不推断成人数量；严格预算不编造金额。
+raw_constraints.origin_text；希望在某区域活动填写 planning_area_text。例如“在朝阳区玩”
+是活动区域，“从望京出发”才是出发地；“就在北京安排”不能静默变成精确出发点。只在
+用户明确说了活动区域且无法解析时才请求澄清；没有指定区域时可使用默认搜索范围。
+普通“约会”不推断成人数量；严格预算不编造金额。
+
+“少走路/别太累/不想走太多”是非阻塞的体验偏好，应保留在 preferences 或对应软目标中，
+不要放进 max_distance_text，也不要因此追问一个公里数。max_distance_text 只表达真实的
+空间距离上限/半径；没有用户明确给出的数字或明确边界时，不要把软偏好编成硬距离约束。
+只有确实缺少规划执行必需的信息时才触发反问；偏好可先作为软目标参与排序。
+
 距离表达保留原文，不把“附近/别太远”改写成用户未说过的精确路线事实。
+距离字段必须按作用域区分：起点周边、搜索半径或单段距离边界填写
+max_distance_text/max_distance_km；“全程”“总路程”“总距离”填写
+total_distance_text/total_distance_km。比如“全程必须控制在 5 公里内”只能进入
+total_distance_text，不能进入 max_distance_text。明确的中文数值也可以归一化，
+例如“全程零点一公里”同时保留原文并填写 total_distance_km=0.1；无法可靠归一化时
+只保留原文，交给编译器反问。
 已有方案时，预算、返程时间、少辣、安静等补充使用 patch_constraints；只有明确替换某站
-时使用 replace_stop。模糊目标可以只填 raw_text，系统会安全反问。
+时使用 replace_stop。非阻塞的模糊偏好可以只保留原文，不要把它们误判为待补硬约束。
 """
 
 

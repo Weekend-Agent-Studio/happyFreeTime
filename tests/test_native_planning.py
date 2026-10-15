@@ -156,6 +156,21 @@ class NativePlanningBehaviorTest(unittest.TestCase):
             full_score[3],
             (TimeScope.MORNING, TimeScope.AFTERNOON),
         )
+        gapped_score = _time_coverage_score(
+            objective,
+            stops=[
+                SimpleNamespace(start_minutes=600, end_minutes=660),
+                SimpleNamespace(start_minutes=840, end_minutes=900),
+            ],
+            # The elapsed day includes a long unallocated gap.  Coverage
+            # utilization must use meaningful stop time, not wall-clock span.
+            total_duration_minutes=600,
+            available_minutes=720,
+            stop_count=2,
+        )
+        self.assertLess(gapped_score[0], full_score[0])
+        self.assertIn("occupied_minutes=120", gapped_score[2])
+        self.assertIn("unallocated_minutes=480", gapped_score[2])
         dinner_only = _time_coverage_score(
             objective,
             stops=[

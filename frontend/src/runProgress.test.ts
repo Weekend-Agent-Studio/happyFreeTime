@@ -46,6 +46,22 @@ describe("projectRunProgress", () => {
     expect(rows.find((row) => row.stage === "retrieve")?.status).toBe("pending");
   });
 
+  it("keeps one user-facing row with the latest state when a stage is retried", () => {
+    const rows = projectRunProgress([
+      event(1, "structure", "started", "正在组织候选行程结构"),
+      event(2, "structure", "completed", "行程结构已确定"),
+      event(3, "structure", "started", "正在重新组织候选行程结构"),
+      event(4, "structure", "completed", "恢复后的行程结构已确定"),
+    ]);
+
+    expect(rows.filter((row) => row.stage === "structure")).toHaveLength(1);
+    expect(rows.find((row) => row.stage === "structure")).toMatchObject({
+      status: "completed",
+      message: "恢复后的行程结构已确定",
+      durationMs: 12,
+    });
+  });
+
   it("keeps clarification and modification flows sparse", () => {
     const clarification = projectRunProgress([
       event(1, "compile_request", "started"),

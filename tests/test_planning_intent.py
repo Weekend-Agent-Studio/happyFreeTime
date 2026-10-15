@@ -221,6 +221,30 @@ class PlanningIntentProviderTest(unittest.TestCase):
             all(objective.evidence_refs for objective in decision.intent.semantic_request.objectives)
         )
 
+    def test_rule_semantics_map_walking_limit_to_low_fatigue(self) -> None:
+        constraints = planning_constraints().model_copy(
+            update={"avoid": ["走路别太多"]}
+        )
+
+        intent = RuleBasedPlanningIntentProvider().decide(constraints).intent
+
+        self.assertIn(
+            "low_fatigue",
+            {objective.kind.value for objective in intent.semantic_request.objectives},
+        )
+
+    def test_rule_semantics_normalize_positive_preference_phrasing(self) -> None:
+        constraints = planning_constraints().model_copy(
+            update={"preferences": ["想有点新鲜感"]}
+        )
+
+        intent = RuleBasedPlanningIntentProvider().decide(constraints).intent
+
+        self.assertIn(
+            "novelty",
+            {objective.kind.value for objective in intent.semantic_request.objectives},
+        )
+
     def test_llm_structure_and_role_queries_project_to_separate_contracts(self) -> None:
         constraints = with_planning_window(
             planning_constraints(time_end="22:00"),

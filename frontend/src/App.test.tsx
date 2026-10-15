@@ -885,6 +885,44 @@ describe("planning workspace", () => {
     });
   });
 
+  it("answers a date clarification with the selected ISO date and scoped resume metadata", async () => {
+    const user = userEvent.setup();
+    const dateQuestion: AgentResponse = {
+      ...response,
+      status: "needs_input",
+      reply: "",
+      plans: [],
+      question: {
+        field: "date",
+        question: "你说的日期已过去，请确认具体年份和日期。",
+        severity: "blocking",
+        request_revision: 4,
+        clarification_id: "clarification-date-4",
+        attempt: 0,
+        max_attempts: 2,
+        allow_free_text: true,
+        options: [],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(dateQuestion).mockResolvedValueOnce(response);
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "9月30日出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("group", { name: "确认出行日期" })).toHaveTextContent("需要补充：出行日期");
+    const datePicker = await screen.findByLabelText("选择出行日期");
+    fireEvent.change(datePicker, { target: { value: "2026-10-17" } });
+    await user.click(screen.getByRole("button", { name: "确认日期" }));
+
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
+      clarification_id: "clarification-date-4",
+      request_revision: 4,
+      action: "answer",
+      value: "2026-10-17",
+    });
+  });
+
   it("renders a structured conflict once instead of echoing it in a chat bubble", async () => {
     const user = userEvent.setup();
     const conflictMessage = "出发时间晚于返程时间，无法生成方案。";

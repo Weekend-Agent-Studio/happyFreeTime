@@ -103,21 +103,6 @@ class RequestPatchProposalCompiler:
             ),
             None,
         )
-        if trip_period is not None:
-            clear_fields = [
-                field for field in clear_fields if field != "trip_time_scope"
-            ]
-            updates["trip_time_scope"] = ConstraintValue[TimeScope](
-                value=trip_period.period,
-                source=ConstraintSource.USER_INFERRED,
-                raw_text=trip_period.evidence,
-                rule_id=f"time.trip.scope.{trip_period.period.value}.v1",
-            )
-        elif any(isinstance(item, TripRangeProposal) for item in interpretation.time_proposals):
-            # An explicit clock range supersedes a previously inferred coarse
-            # scope when this compiler is used to resume or compose a patch.
-            updates.pop("trip_time_scope", None)
-            clear_fields.append("trip_time_scope")
         activity_period = next(
             (
                 item
@@ -126,6 +111,32 @@ class RequestPatchProposalCompiler:
             ),
             None,
         )
+        # An all-day activity is a semantic request for a full-day itinerary
+        # when the Router attached the period to the stop instead of the trip.
+        # Keep the activity hint too, but compile the executable window from
+        # the bounded domain value rather than from raw text.
+        effective_trip_period = trip_period
+        if (
+            effective_trip_period is None
+            and activity_period is not None
+            and activity_period.period == TimeScope.ALL_DAY
+        ):
+            effective_trip_period = activity_period
+        if effective_trip_period is not None:
+            clear_fields = [
+                field for field in clear_fields if field != "trip_time_scope"
+            ]
+            updates["trip_time_scope"] = ConstraintValue[TimeScope](
+                value=effective_trip_period.period,
+                source=ConstraintSource.USER_INFERRED,
+                raw_text=effective_trip_period.evidence,
+                rule_id=f"time.trip.scope.{effective_trip_period.period.value}.v1",
+            )
+        elif any(isinstance(item, TripRangeProposal) for item in interpretation.time_proposals):
+            # An explicit clock range supersedes a previously inferred coarse
+            # scope when this compiler is used to resume or compose a patch.
+            updates.pop("trip_time_scope", None)
+            clear_fields.append("trip_time_scope")
         if activity_period is not None:
             updates["activity_time_scope"] = ConstraintValue[TimeScope](
                 value=activity_period.period,
@@ -208,17 +219,25 @@ class RequestPatchProposalCompiler:
         request_revision: int,
     ) -> tuple[ConstraintValue[Date] | None, ClarificationIssue | None]:
         raw = interpretation.raw_constraints
-        resolved = TemporalCompiler.resolve_date(
-            raw.date_reference,
-            current_date=current_date,
-            weekday=raw.weekday,
-            week_offset=raw.week_offset,
-            absolute_date=raw.absolute_date,
+        yearless_month_day = TemporalCompiler.is_yearless_month_day(raw.date_text)
+        resolved = (
+            TemporalCompiler.normalize_date(raw.date_text, current_date)
+            if yearless_month_day
+            else TemporalCompiler.resolve_date(
+                raw.date_reference,
+                current_date=current_date,
+                weekday=raw.weekday,
+                week_offset=raw.week_offset,
+                absolute_date=raw.absolute_date,
+            )
         )
         if resolved is None and raw.date_text:
             resolved = TemporalCompiler.normalize_date(raw.date_text, current_date)
         if resolved is not None:
-            explicit_absolute = raw.date_reference == DateReference.ABSOLUTE
+            explicit_absolute = (
+                raw.date_reference == DateReference.ABSOLUTE
+                and not yearless_month_day
+            )
             return (
                 ConstraintValue[Date](
                     value=resolved,
@@ -335,6 +354,16 @@ class RequestPatchProposalCompiler:
             (item for item in proposals if isinstance(item, PeriodProposal) and item.event == "trip"),
             None,
         )
+        activity_period = next(
+            (item for item in proposals if isinstance(item, PeriodProposal) and item.event == "activity"),
+            None,
+        )
+        if (
+            trip_period is None
+            and activity_period is not None
+            and activity_period.period == TimeScope.ALL_DAY
+        ):
+            trip_period = activity_period
         departure = next(
             (item for item in proposals if isinstance(item, EventClockProposal) and item.event == "departure"),
             None,

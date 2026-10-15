@@ -1,5 +1,5 @@
 import { Dialog } from "@base-ui/react/dialog";
-import { FormEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Bus,
   CalendarDays,
@@ -844,7 +844,7 @@ function App() {
     void submit(input, command);
   }
 
-  function onClarificationOption(option: ClarificationOption, question: NonNullable<AgentResponse["question"]>) {
+  function onClarificationOption(option: ClarificationOption, question: NonNullable<AgentResponse["question"]>, answerValue: string | null = null) {
     if (!question.clarification_id || loading || restoring) return;
     if (option.action === "new_request") {
       setNewRequestMode(true);
@@ -858,7 +858,7 @@ function App() {
         clarification_id: question.clarification_id,
         request_revision: question.request_revision,
         action: option.action,
-        value: null,
+        value: answerValue,
       },
     );
   }
@@ -1019,7 +1019,7 @@ function App() {
                  onOpenInspector={() => message.response && openInspectorForResponse(message.response, "trip")}
                  onOpenRoute={(index) => message.response && openInspectorForResponse(message.response, "map", index)}
                  onReplaceStop={startReplacement}
-                 onClarificationOption={(option) => message.response?.question && onClarificationOption(option, message.response.question)}
+                 onClarificationOption={(option, answerValue) => message.response?.question && onClarificationOption(option, message.response.question, answerValue)}
                  onRecoveryAction={(action, interaction, value) => onRecoveryAction(action, interaction, value)}
                  onOpenContext={() => openContextForClarification(message.response?.question?.field)}
               />)}
@@ -1258,7 +1258,7 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
   onOpenInspector: () => void;
   onOpenRoute: (legIndex: number) => void;
   onReplaceStop: (plan: Plan, stopIndex: number) => void;
-  onClarificationOption: (option: ClarificationOption) => void;
+  onClarificationOption: (option: ClarificationOption, answerValue?: string | null) => void;
   onRecoveryAction: (action: RecoveryAction, interaction: RecoveryChoice, fieldValue?: string) => void;
   onOpenContext: () => void;
 }) {
@@ -1267,6 +1267,7 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
       message.response.plans.length > 0
       || message.response.conflict
       || message.response.question?.options?.length
+      || message.response.question?.field === "date"
       || message.response.recovery
     ),
   );
@@ -1276,15 +1277,28 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
       <div className="message-content">
         <span>{message.role === "user" ? "你" : "周末管家"}</span>
         {message.content && !usesStructuredResponse ? <p>{message.content}</p> : null}
-        {message.response?.question?.options?.length ? (
-          <section className="clarification-card" role="group" aria-label="补充信息选项">
-            <strong>需要补充：{message.response.question.field ?? "相关信息"}</strong>
+        {message.response?.question && (message.response.question.options?.length || message.response.question.field === "date") ? (
+          <section
+            className="clarification-card"
+            role="group"
+            aria-label={message.response.question.field === "date" ? "确认出行日期" : "补充信息选项"}
+          >
+            <strong>需要补充：{message.response.question.field === "date" ? "出行日期" : message.response.question.field ?? "相关信息"}</strong>
             <p>{message.response.question.question}</p>
-            <div className="clarification-options">
-              {message.response.question.options.map((option) => (
-                <button type="button" key={option.id} disabled={loading} onClick={() => onClarificationOption(option)}>{option.label}</button>
-              ))}
-            </div>
+            {message.response.question.field === "date" ? (
+              <ClarificationDatePicker
+                key={`${message.id}-${message.response.question.clarification_id ?? "date"}`}
+                disabled={loading}
+                onSubmit={(value) => onClarificationOption({ id: "answer-date", label: "确认日期", action: "answer" }, value)}
+              />
+            ) : null}
+            {message.response.question.options?.length ? (
+              <div className="clarification-options">
+                {message.response.question.options.map((option) => (
+                  <button type="button" key={option.id} disabled={loading} onClick={() => onClarificationOption(option)}>{option.label}</button>
+                ))}
+              </div>
+            ) : null}
             {clarificationSection(message.response.question.field) ? <button type="button" className="clarification-context-link" disabled={loading} onClick={onOpenContext}>去顶部修改</button> : null}
             {message.response.question.allow_free_text === false ? <small>请使用上面的选项继续，避免重复询问。</small> : <small>也可以在下方直接输入。</small>}
           </section>
@@ -1307,6 +1321,26 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, selectedPla
         ) : null}
       </div>
     </article>
+  );
+}
+
+function ClarificationDatePicker({ disabled, onSubmit }: { disabled: boolean; onSubmit: (value: string) => void }) {
+  const inputId = useId();
+  const [value, setValue] = useState("");
+  return (
+    <div className="clarification-date-picker">
+      <label htmlFor={inputId}>选择出行日期</label>
+      <div>
+        <input
+          id={inputId}
+          type="date"
+          value={value}
+          disabled={disabled}
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <button type="button" disabled={disabled || !value} onClick={() => onSubmit(value)}>确认日期</button>
+      </div>
+    </div>
   );
 }
 

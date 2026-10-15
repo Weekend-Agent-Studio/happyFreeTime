@@ -1,0 +1,84 @@
+{
+  "schema_version": "demo-world-quality-fixture.v1",
+  "version": "v1",
+  "purpose": "Deterministic quality checks for bounded multi-stop planning; not a production success-rate dataset.",
+  "cases": [
+    {
+      "case_id": "explicit_single_activity",
+      "request": {
+        "start_at": "14:00",
+        "end_at": "18:00",
+        "exact_stop_count": 1,
+        "required_roles": ["activity"]
+      },
+      "expect": {
+        "exact_stop_count": 1,
+        "required_role_sequence": ["activity"]
+      }
+    },
+    {
+      "case_id": "explicit_lunch_activity_dinner",
+      "request": {
+        "start_at": "09:00",
+        "end_at": "21:00",
+        "exact_stop_count": 3,
+        "required_roles": ["lunch", "activity", "dinner"]
+      },
+      "expect": {
+        "exact_stop_count": 3,
+        "required_role_sequence": ["lunch", "activity", "dinner"]
+      }
+    },
+    {
+      "case_id": "all_day_prefers_coverage",
+      "request": {
+        "start_at": "09:00",
+        "end_at": "21:00",
+        "trip_time_scope": "all_day",
+        "preferences": ["浪漫"]
+      },
+      "expect": {
+        "minimum_stop_count": 3,
+        "minimum_schedule_span_minutes": 600,
+        "required_periods": ["morning", "afternoon", "evening"]
+      }
+    },
+    {
+      "case_id": "short_window_does_not_pad_stops",
+      "request": {
+        "start_at": "14:00",
+        "end_at": "18:00",
+        "exact_stop_count": 2,
+        "required_roles": ["activity", "dinner"]
+      },
+      "expect": {
+        "exact_stop_count": 2,
+        "required_role_sequence": ["activity", "dinner"],
+        "maximum_schedule_span_minutes": 240
+      }
+    },
+    {
+      "case_id": "profile_anchors_are_grounded",
+      "request": {},
+      "expect": {
+        "minimum_profile_anchors": 10,
+        "required_profile_kinds": ["novelty", "romantic", "family_friendly", "low_fatigue", "conversation_friendly"]
+      }
+    }
+  ],
+  "profile_anchor_ids": [
+    "osm-way-42361478",
+    "osm-relation-8848142",
+    "osm-way-131710744",
+    "osm-way-30835241",
+    "osm-way-42676002",
+    "osm-way-656349764",
+    "osm-node-4143211689",
+    "osm-node-4496708793",
+    "osm-node-5273039128",
+    "osm-node-6584050808",
+    "osm-way-1197829025",
+    "osm-node-10962410448",
+    "osm-node-11126717020"
+  ]
+}

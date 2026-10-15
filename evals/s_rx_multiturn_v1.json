@@ -1,0 +1,273 @@
+{
+  "schema_version": "s-rx-multiturn.v1",
+  "suite": "s_rx_multiturn_v1",
+  "review_status": "reviewed",
+  "evaluation_clock": "2026-10-11T10:00:00+08:00",
+  "reviewed_by": "user",
+  "reviewed_on": "2026-10-11",
+  "scope_note": "Reviewed 24-case HTTP interaction suite. It covers clarification/recovery, constraint patches, fresh-request reset, replacement outcomes, same-request automatic replanning, and distance scope. At the fixed Sunday evaluation clock, an omitted date defaults to the next Saturday, 2026-10-17, and must be visible in planning context.",
+  "cases": [
+    {
+      "case_id": "session_area_answer_no_repeat",
+      "seed_case_id": "clarify_ambiguous_location",
+      "category": "clarification",
+      "tags": ["planning_area", "repeat_question", "real_session_regression", "topbar", "where"],
+      "fixtures": {"geocoding": "ambiguous", "geocoding_by_location": {"望京": "ambiguous", "望京SOHO": "resolved", "国贸": "resolved"}},
+      "steps": [
+        {"kind": "message", "content": "明天想跟女朋友在望京附近浪漫约会，下午逛公园"},
+        {"kind": "answer_question", "action": "answer", "content": "望京SOHO", "expect": {"status": "completed", "minimum_plans": 1}},
+        {"kind": "context_patch", "patch": {"where": {"operation": "set", "value": "国贸"}}, "expect": {"status": "context_saved", "router_attempts": 0}},
+        {"kind": "replan", "expect": {"status": "completed", "minimum_plans": 1}}
+      ],
+      "expected": {"first": {"status": "needs_input", "question_field": "planning_area"}, "final": {"status": "completed", "minimum_plans": 1, "preserve_constraints_except": ["location"]}}
+    },
+    {
+      "case_id": "planning_area_not_departure_location",
+      "seed_case_id": "plan_local_food_novelty",
+      "category": "planning",
+      "tags": ["location", "planning_area", "scope"],
+      "fixtures": {"geocoding": "resolved"},
+      "steps": [{"kind": "message", "content": "周六带朋友在朝阳区玩，想去有北京特色的地方，再吃点特色菜"}],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "minimum_stops": 2, "required_role_groups": [["activity"], ["lunch", "dinner", "meal"]]}}
+    },
+    {
+      "case_id": "planning_area_not_required_without_area",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "planning",
+      "tags": ["planning_area", "no_unnecessary_clarification", "scope"],
+      "steps": [{"kind": "message", "content": "明天想跟女朋友浪漫约会，帮我安排一下吧，下午逛公园"}],
+      "expected": {"first": {"status": "completed", "question_field": null, "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1}}
+    },
+    {
+      "case_id": "ambiguous_date_then_answer",
+      "seed_case_id": "clarify_unknown_date",
+      "category": "clarification",
+      "tags": ["date", "clarification_recovery", "b3_failure"],
+      "steps": [
+        {"kind": "message", "content": "等忙完那天带家里人出去"},
+        {"kind": "answer_question", "action": "answer", "content": "10月17日"}
+      ],
+      "expected": {"first": {"status": "needs_input", "question_field": "date"}, "final": {"status": "completed", "minimum_plans": 1}}
+    },
+    {
+      "case_id": "missing_date_default_policy",
+      "seed_case_id": "plan_parents_novel_not_tiring",
+      "category": "planning",
+      "tags": ["date", "default_policy"],
+      "steps": [{"kind": "message", "content": "带父母出去走走，别太累"}],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "date": "2026-10-17"}}
+    },
+    {
+      "case_id": "parents_preference_not_blocking",
+      "seed_case_id": "plan_parents_novel_not_tiring",
+      "category": "planning",
+      "tags": ["companions", "soft_preference", "b3_failure"],
+      "steps": [{"kind": "message", "content": "周六带父母出去，想有点新鲜感，但走路别太多"}],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "required_objectives": ["family_friendly", "novelty", "low_fatigue"]}}
+    },
+    {
+      "case_id": "child_indoor_exploration",
+      "seed_case_id": "plan_child_indoor_explore",
+      "category": "planning",
+      "tags": ["children", "semantic", "indoor"],
+      "steps": [{"kind": "message", "content": "周日带六岁孩子找个室内能互动探索的地方"}],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "required_objectives": ["family_friendly"], "required_role_groups": [["activity"]], "required_party_values": {"children": 1, "child_age": 6}}}
+    },
+    {
+      "case_id": "date_lunch_activity_dinner",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "planning",
+      "tags": ["multi_stop", "role_order", "romantic"],
+      "steps": [{"kind": "message", "content": "周六和女朋友过纪念日，11点出门先吃午饭，下午玩一个项目，再吃晚饭，浪漫一点"}],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "required_roles": ["lunch", "activity", "dinner"], "required_objectives": ["romantic"]}}
+    },
+    {
+      "case_id": "all_day_prefer_fuller_plan",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "planning",
+      "tags": ["all_day", "coverage", "multi_stop"],
+      "steps": [{"kind": "message", "content": "周六想跟女朋友约会一整天，纪念日希望浪漫一点"}],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "minimum_schedule_span_minutes": 600, "required_scheduled_periods": ["morning", "afternoon", "evening"]}}
+    },
+    {
+      "case_id": "friends_beijing_feature_multi_stop",
+      "seed_case_id": "plan_local_food_novelty",
+      "category": "planning",
+      "tags": ["local", "multi_stop", "data_coverage"],
+      "fixtures": {"geocoding": "resolved"},
+      "steps": [{"kind": "message", "content": "好久没见的朋友来北京，想带他去有当地特色的地方，也吃点特色菜"}],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "minimum_stops": 2, "required_role_groups": [["activity"], ["lunch", "dinner", "meal"]]}}
+    },
+    {
+      "case_id": "post_plan_add_all_day",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "modification",
+      "tags": ["patch", "all_day", "real_session"],
+      "steps": [
+        {"kind": "message", "content": "周六下午和女朋友约会，安排一个活动，再吃晚饭", "expect": {"status": "completed", "minimum_plans": 1, "required_role_groups": [["activity"], ["dinner"]]}},
+        {"kind": "message", "content": "补充一下，想玩一整天", "expect": {"status": "completed", "minimum_plans": 1}}
+      ],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "minimum_schedule_span_minutes": 600, "minimum_stops": 3, "minimum_meaningful_stop_increase_over_initial_max": 1, "required_role_groups": [["activity"], ["dinner"]], "required_scheduled_periods": ["morning", "afternoon", "evening"], "preserve_constraints_except": ["trip_time_scope", "planning_window.start_at", "planning_window.end_at", "planning_window.start_kind", "planning_window.end_kind"]}}
+    },
+    {
+      "case_id": "post_plan_morning_departure_clarify",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "clarification",
+      "tags": ["patch", "departure_period", "resume", "real_session_regression"],
+      "steps": [
+        {"kind": "message", "content": "明天想跟女朋友浪漫约会，帮我安排一下吧，下午逛公园"},
+        {"kind": "message", "content": "改成早上出门吧，玩一整天", "expect": {"status": "needs_input", "question_field": "departure_at"}},
+        {"kind": "answer_question", "action": "answer", "content": "早上九点吧", "expect": {"status": "completed", "minimum_plans": 1, "start_at": "09:00"}}
+      ],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "start_at": "09:00", "minimum_schedule_span_minutes": 600, "required_objectives": ["romantic"], "required_scheduled_periods": ["morning", "afternoon", "evening"]}}
+    },
+    {
+      "case_id": "post_plan_afternoon_departure_patch",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "modification",
+      "tags": ["patch", "departure_time", "resume"],
+      "steps": [
+        {"kind": "message", "content": "周六下午和朋友出去玩"},
+        {"kind": "message", "content": "改成下午两点出发"}
+      ],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "start_at": "14:00", "preserve_constraints_except": ["planning_window.start_at", "planning_window.start_kind", "planning_window.explicit_departure"]}}
+    },
+    {
+      "case_id": "post_plan_exact_three_stops",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "modification",
+      "tags": ["patch", "structure", "exact_count"],
+      "steps": [
+        {"kind": "message", "content": "周六下午和朋友出去玩"},
+        {"kind": "message", "content": "改成三站吧"}
+      ],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status_any": ["completed", "needs_recovery"], "stop_count_when_completed": 3, "required_constraint_values": {"exact_stop_count": 3}, "required_recovery_action_kinds_when_recovering": ["request_field"]}}
+    },
+    {
+      "case_id": "topbar_time_patch_replan",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "modification",
+      "tags": ["topbar", "when", "typed_patch", "replan"],
+      "steps": [
+        {"kind": "message", "content": "周六下午和朋友出去玩"},
+        {"kind": "context_patch", "patch": {"when": {"start_at": {"operation": "set", "value": "09:00"}, "end_at": {"operation": "set", "value": "18:00"}}}, "expect": {"status": "context_saved", "router_attempts": 0}},
+        {"kind": "replan"}
+      ],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "start_at": "09:00", "end_at": "18:00", "preserve_constraints_except": ["trip_time_scope", "planning_window.start_at", "planning_window.end_at", "planning_window.start_kind", "planning_window.end_kind"]}}
+    },
+    {
+      "case_id": "strict_budget_typed_recovery",
+      "seed_case_id": "clarify_strict_budget_without_amount",
+      "category": "conflict",
+      "tags": ["clarification", "hard_constraint"],
+      "steps": [
+        {"kind": "message", "content": "今天下午出去玩，预算绝对不能超"},
+        {"kind": "answer_question", "action": "answer", "content": "人均200元", "expect": {"status": "completed", "minimum_plans": 1}}
+      ],
+      "expected": {"first": {"status": "needs_input", "question_field": "budget_per_person"}, "final": {"status": "completed", "minimum_plans": 1, "required_constraint_values": {"budget_per_person": 200}}}
+    },
+    {
+      "case_id": "session_departure_return_conflict_recovery",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "conflict",
+      "tags": ["time", "conflict", "recovery_action", "real_session_regression"],
+      "steps": [
+        {"kind": "message", "content": "早上出发，帮我规划一天", "expect": {"status": "needs_input", "question_field": "departure_at"}},
+        {"kind": "answer_question", "action": "answer", "content": "九点", "expect": {"status": "completed", "minimum_plans": 1, "start_at": "09:00"}},
+        {"kind": "message", "content": "下午 3 点出发，但中午 12 点前到家", "expect": {"status": "needs_recovery", "recovery_code": "DEPARTURE_NOT_BEFORE_RETURN_BY"}},
+        {"kind": "recovery_action", "action_kind": "request_field", "action_id_prefix": "edit-return_by", "field_value": "21:30", "expect": {"status": "completed", "minimum_plans": 1, "start_at": "15:00", "end_at": "21:30"}}
+      ],
+      "expected": {"first": {"status": "needs_input", "question_field": "departure_at"}, "final": {"status": "completed", "minimum_plans": 1, "start_at": "15:00", "end_at": "21:30"}}
+    },
+    {
+      "case_id": "distance_conflict_requires_consent",
+      "seed_case_id": "conflict_impossible_total_distance",
+      "category": "conflict",
+      "tags": ["hard_constraint", "recovery", "no_silent_relaxation"],
+      "steps": [
+        {"kind": "message", "content": "安排两个地方，但全程必须控制在零点一公里内"},
+        {"kind": "stale_recovery_action", "action_kind": "request_field", "action_field": "total_distance_km", "field_value": "30", "expect_http_status": 409},
+        {"kind": "recovery_action", "action_kind": "request_field", "action_field": "total_distance_km", "field_value": "30", "expect": {"status": "completed", "minimum_plans": 1, "required_constraint_values": {"total_distance_km": 30.0}}}
+      ],
+      "expected": {"first": {"status": "needs_recovery", "required_constraint_values": {"total_distance_km": 0.1}}, "final": {"status": "completed", "minimum_plans": 1, "required_constraint_values": {"total_distance_km": 30.0}}}
+    },
+    {
+      "case_id": "single_stop_replacement_no_candidate",
+      "seed_case_id": "modify_activity_shorter",
+      "category": "modification",
+      "tags": ["modification", "plan_version", "keep_current_plan"],
+      "fixtures": {"catalog_resource_allowlist": ["osm-way-24476204", "osm-node-10962410448"]},
+      "steps": [
+        {"kind": "message", "content": "周六下午正好两站，安排一个活动，再安排一顿晚饭", "expect": {"status": "completed", "minimum_plans": 1, "required_roles": ["activity", "dinner"]}},
+        {"kind": "select_plan", "strategy": "first"},
+        {"kind": "replace_stop", "stop_index": 0, "preset": "shorter_travel"}
+      ],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "needs_recovery", "required_recovery_action_kinds": ["keep_current_plan"], "preserve_active_plan_version": true, "preserve_all_constraints": true}}
+    },
+    {
+      "case_id": "single_stop_replacement_success",
+      "seed_case_id": "modify_dinner_shorter",
+      "category": "modification",
+      "tags": ["modification", "plan_version", "targeted_replacement", "preserve_non_target"],
+      "steps": [
+        {"kind": "message", "content": "明天下午约会，安排一个活动和晚饭"},
+        {"kind": "select_plan", "strategy": "recommended"},
+        {"kind": "replace_stop", "stop_index": 1, "preset": "shorter_travel"}
+      ],
+      "expected": {"first": {"status": "completed", "minimum_plans": 1}, "final": {"status": "completed", "minimum_plans": 1, "new_active_plan_version_when_completed": true, "preserve_all_constraints": true, "preserve_non_target_stops": true, "target_stop_changed": true}}
+    },
+    {
+      "case_id": "cancel_recovery_turn",
+      "seed_case_id": "conflict_impossible_total_distance",
+      "category": "conflict",
+      "tags": ["recovery", "cancel", "preserve_state"],
+      "steps": [
+        {"kind": "message", "content": "安排两个地方，但全程必须控制在零点一公里内"},
+        {"kind": "recovery_action", "action_kind": "cancel_turn"}
+      ],
+      "counts_as_task_success": false,
+      "expected": {"first": {"status": "needs_recovery", "required_constraint_values": {"total_distance_km": 0.1}}, "final": {"status": "completed", "recovery_resolution": "cancel_turn", "no_plans": true, "absent_constraint_fields": ["total_distance_km"]}}
+    },
+    {
+      "case_id": "start_new_request_after_recovery",
+      "seed_case_id": "conflict_impossible_total_distance",
+      "category": "conflict",
+      "tags": ["recovery", "start_new_request", "new_turn"],
+      "steps": [
+        {"kind": "message", "content": "明天全天安排四站，搜索范围不超过5公里，全程必须在零点一公里内，下午3点出发，晚上10点前回家"},
+        {"kind": "recovery_action", "action_kind": "start_new_request"},
+        {"kind": "message", "content": "下周六下午和朋友去公园走走"}
+      ],
+      "expected": {"first": {"status": "needs_recovery", "required_constraint_values": {"total_distance_km": 0.1}}, "final": {"status": "completed", "minimum_plans": 1, "date": "2026-10-17", "start_at": "14:00", "end_at": "18:00", "absent_constraint_fields": ["exact_stop_count", "total_distance_km", "departure_at", "return_by"]}}
+    },
+    {
+      "case_id": "automatic_recovery_reenters_planner_trace",
+      "seed_case_id": "plan_all_day_date_relaxed",
+      "category": "clarification",
+      "tags": ["real_session_regression", "automatic_recovery", "same_http_run", "trace_lifecycle"],
+      "fixtures": {
+        "geocoding": "resolved",
+        "geocoding_by_location": {"南部测试起点": "resolved"},
+        "geocoding_points_by_location": {"南部测试起点": {"latitude": 39.6, "longitude": 116.44}},
+        "geocoding_district_by_location": {"南部测试起点": "大兴区"}
+      },
+      "steps": [
+        {"kind": "message", "content": "明天从南部测试起点出发，跟女朋友约会，安排一个活动和晚饭", "expect": {"status": "needs_recovery", "minimum_trace_stage_starts": {"structure": 2, "auto_recovery": 1}, "required_recovery_action_kinds": ["apply_request_patch"], "required_recovery_action_fields": ["max_distance_km"]}},
+        {"kind": "recovery_action", "action_kind": "apply_request_patch", "action_field": "max_distance_km", "expect": {"status": "completed", "minimum_plans": 1}},
+        {"kind": "message", "content": "补充一下，改成早上出门玩一整天", "expect": {"status": "needs_input", "question_field": "departure_at"}},
+        {"kind": "answer_question", "action": "answer", "content": "早上九点吧", "expect": {"status": "completed", "minimum_plans": 1}}
+      ],
+      "expected": {"first": {"status": "needs_recovery", "required_recovery_action_kinds": ["apply_request_patch"], "required_recovery_action_fields": ["max_distance_km"]}, "final": {"status": "completed", "minimum_plans": 1, "start_at": "09:00", "minimum_schedule_span_minutes": 600, "required_roles": ["activity", "dinner"], "required_objectives": ["romantic"], "required_scheduled_periods": ["morning", "afternoon", "evening"]}}
+    },
+    {
+      "case_id": "total_distance_five_km_scope",
+      "seed_case_id": "plan_total_distance_limit",
+      "category": "planning",
+      "tags": ["real_session_regression", "distance_scope", "hard_constraint"],
+      "steps": [
+        {"kind": "message", "content": "明天下午出去玩，全程总路程不超过五公里", "expect": {"status_any": ["completed", "needs_recovery"], "required_constraint_values": {"total_distance_km": 5.0}}}
+      ],
+      "expected": {"first": {"status_any": ["completed", "needs_recovery"], "required_constraint_values": {"total_distance_km": 5.0}}, "final": {"status_any": ["completed", "needs_recovery"], "required_constraint_values": {"total_distance_km": 5.0}}}
+    }
+  ]
+}

@@ -12,13 +12,25 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
-from app.domain.constraints import StopRole
+from app.domain.constraints import StopRole, TimeScope
 
 
 MEAL_ANCHOR_WINDOWS: Mapping[StopRole, tuple[int, int]] = MappingProxyType(
     {
         StopRole.LUNCH: (11 * 60, 14 * 60),
         StopRole.DINNER: (17 * 60, 20 * 60 + 30),
+    }
+)
+
+# A request explicitly scoped to the whole day should not finish its only
+# evening meal at the start of the evening.  This remains a scheduling hint,
+# not a hard requirement: the verifier still accepts the ordinary dinner
+# window, and a shorter feasible plan is still returned when no fuller one
+# exists.
+FULL_DAY_MEAL_ANCHOR_WINDOWS: Mapping[StopRole, tuple[int, int]] = MappingProxyType(
+    {
+        **MEAL_ANCHOR_WINDOWS,
+        StopRole.DINNER: (18 * 60, 20 * 60 + 30),
     }
 )
 
@@ -36,6 +48,21 @@ class TemporalPolicy:
 
 
 DEFAULT_TEMPORAL_POLICY = TemporalPolicy()
+FULL_DAY_TEMPORAL_POLICY = TemporalPolicy(
+    meal_anchor_windows=FULL_DAY_MEAL_ANCHOR_WINDOWS,
+)
+
+
+def scheduler_for_time_scope(scope: TimeScope | None) -> "TimelineScheduler":
+    """Return the shared scheduler policy for a typed trip-time scope."""
+
+    return TimelineScheduler(
+        policy=(
+            FULL_DAY_TEMPORAL_POLICY
+            if scope == TimeScope.ALL_DAY
+            else DEFAULT_TEMPORAL_POLICY
+        )
+    )
 
 
 @dataclass(frozen=True)

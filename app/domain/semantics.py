@@ -48,6 +48,13 @@ SOFT_OBJECTIVE_ALIASES: dict[SoftObjectiveKind, tuple[str, ...]] = {
         "不希望太累",
         "不要排得太累",
         "慢慢走",
+        "少走路",
+        "少走点路",
+        "走路别太多",
+        "不想走太多",
+        "不想走太多路",
+        "别走太多",
+        "步行少",
     ),
     SoftObjectiveKind.SHORTER_TRAVEL: (
         "近一点",

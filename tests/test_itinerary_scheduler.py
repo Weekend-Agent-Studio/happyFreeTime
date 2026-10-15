@@ -1,7 +1,7 @@
 import unittest
 
-from app.domain.constraints import StopRole
-from app.services.itinerary_scheduler import TimelineScheduler
+from app.domain.constraints import StopRole, TimeScope
+from app.services.itinerary_scheduler import TimelineScheduler, scheduler_for_time_scope
 
 
 class ItinerarySchedulerTest(unittest.TestCase):
@@ -35,3 +35,15 @@ class ItinerarySchedulerTest(unittest.TestCase):
 
         self.assertEqual(schedule.end_minutes, 14 * 60 + 60)
         self.assertEqual(schedule.elapsed_minutes, 60)
+
+    def test_all_day_scheduler_keeps_dinner_in_the_evening(self) -> None:
+        schedule = scheduler_for_time_scope(TimeScope.ALL_DAY).schedule(
+            start_minutes=9 * 60,
+            roles=(StopRole.ACTIVITY, StopRole.DINNER),
+            travel_minutes=(5, 5),
+            stop_durations=(150, 75),
+        )
+
+        self.assertEqual(schedule.stops[1].start_minutes, 18 * 60)
+        self.assertEqual(schedule.stops[1].end_minutes, 19 * 60 + 15)
+        self.assertEqual(schedule.elapsed_minutes, 10 * 60 + 15)

@@ -784,7 +784,15 @@ class ClarificationWorkflow:
                     "pending_patch": None,
                     "pending_issues": (),
                     "pending_request_base": None,
+                    "recovery_base_request": None,
                     "recovery_continuation": None,
+                    "active_request": (
+                        state.get("turn_base_request")
+                        or state.get("active_request")
+                        or PlanRequest()
+                    ),
+                    "turn_base_request": None,
+                    "ready_for_planning": False,
                     "clarification_resolution": outcome.status.value,
                     "interpretation": outcome.interpretation,
                     "runtime_decisions": (*state.get("runtime_decisions", ()), trace),
@@ -1263,9 +1271,20 @@ class RecoveryWorkflow:
                     "selected_plan": None,
                     "active_plan_version_id": None,
                     "new_request_pending": True,
+                    "turn_base_request": None,
                 }
             )
-        elif not isinstance(action, (KeepCurrentPlanAction, CancelTurnAction)):
+        elif isinstance(action, CancelTurnAction):
+            # Planning may have used a newly compiled request as its execution
+            # input.  It is still only a draft until the turn succeeds; restore
+            # the request that was committed when this turn began.
+            updates["active_request"] = (
+                state.get("turn_base_request") or PlanRequest()
+            )
+            updates["turn_base_request"] = None
+        elif isinstance(action, KeepCurrentPlanAction):
+            updates["turn_base_request"] = None
+        else:
             raise ValueError("unsupported recovery action")
         return WorkflowResult(
             updates=updates,

@@ -579,6 +579,12 @@ def _match_objective_alias(
     as ``不安静`` into a positive ``quiet`` objective.
     """
 
+    # Router evidence is often a short natural-language phrase rather than a
+    # canonical label (for example, ``想有点新鲜感``).  Keep this normalization
+    # bounded to known aliases and reject a positive alias when it is explicitly
+    # negated; do not turn arbitrary sentence text into an objective.
+    positive_fields = {"preferences", "scene_tags", "diet_tags"}
+    negation_markers = ("不", "别", "不要", "不想", "避免", "拒绝")
     for kind, aliases in SOFT_OBJECTIVE_ALIASES.items():
         for alias in aliases:
             candidate = alias.casefold()
@@ -586,6 +592,11 @@ def _match_objective_alias(
                 return kind
             if source_field == "members" and candidate in normalized_text:
                 return kind
+            if source_field in positive_fields and candidate in normalized_text:
+                prefix = normalized_text[: normalized_text.find(candidate)]
+                recent_prefix = prefix[-6:]
+                if not any(marker in recent_prefix for marker in negation_markers):
+                    return kind
     return None
 
 

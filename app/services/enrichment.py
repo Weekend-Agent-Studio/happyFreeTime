@@ -42,7 +42,9 @@ class TemporalCompiler:
     """Small, shared temporal vocabulary used by DemoRouter and Enrichment.
 
     It deliberately compiles only a finite contract.  It never guesses a
-    date for an unknown phrase and never replaces the model's raw evidence.
+    date for an unknown phrase; the sole year inference is an explicit month/day
+    mapped to the current year when that date is still upcoming. Raw evidence is
+    never replaced.
     """
 
     _RELATIVE_DATE_ALIASES: tuple[tuple[str, DateReference], ...] = (
@@ -57,6 +59,9 @@ class TemporalCompiler:
         ("今天", DateReference.TODAY),
         ("明天", DateReference.TOMORROW),
         ("后天", DateReference.DAY_AFTER_TOMORROW),
+    )
+    _YEARLESS_MONTH_DAY_PATTERN = re.compile(
+        r"(?<!\d)(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*(?:日|号)?"
     )
     _WEEKDAY_ALIASES: dict[str, Weekday] = {
         "一": Weekday.MONDAY,
@@ -117,6 +122,13 @@ class TemporalCompiler:
                 absolute_date,
             )
 
+        # Preserve an explicit month/day without a year for the shared
+        # normalizer.  The year can only be inferred safely with today's date,
+        # so this branch records evidence but does not manufacture a date.
+        month_day_match = cls._YEARLESS_MONTH_DAY_PATTERN.search(value)
+        if month_day_match:
+            return month_day_match.group(0), None, None, None, None
+
         for phrase, reference in sorted(cls._RELATIVE_DATE_ALIASES, key=lambda item: -len(item[0])):
             if phrase in value:
                 return phrase, reference, None, None, None
@@ -136,6 +148,14 @@ class TemporalCompiler:
                 None,
             )
         return None, None, None, None, None
+
+    @classmethod
+    def is_yearless_month_day(cls, text: str | None) -> bool:
+        """Whether the evidence states a month/day but supplies no year."""
+        if not text or cls._YEARLESS_MONTH_DAY_PATTERN.search(text) is None:
+            return False
+        _, reference, _, _, _ = cls.extract_date(text)
+        return reference is None
 
     @classmethod
     def extract_unresolved_date_text(cls, text: str | None) -> str | None:
@@ -305,13 +325,28 @@ class TemporalCompiler:
     @classmethod
     def normalize_date(cls, raw_text: str | None, current_date: Date) -> Date | None:
         _, reference, weekday, week_offset, absolute_date = cls.extract_date(raw_text)
-        return cls.resolve_date(
+        resolved = cls.resolve_date(
             reference,
             current_date=current_date,
             weekday=weekday,
             week_offset=week_offset,
             absolute_date=absolute_date,
         )
+        if resolved is not None or not raw_text:
+            return resolved
+
+        # A yearless month/day means the next occurrence in the current
+        # calendar year only.  If it has passed (or is invalid this year),
+        # leave it unresolved so QuestionPolicy asks instead of silently
+        # rolling the user's date into a different year.
+        match = cls._YEARLESS_MONTH_DAY_PATTERN.search(raw_text.strip())
+        if match is None:
+            return None
+        try:
+            candidate = Date(current_date.year, int(match.group("month")), int(match.group("day")))
+        except ValueError:
+            return None
+        return candidate if candidate >= current_date else None
 
     @classmethod
     def normalize_time_window(cls, raw_text: str | None) -> TimeWindow | None:

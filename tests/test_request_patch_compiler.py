@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from app.domain.constraints import (
@@ -9,6 +9,7 @@ from app.domain.constraints import (
     ConstraintSource,
     ConstraintPatch,
     ConstraintValue,
+    DateReference,
     EventClockProposal,
     Intent,
     IdentityType,
@@ -29,7 +30,7 @@ from app.services.constraint_engine import (
     ResolvedRequest,
 )
 from app.services.demo_router import DemoRouter
-from app.services.enrichment import EnrichmentService, EnvironmentContext
+from app.services.enrichment import EnrichmentService, EnvironmentContext, TemporalCompiler
 from app.services.request_patch_compiler import RequestPatchProposalCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.planning_intent import RuleBasedPlanningIntentProvider
@@ -115,6 +116,52 @@ class RequestPatchCompilerTest(unittest.TestCase):
         self.assertIsInstance(outcome, NeedsClarification)
         self.assertNotIn("planning_window.date", compilation.patch.set_fields)
 
+    def test_yearless_month_day_is_normalized_on_create(self) -> None:
+        interpretation, compilation, outcome = self._compile("10月17日出去玩")
+        self.assertEqual(interpretation.raw_constraints.date_text, "10月17日")
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertEqual(outcome.request.planning_window.date.value.isoformat(), "2026-10-17")
+
+    def test_yearless_past_date_is_not_silently_moved_to_next_year(self) -> None:
+        _, compilation, outcome = self._compile("9月30日出去玩")
+        self.assertEqual(compilation.issues[0].field, "date")
+        self.assertIsInstance(outcome, NeedsClarification)
+
+    def test_yearless_date_does_not_trust_a_router_invented_year(self) -> None:
+        interpretation = self.router.interpret("10月1日出去玩", self.context)
+        raw = interpretation.raw_constraints.model_copy(update={
+            "date_reference": DateReference.ABSOLUTE,
+            "absolute_date": date(2027, 10, 1),
+        })
+        interpretation = interpretation.model_copy(update={"raw_constraints": raw})
+        enrichment = self.enrichment.enrich(interpretation, self.actor, self.environment)
+        compilation = self.compiler.compile(
+            interpretation,
+            enrichment.request_patch,
+            self.environment,
+        )
+        self.assertEqual(compilation.issues[0].field, "date")
+
+    def test_yearless_date_patch_uses_the_same_normalization(self) -> None:
+        _, _, ready = self._compile("周六出去玩")
+        compilation = RequestPatchUpdateCompiler().compile_update_proposal(
+            base=ready.request,
+            proposal=ConstraintPatch(date_text="10月17日"),
+            actor=self.actor,
+            environment=self.environment,
+        )
+        outcome = self.engine.apply(ready.request, compilation.patch, issues=compilation.issues)
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertEqual(outcome.request.planning_window.date.value.isoformat(), "2026-10-17")
+
+    def test_yearless_leap_day_is_only_resolved_when_valid_and_upcoming(self) -> None:
+        self.assertEqual(
+            TemporalCompiler.normalize_date("2月29日", date(2024, 1, 1)),
+            date(2024, 2, 29),
+        )
+        self.assertIsNone(TemporalCompiler.normalize_date("2月29日", date(2026, 1, 1)))
+        self.assertIsNone(TemporalCompiler.normalize_date("2月29日", date(2024, 3, 1)))
+
     def test_exact_morning_departure_sets_only_start_bound(self) -> None:
         interpretation, _, outcome = self._compile("明天早上九点出发")
         self.assertEqual(interpretation.time_proposals[0].event, "departure")
@@ -135,6 +182,86 @@ class RequestPatchCompilerTest(unittest.TestCase):
             ("14:00", "18:00"),
         )
         self.assertEqual(outcome.request.activity_time_scope.value, TimeScope.AFTERNOON)
+
+    def test_all_day_activity_patch_expands_the_inferred_trip_window(self) -> None:
+        _, _, ready = self._compile("周六下午出去玩")
+        compilation = RequestPatchUpdateCompiler().compile_update_proposal(
+            base=ready.request,
+            proposal=ConstraintPatch(
+                activity_time_scope=TimeScope.ALL_DAY,
+                activity_time_text="玩一整天",
+            ),
+            actor=self.actor,
+            environment=self.environment,
+        )
+        result = self.engine.apply(
+            ready.request,
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertEqual(result.request.trip_time_scope.value, TimeScope.ALL_DAY)
+        self.assertEqual(result.request.planning_window.start_at.value, "09:00")
+        self.assertEqual(result.request.planning_window.end_at.value, "21:00")
+        self.assertEqual(result.request.activity_time_scope.value, TimeScope.ALL_DAY)
+
+    def test_all_day_activity_patch_preserves_explicit_departure(self) -> None:
+        _, _, ready = self._compile("周六早上九点出发")
+        compilation = RequestPatchUpdateCompiler().compile_update_proposal(
+            base=ready.request,
+            proposal=ConstraintPatch(
+                trip_time_scope=TimeScope.ALL_DAY,
+                activity_time_scope=TimeScope.ALL_DAY,
+                activity_time_text="玩一整天",
+            ),
+            actor=self.actor,
+            environment=self.environment,
+        )
+        result = self.engine.apply(
+            ready.request,
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertEqual(result.request.planning_window.start_at.value, "09:00")
+        self.assertEqual(result.request.planning_window.start_kind, "departure")
+        self.assertEqual(result.request.planning_window.end_at.value, "21:00")
+
+    def test_activity_scoped_period_stays_out_of_trip_window(self) -> None:
+        _, _, ready = self._compile("周六出去玩")
+        compilation = RequestPatchUpdateCompiler().compile_update_proposal(
+            base=ready.request,
+            proposal=ConstraintPatch(
+                activity_time_scope=TimeScope.AFTERNOON,
+                activity_time_text="下午去公园",
+            ),
+            actor=self.actor,
+            environment=self.environment,
+        )
+        result = self.engine.apply(
+            ready.request,
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(result, ResolvedRequest)
+        self.assertIsNone(result.request.trip_time_scope)
+        self.assertEqual(result.request.planning_window.start_at.value, "14:00")
+        self.assertEqual(result.request.planning_window.end_at.value, "18:00")
+
+    def test_total_distance_scope_does_not_become_search_radius(self) -> None:
+        interpretation, compilation, outcome = self._compile(
+            "明天下午出去玩，全程不超过10公里"
+        )
+
+        self.assertEqual(interpretation.raw_constraints.total_distance_km, 10.0)
+        self.assertIsNone(interpretation.raw_constraints.max_distance_km)
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertEqual(outcome.request.total_distance_km.value, 10.0)
+        self.assertEqual(outcome.request.max_distance_km.value, 8.0)
+        self.assertEqual(
+            outcome.request.max_distance_km.source,
+            ConstraintSource.DEFAULT_RULE,
+        )
 
     def test_patch_structure_is_compiled_through_request_update(self) -> None:
         compiler = RequestPatchUpdateCompiler()
@@ -222,6 +349,39 @@ class RequestPatchCompilerTest(unittest.TestCase):
         self.assertNotIn("充分利用全天", outcome.request.preferences)
         intent = RuleBasedPlanningIntentProvider().decide(outcome.request).intent
         self.assertEqual(intent.pace, PlanPace.FULL)
+
+    def test_create_activity_all_day_proposal_compiles_a_trip_window(self) -> None:
+        interpretation = self.router.interpret("周六出去玩", self.context).model_copy(
+            update={
+                "time_proposals": (
+                    PeriodProposal(
+                        event="activity",
+                        period=TimeScope.ALL_DAY,
+                        evidence="玩一整天",
+                    ),
+                )
+            }
+        )
+        enrichment = self.enrichment.enrich(
+            interpretation,
+            self.actor,
+            self.environment,
+        )
+        compilation = self.compiler.compile(
+            interpretation,
+            enrichment.request_patch,
+            self.environment,
+        )
+        outcome = self.engine.apply(
+            PlanRequest(),
+            compilation.patch,
+            issues=compilation.issues,
+        )
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertEqual(outcome.request.trip_time_scope.value, TimeScope.ALL_DAY)
+        self.assertEqual(outcome.request.planning_window.start_at.value, "09:00")
+        self.assertEqual(outcome.request.planning_window.end_at.value, "21:00")
+        self.assertEqual(outcome.request.activity_time_scope.value, TimeScope.ALL_DAY)
 
     def test_explicit_range_does_not_inherit_all_day_scope(self) -> None:
         _, _, all_day = self._compile("周六玩一整天")
@@ -326,6 +486,34 @@ class RequestPatchCompilerTest(unittest.TestCase):
         self.assertEqual(
             [issue.field for issue in compilation.issues],
             ["location", "max_distance_km"],
+        )
+
+    def test_soft_walking_preference_is_not_a_blocking_distance_issue(self) -> None:
+        interpretation = Interpretation(
+            primary_intent=Intent.PLAN_OUTING,
+            intent_scores={Intent.PLAN_OUTING: 1.0},
+            raw_constraints=RawConstraints(
+                members=["父母"],
+                preferences=["少走路", "别太累"],
+            ),
+        )
+        enrichment = self.enrichment.enrich(
+            interpretation,
+            self.actor,
+            self.environment,
+        )
+        compilation = self.compiler.compile(
+            interpretation,
+            enrichment.request_patch,
+            self.environment,
+        )
+        outcome = self.engine.apply(PlanRequest(), compilation.patch, issues=compilation.issues)
+
+        self.assertFalse(any(issue.field == "max_distance_km" for issue in compilation.issues))
+        self.assertIsInstance(outcome, ResolvedRequest)
+        self.assertEqual(
+            enrichment.request_patch.set_fields["max_distance_km"].source,
+            ConstraintSource.DEFAULT_RULE,
         )
 
     def test_weather_condition_routing_is_a_compiled_fact(self) -> None:
