@@ -270,7 +270,14 @@ class RequestPatchUpdateCompiler:
                 )
             )
             if geocoding_fact.resolution != GeocodeResolution.RESOLVED or geocoding_fact.point is None:
-                issues.append(self._issue(field, base.revision))
+                issues.append(
+                    self._issue(
+                        field,
+                        base.revision,
+                        source_text=raw_text,
+                        provider_resolution=geocoding_fact.resolution,
+                    )
+                )
                 continue
             location = GeoLocation(
                 city=geocoding_fact.city or environment.default_location.city,
@@ -370,6 +377,8 @@ class RequestPatchUpdateCompiler:
         *,
         code: str | None = None,
         expected: str | None = None,
+        source_text: str | None = None,
+        provider_resolution=None,
     ) -> ClarificationIssue:
         codes = {
             "date": ("DATE_REQUIRES_RESOLUTION", "date"),
@@ -383,12 +392,22 @@ class RequestPatchUpdateCompiler:
             "total_distance_km": ("TOTAL_DISTANCE_REQUIRES_NUMBER", "number"),
         }
         default_code, default_expected = codes.get(field, ("PATCH_FIELD_REQUIRES_INPUT", "text"))
+        resolution_value = getattr(provider_resolution, "value", provider_resolution)
+        if code is None and field in {"location", "planning_area"}:
+            if resolution_value == "ambiguous":
+                default_code = "LOCATION_AMBIGUOUS"
+            elif resolution_value == "not_found":
+                default_code = "LOCATION_NOT_FOUND"
+            elif resolution_value == "unavailable":
+                default_code = "LOCATION_PROVIDER_UNAVAILABLE"
         return ClarificationIssue(
             field=field,
             code=code or default_code,
             reason="explicit_patch_value_could_not_be_normalized",
             expected_value_type=expected or default_expected,
             request_revision=revision,
+            source_text=source_text,
+            provider_resolution=provider_resolution,
         )
 
     @staticmethod

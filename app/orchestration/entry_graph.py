@@ -1228,14 +1228,68 @@ def _prepare_question_decision(decision: QuestionDecision) -> QuestionDecision:
     if decision.request_revision is None:
         raise ValueError("blocking questions must be bound to a request revision")
     clarification_id = decision.clarification_id or uuid.uuid4().hex
-    options = decision.options or _clarification_options(decision.field)
+    options = _merge_clarification_options(
+        decision.options,
+        _clarification_options(decision.field),
+    )
+    question = decision.question
+    if decision.attempt == 1:
+        question = _retry_question(decision)
+    elif decision.attempt >= decision.max_attempts:
+        question = _exhausted_question(decision)
     return decision.model_copy(
         update={
             "clarification_id": clarification_id,
             "options": options,
+            "question": question,
             "allow_free_text": decision.allow_free_text and decision.attempt < decision.max_attempts,
         }
     )
+
+
+def _merge_clarification_options(
+    primary: tuple[ClarificationOption, ...],
+    fallback: tuple[ClarificationOption, ...],
+) -> tuple[ClarificationOption, ...]:
+    """Keep provider/compiler suggestions while guaranteeing safe exits."""
+
+    merged: list[ClarificationOption] = []
+    seen: set[str] = set()
+    for option in (*primary, *fallback):
+        if option.id not in seen:
+            merged.append(option)
+            seen.add(option.id)
+    return tuple(merged)
+
+
+def _retry_question(decision: QuestionDecision) -> str:
+    field = decision.field or "该信息"
+    labels = {
+        "location": "出发地点",
+        "planning_area": "活动区域",
+        "date": "日期",
+        "departure_at": "出发时间",
+        "return_by": "返程时间",
+        "budget_per_person": "人均预算",
+        "max_distance_km": "最远距离",
+        "total_distance_km": "全程距离",
+    }
+    examples = {
+        "location": "例如“北京朝阳区太古里”或“国贸地铁站附近”",
+        "planning_area": "例如“朝阳区”“望京”或“国贸附近”",
+        "date": "例如“2026年10月18日”“明天”",
+        "departure_at": "例如“09:00”或“早上9点”",
+        "return_by": "例如“20:00”或“晚上8点前”",
+        "budget_per_person": "例如“人均200元”",
+        "max_distance_km": "例如“最远8公里”",
+        "total_distance_km": "例如“全程不超过12公里”",
+    }
+    return f"我还不能把这条信息用于规划。请直接提供{labels.get(field, field)}的明确值，{examples.get(field, '也可以选择下方操作退出本轮。')}"
+
+
+def _exhausted_question(decision: QuestionDecision) -> str:
+    field = decision.field or "这项信息"
+    return f"我仍无法确认{field}，暂时不会猜测。请使用下方的默认值（如果可用）、取消本轮，或开始新的需求。"
 
 
 def _field_interaction(

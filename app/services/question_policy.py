@@ -80,9 +80,14 @@ class QuestionPolicy:
     def _for_issue(issue: ClarificationIssue, request: PlanRequest) -> QuestionDecision:
         questions = {
             "location": (
-                "我还不能确定这个位置，能提供更具体的地点或地标吗？"
-                if issue.code == "LOCATION_REQUIRES_RESOLUTION"
-                else "你希望从哪里出发？可以输入小区、地铁站或附近地标。",
+                (
+                    f"我没找到“{issue.source_text}”的明确位置。请补充城市、商圈或地标，"
+                    "例如“北京朝阳区太古里”。"
+                    if issue.code in {"LOCATION_NOT_FOUND", "LOCATION_REQUIRES_RESOLUTION"}
+                    else "这个地点有多个可能的位置。请补充城市、商圈或附近地标，帮助我区分。"
+                    if issue.code == "LOCATION_AMBIGUOUS"
+                    else "暂时无法核对这个地点。请补充城市、商圈或地标，或稍后重试。"
+                ),
                 "question.location.unresolved.v1",
             ),
             "planning_area": (
@@ -112,4 +117,5 @@ class QuestionPolicy:
             issue_kind="constraint",
             request_revision=issue.request_revision if issue.request_revision is not None else request.revision,
             rule_id=rule_id,
+            options=issue.suggested_options,
         )

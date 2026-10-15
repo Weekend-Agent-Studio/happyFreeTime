@@ -193,13 +193,13 @@ class RequestPatchProposalCompiler:
         normalized = base_patch.set_fields
         unresolved: list[tuple[str, str, str, str]] = []
         if raw.origin_text and normalized.get("location") is None:
-            unresolved.append(("location", "LOCATION_REQUIRES_RESOLUTION", "location", "explicit_origin_not_resolved"))
+            unresolved.append(("location", "LOCATION_REQUIRES_RESOLUTION", "location", "explicit_origin_not_resolved", raw.origin_text))
         if raw.planning_area_text and normalized.get("planning_area") is None:
-            unresolved.append(("planning_area", "PLANNING_AREA_REQUIRES_RESOLUTION", "location", "explicit_planning_area_not_resolved"))
+            unresolved.append(("planning_area", "PLANNING_AREA_REQUIRES_RESOLUTION", "location", "explicit_planning_area_not_resolved", raw.planning_area_text))
         if raw.max_distance_text and normalized.get("max_distance_km") is None:
-            unresolved.append(("max_distance_km", "MAX_DISTANCE_REQUIRES_NUMBER", "number", "explicit_max_distance_not_resolved"))
+            unresolved.append(("max_distance_km", "MAX_DISTANCE_REQUIRES_NUMBER", "number", "explicit_max_distance_not_resolved", raw.max_distance_text))
         if raw.total_distance_text and normalized.get("total_distance_km") is None:
-            unresolved.append(("total_distance_km", "TOTAL_DISTANCE_REQUIRES_NUMBER", "number", "explicit_total_distance_not_resolved"))
+            unresolved.append(("total_distance_km", "TOTAL_DISTANCE_REQUIRES_NUMBER", "number", "explicit_total_distance_not_resolved", raw.total_distance_text))
         return tuple(
             ClarificationIssue(
                 field=field,
@@ -207,8 +207,9 @@ class RequestPatchProposalCompiler:
                 reason=reason,
                 expected_value_type=value_type,
                 request_revision=base_patch.base_revision,
+                source_text=source_text,
             )
-            for field, code, value_type, reason in unresolved
+            for field, code, value_type, reason, source_text in unresolved
         )
 
     @staticmethod
@@ -262,6 +263,7 @@ class RequestPatchProposalCompiler:
                 reason="explicit_date_could_not_be_resolved",
                 expected_value_type="date",
                 request_revision=request_revision,
+                source_text=raw.date_text,
             )
 
         default_date = RequestPatchProposalCompiler._next_saturday(current_date)
@@ -312,6 +314,7 @@ class RequestPatchProposalCompiler:
                         reason=reason,
                         expected_value_type="clock",
                         request_revision=request_revision,
+                        source_text=matching[0].evidence,
                     )
                 )
         trip = next((item for item in proposals if isinstance(item, TripRangeProposal)), None)

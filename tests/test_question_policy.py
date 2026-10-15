@@ -9,6 +9,7 @@ from app.domain.constraints import (
     PlanRequest,
 )
 from app.services.question_policy import QuestionPolicyContext, QuestionPolicy
+from app.orchestration.entry_graph import _prepare_question_decision
 
 
 class QuestionPolicyTest(unittest.TestCase):
@@ -86,6 +87,57 @@ class QuestionPolicyTest(unittest.TestCase):
             issue=issue,
         )
         self.assertEqual(decision.field, "location")
+
+    def test_location_not_found_explains_the_unresolved_text(self) -> None:
+        issue = ClarificationIssue(
+            field="location",
+            code="LOCATION_NOT_FOUND",
+            reason="provider_did_not_find_location",
+            expected_value_type="location",
+            source_text="太古里",
+            request_revision=0,
+        )
+        decision = self.policy.decide(
+            Intent.PLAN_OUTING, PlanRequest(), QuestionPolicyContext(), issue=issue
+        )
+        self.assertIn("太古里", decision.question)
+        self.assertIn("城市", decision.question)
+
+    def test_second_unresolved_answer_changes_question_and_exposes_exit(self) -> None:
+        issue = ClarificationIssue(
+            field="planning_area",
+            code="PLANNING_AREA_REQUIRES_RESOLUTION",
+            reason="provider_did_not_find_area",
+            expected_value_type="location",
+            source_text="某个公园",
+            request_revision=0,
+        )
+        initial = self.policy.decide(
+            Intent.PLAN_OUTING, PlanRequest(), QuestionPolicyContext(), issue=issue
+        )
+        prepared = _prepare_question_decision(initial.model_copy(update={"attempt": 1}))
+        self.assertNotEqual(prepared.question, initial.question)
+        self.assertIn("明确值", prepared.question)
+        self.assertFalse(
+            all(option.id not in {"cancel", "new-request"} for option in prepared.options)
+        )
+
+    def test_exhausted_unresolved_answer_disables_free_text(self) -> None:
+        issue = ClarificationIssue(
+            field="planning_area",
+            code="PLANNING_AREA_REQUIRES_RESOLUTION",
+            reason="provider_did_not_find_area",
+            expected_value_type="location",
+            request_revision=0,
+        )
+        decision = self.policy.decide(
+            Intent.PLAN_OUTING, PlanRequest(), QuestionPolicyContext(), issue=issue
+        )
+        prepared = _prepare_question_decision(
+            decision.model_copy(update={"attempt": decision.max_attempts})
+        )
+        self.assertFalse(prepared.allow_free_text)
+        self.assertIn("不会猜测", prepared.question)
 
     def test_child_age_is_only_required_for_a_restricted_candidate(self) -> None:
         request = PlanRequest(
