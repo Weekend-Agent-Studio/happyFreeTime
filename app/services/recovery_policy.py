@@ -162,10 +162,24 @@ class RecoveryPolicy:
                 )
             )
 
+        if primary_bottleneck.kind == PrimaryBottleneckKind.SEARCH_BUDGET:
+            actions.append(
+                ReplanCurrentRequestAction(
+                    action_id=f"retry-search-budget-r{request.revision}",
+                    kind="replan_current_request",
+                    label="继续搜索剩余候选并重新规划",
+                    description="当前条件不变；系统将重新执行一次有界搜索，不会自动放宽你的约束。",
+                    request_revision=request.revision,
+                    plan_version_id=plan_version_id,
+                    continuation="plan",
+                )
+            )
+
         if (
             reason.kind == RecoveryKind.NO_FEASIBLE_PLAN
             and (
                 primary_bottleneck.kind == PrimaryBottleneckKind.SCHEDULE_CAPACITY
+                or primary_bottleneck.kind == PrimaryBottleneckKind.CANDIDATE_SUPPLY
                 or reason.stage == RecoveryStage.PLAN_STRUCTURE
                 or schedule_bottleneck
             )
@@ -192,6 +206,57 @@ class RecoveryPolicy:
                             set_fields={"exact_stop_count": current_count - 1},
                             source=ConstraintSource.SESSION_CONFIRMED,
                             evidence={"exact_stop_count": "用户确认调整站点数量"},
+                        ),
+                    )
+                )
+
+        if primary_bottleneck.kind == PrimaryBottleneckKind.CANDIDATE_SUPPLY:
+            # These are explicit, user-confirmed relaxations.  They are only
+            # offered when the corresponding value exists; the policy never
+            # invents a role or silently deletes a preference.
+            if request.required_stop_roles is not None:
+                actions.append(
+                    ApplyRequestPatchAction(
+                        action_id=f"relax-role-requirements-r{request.revision}",
+                        kind="apply_request_patch",
+                        label="放宽必需站点类型并重新规划",
+                        description="保留站点数量，但不再强制每个指定的站点类型都必须出现。",
+                        request_revision=request.revision,
+                        plan_version_id=plan_version_id,
+                        continuation=(
+                            "modify"
+                            if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                            else "plan"
+                        ),
+                        patch=RequestPatch(
+                            base_revision=request.revision,
+                            clear_fields=("required_stop_roles",),
+                            source=ConstraintSource.SESSION_CONFIRMED,
+                        ),
+                    )
+                )
+            for index, preference in enumerate(request.preferences[:1]):
+                remaining = tuple(
+                    item for item in request.preferences if item != preference
+                )
+                display = preference[:32]
+                actions.append(
+                    ApplyRequestPatchAction(
+                        action_id=f"relax-preference-{index}-r{request.revision}",
+                        kind="apply_request_patch",
+                        label=f"暂不考虑“{display}”并重新规划",
+                        description="仅移除这一条软偏好，其他条件保持不变。",
+                        request_revision=request.revision,
+                        plan_version_id=plan_version_id,
+                        continuation=(
+                            "modify"
+                            if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                            else "plan"
+                        ),
+                        patch=RequestPatch(
+                            base_revision=request.revision,
+                            set_fields={"preferences": remaining},
+                            source=ConstraintSource.SESSION_CONFIRMED,
                         ),
                     )
                 )
@@ -257,11 +322,7 @@ class RecoveryPolicy:
                     ),
                     field=field,
                     input_type=input_type,
-                    choices=(
-                        ("必须确认", "不需要确认")
-                        if field == "availability"
-                        else ()
-                    ),
+                    choices=self._field_choices(field, request),
                 )
             )
 
@@ -412,9 +473,15 @@ class RecoveryPolicy:
                 "planning_area",
                 "exact_stop_count",
             ),
+            PrimaryBottleneckKind.TEMPORAL_CONFLICT: (
+                "departure_at",
+                "return_by",
+                "time_window",
+            ),
             PrimaryBottleneckKind.CANDIDATE_SUPPLY: (
                 "planning_area",
                 "max_distance_km",
+                "exact_stop_count",
             ),
             PrimaryBottleneckKind.AVAILABILITY: ("date", "time_window", "availability"),
             PrimaryBottleneckKind.SEARCH_BUDGET: (),
@@ -424,6 +491,13 @@ class RecoveryPolicy:
             PrimaryBottleneckKind.UNKNOWN: (),
         }
         fields = by_kind.get(kind, ())
+        if kind == PrimaryBottleneckKind.TEMPORAL_CONFLICT:
+            # A temporal contradiction is a field-edit problem, not a
+            # capacity problem.  Restrict the editor choices to the exact
+            # bounds named by the resolver so a contradictory 09:00/08:00
+            # request can never surface a misleading "reduce stops" action.
+            affected = set(getattr(bottleneck, "affected_fields", ()))
+            fields = tuple(field for field in fields if field in affected)
         if kind == PrimaryBottleneckKind.UNKNOWN:
             # A few explicit ConstraintEngine codes have a stable target even
             # without a planner funnel.  This is a code allowlist, not a
@@ -440,6 +514,14 @@ class RecoveryPolicy:
         return tuple(field for field in fields if field in available)
 
     @staticmethod
+    def _field_choices(field: RecoveryField, request: PlanRequest) -> tuple[str, ...]:
+        if field != "availability":
+            return ()
+        # Do not present the current boolean value as a fake recovery action;
+        # selecting it would produce a no-op patch and the same failure card.
+        return ("不需要确认",) if request.require_availability_confirmation else ("必须确认",)
+
+    @staticmethod
     def _filter_history(
         actions: list[RecoveryAction],
         attempts: tuple[object, ...],
@@ -453,11 +535,20 @@ class RecoveryPolicy:
             if getattr(attempt, "concrete_fingerprint", "")
         }
         concrete_used.update(used_concrete_fingerprints)
-        ineffective_strategies: set[str] = set()
+        strategy_failures: dict[str, int] = {}
         for attempt in attempts:
             strategy = getattr(attempt, "strategy_fingerprint", None)
-            if strategy and not getattr(attempt, "improved", False):
-                ineffective_strategies.add(strategy)
+            if not strategy:
+                continue
+            if getattr(attempt, "improved", False):
+                strategy_failures[strategy] = 0
+            else:
+                strategy_failures[strategy] = strategy_failures.get(strategy, 0) + 1
+        ineffective_strategies = {
+            strategy
+            for strategy, failures in strategy_failures.items()
+            if failures >= 2
+        }
         safety_kinds = {
             "open_constraint_editor",
             "keep_current_plan",
@@ -489,7 +580,20 @@ class RecoveryPolicy:
                 f"{key}={action.patch.set_fields[key]}"
                 for key in sorted(action.patch.set_fields)
             )
-            return f"apply_request_patch:{fields}:{values}"
+            fingerprint = f"apply_request_patch:{fields}:{values}"
+            if action.patch.clear_fields:
+                fingerprint += ":clear=" + ",".join(sorted(action.patch.clear_fields))
+            if action.patch.add_to_fields:
+                fingerprint += ":add=" + ";".join(
+                    f"{key}={','.join(action.patch.add_to_fields[key])}"
+                    for key in sorted(action.patch.add_to_fields)
+                )
+            if action.patch.remove_from_fields:
+                fingerprint += ":remove=" + ";".join(
+                    f"{key}={','.join(action.patch.remove_from_fields[key])}"
+                    for key in sorted(action.patch.remove_from_fields)
+                )
+            return fingerprint
         if isinstance(action, RequestFieldAction):
             return f"request_field:{action.field}"
         return action.kind
@@ -500,6 +604,10 @@ class RecoveryPolicy:
             fields = set(action.patch.set_fields) | set(action.patch.clear_fields)
             if "max_distance_km" in fields:
                 return "expand:max_distance"
+            if "preferences" in fields:
+                return "relax:preference"
+            if "required_stop_roles" in fields:
+                return "relax:role_requirements"
             if any(field.startswith("planning_window.") for field in fields):
                 return "extend:planning_window"
             if "exact_stop_count" in fields:
@@ -513,6 +621,8 @@ class RecoveryPolicy:
         if isinstance(action, RequestFieldAction):
             return f"edit:{action.field}"
         if isinstance(action, ReplanCurrentRequestAction):
+            if action.action_id.startswith("retry-search-budget-"):
+                return "retry:search_budget"
             return "retry:plan"
         return None
 

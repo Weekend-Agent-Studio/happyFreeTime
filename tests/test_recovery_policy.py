@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.domain.constraints import ConstraintSource, ConstraintValue, PlanRequest, PlanningWindow
+from app.domain.constraints import ConstraintSource, ConstraintValue, PlanRequest, PlanningWindow, StopRole
 from app.domain.recovery import (
     ApplyRequestPatchAction,
     OpenConstraintEditorAction,
@@ -17,6 +17,7 @@ from app.domain.recovery import (
     StartNewRequestAction,
     CancelTurnAction,
     KeepCurrentPlanAction,
+    ReplanCurrentRequestAction,
 )
 from app.services.recovery_policy import RecoveryPolicy
 from app.services.recovery_bottleneck import resolve_primary_bottleneck
@@ -299,6 +300,121 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertFalse(any("max_distance_km" in item.patch.set_fields for item in patches))
         self.assertTrue(all(item.action_fingerprint for item in decision.actions))
 
+    def test_temporal_conflict_edits_time_fields_not_stop_count(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            planning_window=PlanningWindow(
+                start_at=ConstraintValue(value="21:00", source=ConstraintSource.USER_EXPLICIT),
+                end_at=ConstraintValue(value="20:00", source=ConstraintSource.USER_EXPLICIT),
+                start_kind="departure",
+                end_kind="return_deadline",
+            ),
+            exact_stop_count=ConstraintValue(
+                value=4, source=ConstraintSource.USER_EXPLICIT, raw_text="四站"
+            ),
+        )
+        reason = RecoveryReason(
+            code="DEPARTURE_NOT_BEFORE_RETURN_BY",
+            kind=RecoveryKind.HARD_CONFLICT,
+            stage=RecoveryStage.CONSTRAINT_COMPILATION,
+            fields=("departure_at", "return_by"),
+            request_revision=3,
+            public_summary="出发时间必须早于返程时间。",
+        )
+
+        decision = self.policy.decide(reason, request)
+
+        self.assertEqual(
+            decision.reason.primary_bottleneck.kind,
+            PrimaryBottleneckKind.TEMPORAL_CONFLICT,
+        )
+        self.assertFalse(
+            any(
+                isinstance(item, ApplyRequestPatchAction)
+                and "exact_stop_count" in item.patch.set_fields
+                for item in decision.actions
+            )
+        )
+        self.assertTrue(
+            {
+                item.field
+                for item in decision.actions
+                if isinstance(item, RequestFieldAction)
+            }.issubset({"departure_at", "return_by"})
+        )
+
+    def test_search_budget_offers_a_bounded_retry_without_relaxing_constraints(self) -> None:
+        reason = self.reason(code="SEARCH_BUDGET_EXHAUSTED").model_copy(
+            update={
+                "stage": RecoveryStage.SCHEDULING,
+                "fields": (),
+                "diagnostics": RecoveryDiagnostics(search_budget_exhausted=True),
+            }
+        )
+        decision = self.policy.decide(reason, PlanRequest(revision=3))
+
+        retry = next(
+            item
+            for item in decision.actions
+            if isinstance(item, ReplanCurrentRequestAction)
+        )
+        self.assertEqual(retry.strategy_fingerprint, "retry:search_budget")
+        self.assertFalse(
+            any(
+                isinstance(item, ApplyRequestPatchAction)
+                for item in decision.actions
+            )
+        )
+
+    def test_candidate_supply_offers_explicit_role_and_preference_relaxations(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            exact_stop_count=ConstraintValue(
+                value=4, source=ConstraintSource.USER_EXPLICIT
+            ),
+            required_stop_roles=ConstraintValue(
+                value=(StopRole.ACTIVITY, StopRole.DINNER),
+                source=ConstraintSource.USER_EXPLICIT,
+            ),
+            preferences=["安静", "少走路"],
+        )
+        reason = RecoveryReason(
+            code="NO_CANDIDATES_FOR_REQUIRED_ROLES",
+            kind=RecoveryKind.NO_FEASIBLE_PLAN,
+            stage=RecoveryStage.RETRIEVAL,
+            fields=("required_stop_roles", "preferences"),
+            request_revision=3,
+            public_summary="没有足够候选满足当前站点类型和偏好。",
+            diagnostics=RecoveryDiagnostics(
+                retrieved_candidate_count=1,
+                role_pool_entries=0,
+                rejected_by_hard_filter=4,
+            ),
+        )
+
+        decision = self.policy.decide(reason, request)
+        patch_actions = [
+            item
+            for item in decision.actions
+            if isinstance(item, ApplyRequestPatchAction)
+        ]
+
+        self.assertTrue(
+            any("required_stop_roles" in item.patch.clear_fields for item in patch_actions)
+        )
+        self.assertTrue(
+            any(
+                item.patch.set_fields.get("preferences") == ("少走路",)
+                for item in patch_actions
+            )
+        )
+        self.assertTrue(
+            any(
+                item.patch.set_fields.get("exact_stop_count") == 3
+                for item in patch_actions
+            )
+        )
+
     def test_recovery_actions_expose_concrete_and_strategy_fingerprints(self) -> None:
         request = PlanRequest(
             revision=3,
@@ -317,8 +433,15 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(distance.strategy_fingerprint, "expand:max_distance")
         self.assertNotEqual(distance.action_fingerprint, distance.strategy_fingerprint)
 
-    def test_ineffective_strategy_is_filtered_before_action_budget(self) -> None:
-        reason = self.reason(source=ConstraintSource.USER_EXPLICIT)
+    def test_one_ineffective_strategy_remains_available_for_a_larger_step(self) -> None:
+        reason = self.reason(source=ConstraintSource.USER_EXPLICIT).model_copy(
+            update={
+                "diagnostics": RecoveryDiagnostics(
+                    current_max_distance_km=8.0,
+                    nearest_candidate_distance_km=14.0,
+                )
+            }
+        )
         request = PlanRequest(
             revision=3,
             max_distance_km=ConstraintValue[float](
@@ -344,6 +467,46 @@ class RecoveryPolicyTests(unittest.TestCase):
                 primary_bottleneck=primary,
                 request=request,
                 previous_attempts=(attempt,),
+            ),
+        )
+        self.assertTrue(
+            any(
+                isinstance(item, ApplyRequestPatchAction)
+                and "max_distance_km" in item.patch.set_fields
+                for item in decision.actions
+            )
+        )
+
+    def test_two_consecutive_ineffective_attempts_filter_a_strategy(self) -> None:
+        reason = self.reason(source=ConstraintSource.USER_EXPLICIT)
+        request = PlanRequest(
+            revision=3,
+            max_distance_km=ConstraintValue[float](
+                value=8.0, source=ConstraintSource.USER_EXPLICIT
+            ),
+        )
+        primary = resolve_primary_bottleneck(reason)
+        attempts = tuple(
+            RecoveryAttempt(
+                action_kind="apply_request_patch",
+                strategy_fingerprint="expand:max_distance",
+                concrete_fingerprint=f"apply_request_patch:max_distance_km:max_distance_km={value}",
+                target_fields=("max_distance_km",),
+                before_bottleneck=primary.kind,
+                after_bottleneck=primary.kind,
+                improved=False,
+                outcome="still_failed",
+            )
+            for value in (11.0, 15.0)
+        )
+        decision = self.policy.decide(
+            reason,
+            request,
+            context=RecoveryContext(
+                reason=reason,
+                primary_bottleneck=primary,
+                request=request,
+                previous_attempts=attempts,
             ),
         )
         self.assertFalse(

@@ -201,7 +201,7 @@
       },
       "expected": {
         "auto_action": false,
-        "availability_choices": ["必须确认", "不需要确认"],
+        "availability_choices": ["必须确认"],
         "required_action_kinds": ["request_field"]
       }
     }

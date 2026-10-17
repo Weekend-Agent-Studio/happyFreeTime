@@ -450,11 +450,21 @@ def _recovery_action_aligned(row: dict[str, Any]) -> bool:
         return True
     strategy = action.get("strategy_fingerprint") or ""
     return (
-        kind == "schedule_capacity" and strategy in {"extend:planning_window", "reduce:stop_count"}
+        kind == "temporal_conflict"
+        and strategy in {"edit:departure_at", "edit:return_by", "edit:time_window"}
+        or kind == "search_budget"
+        and strategy == "retry:search_budget"
+        or kind == "schedule_capacity" and strategy in {"extend:planning_window", "reduce:stop_count"}
         or kind in {"distance_limit", "route_feasibility"}
         and strategy in {"expand:max_distance", "reduce:stop_count", "adjust:planning_area"}
         or kind == "candidate_supply"
-        and strategy in {"adjust:planning_area", "reduce:stop_count"}
+        and strategy in {
+            "adjust:planning_area",
+            "reduce:stop_count",
+            "edit:exact_stop_count",
+            "relax:preference",
+            "relax:role_requirements",
+        }
         or kind == "availability"
         and strategy in {"edit:date", "edit:time_window", "adjust:constraints"}
     )

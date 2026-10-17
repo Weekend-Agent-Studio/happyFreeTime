@@ -36,6 +36,7 @@ class RecoveryStage(StrEnum):
 class PrimaryBottleneckKind(StrEnum):
     """Finite, user-facing categories for the current recovery blocker."""
 
+    TEMPORAL_CONFLICT = "temporal_conflict"
     SCHEDULE_CAPACITY = "schedule_capacity"
     DISTANCE_LIMIT = "distance_limit"
     CANDIDATE_SUPPLY = "candidate_supply"

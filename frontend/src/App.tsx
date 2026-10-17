@@ -545,6 +545,7 @@ function useMediaQuery(query: string): boolean {
 }
 
 const RECOVERY_BOTTLENECK_LABELS: Record<string, string> = {
+  temporal_conflict: "时间条件冲突",
   schedule_capacity: "时间容量",
   distance_limit: "距离范围",
   candidate_supply: "候选地点",

@@ -38,8 +38,8 @@ def resolve_primary_bottleneck(
     }
     if reason.code in temporal_conflicts:
         return PrimaryBottleneck(
-            kind=PrimaryBottleneckKind.SCHEDULE_CAPACITY,
-            evidence_codes=tuple(dict.fromkeys((*codes, "schedule_capacity"))),
+            kind=PrimaryBottleneckKind.TEMPORAL_CONFLICT,
+            evidence_codes=tuple(dict.fromkeys((*codes, "temporal_conflict"))),
             affected_fields=temporal_conflicts[reason.code],
             evidence_summary=reason.public_summary,
         )
@@ -66,6 +66,23 @@ def resolve_primary_bottleneck(
                 f"路线候选 {facts.route_candidates} 个，复核失败 "
                 f"{facts.route_verification_failures or facts.rejected_by_route} 个"
             ),
+        )
+
+    # Exhausting the bounded search budget is a distinct recoverable state
+    # when the funnel has not already shown a concrete scheduling failure.
+    # Do this before the broad ``SCHEDULING`` stage check below; an expansion
+    # trace may be labelled scheduling even though no time-window candidate
+    # was rejected.
+    if (
+        facts.search_budget_exhausted
+        and facts.local_schedule_failures == 0
+        and facts.rejected_by_time_window == 0
+    ):
+        return PrimaryBottleneck(
+            kind=PrimaryBottleneckKind.SEARCH_BUDGET,
+            evidence_codes=tuple(dict.fromkeys((*codes, "search_budget"))),
+            affected_fields=(),
+            evidence_summary="搜索预算已耗尽，尚未完成全部候选组合复核",
         )
 
     # A failed local schedule is stronger evidence than a distance hint: it is
@@ -145,7 +162,12 @@ def resolve_primary_bottleneck(
         return PrimaryBottleneck(
             kind=PrimaryBottleneckKind.CANDIDATE_SUPPLY,
             evidence_codes=tuple(dict.fromkeys((*codes, "candidate_supply"))),
-            affected_fields=("planning_area", "required_stop_roles", "preferences"),
+            affected_fields=(
+                "planning_area",
+                "required_stop_roles",
+                "preferences",
+                "exact_stop_count",
+            ),
             evidence_summary=(
                 f"召回候选 {facts.retrieved_candidate_count or 0} 个，"
                 f"角色池 {facts.role_pool_entries} 个"

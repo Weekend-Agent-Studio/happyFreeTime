@@ -50,6 +50,7 @@ from app.domain.planning import ConstraintConflict
 from app.domain.run_trace import InMemoryRunObserver, RunEventStatus, RunStage
 from app.domain.recovery import (
     OpenConstraintEditorAction,
+    PrimaryBottleneckKind,
     RecoveryChoiceInteraction,
     RecoveryActionResponse,
     RecoveryDiagnostics,
@@ -585,7 +586,7 @@ class EntryGraphTest(unittest.TestCase):
             ],
         )
 
-    def test_default_distance_auto_recovery_stops_after_one_ineffective_attempt(self) -> None:
+    def test_default_distance_auto_recovery_offers_next_step_after_one_ineffective_attempt(self) -> None:
         class DistanceRouter(InterpretationRouter):
             def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
                 return Interpretation(
@@ -636,10 +637,11 @@ class EntryGraphTest(unittest.TestCase):
         self.assertEqual(auto_ids, ["auto-expand-distance-r1-12"])
         interaction = result["__interrupt__"][0].value
         self.assertEqual(interaction["kind"], "recovery_choice")
-        # The first expansion was already applied and did not improve the
-        # result.  Its strategy is suppressed before the bounded action list
-        # is built, so the next card must not suggest another distance loop.
-        self.assertFalse(
+        # One failed expansion is not enough evidence to suppress the whole
+        # strategy: a larger, evidence-backed step may still reach a viable
+        # candidate.  The concrete fingerprint of the already-applied 12km
+        # action is still filtered by the workflow.
+        self.assertTrue(
             any(
                 item["kind"] == "apply_request_patch"
                 and "max_distance_km" in item["patch"].get("set_fields", {})
@@ -761,6 +763,109 @@ class EntryGraphTest(unittest.TestCase):
                 item["kind"] == "apply_request_patch"
                 and item["patch"]["set_fields"]["max_distance_km"] == 12.0
                 for item in interaction["actions"]
+            )
+        )
+
+    def test_recovery_replay_moves_from_distance_to_schedule_capacity(self) -> None:
+        """A confirmed recovery must be re-planned and re-diagnosed.
+
+        Four deliberately long activity candidates sit outside the initial
+        five-kilometre envelope.  Expanding the user's explicit radius makes
+        the candidates discoverable, after which the four-hour window becomes
+        the real blocker.  This is a stateful Graph replay rather than a
+        policy-only fixture.
+        """
+
+        class FourStationRouter(InterpretationRouter):
+            def interpret(self, user_input: str, context: RouterContext) -> Interpretation:
+                return Interpretation(
+                    primary_intent=Intent.PLAN_OUTING,
+                    intent_scores={Intent.PLAN_OUTING: 1.0},
+                    time_proposals=(_afternoon(),),
+                    raw_constraints=RawConstraints(
+                        date_text="今天",
+                        exact_stop_count=4,
+                        max_distance_text="5公里内",
+                        max_distance_km=5.0,
+                    ),
+                )
+
+        environment = EnvironmentContext(
+            now=datetime(2026, 8, 12, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            default_location=GeoLocation(
+                city="北京市", district="朝阳区", address="北京市朝阳区",
+                latitude=39.9219, longitude=116.4436,
+            ),
+        )
+        candidates = [
+            candidate(
+                f"long-activity-{index}",
+                ResourceType.ACTIVITY,
+                f"耗时活动{index}",
+                ["公园"],
+                duration_minutes=90,
+            ).model_copy(update={"location": GeoPoint(latitude=39.98, longitude=116.4436)})
+            for index in range(4)
+        ]
+        actor = ActorContext(
+            user_id="demo-user",
+            session_id="session-recovery-bottleneck-replay",
+            identity_type=IdentityType.DEMO,
+        )
+        graph = build_entry_graph(
+            router=FourStationRouter(),
+            environment_provider=lambda _: environment,
+            catalog=InMemoryCatalog(candidates),
+        )
+        config = {"configurable": {"thread_id": actor.session_id}}
+
+        first = graph.invoke(
+            {"user_input": "今天下午四站，五公里内", "actor": actor},
+            config=config,
+        )
+        first_interaction = first["__interrupt__"][0].value
+        self.assertEqual(
+            first_interaction["reason"]["primary_bottleneck"]["kind"],
+            PrimaryBottleneckKind.DISTANCE_LIMIT.value,
+        )
+        expand = next(
+            item
+            for item in first_interaction["actions"]
+            if item["kind"] == "apply_request_patch"
+            and "max_distance_km" in item["patch"].get("set_fields", {})
+        )
+
+        second = graph.invoke(
+            Command(
+                resume=RecoveryActionResponse(
+                    interaction_id=first_interaction["interaction_id"],
+                    action_id=expand["action_id"],
+                    request_revision=first_interaction["request_revision"],
+                    plan_version_id=first_interaction["plan_version_id"],
+                ).model_dump(mode="json")
+            ),
+            config=config,
+        )
+        second_interaction = second["__interrupt__"][0].value
+        self.assertEqual(
+            second_interaction["reason"]["primary_bottleneck"]["kind"],
+            PrimaryBottleneckKind.SCHEDULE_CAPACITY.value,
+        )
+        self.assertFalse(
+            any(
+                item["kind"] == "apply_request_patch"
+                and "max_distance_km" in item["patch"].get("set_fields", {})
+                for item in second_interaction["actions"]
+            )
+        )
+        self.assertTrue(
+            any(
+                item["kind"] == "apply_request_patch"
+                and (
+                    "planning_window.end_at" in item["patch"].get("set_fields", {})
+                    or "exact_stop_count" in item["patch"].get("set_fields", {})
+                )
+                for item in second_interaction["actions"]
             )
         )
 
