@@ -1217,7 +1217,13 @@ class RecoveryWorkflow:
                     environment=self._environment_provider(state["actor"]),
                 )
             if patch is None:
-                return self._ask_for_field(state, action, request)
+                return self._ask_for_field(
+                    state,
+                    action,
+                    request,
+                    recovery_action=action,
+                    interaction_id=interaction_id,
+                )
             return self._apply_patch_result(
                 state,
                 self._engine.apply(request, patch),
@@ -1379,22 +1385,25 @@ class RecoveryWorkflow:
             )
 
         if isinstance(result, ConstraintNeedsClarification):
+            field_action = RequestFieldAction(
+                action_id=action_id,
+                kind="request_field",
+                label="补充规划条件",
+                description="",
+                request_revision=request.revision,
+                plan_version_id=state.get("active_plan_version_id"),
+                continuation=continuation,
+                field=result.issue.field,
+                input_type="text",
+            )
             return self._ask_for_field(
                 state,
-                RequestFieldAction(
-                    action_id=action_id,
-                    kind="request_field",
-                    label="补充规划条件",
-                    description="",
-                    request_revision=request.revision,
-                    plan_version_id=state.get("active_plan_version_id"),
-                    continuation=continuation,
-                    field=result.issue.field,
-                    input_type="text",
-                ),
+                field_action,
                 result.request or request,
                 issue=result.issue,
                 action_consumed=not automatic,
+                recovery_action=action,
+                interaction_id=interaction_id,
             )
 
         conflict = (
@@ -1441,6 +1450,8 @@ class RecoveryWorkflow:
         *,
         issue: ClarificationIssue | None = None,
         action_consumed: bool = True,
+        recovery_action: RecoveryAction | None = None,
+        interaction_id: str | None = None,
     ) -> WorkflowResult:
         field_issue = issue or ClarificationIssue(
             field=action.field,
@@ -1493,6 +1504,9 @@ class RecoveryWorkflow:
                     action.action_fingerprint or action.action_id,
                 )
             ),
+            "recovery_applied_action": recovery_action or action,
+            "recovery_interaction_id": interaction_id,
+            "recovery_changed_fields": (),
         }
         return WorkflowResult(
             updates=updates,
