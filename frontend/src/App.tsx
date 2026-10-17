@@ -124,6 +124,9 @@ type RecoveryLifecycle = {
   label: string;
   status: RecoveryLifecycleStatus;
   summary?: string;
+  fieldChanges?: { field: string; before: string | null; after: string | null }[];
+  previousBottleneck?: string | null;
+  currentBottleneck?: string | null;
 };
 
 const REPLACEMENT_PRESET_CRITERIA: Record<ReplacementPreset, ReplacementCriterion[]> = {
@@ -541,12 +544,25 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-function recoveryLifecycleFromResponse(response: AgentResponse): Pick<RecoveryLifecycle, "status" | "summary"> {
+const RECOVERY_BOTTLENECK_LABELS: Record<string, string> = {
+  schedule_capacity: "时间容量",
+  distance_limit: "距离范围",
+  candidate_supply: "候选地点",
+  availability: "营业可用性",
+  route_feasibility: "路线可行性",
+  search_budget: "搜索预算",
+  unknown: "未确定的限制",
+};
+
+function recoveryLifecycleFromResponse(response: AgentResponse): Pick<RecoveryLifecycle, "status" | "summary" | "fieldChanges" | "previousBottleneck" | "currentBottleneck"> {
   if (response.recovery_outcome) {
     const outcome = response.recovery_outcome;
     return {
       status: outcome.status === "still_failed" ? "still_failed" : outcome.status === "awaiting_input" ? "awaiting_input" : outcome.status,
       summary: outcome.summary,
+      fieldChanges: outcome.field_changes ?? [],
+      previousBottleneck: outcome.previous_bottleneck,
+      currentBottleneck: outcome.current_bottleneck,
     };
   }
   if (response.recovery_resolution === "cancel_turn") {
@@ -1361,6 +1377,23 @@ function RecoveryCard({ interaction, loading, active, lifecycle, onChoose }: {
         <p className={`recovery-lifecycle recovery-lifecycle-${lifecycle.status}`} role="status">
           {lifecycle.status === "submitted" ? "正在应用：" : null}{lifecycle.summary}
         </p>
+      ) : null}
+      {lifecycle?.fieldChanges?.length ? (
+        <div className="recovery-change-list" aria-label="恢复后的条件变化">
+          {lifecycle.fieldChanges.map((change) => (
+            <span key={`${change.field}-${change.before}-${change.after}`}>
+              {RECOVERY_FIELD_LABELS[change.field] ?? change.field}：{recoveryDisplayValue(change.before)} → {recoveryDisplayValue(change.after)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {lifecycle?.currentBottleneck ? (
+        <small className="recovery-bottleneck">
+          当前主要限制：{RECOVERY_BOTTLENECK_LABELS[lifecycle.currentBottleneck] ?? lifecycle.currentBottleneck}
+          {lifecycle.previousBottleneck && lifecycle.previousBottleneck !== lifecycle.currentBottleneck
+            ? `（原限制：${RECOVERY_BOTTLENECK_LABELS[lifecycle.previousBottleneck] ?? lifecycle.previousBottleneck}）`
+            : ""}
+        </small>
       ) : null}
       {!active ? <small className="recovery-resolved-note">此恢复选项已结束，不能重复执行。</small> : null}
       {active ? (

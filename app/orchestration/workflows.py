@@ -38,9 +38,14 @@ from app.domain.recovery import (
     OpenConstraintEditorAction,
     RecoveryAction,
     RecoveryActionResponse,
+    RecoveryContext,
+    RecoveryAttempt,
+    FieldChange,
     RecoveryChoiceInteraction,
     RecoveryReason,
     RecoveryStage,
+    PrimaryBottleneck,
+    PrimaryBottleneckKind,
     ReplanCurrentRequestAction,
     RequestFieldAction,
     StartNewRequestAction,
@@ -62,6 +67,7 @@ from app.services.request_patch_compiler import RequestPatchProposalCompiler
 from app.services.request_patch_update import RequestPatchUpdateCompiler
 from app.services.recovery_reason_adapter import RecoveryReasonAdapter
 from app.services.recovery_policy import RecoveryPolicy
+from app.services.recovery_bottleneck import resolve_primary_bottleneck
 from app.domain.turn import (
     ApplyRequestPatch,
     CompiledNextAction,
@@ -75,6 +81,7 @@ class WorkflowRoute(StrEnum):
     """The only route decisions exposed by a workflow to the graph."""
 
     ROUTER = "router"
+    RESET_REQUEST = "reset_request"
     APPLY_REQUEST_PATCH = "apply_request_patch"
     REPLAN_CURRENT_REQUEST = "replan_current_request"
     COMPILE_REQUEST = "compile_request"
@@ -1041,21 +1048,34 @@ class RecoveryWorkflow:
         plan_version_id = state.get("active_plan_version_id")
         if reason.plan_version_id is None and plan_version_id is not None:
             reason = reason.model_copy(update={"plan_version_id": plan_version_id})
+        primary_bottleneck = reason.primary_bottleneck or resolve_primary_bottleneck(
+            reason, reason.diagnostics
+        )
+        if reason.primary_bottleneck != primary_bottleneck:
+            reason = reason.model_copy(update={"primary_bottleneck": primary_bottleneck})
+        attempts = tuple(
+            item
+            for item in state.get("recovery_attempts", ())
+            if isinstance(item, RecoveryAttempt)
+        )
+        used_fingerprints = tuple(state.get("used_recovery_action_fingerprints", ()))
+        context = RecoveryContext(
+            reason=reason,
+            primary_bottleneck=primary_bottleneck,
+            request=request,
+            current_plan_version_id=plan_version_id,
+            previous_attempts=attempts,
+            used_concrete_fingerprints=used_fingerprints,
+        )
         decision = self._policy.decide(
             reason,
             request,
             current_plan_version_id=plan_version_id,
+            context=context,
         )
         used_actions = tuple(state.get("used_recovery_action_ids", ()))
-        used_fingerprints = tuple(state.get("used_recovery_action_fingerprints", ()))
         decision = decision.model_copy(
             update={
-                "actions": tuple(
-                    action for action in decision.actions
-                    if (
-                        action.action_fingerprint or action.action_id
-                    ) not in used_fingerprints
-                ),
                 "auto_action": (
                     None
                     if state.get("auto_recovery_attempted", False)
@@ -1263,6 +1283,11 @@ class RecoveryWorkflow:
             "recovery_applied_action": action,
             "recovery_interaction_id": interaction_id,
             "recovery_changed_fields": (),
+            "recovery_field_changes": (),
+            "recovery_previous_bottleneck": self._bottleneck_kind(
+                state.get("active_recovery_reason")
+            ) or state.get("recovery_previous_bottleneck"),
+            "recovery_current_bottleneck": None,
         }
         if isinstance(action, ReplanCurrentRequestAction):
             return WorkflowResult(
@@ -1343,6 +1368,9 @@ class RecoveryWorkflow:
             if automatic
             else (*used_fingerprints, action.action_fingerprint or action_id)
         )
+        previous_bottleneck = self._bottleneck_kind(
+            state.get("active_recovery_reason")
+        ) or state.get("recovery_previous_bottleneck")
         common = {
             "recovery_response": None,
             "recovery_auto_action": None,
@@ -1353,6 +1381,9 @@ class RecoveryWorkflow:
             "recovery_applied_action": action,
             "recovery_interaction_id": interaction_id,
             "recovery_changed_fields": (),
+            "recovery_field_changes": (),
+            "recovery_previous_bottleneck": previous_bottleneck,
+            "recovery_current_bottleneck": None,
         }
         if isinstance(result, ResolvedRequest):
             changed_fields = (
@@ -1362,6 +1393,9 @@ class RecoveryWorkflow:
                 else (action.field,) if isinstance(action, RequestFieldAction) and result.request.revision > request.revision else ()
             )
             common["recovery_changed_fields"] = changed_fields
+            common["recovery_field_changes"] = self._field_changes(
+                request, result.request, action, changed_fields
+            )
             return WorkflowResult(
                 updates={
                     **common,
@@ -1426,12 +1460,29 @@ class RecoveryWorkflow:
             stage=RecoveryStage.CONSTRAINT_COMPILATION,
             plan_version_id=state.get("active_plan_version_id"),
         )
+        rejected_attempt = self._recovery_attempt_for_rejection(
+            state,
+            action,
+            previous_bottleneck=self._bottleneck_kind(
+                state.get("active_recovery_reason")
+            ) or state.get("recovery_previous_bottleneck"),
+            current_bottleneck=self._bottleneck_kind(reason),
+        )
         return WorkflowResult(
             updates={
                 **common,
                 "candidate_set": CandidateSet(conflict=conflict, recovery_reason=reason),
                 "recovery_base_request": candidate_request or request,
                 "active_recovery_reason": reason,
+                "recovery_current_bottleneck": self._bottleneck_kind(reason),
+                "recovery_attempts": (
+                    *tuple(
+                        item
+                        for item in state.get("recovery_attempts", ())
+                        if isinstance(item, RecoveryAttempt)
+                    ),
+                    rejected_attempt,
+                ),
                 "pending_issue": None,
                 "pending_patch": None,
                 "pending_issues": (),
@@ -1507,6 +1558,11 @@ class RecoveryWorkflow:
             "recovery_applied_action": recovery_action or action,
             "recovery_interaction_id": interaction_id,
             "recovery_changed_fields": (),
+            "recovery_field_changes": (),
+            "recovery_previous_bottleneck": self._bottleneck_kind(
+                state.get("active_recovery_reason")
+            ) or state.get("recovery_previous_bottleneck"),
+            "recovery_current_bottleneck": None,
         }
         return WorkflowResult(
             updates=updates,
@@ -1521,3 +1577,99 @@ class RecoveryWorkflow:
             or state.get("active_request")
         )
         return request if isinstance(request, PlanRequest) else PlanRequest()
+
+    @staticmethod
+    def _bottleneck_kind(reason: object) -> str | None:
+        if not isinstance(reason, RecoveryReason):
+            return None
+        primary = reason.primary_bottleneck or resolve_primary_bottleneck(
+            reason, reason.diagnostics
+        )
+        return primary.kind.value
+
+    @classmethod
+    def _field_changes(
+        cls,
+        before: PlanRequest,
+        after: PlanRequest,
+        action: RecoveryAction,
+        changed_fields: tuple[str, ...],
+    ) -> tuple[FieldChange, ...]:
+        fields = changed_fields
+        if isinstance(action, ApplyRequestPatchAction):
+            fields = tuple(
+                sorted(set(action.patch.set_fields) | set(action.patch.clear_fields))
+            )
+        changes: list[FieldChange] = []
+        for field in fields:
+            old = cls._request_value(before, field)
+            new = cls._request_value(after, field)
+            if old != new:
+                changes.append(
+                    FieldChange(field=field, before=old, after=new)
+                )
+        return tuple(changes)
+
+    @staticmethod
+    def _recovery_attempt_for_rejection(
+        state: DurableState,
+        action: RecoveryAction,
+        *,
+        previous_bottleneck: str | None,
+        current_bottleneck: str | None,
+    ) -> RecoveryAttempt:
+        """Persist a rejected patch so the next policy decision sees it."""
+
+        try:
+            before = PrimaryBottleneckKind(previous_bottleneck or "unknown")
+        except ValueError:
+            before = PrimaryBottleneckKind.UNKNOWN
+        try:
+            after = PrimaryBottleneckKind(current_bottleneck or "unknown")
+        except ValueError:
+            after = PrimaryBottleneckKind.UNKNOWN
+        patch = getattr(action, "patch", None)
+        target_fields: tuple[str, ...] = ()
+        target_values: tuple[str, ...] = ()
+        if patch is not None:
+            target_fields = tuple(
+                sorted(set(patch.set_fields) | set(patch.clear_fields))
+            )
+            target_values = tuple(
+                f"{field}={patch.set_fields[field]}"
+                for field in sorted(patch.set_fields)
+            )
+        elif hasattr(action, "field"):
+            target_fields = (str(action.field),)
+            target_values = (f"{action.field}=user_input",)
+        return RecoveryAttempt(
+            action_kind=action.kind,
+            strategy_fingerprint=(
+                getattr(action, "strategy_fingerprint", None)
+                or f"action:{action.kind}"
+            ),
+            concrete_fingerprint=(
+                getattr(action, "action_fingerprint", None)
+                or action.action_id
+            ),
+            target_fields=target_fields,
+            target_values=target_values,
+            before_bottleneck=before,
+            after_bottleneck=after,
+            outcome="rejected",
+        )
+
+    @staticmethod
+    def _request_value(request: PlanRequest, field: str) -> str | None:
+        if field == "planning_window.start_at":
+            value = request.planning_window.start_at
+        elif field == "planning_window.end_at":
+            value = request.planning_window.end_at
+        else:
+            value = getattr(request, field, None)
+        if value is None:
+            return None
+        raw = getattr(value, "value", value)
+        if isinstance(raw, (tuple, list, set)):
+            return ",".join(str(item) for item in raw)
+        return str(raw)

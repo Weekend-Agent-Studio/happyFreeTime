@@ -18,13 +18,16 @@ from app.domain.recovery import (
     RecoveryDecision,
     RecoveryField,
     RecoveryKind,
+    RecoveryContext,
     RecoveryReason,
     RecoveryStage,
+    PrimaryBottleneckKind,
     ReplanCurrentRequestAction,
     RequestFieldAction,
     StartNewRequestAction,
     RecoveryAction,
 )
+from app.services.recovery_bottleneck import resolve_primary_bottleneck
 
 
 _MAX_RECOVERY_DISTANCE_KM = 30.0
@@ -62,6 +65,7 @@ class RecoveryPolicy:
         request: PlanRequest,
         *,
         current_plan_version_id: str | None = None,
+        context: RecoveryContext | None = None,
     ) -> RecoveryDecision:
         if request.revision != reason.request_revision or (
             reason.plan_version_id is not None
@@ -70,22 +74,34 @@ class RecoveryPolicy:
             return RecoveryDecision(reason=reason, stale=True)
 
         plan_version_id = reason.plan_version_id or current_plan_version_id
+        primary_bottleneck = (
+            context.primary_bottleneck
+            if context is not None
+            else reason.primary_bottleneck
+            or resolve_primary_bottleneck(reason, reason.diagnostics)
+        )
+        if reason.primary_bottleneck != primary_bottleneck:
+            reason = reason.model_copy(update={"primary_bottleneck": primary_bottleneck})
+        context = context or RecoveryContext(
+            reason=reason,
+            primary_bottleneck=primary_bottleneck,
+            request=request,
+            current_plan_version_id=plan_version_id,
+        )
         actions = []
         auto_action = None
 
         schedule_bottleneck = (
-            reason.code in {"NO_SCHEDULE_WITHIN_TIME_WINDOW", "NO_PLAN_AFTER_LOCAL_REPLAN"}
-            or reason.stage == RecoveryStage.SCHEDULING
-            or (
-                reason.diagnostics.local_schedule_failures > 0
-                and reason.diagnostics.local_schedule_passes == 0
-            )
+            primary_bottleneck.kind == PrimaryBottleneckKind.SCHEDULE_CAPACITY
         )
 
         if (
-            not schedule_bottleneck
+            primary_bottleneck.kind
+            in {
+                PrimaryBottleneckKind.DISTANCE_LIMIT,
+                PrimaryBottleneckKind.ROUTE_FEASIBILITY,
+            }
             and reason.code in _DISTANCE_FAILURE_CODES
-            and "max_distance_km" in reason.fields
             and request.max_distance_km is not None
         ):
             target = self._next_distance(
@@ -149,7 +165,8 @@ class RecoveryPolicy:
         if (
             reason.kind == RecoveryKind.NO_FEASIBLE_PLAN
             and (
-                reason.stage in {RecoveryStage.PLAN_STRUCTURE, RecoveryStage.SCHEDULING}
+                primary_bottleneck.kind == PrimaryBottleneckKind.SCHEDULE_CAPACITY
+                or reason.stage == RecoveryStage.PLAN_STRUCTURE
                 or schedule_bottleneck
             )
             and request.exact_stop_count is not None
@@ -220,12 +237,7 @@ class RecoveryPolicy:
                     ),
                 )
 
-        for field in reason.fields:
-            # Once the funnel identifies schedule capacity as the bottleneck,
-            # distance edits are unrelated and create the misleading loop that
-            # previously appeared after every revision.
-            if schedule_bottleneck and field in {"max_distance_km", "total_distance_km"}:
-                continue
+        for field in self._editable_fields(primary_bottleneck, reason, request):
             metadata = _FIELD_INPUTS.get(field)
             if metadata is None:
                 continue
@@ -315,10 +327,15 @@ class RecoveryPolicy:
                 ),
             )
         )
+        actions = self._filter_history(
+            actions,
+            context.previous_attempts,
+            context.used_concrete_fingerprints,
+        )
         actions = self._bounded_actions(actions)
         if auto_action is not None:
             auto_action = auto_action.model_copy(
-                update={"action_fingerprint": self._fingerprint(auto_action)}
+                update=self._fingerprint_update(auto_action)
             )
         return RecoveryDecision(
             reason=reason,
@@ -364,9 +381,105 @@ class RecoveryPolicy:
         suggestions.sort(key=priority)
         bounded = [*suggestions[:3], *fixed]
         return [
-            action.model_copy(update={"action_fingerprint": RecoveryPolicy._fingerprint(action)})
+            action.model_copy(update=RecoveryPolicy._fingerprint_update(action))
             for action in bounded
         ]
+
+    @staticmethod
+    def _editable_fields(
+        bottleneck: object,
+        reason: RecoveryReason,
+        request: PlanRequest,
+    ) -> tuple[str, ...]:
+        """Return only fields supported by the selected bottleneck.
+
+        The failure's raw ``fields`` are evidence, not a menu definition.  A
+        bounded mapping keeps one noisy finding from producing unrelated
+        buttons while still preserving a safe generic editor for unknown cases.
+        """
+
+        kind = getattr(bottleneck, "kind", PrimaryBottleneckKind.UNKNOWN)
+        by_kind: dict[PrimaryBottleneckKind, tuple[str, ...]] = {
+            PrimaryBottleneckKind.SCHEDULE_CAPACITY: (
+                "departure_at",
+                "return_by",
+                "time_window",
+                "exact_stop_count",
+            ),
+            PrimaryBottleneckKind.DISTANCE_LIMIT: ("max_distance_km", "planning_area"),
+            PrimaryBottleneckKind.ROUTE_FEASIBILITY: (
+                "max_distance_km",
+                "planning_area",
+                "exact_stop_count",
+            ),
+            PrimaryBottleneckKind.CANDIDATE_SUPPLY: (
+                "planning_area",
+                "max_distance_km",
+            ),
+            PrimaryBottleneckKind.AVAILABILITY: ("date", "time_window", "availability"),
+            PrimaryBottleneckKind.SEARCH_BUDGET: (),
+            # Unknown evidence is not enough to choose a typed field.  Keep
+            # the explicit editor below as the safe escape hatch instead of
+            # turning arbitrary diagnostic fields into a button menu.
+            PrimaryBottleneckKind.UNKNOWN: (),
+        }
+        fields = by_kind.get(kind, ())
+        if kind == PrimaryBottleneckKind.UNKNOWN:
+            # A few explicit ConstraintEngine codes have a stable target even
+            # without a planner funnel.  This is a code allowlist, not a
+            # pass-through of arbitrary ``reason.fields``.
+            fields = {
+                "NO_PLAN_WITHIN_STRICT_BUDGET": ("budget_per_person",),
+            }.get(reason.code, ())
+        available = set(reason.fields) | {
+            field
+            for field in fields
+            if getattr(request, field, None) is not None
+            or field in {"time_window", "departure_at", "return_by", "availability"}
+        }
+        return tuple(field for field in fields if field in available)
+
+    @staticmethod
+    def _filter_history(
+        actions: list[RecoveryAction],
+        attempts: tuple[object, ...],
+        used_concrete_fingerprints: tuple[str, ...] = (),
+    ) -> list[RecoveryAction]:
+        """Filter semantic duplicates before the bounded suggestion budget."""
+
+        concrete_used = {
+            getattr(attempt, "concrete_fingerprint", "")
+            for attempt in attempts
+            if getattr(attempt, "concrete_fingerprint", "")
+        }
+        concrete_used.update(used_concrete_fingerprints)
+        ineffective_strategies: set[str] = set()
+        for attempt in attempts:
+            strategy = getattr(attempt, "strategy_fingerprint", None)
+            if strategy and not getattr(attempt, "improved", False):
+                ineffective_strategies.add(strategy)
+        safety_kinds = {
+            "open_constraint_editor",
+            "keep_current_plan",
+            "cancel_turn",
+            "start_new_request",
+        }
+        filtered: list[RecoveryAction] = []
+        for action in actions:
+            concrete = RecoveryPolicy._fingerprint(action)
+            strategy = RecoveryPolicy._strategy_fingerprint(action)
+            # Safety exits remain available after a previous choice; they are
+            # not recovery attempts and must not disappear from the only
+            # escape path for a still-failing plan.
+            if action.kind not in safety_kinds and concrete in concrete_used:
+                continue
+            # Keep the strategy available as a non-primary alternative only
+            # when it has not repeatedly failed; a safety action is never in
+            # this set because it has no recovery strategy fingerprint.
+            if strategy and strategy in ineffective_strategies:
+                continue
+            filtered.append(action)
+        return filtered
 
     @staticmethod
     def _fingerprint(action: RecoveryAction) -> str:
@@ -382,6 +495,35 @@ class RecoveryPolicy:
         return action.kind
 
     @staticmethod
+    def _strategy_fingerprint(action: RecoveryAction) -> str | None:
+        if isinstance(action, ApplyRequestPatchAction):
+            fields = set(action.patch.set_fields) | set(action.patch.clear_fields)
+            if "max_distance_km" in fields:
+                return "expand:max_distance"
+            if any(field.startswith("planning_window.") for field in fields):
+                return "extend:planning_window"
+            if "exact_stop_count" in fields:
+                return "reduce:stop_count"
+            if "planning_area" in fields:
+                return "adjust:planning_area"
+            if "budget_per_person" in fields or "strict_budget" in fields:
+                return "adjust:budget"
+            if fields:
+                return "adjust:constraints"
+        if isinstance(action, RequestFieldAction):
+            return f"edit:{action.field}"
+        if isinstance(action, ReplanCurrentRequestAction):
+            return "retry:plan"
+        return None
+
+    @classmethod
+    def _fingerprint_update(cls, action: RecoveryAction) -> dict[str, str | None]:
+        return {
+            "action_fingerprint": cls._fingerprint(action),
+            "strategy_fingerprint": cls._strategy_fingerprint(action),
+        }
+
+    @staticmethod
     def _extended_end_time(
         request: PlanRequest,
         optimistic_duration_minutes: int | None,
@@ -389,17 +531,17 @@ class RecoveryPolicy:
         end_at = request.planning_window.end_at
         if end_at is None:
             return None
+        # A numeric extension is only safe when the funnel supplied both a
+        # lower-bound duration and a concrete start.  Otherwise offer the
+        # typed time-field editor instead of inventing a two-hour value.
+        if optimistic_duration_minutes is None or request.planning_window.start_at is None:
+            return None
         hour, minute = (int(part) for part in end_at.value.split(":"))
         current = hour * 60 + minute
-        # Prefer the observed optimistic lower bound when available; otherwise
-        # offer one bounded two-hour extension. Never invent a time past day end.
         start_at = request.planning_window.start_at
-        if optimistic_duration_minutes is not None and start_at is not None:
-            start_hour, start_minute = (int(part) for part in start_at.value.split(":"))
-            target = start_hour * 60 + start_minute + optimistic_duration_minutes
-            target = max(target, current + 60)
-        else:
-            target = current + 120
+        start_hour, start_minute = (int(part) for part in start_at.value.split(":"))
+        target = start_hour * 60 + start_minute + optimistic_duration_minutes
+        target = max(target, current + 60)
         target = min(target, 23 * 60 + 59)
         if target <= current:
             return None

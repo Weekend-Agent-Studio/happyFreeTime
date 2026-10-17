@@ -322,6 +322,8 @@ h2, h3, p { margin-top: 0; }
 .recovery-lifecycle-succeeded { color: #286847 !important; background: #eefaf1 !important; border-color: #d8efdf; }
 .recovery-lifecycle-still_failed, .recovery-lifecycle-retryable { color: #765522 !important; background: #fff8e6 !important; border-color: #f0e2bc; }
 .recovery-lifecycle-cancelled, .recovery-lifecycle-finished { color: #5b6674 !important; background: #f4f6f8 !important; border-color: #e2e6eb; }
+.recovery-change-list { display: grid; gap: 3px; margin: -3px 0 9px; color: #52647a; font-size: 11px; }
+.recovery-bottleneck { display: block; margin: -2px 0 9px; color: #6a7481; font-size: 11px; }
 .recovery-action-list { display: grid; gap: 8px; }
 .recovery-action-button, .recovery-field-action { display: grid; gap: 4px; width: 100%; padding: 10px 12px; text-align: left; color: #263b52; background: #fff; border: 1px solid #dce4ec; border-radius: 10px; }
 .recovery-action-button { cursor: pointer; }

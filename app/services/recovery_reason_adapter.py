@@ -8,14 +8,15 @@ from app.domain.catalog import ConstraintViolation
 from app.domain.constraints import ConstraintSource, PlanRequest
 from app.domain.planning import ConstraintConflict, SkeletonSearchTrace
 from app.domain.recovery import RecoveryDiagnostics, RecoveryKind, RecoveryReason, RecoveryStage
+from app.services.recovery_bottleneck import resolve_primary_bottleneck
 
 
 _HARD_CONFLICT_CODES = frozenset(
-        {
-            "DEPARTURE_NOT_BEFORE_RETURN_BY",
-            "DEPARTURE_OUTSIDE_TIME_WINDOW",
-            "INVALID_TIME_WINDOW_ORDER",
-            "STALE_REQUEST_REVISION",
+    {
+        "DEPARTURE_NOT_BEFORE_RETURN_BY",
+        "DEPARTURE_OUTSIDE_TIME_WINDOW",
+        "INVALID_TIME_WINDOW_ORDER",
+        "STALE_REQUEST_REVISION",
         "UNKNOWN_REQUEST_FIELD",
         "FIELD_PROVENANCE_UNSUPPORTED",
         "REQUEST_FIELD_NOT_CLEARABLE",
@@ -75,7 +76,14 @@ class RecoveryReasonAdapter:
             or conflict.code in _MODIFICATION_CODES
             else RecoveryKind.NO_FEASIBLE_PLAN
         )
-        return RecoveryReason(
+        diagnostics = self._diagnostics(
+            request,
+            fields,
+            search_traces,
+            catalog_violations,
+            route_failure_sets,
+        )
+        reason = RecoveryReason(
             code=conflict.code,
             kind=kind,
             stage=resolved_stage,
@@ -83,13 +91,10 @@ class RecoveryReasonAdapter:
             request_revision=request.revision,
             plan_version_id=plan_version_id,
             public_summary=conflict.message,
-            diagnostics=self._diagnostics(
-                request,
-                fields,
-                search_traces,
-                catalog_violations,
-                route_failure_sets,
-            ),
+            diagnostics=diagnostics,
+        )
+        return reason.model_copy(
+            update={"primary_bottleneck": resolve_primary_bottleneck(reason, diagnostics)}
         )
 
     @classmethod

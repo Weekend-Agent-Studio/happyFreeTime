@@ -495,7 +495,7 @@ class EntryGraphTest(unittest.TestCase):
             catalog=InMemoryCatalog([]),
         )
 
-        graph.invoke(
+        result = graph.invoke(
             {
                 "user_input": "不按刚才的条件了，重新开始规划",
                 "actor": actor,
@@ -507,10 +507,15 @@ class EntryGraphTest(unittest.TestCase):
         )
 
         context = router.contexts[-1]
-        self.assertFalse(context.has_plans)
+        # The semantic Router sees the existing context and emits a reset
+        # proposal; Graph executes that proposal before compiling the new
+        # content.  Reset classification must not happen in Graph from raw
+        # text.
+        self.assertTrue(context.has_plans)
         self.assertFalse(context.has_selected_plan)
-        self.assertEqual(context.decision_context.request_lifecycle.value, "empty")
-        self.assertIsNone(context.decision_context.current_request)
+        self.assertEqual(context.decision_context.request_lifecycle.value, "planned")
+        self.assertIsNotNone(context.decision_context.current_request)
+        self.assertIsNone(result.get("active_plan_version_id"))
 
     def test_default_distance_auto_recovers_once_then_uses_the_same_planner(self) -> None:
         class DistanceRouter(InterpretationRouter):
@@ -631,10 +636,13 @@ class EntryGraphTest(unittest.TestCase):
         self.assertEqual(auto_ids, ["auto-expand-distance-r1-12"])
         interaction = result["__interrupt__"][0].value
         self.assertEqual(interaction["kind"], "recovery_choice")
-        self.assertTrue(
+        # The first expansion was already applied and did not improve the
+        # result.  Its strategy is suppressed before the bounded action list
+        # is built, so the next card must not suggest another distance loop.
+        self.assertFalse(
             any(
                 item["kind"] == "apply_request_patch"
-                and item["patch"]["set_fields"]["max_distance_km"] == 18.0
+                and "max_distance_km" in item["patch"].get("set_fields", {})
                 for item in interaction["actions"]
             )
         )

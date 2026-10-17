@@ -400,6 +400,7 @@ export type PlanningContextPatch = {
 export type RecoveryAction = {
   action_id: string;
   action_fingerprint?: string | null;
+  strategy_fingerprint?: string | null;
   label: string;
   description: string;
   request_revision: number;
@@ -429,6 +430,12 @@ export type RecoveryChoice = {
     plan_version_id: string | null;
     public_summary: string;
     diagnostics: Record<string, unknown>;
+    primary_bottleneck?: {
+      kind: string;
+      evidence_codes: string[];
+      affected_fields: string[];
+      evidence_summary: string;
+    } | null;
   };
   actions: RecoveryAction[];
 };
@@ -463,10 +470,14 @@ export type AgentResponse = {
     interaction_id?: string | null;
     action_id: string;
     action_fingerprint?: string | null;
+    strategy_fingerprint?: string | null;
     kind: string;
     label: string;
     status: "awaiting_input" | "succeeded" | "still_failed" | "cancelled" | "finished" | "retryable";
     changed_fields: string[];
+    field_changes?: { field: string; before: string | null; after: string | null }[];
+    previous_bottleneck?: string | null;
+    current_bottleneck?: string | null;
     summary: string;
   } | null;
   assumptions: Assumption[];

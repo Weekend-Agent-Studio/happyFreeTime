@@ -1009,15 +1009,37 @@ def _recovery_outcome(
     else:
         outcome_status = "retryable"
         summary = "恢复操作未完成，当前操作仍可重试。"
+    field_changes = tuple(
+        state_values.get("recovery_field_changes") or ()
+    )
+    if field_changes:
+        rendered_changes = []
+        for change in field_changes:
+            item = (
+                change.model_dump(mode="json")
+                if hasattr(change, "model_dump")
+                else change
+            )
+            if isinstance(item, dict):
+                rendered_changes.append(
+                    f"{item.get('field')}: {item.get('before') or '未设置'} → "
+                    f"{item.get('after') or '已清除'}"
+                )
+        if rendered_changes:
+            summary = f"{'；'.join(rendered_changes)}。{summary}"
     return RecoveryOutcome(
         interaction_id=state_values.get("recovery_interaction_id"),
         action_id=str(payload.get("action_id", "recovery-action")),
         action_fingerprint=payload.get("action_fingerprint"),
+        strategy_fingerprint=payload.get("strategy_fingerprint"),
         kind=str(payload.get("kind", "recovery")),
         label=str(payload.get("label", "恢复操作")),
         status=outcome_status,
         changed_fields=tuple(state_values.get("recovery_changed_fields") or ()),
-        summary=summary,
+        field_changes=field_changes,
+        previous_bottleneck=state_values.get("recovery_previous_bottleneck"),
+        current_bottleneck=state_values.get("recovery_current_bottleneck"),
+        summary=summary[:240],
     )
 
 

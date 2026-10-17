@@ -92,6 +92,17 @@ class ChitchatProposal(BaseModel):
     kind: Literal["chitchat"] = "chitchat"
 
 
+class ResetRequestProposal(BaseModel):
+    """Semantic reset clause; old request context must not be inherited."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["reset_request"] = "reset_request"
+    raw_constraints: RawConstraints = Field(default_factory=RawConstraints)
+    time_proposals: tuple[TimeProposal, ...] = ()
+    evidence_map: dict[str, str] = Field(default_factory=dict)
+
+
 UserAct = Annotated[
     Union[
         CreatePlanProposal,
@@ -100,6 +111,7 @@ UserAct = Annotated[
         CheckWeatherProposal,
         QueryPlanProposal,
         ChitchatProposal,
+        ResetRequestProposal,
     ],
     Field(discriminator="kind"),
 ]
@@ -152,6 +164,18 @@ class NoAction(BaseModel):
     reason: Literal["chitchat", "unsupported", "empty"]
 
 
+class StartNewRequest(BaseModel):
+    """Compiled reset action executed by Graph before any new plan patch."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["start_new_request"] = "start_new_request"
+    raw_constraints: RawConstraints = Field(default_factory=RawConstraints)
+    time_proposals: tuple[TimeProposal, ...] = ()
+    evidence_map: dict[str, str] = Field(default_factory=dict)
+    condition_requests_plan: bool = False
+
+
 class NeedsClarification(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -169,6 +193,7 @@ CompiledNextAction = Annotated[
         AnswerQuery,
         NoAction,
         NeedsClarification,
+        StartNewRequest,
     ],
     Field(discriminator="kind"),
 ]
@@ -188,6 +213,8 @@ def intent_for_action(action: CompiledNextAction) -> Intent:
 
     if isinstance(action, ApplyRequestPatch):
         return Intent.PLAN_OUTING if action.mode == "create" else Intent.REFINE_PLAN
+    if isinstance(action, StartNewRequest):
+        return Intent.PLAN_OUTING
     if isinstance(action, ModifySelectedPlan):
         return Intent.REFINE_PLAN
     if isinstance(action, AnswerQuery):
@@ -202,6 +229,8 @@ def user_act_kind_for_action(action: CompiledNextAction | None) -> UserActKind |
 
     if isinstance(action, ApplyRequestPatch):
         return "create_plan" if action.mode == "create" else "patch_constraints"
+    if isinstance(action, StartNewRequest):
+        return "create_plan"
     if isinstance(action, ModifySelectedPlan):
         return "replace_stop"
     if isinstance(action, AnswerQuery):
@@ -261,6 +290,25 @@ class TurnCompiler:
                     time_proposals=act.time_proposals,
                     evidence_map=dict(act.evidence_map),
                     condition_requests_plan=cls._condition_requests_plan(act.raw_constraints, act.time_proposals),
+                ),
+            )
+
+        if isinstance(act, ResetRequestProposal):
+            interpretation = cls._interpretation(
+                intent=Intent.PLAN_OUTING,
+                raw_constraints=act.raw_constraints,
+                time_proposals=act.time_proposals,
+                evidence_map=act.evidence_map,
+            )
+            return TurnCompilation(
+                interpretation=interpretation,
+                action=StartNewRequest(
+                    raw_constraints=act.raw_constraints,
+                    time_proposals=act.time_proposals,
+                    evidence_map=dict(act.evidence_map),
+                    condition_requests_plan=cls._condition_requests_plan(
+                        act.raw_constraints, act.time_proposals
+                    ),
                 ),
             )
 

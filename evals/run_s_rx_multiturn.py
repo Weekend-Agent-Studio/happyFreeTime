@@ -405,6 +405,61 @@ def _recovery_action_fields(action: dict[str, Any]) -> set[str]:
     return fields | _patch_action_fields(action)
 
 
+def _recovery_action_applied(row: dict[str, Any]) -> bool:
+    """Only count fields targeted by the selected action as applied."""
+
+    action = row.get("selected_recovery_action") or {}
+    target_fields = _recovery_action_fields(action)
+    changed_fields = set(row.get("request_constraint_changes") or {})
+    return bool(target_fields & changed_fields)
+
+
+def _recovery_bottleneck_kind(row: dict[str, Any]) -> str | None:
+    outcome = row.get("recovery_outcome") or {}
+    primary = (
+        (row.get("selected_recovery_reason") or {})
+        or ((row.get("recovery") or {}).get("reason") or {})
+    ).get(
+        "primary_bottleneck"
+    ) or {}
+    return outcome.get("current_bottleneck") or primary.get("kind")
+
+
+def _recovery_previous_bottleneck_kind(row: dict[str, Any]) -> str | None:
+    outcome = row.get("recovery_outcome") or {}
+    if outcome.get("previous_bottleneck"):
+        return outcome["previous_bottleneck"]
+    reason = row.get("selected_recovery_reason") or (
+        (row.get("recovery") or {}).get("reason") or {}
+    )
+    return (reason.get("primary_bottleneck") or {}).get("kind")
+
+
+def _recovery_action_aligned(row: dict[str, Any]) -> bool:
+    action = row.get("selected_recovery_action") or {}
+    target_fields = _recovery_action_fields(action)
+    reason = row.get("selected_recovery_reason") or (
+        (row.get("recovery") or {}).get("reason") or {}
+    )
+    primary = reason.get("primary_bottleneck") or {}
+    affected = set(primary.get("affected_fields") or ())
+    kind = primary.get("kind")
+    if not target_fields or not kind:
+        return False
+    if target_fields & affected:
+        return True
+    strategy = action.get("strategy_fingerprint") or ""
+    return (
+        kind == "schedule_capacity" and strategy in {"extend:planning_window", "reduce:stop_count"}
+        or kind in {"distance_limit", "route_feasibility"}
+        and strategy in {"expand:max_distance", "reduce:stop_count", "adjust:planning_area"}
+        or kind == "candidate_supply"
+        and strategy in {"adjust:planning_area", "reduce:stop_count"}
+        or kind == "availability"
+        and strategy in {"edit:date", "edit:time_window", "adjust:constraints"}
+    )
+
+
 def _safe_recovery_action(action: dict[str, Any]) -> dict[str, Any]:
     """Keep identifiers and typed scope, not user-facing text or patch values."""
 
@@ -420,6 +475,8 @@ def _safe_recovery_action(action: dict[str, Any]) -> dict[str, Any]:
     }
     if action.get("action_fingerprint") is not None:
         result["action_fingerprint"] = action["action_fingerprint"]
+    if action.get("strategy_fingerprint") is not None:
+        result["strategy_fingerprint"] = action["strategy_fingerprint"]
     return result
 
 
@@ -576,6 +633,16 @@ def _perform_step(
     meta = {"kind": kind, "request_id": request_id}
     if kind in {"recovery_action", "stale_recovery_action"} and action is not None:
         meta["selected_recovery_action"] = _safe_recovery_action(action)
+        reason = (previous.get("recovery") or {}).get("reason") or {}
+        primary = reason.get("primary_bottleneck")
+        if isinstance(primary, dict):
+            meta["selected_recovery_reason"] = {
+                "primary_bottleneck": {
+                    key: primary[key]
+                    for key in ("kind", "affected_fields", "evidence_codes")
+                    if key in primary
+                }
+            }
     return status_code, data, meta
 
 
@@ -1218,6 +1285,10 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
             )
             if step_meta.get("selected_recovery_action") is not None:
                 safe["selected_recovery_action"] = step_meta["selected_recovery_action"]
+            if data.get("recovery_outcome") is not None:
+                safe["recovery_outcome"] = data["recovery_outcome"]
+            if data.get("recovery") is not None:
+                safe["recovery"] = data["recovery"]
             safe["execution_status"] = "executed"
             safe["assertions_passed"] = http_passed
             step_failures: list[str] = []
@@ -1400,7 +1471,7 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         in {"apply_request_patch", "request_field"}
     ]
     recovery_mutations_applied = sum(
-        bool(row.get("request_constraint_changes"))
+        int(_recovery_action_applied(row))
         for row in recovery_mutation_rows
     )
     recovery_action_fingerprints = [
@@ -1412,12 +1483,43 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         for row in recovery_rows
     ]
     repeated_ineffective_recovery_count = sum(
-        int(row.get("status") == "needs_recovery") for row in recovery_rows
-    ) + sum(
         1
         for index, fingerprint in enumerate(recovery_action_fingerprints)
         if fingerprint and fingerprint in recovery_action_fingerprints[:index]
     )
+    recovery_bottleneck_improved = [
+        row
+        for row in recovery_rows
+        if row.get("status") == "completed"
+        or (
+            _recovery_previous_bottleneck_kind(row) is not None
+            and _recovery_previous_bottleneck_kind(row)
+            != _recovery_bottleneck_kind(row)
+        )
+    ]
+    aligned_recovery_rows = [
+        row for row in recovery_rows if _recovery_action_aligned(row)
+    ]
+    strategy_outcomes: dict[str, list[bool]] = {}
+    for row in recovery_rows:
+        strategy = (row.get("selected_recovery_action") or {}).get(
+            "strategy_fingerprint"
+        )
+        if strategy:
+            improved = row in recovery_bottleneck_improved
+            strategy_outcomes.setdefault(strategy, []).append(
+                improved
+            )
+    repeated_ineffective_strategy_count = 0
+    for outcomes in strategy_outcomes.values():
+        consecutive_failures = 0
+        for improved in outcomes:
+            if improved:
+                consecutive_failures = 0
+            else:
+                if consecutive_failures:
+                    repeated_ineffective_strategy_count += 1
+                consecutive_failures += 1
     expected_absent_fields = expected_final.get("absent_constraint_fields", [])
     leaked_fields = [
         field
@@ -1449,6 +1551,15 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         "recovery_action_steps_http_success": recovery_steps_ok,
         "recovery_action_mutation_steps": len(recovery_mutation_rows),
         "recovery_action_mutations_applied": recovery_mutations_applied,
+        "recovery_action_applied_target_rate": (
+            recovery_mutations_applied / len(recovery_mutation_rows)
+            if recovery_mutation_rows else None
+        ),
+        "bottleneck_improvement_numerator": len(recovery_bottleneck_improved),
+        "bottleneck_improvement_denominator": len(recovery_rows),
+        "diagnosis_action_alignment_numerator": len(aligned_recovery_rows),
+        "diagnosis_action_alignment_denominator": len(recovery_rows),
+        "repeated_ineffective_strategy_count": repeated_ineffective_strategy_count,
         "recovery_to_feasible_plan_numerator": recovery_to_feasible_plan_numerator,
         "recovery_to_feasible_plan_denominator": len(recovery_rows),
         "repeated_ineffective_recovery_count": repeated_ineffective_recovery_count,
@@ -1646,6 +1757,18 @@ def main() -> int:
                 "numerator": sum(int(item.get("recovery_action_mutations_applied", 0)) for item in executed),
                 "denominator": sum(int(item.get("recovery_action_mutation_steps", 0)) for item in executed),
             },
+            "bottleneck_improvement_rate": {
+                "numerator": sum(int(item.get("bottleneck_improvement_numerator", 0)) for item in executed),
+                "denominator": sum(int(item.get("bottleneck_improvement_denominator", 0)) for item in executed),
+            },
+            "diagnosis_action_alignment_rate": {
+                "numerator": sum(int(item.get("diagnosis_action_alignment_numerator", 0)) for item in executed),
+                "denominator": sum(int(item.get("diagnosis_action_alignment_denominator", 0)) for item in executed),
+            },
+            "repeated_ineffective_strategy_count": sum(
+                int(item.get("repeated_ineffective_strategy_count", 0))
+                for item in executed
+            ),
             "recovery_to_feasible_plan_rate": {
                 "numerator": sum(int(item.get("recovery_to_feasible_plan_numerator", 0)) for item in executed),
                 "denominator": sum(int(item.get("recovery_to_feasible_plan_denominator", 0)) for item in executed),

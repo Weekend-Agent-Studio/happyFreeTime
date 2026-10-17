@@ -9,7 +9,7 @@ from app.domain.constraints import (
     PlanningWindow,
 )
 from app.domain.planning import ConstraintConflict, SkeletonSearchTrace
-from app.domain.recovery import RecoveryKind, RecoveryStage
+from app.domain.recovery import RecoveryKind, RecoveryStage, PrimaryBottleneckKind
 from app.services.recovery_reason_adapter import RecoveryReasonAdapter
 
 
@@ -80,6 +80,9 @@ class RecoveryReasonAdapterTests(unittest.TestCase):
         self.assertEqual(reason.diagnostics.route_provider_requests, 4)
         self.assertEqual(reason.diagnostics.rejected_by_time_window, 3)
         self.assertEqual(reason.diagnostics.rejected_by_availability, 1)
+        self.assertIsNotNone(reason.primary_bottleneck)
+        assert reason.primary_bottleneck is not None
+        self.assertEqual(reason.primary_bottleneck.kind, PrimaryBottleneckKind.AVAILABILITY)
 
     def test_strict_budget_is_attributed_to_budget_not_generic_route(self) -> None:
         reason = self.adapter.from_conflict(

@@ -7,15 +7,19 @@ from app.domain.recovery import (
     ApplyRequestPatchAction,
     OpenConstraintEditorAction,
     RecoveryDiagnostics,
+    RecoveryAttempt,
+    RecoveryContext,
     RecoveryKind,
     RecoveryReason,
     RecoveryStage,
+    PrimaryBottleneckKind,
     RequestFieldAction,
     StartNewRequestAction,
     CancelTurnAction,
     KeepCurrentPlanAction,
 )
 from app.services.recovery_policy import RecoveryPolicy
+from app.services.recovery_bottleneck import resolve_primary_bottleneck
 
 
 class RecoveryPolicyTests(unittest.TestCase):
@@ -129,21 +133,17 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(decision.actions, ())
         self.assertIsNone(decision.auto_action)
 
-    def test_unknown_failure_has_generic_choices_without_invented_numbers(self) -> None:
-        reason = self.reason(code="FUTURE_FAILURE")
+    def test_unknown_failure_offers_safe_editor_without_invented_field_choices(self) -> None:
+        reason = self.reason(code="FUTURE_FAILURE").model_copy(
+            update={"stage": RecoveryStage.VERIFICATION, "fields": ()}
+        )
         decision = self.policy.decide(reason, PlanRequest(revision=3))
 
         self.assertIsNone(decision.auto_action)
         self.assertFalse(
             any(isinstance(item, ApplyRequestPatchAction) for item in decision.actions)
         )
-        self.assertTrue(
-            any(
-                isinstance(item, RequestFieldAction)
-                and item.field == "max_distance_km"
-                for item in decision.actions
-            )
-        )
+        self.assertFalse(any(isinstance(item, RequestFieldAction) for item in decision.actions))
         self.assertTrue(
             any(isinstance(item, OpenConstraintEditorAction) for item in decision.actions)
         )
@@ -274,6 +274,7 @@ class RecoveryPolicyTests(unittest.TestCase):
                 current_max_distance_km=5.0,
                 requested_stop_count=4,
                 available_minutes=240,
+                optimistic_duration_minutes=330,
                 local_schedule_failures=174,
                 local_schedule_passes=0,
                 rejected_by_route=2,
@@ -287,9 +288,95 @@ class RecoveryPolicyTests(unittest.TestCase):
             if isinstance(item, ApplyRequestPatchAction)
         ]
         self.assertTrue(any("planning_window.end_at" in item.patch.set_fields for item in patches))
+        self.assertTrue(
+            any(
+                item.patch.set_fields.get("planning_window.end_at").value == "19:30"
+                for item in patches
+                if "planning_window.end_at" in item.patch.set_fields
+            )
+        )
         self.assertTrue(any(item.patch.set_fields.get("exact_stop_count") == 3 for item in patches))
         self.assertFalse(any("max_distance_km" in item.patch.set_fields for item in patches))
         self.assertTrue(all(item.action_fingerprint for item in decision.actions))
+
+    def test_recovery_actions_expose_concrete_and_strategy_fingerprints(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            max_distance_km=ConstraintValue[float](
+                value=8.0, source=ConstraintSource.USER_EXPLICIT
+            ),
+        )
+        decision = self.policy.decide(self.reason(source=ConstraintSource.USER_EXPLICIT), request)
+        distance = next(
+            item
+            for item in decision.actions
+            if isinstance(item, ApplyRequestPatchAction)
+            and "max_distance_km" in item.patch.set_fields
+        )
+        self.assertTrue(distance.action_fingerprint)
+        self.assertEqual(distance.strategy_fingerprint, "expand:max_distance")
+        self.assertNotEqual(distance.action_fingerprint, distance.strategy_fingerprint)
+
+    def test_ineffective_strategy_is_filtered_before_action_budget(self) -> None:
+        reason = self.reason(source=ConstraintSource.USER_EXPLICIT)
+        request = PlanRequest(
+            revision=3,
+            max_distance_km=ConstraintValue[float](
+                value=8.0, source=ConstraintSource.USER_EXPLICIT
+            ),
+        )
+        primary = resolve_primary_bottleneck(reason)
+        attempt = RecoveryAttempt(
+            action_kind="apply_request_patch",
+            strategy_fingerprint="expand:max_distance",
+            concrete_fingerprint="apply_request_patch:max_distance_km:max_distance_km=11.0",
+            target_fields=("max_distance_km",),
+            before_bottleneck=primary.kind,
+            after_bottleneck=primary.kind,
+            improved=False,
+            outcome="still_failed",
+        )
+        decision = self.policy.decide(
+            reason,
+            request,
+            context=RecoveryContext(
+                reason=reason,
+                primary_bottleneck=primary,
+                request=request,
+                previous_attempts=(attempt,),
+            ),
+        )
+        self.assertFalse(
+            any(
+                isinstance(item, ApplyRequestPatchAction)
+                and "max_distance_km" in item.patch.set_fields
+                for item in decision.actions
+            )
+        )
+        self.assertTrue(
+            any(item.kind == "start_new_request" for item in decision.actions)
+        )
+
+    def test_safety_exits_survive_used_action_history(self) -> None:
+        reason = self.reason(source=ConstraintSource.USER_EXPLICIT)
+        decision = self.policy.decide(
+            reason,
+            PlanRequest(revision=3),
+            context=RecoveryContext(
+                reason=reason,
+                primary_bottleneck=resolve_primary_bottleneck(reason),
+                request=PlanRequest(revision=3),
+                used_concrete_fingerprints=(
+                    "open_constraint_editor",
+                    "keep_current_plan",
+                    "cancel_turn",
+                    "start_new_request",
+                ),
+            ),
+        )
+        self.assertTrue(any(item.kind == "open_constraint_editor" for item in decision.actions))
+        self.assertTrue(any(item.kind == "cancel_turn" for item in decision.actions))
+        self.assertTrue(any(item.kind == "start_new_request" for item in decision.actions))
 
 
 if __name__ == "__main__":
