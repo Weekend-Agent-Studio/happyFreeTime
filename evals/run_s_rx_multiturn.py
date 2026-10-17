@@ -409,9 +409,8 @@ def _safe_recovery_action(action: dict[str, Any]) -> dict[str, Any]:
     """Keep identifiers and typed scope, not user-facing text or patch values."""
 
     fields = sorted(_patch_action_fields(action))
-    return {
+    result = {
         "action_id": action.get("action_id"),
-        "action_fingerprint": action.get("action_fingerprint"),
         "kind": action.get("kind"),
         "field": action.get("field"),
         "patch_fields": fields,
@@ -419,6 +418,9 @@ def _safe_recovery_action(action: dict[str, Any]) -> dict[str, Any]:
         "request_revision": action.get("request_revision"),
         "plan_version_id": action.get("plan_version_id"),
     }
+    if action.get("action_fingerprint") is not None:
+        result["action_fingerprint"] = action["action_fingerprint"]
+    return result
 
 
 def _action(interaction: dict[str, Any], step: dict[str, Any]) -> dict[str, Any] | None:
