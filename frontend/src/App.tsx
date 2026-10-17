@@ -207,6 +207,7 @@ function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse
     question: response.question ?? null,
     recovery: response.recovery ?? null,
     recovery_resolution: response.recovery_resolution ?? null,
+    recovery_outcome: response.recovery_outcome ?? null,
     assumptions: response.assumptions ?? [],
     constraint_summary: response.constraint_summary ?? [],
     plans: response.plans ?? [],
@@ -541,6 +542,13 @@ function useMediaQuery(query: string): boolean {
 }
 
 function recoveryLifecycleFromResponse(response: AgentResponse): Pick<RecoveryLifecycle, "status" | "summary"> {
+  if (response.recovery_outcome) {
+    const outcome = response.recovery_outcome;
+    return {
+      status: outcome.status === "still_failed" ? "still_failed" : outcome.status === "awaiting_input" ? "awaiting_input" : outcome.status,
+      summary: outcome.summary,
+    };
+  }
   if (response.recovery_resolution === "cancel_turn") {
     return { status: "cancelled", summary: "本轮已取消，原方案和已确认条件未修改。" };
   }
@@ -631,6 +639,19 @@ function App() {
       activePlanVersionIdRef.current = view.active_plan_version_id ?? null;
       setSessionId(view.session_id);
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
+      const restoredLifecycle = Object.fromEntries(
+        restoredResponses
+          .filter((item) => item.recovery_outcome?.interaction_id)
+          .map((item) => [
+            item.recovery_outcome!.interaction_id!,
+            {
+              actionId: item.recovery_outcome!.action_id,
+              label: item.recovery_outcome!.label,
+              ...recoveryLifecycleFromResponse(item),
+            },
+          ]),
+      );
+      setRecoveryLifecycle(restoredLifecycle);
       setProgressEvents([]);
       setResponse(restoredResponse);
       setPlanningContext(view.planning_context ?? restoredResponse?.planning_context ?? null);

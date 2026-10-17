@@ -459,6 +459,16 @@ export type AgentResponse = {
   } | null;
   recovery?: RecoveryChoice | null;
   recovery_resolution?: "cancel_turn" | "start_new_request" | "keep_current_plan" | "open_constraint_editor" | null;
+  recovery_outcome?: {
+    interaction_id?: string | null;
+    action_id: string;
+    action_fingerprint?: string | null;
+    kind: string;
+    label: string;
+    status: "awaiting_input" | "succeeded" | "still_failed" | "cancelled" | "finished" | "retryable";
+    changed_fields: string[];
+    summary: string;
+  } | null;
   assumptions: Assumption[];
   constraint_summary: ConstraintSummaryItem[];
   plans: Plan[];

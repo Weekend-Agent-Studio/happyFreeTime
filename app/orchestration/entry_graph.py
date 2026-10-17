@@ -78,6 +78,7 @@ from app.domain.recovery import (
     OpenConstraintEditorAction,
     PendingInteraction,
     RecoveryActionResponse,
+    RecoveryAction,
     RecoveryChoiceInteraction,
     RecoveryDiagnostics,
     RecoveryKind,
@@ -287,6 +288,9 @@ class TurnResultState(TypedDict, total=False):
     auto_recovery_attempted: bool
     used_recovery_action_ids: tuple[str, ...]
     recovery_resolution: str | None
+    recovery_applied_action: RecoveryAction | None
+    recovery_interaction_id: str | None
+    recovery_changed_fields: tuple[str, ...]
     new_request_pending: bool
     # Request committed before the current turn started.  A failed planning
     # draft may temporarily become the active execution input, but cancelling
@@ -502,6 +506,9 @@ def build_entry_graph(
             "recovery_response": None,
             "recovery_auto_action": None,
             "recovery_resolution": None,
+            "recovery_applied_action": None,
+            "recovery_interaction_id": None,
+            "recovery_changed_fields": (),
             "auto_recovery_attempted": False,
             "used_recovery_action_ids": (),
             "new_request_pending": False,

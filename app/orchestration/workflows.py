@@ -1128,6 +1128,7 @@ class RecoveryWorkflow:
         plan_version_id = state.get("active_plan_version_id")
         response = state.get("recovery_response")
         action: RecoveryAction | None
+        interaction_id: str | None = None
 
         if automatic is not None:
             if not isinstance(automatic, ApplyRequestPatchAction) or not automatic.auto_eligible:
@@ -1143,6 +1144,7 @@ class RecoveryWorkflow:
                 or not isinstance(interaction, RecoveryChoiceInteraction)
             ):
                 raise ValueError("recovery action requires a current response")
+            interaction_id = interaction.interaction_id
             if (
                 response.request_revision != request.revision
                 or response.plan_version_id != plan_version_id
@@ -1177,6 +1179,8 @@ class RecoveryWorkflow:
                 request=request,
                 continuation=action.continuation,
                 action_id=action.action_id,
+                action=action,
+                interaction_id=interaction_id,
                 automatic=automatic is not None,
             )
 
@@ -1213,6 +1217,8 @@ class RecoveryWorkflow:
                 request=request,
                 continuation=action.continuation,
                 action_id=action.action_id,
+                action=action,
+                interaction_id=interaction_id,
                 automatic=False,
             )
 
@@ -1232,6 +1238,9 @@ class RecoveryWorkflow:
             "used_recovery_action_ids": (
                 used if automatic is not None else (*used, action.action_id)
             ),
+            "recovery_applied_action": action,
+            "recovery_interaction_id": interaction_id,
+            "recovery_changed_fields": (),
         }
         if isinstance(action, ReplanCurrentRequestAction):
             return WorkflowResult(
@@ -1300,6 +1309,8 @@ class RecoveryWorkflow:
         request: PlanRequest,
         continuation: str,
         action_id: str,
+        action: RecoveryAction,
+        interaction_id: str | None,
         automatic: bool,
     ) -> WorkflowResult:
         used = tuple(state.get("used_recovery_action_ids", ()))
@@ -1310,8 +1321,18 @@ class RecoveryWorkflow:
             "recovery_prevalidated_request": None,
             "pending_interaction": None,
             "used_recovery_action_ids": used_actions,
+            "recovery_applied_action": action,
+            "recovery_interaction_id": interaction_id,
+            "recovery_changed_fields": (),
         }
         if isinstance(result, ResolvedRequest):
+            changed_fields = (
+                tuple(sorted(set(action.patch.set_fields) | set(action.patch.clear_fields)))
+                if isinstance(action, ApplyRequestPatchAction)
+                and result.request.revision > request.revision
+                else (action.field,) if isinstance(action, RequestFieldAction) and result.request.revision > request.revision else ()
+            )
+            common["recovery_changed_fields"] = changed_fields
             return WorkflowResult(
                 updates={
                     **common,

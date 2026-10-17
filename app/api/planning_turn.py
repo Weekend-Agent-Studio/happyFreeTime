@@ -36,7 +36,7 @@ from app.domain.run_trace import (
     RunEventStatus,
     RunStage,
 )
-from app.domain.recovery import RecoveryActionResponse
+from app.domain.recovery import RecoveryActionResponse, RecoveryOutcome
 from app.domain.semantics import SemanticRequest
 from app.orchestration.entry_graph import EnvironmentProvider, checkpoint_config
 from app.persistence.repositories import SessionRepository
@@ -598,6 +598,10 @@ class PlanningTurnApplication:
                     reply=recovery_summary,
                     question=question if isinstance(question, dict) else None,
                     recovery=recovery if isinstance(recovery, dict) else None,
+                    recovery_outcome=_recovery_outcome(
+                        current,
+                        status="needs_recovery" if is_recovery else "needs_input",
+                    ),
                     assumptions=_dump_assumptions(result),
                     constraint_summary=_dump_constraint_summary(result),
                     **_candidate_set_response_fields(candidate_set),
@@ -785,6 +789,11 @@ class PlanningTurnApplication:
                 status="context_saved" if context_saved else "completed",
                 reply="" if context_saved else reply,
                 recovery_resolution=recovery_resolution,
+                recovery_outcome=_recovery_outcome(
+                    result,
+                    status="completed" if not context_saved else "context_saved",
+                    resolution=recovery_resolution,
+                ),
                 assumptions=_dump_assumptions(result),
                 constraint_summary=_dump_constraint_summary(result),
                 **_candidate_set_response_fields(candidate_set),
@@ -958,6 +967,57 @@ def _dump_assumptions(result: dict) -> list[dict]:
         item.model_dump(mode="json") if hasattr(item, "model_dump") else item
         for item in assumptions
     ]
+
+
+def _recovery_outcome(
+    values: object,
+    *,
+    status: str,
+    resolution: str | None = None,
+) -> RecoveryOutcome | None:
+    """Project the consumed recovery action into a refresh-safe response fact."""
+
+    if isinstance(values, dict):
+        state_values = values
+    else:
+        snapshot_values = getattr(values, "values", None)
+        state_values = snapshot_values if isinstance(snapshot_values, dict) else {}
+    action = state_values.get("recovery_applied_action")
+    if action is None:
+        return None
+    payload = (
+        action.model_dump(mode="json")
+        if hasattr(action, "model_dump")
+        else dict(action)
+    )
+    if resolution == "cancel_turn":
+        outcome_status = "cancelled"
+        summary = "本轮已取消，原方案和已确认条件保持不变。"
+    elif resolution is not None:
+        outcome_status = "finished"
+        summary = "恢复操作已结束，当前条件没有被继续修改。"
+    elif status == "completed":
+        outcome_status = "succeeded"
+        summary = "调整已应用，新的方案已生成并重新核验。"
+    elif status == "needs_recovery":
+        outcome_status = "still_failed"
+        summary = "调整已应用，但当前条件下仍未找到可行方案；已生成新的恢复选项。"
+    elif status == "needs_input":
+        outcome_status = "awaiting_input"
+        summary = "调整已提交，还需要补充一个条件。"
+    else:
+        outcome_status = "retryable"
+        summary = "恢复操作未完成，当前操作仍可重试。"
+    return RecoveryOutcome(
+        interaction_id=state_values.get("recovery_interaction_id"),
+        action_id=str(payload.get("action_id", "recovery-action")),
+        action_fingerprint=payload.get("action_fingerprint"),
+        kind=str(payload.get("kind", "recovery")),
+        label=str(payload.get("label", "恢复操作")),
+        status=outcome_status,
+        changed_fields=tuple(state_values.get("recovery_changed_fields") or ()),
+        summary=summary,
+    )
 
 
 def _candidate_set_response_fields(candidate_set: CandidateSet | None) -> dict[str, Any]:

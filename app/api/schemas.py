@@ -13,7 +13,7 @@ from app.domain.constraints import (
 )
 from app.domain.runtime import RuntimeDecision
 from app.domain.run_trace import FailureEnvelope, PlanningRunTrace
-from app.domain.recovery import RecoveryActionResponse, RecoveryChoiceInteraction
+from app.domain.recovery import RecoveryActionResponse, RecoveryChoiceInteraction, RecoveryOutcome
 
 
 T = TypeVar("T")
@@ -282,6 +282,7 @@ class AgentResponse(BaseModel):
         "keep_current_plan",
         "open_constraint_editor",
     ] | None = None
+    recovery_outcome: RecoveryOutcome | None = None
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
     constraint_summary: list[ConstraintSummaryItem] = Field(default_factory=list)
     plans: list[dict[str, Any]] = Field(default_factory=list)

@@ -260,3 +260,30 @@ class RecoveryDecision(BaseModel):
     actions: tuple[RecoveryAction, ...] = ()
     auto_action: ApplyRequestPatchAction | None = None
     stale: bool = False
+
+
+class RecoveryOutcome(BaseModel):
+    """Persisted result of one user-confirmed recovery action.
+
+    The interaction card may disappear after resume, but this small projection
+    remains in the response/history so clients can explain what changed after
+    refresh without replaying the Graph checkpoint.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    interaction_id: str | None = Field(default=None, max_length=128)
+    action_id: str = Field(min_length=1, max_length=120)
+    action_fingerprint: str | None = Field(default=None, max_length=160)
+    kind: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=100)
+    status: Literal[
+        "awaiting_input",
+        "succeeded",
+        "still_failed",
+        "cancelled",
+        "finished",
+        "retryable",
+    ]
+    changed_fields: tuple[str, ...] = ()
+    summary: str = Field(min_length=1, max_length=240)
