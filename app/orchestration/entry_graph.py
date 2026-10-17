@@ -287,6 +287,7 @@ class TurnResultState(TypedDict, total=False):
     recovery_auto_failed: bool
     auto_recovery_attempted: bool
     used_recovery_action_ids: tuple[str, ...]
+    used_recovery_action_fingerprints: tuple[str, ...]
     recovery_resolution: str | None
     recovery_applied_action: RecoveryAction | None
     recovery_interaction_id: str | None
@@ -511,6 +512,7 @@ def build_entry_graph(
             "recovery_changed_fields": (),
             "auto_recovery_attempted": False,
             "used_recovery_action_ids": (),
+            "used_recovery_action_fingerprints": (),
             "new_request_pending": False,
             "turn_base_request": turn_base_request,
             **(

@@ -316,6 +316,10 @@ class RecoveryPolicy:
             )
         )
         actions = self._bounded_actions(actions)
+        if auto_action is not None:
+            auto_action = auto_action.model_copy(
+                update={"action_fingerprint": self._fingerprint(auto_action)}
+            )
         return RecoveryDecision(
             reason=reason,
             actions=tuple(actions),

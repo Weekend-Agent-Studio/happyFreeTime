@@ -1047,11 +1047,14 @@ class RecoveryWorkflow:
             current_plan_version_id=plan_version_id,
         )
         used_actions = tuple(state.get("used_recovery_action_ids", ()))
+        used_fingerprints = tuple(state.get("used_recovery_action_fingerprints", ()))
         decision = decision.model_copy(
             update={
                 "actions": tuple(
                     action for action in decision.actions
-                    if action.action_id not in used_actions
+                    if (
+                        action.action_fingerprint or action.action_id
+                    ) not in used_fingerprints
                 ),
                 "auto_action": (
                     None
@@ -1092,6 +1095,10 @@ class RecoveryWorkflow:
                         "recovery_auto_failed": False,
                         "auto_recovery_attempted": True,
                         "used_recovery_action_ids": (*used_actions, auto_action.action_id),
+                        "used_recovery_action_fingerprints": (
+                            *used_fingerprints,
+                            auto_action.action_fingerprint or auto_action.action_id,
+                        ),
                     },
                     route=WorkflowRoute.APPLY_RECOVERY_ACTION,
                     outcome=WorkflowOutcome.RECOVERY,
@@ -1223,6 +1230,7 @@ class RecoveryWorkflow:
             )
 
         used = tuple(state.get("used_recovery_action_ids", ()))
+        used_fingerprints = tuple(state.get("used_recovery_action_fingerprints", ()))
         common = {
             "pending_interaction": None,
             "recovery_response": None,
@@ -1237,6 +1245,14 @@ class RecoveryWorkflow:
             "recovery_continuation": None,
             "used_recovery_action_ids": (
                 used if automatic is not None else (*used, action.action_id)
+            ),
+            "used_recovery_action_fingerprints": (
+                used_fingerprints
+                if automatic is not None
+                else (
+                    *used_fingerprints,
+                    action.action_fingerprint or action.action_id,
+                )
             ),
             "recovery_applied_action": action,
             "recovery_interaction_id": interaction_id,
@@ -1314,13 +1330,20 @@ class RecoveryWorkflow:
         automatic: bool,
     ) -> WorkflowResult:
         used = tuple(state.get("used_recovery_action_ids", ()))
+        used_fingerprints = tuple(state.get("used_recovery_action_fingerprints", ()))
         used_actions = used if automatic else (*used, action_id)
+        used_action_fingerprints = (
+            used_fingerprints
+            if automatic
+            else (*used_fingerprints, action.action_fingerprint or action_id)
+        )
         common = {
             "recovery_response": None,
             "recovery_auto_action": None,
             "recovery_prevalidated_request": None,
             "pending_interaction": None,
             "used_recovery_action_ids": used_actions,
+            "used_recovery_action_fingerprints": used_action_fingerprints,
             "recovery_applied_action": action,
             "recovery_interaction_id": interaction_id,
             "recovery_changed_fields": (),
@@ -1442,6 +1465,7 @@ class RecoveryWorkflow:
         )
         decision = self._prepare_question(question)
         used = tuple(state.get("used_recovery_action_ids", ()))
+        used_fingerprints = tuple(state.get("used_recovery_action_fingerprints", ()))
         updates: dict[str, object] = {
             "recovery_base_request": state.get("recovery_base_request"),
             "pending_request_base": request,
@@ -1460,6 +1484,14 @@ class RecoveryWorkflow:
             "pending_issues": (issue,) if issue is not None else (),
             "used_recovery_action_ids": (
                 used if not action_consumed else (*used, action.action_id)
+            ),
+            "used_recovery_action_fingerprints": (
+                used_fingerprints
+                if not action_consumed
+                else (
+                    *used_fingerprints,
+                    action.action_fingerprint or action.action_id,
+                )
             ),
         }
         return WorkflowResult(
