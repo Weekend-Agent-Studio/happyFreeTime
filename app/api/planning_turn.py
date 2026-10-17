@@ -12,6 +12,7 @@ import uuid
 from typing import Any, Callable
 
 from langgraph.types import Command
+from pydantic import ValidationError as PydanticValidationError
 
 from app.api.planning_context import PlanningContextApplication
 from app.api.schemas import AgentResponse, ConstraintSummaryItem, MessageRequest, PlanningContextSummary
@@ -918,7 +919,7 @@ def _failure_envelope(
         diagnostic_code = "PROVIDER_TEMPORARY_FAILURE"
         retryable = True
         public_message = "外部服务暂时不可用，本轮没有修改当前方案，可以重试。"
-    elif isinstance(error, (ValueError, TypeError)):
+    elif isinstance(error, PydanticValidationError):
         diagnostic_code = "INPUT_VALIDATION_FAILURE"
         retryable = False
         public_message = "本轮规划条件或结构校验未完成，当前方案没有被修改。"
