@@ -6,6 +6,7 @@ import math
 
 from app.domain.constraints import (
     ConstraintSource,
+    ConstraintValue,
     PlanRequest,
     RequestPatch,
 )
@@ -72,8 +73,18 @@ class RecoveryPolicy:
         actions = []
         auto_action = None
 
+        schedule_bottleneck = (
+            reason.code in {"NO_SCHEDULE_WITHIN_TIME_WINDOW", "NO_PLAN_AFTER_LOCAL_REPLAN"}
+            or reason.stage == RecoveryStage.SCHEDULING
+            or (
+                reason.diagnostics.local_schedule_failures > 0
+                and reason.diagnostics.local_schedule_passes == 0
+            )
+        )
+
         if (
-            reason.code in _DISTANCE_FAILURE_CODES
+            not schedule_bottleneck
+            and reason.code in _DISTANCE_FAILURE_CODES
             and "max_distance_km" in reason.fields
             and request.max_distance_km is not None
         ):
@@ -137,8 +148,10 @@ class RecoveryPolicy:
 
         if (
             reason.kind == RecoveryKind.NO_FEASIBLE_PLAN
-            and reason.stage in {RecoveryStage.PLAN_STRUCTURE, RecoveryStage.SCHEDULING}
-            and "exact_stop_count" in reason.fields
+            and (
+                reason.stage in {RecoveryStage.PLAN_STRUCTURE, RecoveryStage.SCHEDULING}
+                or schedule_bottleneck
+            )
             and request.exact_stop_count is not None
         ):
             current_count = request.exact_stop_count.value
@@ -166,7 +179,53 @@ class RecoveryPolicy:
                     )
                 )
 
+        if schedule_bottleneck:
+            end_at = request.planning_window.end_at
+            target_end = self._extended_end_time(
+                request,
+                reason.diagnostics.optimistic_duration_minutes,
+            )
+            if end_at is not None and target_end is not None:
+                end_value = ConstraintValue[str](
+                    value=target_end,
+                    source=ConstraintSource.SESSION_CONFIRMED,
+                    raw_text=f"延长到 {target_end}",
+                    rule_id="recovery.schedule.extend_end.v1",
+                )
+                actions.insert(
+                    0,
+                    ApplyRequestPatchAction(
+                        action_id=f"extend-end-r{request.revision}-{target_end.replace(':', '')}",
+                        kind="apply_request_patch",
+                        label=f"延长到 {target_end} 并重新规划",
+                        description="当前主要瓶颈是可用时间不足；这是一次用户确认的时间调整。",
+                        request_revision=request.revision,
+                        plan_version_id=plan_version_id,
+                        continuation=(
+                            "modify"
+                            if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                            else "plan"
+                        ),
+                        patch=RequestPatch(
+                            base_revision=request.revision,
+                            set_fields={"planning_window.end_at": end_value},
+                            source=ConstraintSource.SESSION_CONFIRMED,
+                            field_sources={"planning_window.end_at": ConstraintSource.SESSION_CONFIRMED},
+                            evidence={
+                                "planning_window.end_at": (
+                                    f"排程失败；可用时间 {reason.diagnostics.available_minutes or '未知'} 分钟"
+                                )
+                            },
+                        ),
+                    ),
+                )
+
         for field in reason.fields:
+            # Once the funnel identifies schedule capacity as the bottleneck,
+            # distance edits are unrelated and create the misleading loop that
+            # previously appeared after every revision.
+            if schedule_bottleneck and field in {"max_distance_km", "total_distance_km"}:
+                continue
             metadata = _FIELD_INPUTS.get(field)
             if metadata is None:
                 continue
@@ -299,7 +358,48 @@ class RecoveryPolicy:
             return (9, action.action_id)
 
         suggestions.sort(key=priority)
-        return [*suggestions[:3], *fixed]
+        bounded = [*suggestions[:3], *fixed]
+        return [
+            action.model_copy(update={"action_fingerprint": RecoveryPolicy._fingerprint(action)})
+            for action in bounded
+        ]
+
+    @staticmethod
+    def _fingerprint(action: RecoveryAction) -> str:
+        if isinstance(action, ApplyRequestPatchAction):
+            fields = ",".join(sorted(action.patch.set_fields))
+            values = ",".join(
+                f"{key}={action.patch.set_fields[key]}"
+                for key in sorted(action.patch.set_fields)
+            )
+            return f"apply_request_patch:{fields}:{values}"
+        if isinstance(action, RequestFieldAction):
+            return f"request_field:{action.field}"
+        return action.kind
+
+    @staticmethod
+    def _extended_end_time(
+        request: PlanRequest,
+        optimistic_duration_minutes: int | None,
+    ) -> str | None:
+        end_at = request.planning_window.end_at
+        if end_at is None:
+            return None
+        hour, minute = (int(part) for part in end_at.value.split(":"))
+        current = hour * 60 + minute
+        # Prefer the observed optimistic lower bound when available; otherwise
+        # offer one bounded two-hour extension. Never invent a time past day end.
+        start_at = request.planning_window.start_at
+        if optimistic_duration_minutes is not None and start_at is not None:
+            start_hour, start_minute = (int(part) for part in start_at.value.split(":"))
+            target = start_hour * 60 + start_minute + optimistic_duration_minutes
+            target = max(target, current + 60)
+        else:
+            target = current + 120
+        target = min(target, 23 * 60 + 59)
+        if target <= current:
+            return None
+        return f"{target // 60:02d}:{target % 60:02d}"
 
     @staticmethod
     def _next_distance(current: float, nearest: float | None) -> float | None:

@@ -411,6 +411,7 @@ def _safe_recovery_action(action: dict[str, Any]) -> dict[str, Any]:
     fields = sorted(_patch_action_fields(action))
     return {
         "action_id": action.get("action_id"),
+        "action_fingerprint": action.get("action_fingerprint"),
         "kind": action.get("kind"),
         "field": action.get("field"),
         "patch_fields": fields,
@@ -1390,16 +1391,30 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         and row.get("execution_status") == "executed"
         and row.get("http_status") == 200
     ]
-    recovery_action_ids = [
-        ((row.get("selected_recovery_action") or {}).get("action_id"))
+    recovery_mutation_rows = [
+        row
+        for row in recovery_rows
+        if (row.get("selected_recovery_action") or {}).get("kind")
+        in {"apply_request_patch", "request_field"}
+    ]
+    recovery_mutations_applied = sum(
+        bool(row.get("request_constraint_changes"))
+        for row in recovery_mutation_rows
+    )
+    recovery_action_fingerprints = [
+        (
+            (row.get("selected_recovery_action") or {}).get("action_fingerprint")
+            or (row.get("selected_recovery_action") or {}).get("kind")
+            or (row.get("selected_recovery_action") or {}).get("action_id")
+        )
         for row in recovery_rows
     ]
     repeated_ineffective_recovery_count = sum(
         int(row.get("status") == "needs_recovery") for row in recovery_rows
     ) + sum(
         1
-        for index, action_id in enumerate(recovery_action_ids)
-        if action_id and action_id in recovery_action_ids[:index]
+        for index, fingerprint in enumerate(recovery_action_fingerprints)
+        if fingerprint and fingerprint in recovery_action_fingerprints[:index]
     )
     expected_absent_fields = expected_final.get("absent_constraint_fields", [])
     leaked_fields = [
@@ -1430,6 +1445,8 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         "clarification_recovered": _clarification_resume_succeeded(transcript),
         "recovery_action_steps": recovery_steps,
         "recovery_action_steps_http_success": recovery_steps_ok,
+        "recovery_action_mutation_steps": len(recovery_mutation_rows),
+        "recovery_action_mutations_applied": recovery_mutations_applied,
         "recovery_to_feasible_plan_numerator": recovery_to_feasible_plan_numerator,
         "recovery_to_feasible_plan_denominator": len(recovery_rows),
         "repeated_ineffective_recovery_count": repeated_ineffective_recovery_count,
@@ -1624,8 +1641,8 @@ def main() -> int:
                 "denominator": sum(int(item.get("recovery_action_steps", 0)) for item in executed),
             },
             "recovery_action_applied_rate": {
-                "numerator": sum(int(item.get("recovery_action_steps_http_success", 0)) for item in executed),
-                "denominator": sum(int(item.get("recovery_action_steps", 0)) for item in executed),
+                "numerator": sum(int(item.get("recovery_action_mutations_applied", 0)) for item in executed),
+                "denominator": sum(int(item.get("recovery_action_mutation_steps", 0)) for item in executed),
             },
             "recovery_to_feasible_plan_rate": {
                 "numerator": sum(int(item.get("recovery_to_feasible_plan_numerator", 0)) for item in executed),

@@ -248,6 +248,9 @@ class SessionRepository:
                         should_execute=False,
                     )
                 existing.status = "running"
+                # A retry reuses the logical run, so the previous safe failure
+                # must not survive beside the eventual response in history.
+                existing.failure_json = None
                 existing.updated_at = now
                 session = database.get(SessionRecord, session_id)
                 if session is not None:
@@ -459,6 +462,9 @@ class SessionRepository:
                     )
                 )
             planning_run.status = status
+            # A successful/question/recovery response supersedes any previous
+            # failure recorded for this retried logical run.
+            planning_run.failure_json = None
             planning_run.response_json = json.dumps(response, ensure_ascii=False)
             planning_run.updated_at = now
             session = database.get(SessionRecord, session_id)

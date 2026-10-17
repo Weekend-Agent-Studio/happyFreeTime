@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.domain.constraints import ConstraintSource, ConstraintValue, PlanRequest
+from app.domain.constraints import ConstraintSource, ConstraintValue, PlanRequest, PlanningWindow
 from app.domain.recovery import (
     ApplyRequestPatchAction,
     OpenConstraintEditorAction,
@@ -248,6 +248,48 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(
             len({item.action_id for item in decision.actions}), len(decision.actions)
         )
+
+    def test_schedule_failure_prioritizes_time_or_stop_count_over_distance(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            planning_window=PlanningWindow(
+                start_at=ConstraintValue(value="14:00", source=ConstraintSource.DEFAULT_RULE),
+                end_at=ConstraintValue(value="18:00", source=ConstraintSource.DEFAULT_RULE),
+            ),
+            exact_stop_count=ConstraintValue(
+                value=4, source=ConstraintSource.USER_EXPLICIT, raw_text="四站"
+            ),
+            max_distance_km=ConstraintValue(
+                value=5.0, source=ConstraintSource.USER_EXPLICIT, raw_text="5公里内"
+            ),
+        )
+        reason = RecoveryReason(
+            code="NO_SCHEDULE_WITHIN_TIME_WINDOW",
+            kind=RecoveryKind.NO_FEASIBLE_PLAN,
+            stage=RecoveryStage.SCHEDULING,
+            fields=("duration_minutes", "max_distance_km"),
+            request_revision=3,
+            public_summary="四站行程在当前时间内无法排程。",
+            diagnostics=RecoveryDiagnostics(
+                current_max_distance_km=5.0,
+                requested_stop_count=4,
+                available_minutes=240,
+                local_schedule_failures=174,
+                local_schedule_passes=0,
+                rejected_by_route=2,
+            ),
+        )
+
+        decision = self.policy.decide(reason, request)
+        patches = [
+            item
+            for item in decision.actions
+            if isinstance(item, ApplyRequestPatchAction)
+        ]
+        self.assertTrue(any("planning_window.end_at" in item.patch.set_fields for item in patches))
+        self.assertTrue(any(item.patch.set_fields.get("exact_stop_count") == 3 for item in patches))
+        self.assertFalse(any("max_distance_km" in item.patch.set_fields for item in patches))
+        self.assertTrue(all(item.action_fingerprint for item in decision.actions))
 
 
 if __name__ == "__main__":

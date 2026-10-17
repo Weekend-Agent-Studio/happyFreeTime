@@ -7,9 +7,9 @@
   "metric_definitions": {
     "silent_failure_count": "A failed or interrupted response without its typed failure, question, conflict, or recovery envelope.",
     "unexplained_repeat_question_count": "Repeated clarification fields that are not accompanied by a changed strategy or an explicit exit.",
-    "recovery_action_applied_rate": "Recovery actions accepted by the HTTP API divided by submitted recovery actions.",
+    "recovery_action_applied_rate": "Typed mutation recovery actions whose target request fields changed, divided by submitted typed mutation recovery actions; HTTP success alone is not sufficient.",
     "recovery_to_feasible_plan_rate": "Accepted recovery actions whose response contains at least one feasible plan divided by accepted recovery actions.",
-    "repeated_ineffective_recovery_count": "A recovery action that still returns recovery, or repeats the same action identifier in one case.",
+    "repeated_ineffective_recovery_count": "A recovery action that still returns recovery, or repeats the same semantic action fingerprint in one case.",
     "new_request_constraint_leak_count": "Explicit new-request cases where constraints declared absent remain in the final request.",
     "failure_diagnosis_coverage": "Failure or recovery responses carrying a typed public diagnosis divided by failure/recovery responses.",
     "modification_failure_preservation_rate": "Failed replacement cases preserving the active PlanVersion divided by evaluable failed replacement cases."

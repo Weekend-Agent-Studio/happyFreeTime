@@ -150,6 +150,11 @@ class _RecoveryAction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action_id: str = Field(min_length=1, max_length=120)
+    # Stable semantic identity across request revisions.  ``action_id`` is a
+    # UI/concurrency token and may change when a new recovery card is issued;
+    # this field lets the evaluator and policy suppress the same ineffective
+    # recovery operation without conflating stale interactions.
+    action_fingerprint: str | None = Field(default=None, min_length=1, max_length=160)
     label: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=240)
     request_revision: int = Field(ge=0)

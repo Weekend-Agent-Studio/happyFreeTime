@@ -399,6 +399,7 @@ export type PlanningContextPatch = {
 
 export type RecoveryAction = {
   action_id: string;
+  action_fingerprint?: string | null;
   label: string;
   description: string;
   request_revision: number;

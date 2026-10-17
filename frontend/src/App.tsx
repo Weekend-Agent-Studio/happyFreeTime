@@ -1296,6 +1296,8 @@ const RECOVERY_FIELD_LABELS: Record<string, string> = {
   return_by: "最晚回家时间",
   start_at: "出发时间",
   end_at: "结束时间",
+  "planning_window.end_at": "结束时间",
+  "planning_window.start_at": "出发时间",
   trip_time_scope: "出行时段",
 };
 
