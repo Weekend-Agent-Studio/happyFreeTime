@@ -401,7 +401,7 @@ def build_entry_graph(
         )
         start_fresh_request = bool(state.get("new_request_pending", False)) or (
             has_prior_context
-            and _explicit_new_request_requested(state.get("user_input", ""))
+            and TurnCompiler.is_explicit_new_request(state.get("user_input", ""))
         )
         turn_base_request = (
             PlanRequest()
@@ -1606,33 +1606,6 @@ def _interpret_with_runtime(
             "Router interpret_with_runtime must return TurnInterpreterResult"
         )
     return result
-
-
-_EXPLICIT_NEW_REQUEST_PHRASES = (
-    "开始新需求",
-    "换个需求",
-    "换一个需求",
-    "重新开始规划",
-    "从头规划",
-    "不按刚才的",
-    "不用刚才的条件",
-    "清空刚才的条件",
-    "另一个行程",
-    "重新来一个",
-)
-
-
-def _explicit_new_request_requested(user_input: str) -> bool:
-    """Recognize only unambiguous, user-authored reset phrases.
-
-    This intentionally is not a general intent parser.  It is a small safety
-    boundary around the existing ``new_request_pending`` path: phrases such
-    as ``预算再少点`` or ``换个活动`` remain ordinary patches/modifications,
-    while an explicit request to discard the previous context starts clean.
-    """
-
-    normalized = "".join(str(user_input).split())
-    return any(phrase in normalized for phrase in _EXPLICIT_NEW_REQUEST_PHRASES)
 
 
 def default_environment_provider(actor: ActorContext) -> EnvironmentContext:

@@ -214,6 +214,26 @@ def user_act_kind_for_action(action: CompiledNextAction | None) -> UserActKind |
 class TurnCompiler:
     """Compile a bounded semantic proposal into one executable action."""
 
+    _EXPLICIT_NEW_REQUEST_PHRASES = (
+        "开始新需求",
+        "换个需求",
+        "换一个需求",
+        "重新开始规划",
+        "从头规划",
+        "不按刚才的",
+        "不用刚才的条件",
+        "清空刚才的条件",
+        "另一个行程",
+        "重新来一个",
+    )
+
+    @classmethod
+    def is_explicit_new_request(cls, user_input: str) -> bool:
+        """Classify an unambiguous reset request at the semantic boundary."""
+
+        normalized = "".join(str(user_input).split())
+        return any(phrase in normalized for phrase in cls._EXPLICIT_NEW_REQUEST_PHRASES)
+
     @classmethod
     def compile(
         cls,
