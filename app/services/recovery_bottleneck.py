@@ -50,11 +50,11 @@ def resolve_primary_bottleneck(
     if reason.stage == RecoveryStage.AVAILABILITY:
         return PrimaryBottleneck(
             kind=PrimaryBottleneckKind.AVAILABILITY,
-            evidence_codes=tuple(dict.fromkeys((*codes, "availability"))),
-            affected_fields=("date", "time_window", "availability"),
-            evidence_summary=(
-                f"营业状态复核淘汰 {facts.rejected_by_availability} 个候选"
+            evidence_codes=tuple(
+                dict.fromkeys((*codes, "availability", *facts.availability_failure_codes))
             ),
+            affected_fields=("date", "time_window", "availability"),
+            evidence_summary=_availability_summary(facts),
         )
 
     if reason.stage == RecoveryStage.ROUTE:
@@ -108,11 +108,11 @@ def resolve_primary_bottleneck(
     if facts.rejected_by_availability > 0:
         return PrimaryBottleneck(
             kind=PrimaryBottleneckKind.AVAILABILITY,
-            evidence_codes=tuple(dict.fromkeys((*codes, "availability"))),
-            affected_fields=("date", "time_window", "availability"),
-            evidence_summary=(
-                f"营业状态复核淘汰 {facts.rejected_by_availability} 个候选"
+            evidence_codes=tuple(
+                dict.fromkeys((*codes, "availability", *facts.availability_failure_codes))
             ),
+            affected_fields=("date", "time_window", "availability"),
+            evidence_summary=_availability_summary(facts),
         )
 
     if facts.route_verification_failures > 0 or facts.rejected_by_route > 0:
@@ -200,3 +200,20 @@ def _distance_summary(facts: RecoveryDiagnostics) -> str:
             f"最近候选约 {facts.nearest_candidate_distance_km:g} km"
         )
     return "候选或路线距离超出当前搜索范围"
+
+
+def _availability_summary(facts: RecoveryDiagnostics) -> str:
+    codes = set(facts.availability_failure_codes)
+    if "visit_outside_opening_hours" in codes:
+        return "候选地点的营业时间与计划到访时段不匹配"
+    if "availability_verified_unavailable" in codes:
+        return f"动态事实确认 {facts.rejected_by_availability} 个候选不可用"
+    if "availability_provider_degraded" in codes:
+        return "营业状态服务返回降级或过期结果，需要重新核查"
+    if "availability_fact_missing" in codes:
+        return "部分候选缺少营业状态核验结果，需要重新核查"
+    if "availability_unknown_requires_explicit_acceptance" in codes:
+        return "动态可用性结果为未知，需用户决定是否接受未确认状态"
+    if "availability_unconfirmed" in codes or "availability_confirmation_required" in codes:
+        return "当前动态可用性信息不足以确认地点有位"
+    return f"营业状态复核淘汰 {facts.rejected_by_availability} 个候选"

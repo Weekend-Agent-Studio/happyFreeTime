@@ -43,6 +43,17 @@ _ROUTE_REJECTION_KEYS = frozenset(
     {"route_distance", "max_distance_km", "total_distance_km", "route_time"}
 )
 _ROUTE_FINDING_FIELDS = _ROUTE_REJECTION_KEYS | {"opening_hours"}
+_AVAILABILITY_FAILURE_CODES = frozenset(
+    {
+        "availability_verified_unavailable",
+        "availability_unknown_requires_explicit_acceptance",
+        "availability_fact_missing",
+        "availability_confirmation_required",
+        "availability_unconfirmed",
+        "availability_provider_degraded",
+        "visit_outside_opening_hours",
+    }
+)
 
 
 class RecoveryReasonAdapter:
@@ -58,6 +69,7 @@ class RecoveryReasonAdapter:
         search_traces: Sequence[SkeletonSearchTrace] = (),
         catalog_violations: Sequence[ConstraintViolation] = (),
         route_failure_field_sets: Sequence[Iterable[str]] = (),
+        availability_failure_codes: Sequence[str] = (),
     ) -> RecoveryReason:
         fields = tuple(dict.fromkeys(field for field in conflict.fields if field))
         route_failure_sets = tuple(frozenset(items) for items in route_failure_field_sets)
@@ -82,6 +94,7 @@ class RecoveryReasonAdapter:
             search_traces,
             catalog_violations,
             route_failure_sets,
+            availability_failure_codes,
         )
         reason = RecoveryReason(
             code=conflict.code,
@@ -140,8 +153,11 @@ class RecoveryReasonAdapter:
                 if route_failure_sets
                 else RecoveryStage.RETRIEVAL
             )
+        availability_fields = {"availability", "opening_hours"}
         if route_failure_sets and all(
-            "availability" in finding for finding in route_failure_sets
+            bool(finding & availability_fields)
+            and finding.issubset(availability_fields)
+            for finding in route_failure_sets
         ):
             return RecoveryStage.AVAILABILITY
         if route_failure_sets:
@@ -167,6 +183,7 @@ class RecoveryReasonAdapter:
         traces: Sequence[SkeletonSearchTrace],
         violations: Sequence[ConstraintViolation],
         route_failure_sets: Sequence[frozenset[str]],
+        availability_failure_codes: Sequence[str] = (),
     ) -> RecoveryDiagnostics:
         rejected_by: dict[str, int] = {}
         for trace in traces:
@@ -270,6 +287,9 @@ class RecoveryReasonAdapter:
             rejected_by_time_window=rejected_by_time,
             rejected_by_route=max(rejected_by_route, route_finding_count),
             rejected_by_availability=availability_count,
+            availability_failure_codes=tuple(
+                sorted(set(availability_failure_codes) & _AVAILABILITY_FAILURE_CODES)
+            ),
             structures_considered=len(traces),
             combinations_expanded=sum(trace.expansions for trace in traces),
             route_candidates=sum(trace.route_candidates for trace in traces),

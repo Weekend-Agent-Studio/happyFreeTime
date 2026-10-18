@@ -189,20 +189,23 @@
       }
     },
     {
-      "case_id": "availability_question_uses_backend_choices",
-      "request": {"revision": 9},
+      "case_id": "availability_unknown_requires_explicit_acceptance",
+      "request": {"revision": 9, "require_availability_confirmation": true},
       "reason": {
         "code": "NO_PLAN_AFTER_AVAILABILITY",
         "kind": "no_feasible_plan",
         "stage": "availability",
         "fields": ["availability"],
         "request_revision": 9,
-        "public_summary": "当前时段的营业状态未能确认。"
+        "public_summary": "当前时段的营业状态未能确认。",
+        "diagnostics": {
+          "availability_failure_codes": ["availability_unknown_requires_explicit_acceptance"]
+        }
       },
       "expected": {
         "auto_action": false,
-        "availability_choices": ["必须确认"],
-        "required_action_kinds": ["request_field"]
+        "required_patch": {"require_availability_confirmation": false},
+        "required_action_kinds": ["apply_request_patch"]
       }
     }
   ]

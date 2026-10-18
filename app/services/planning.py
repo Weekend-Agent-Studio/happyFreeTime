@@ -790,6 +790,7 @@ class PlanningService:
         verification_warnings_by_plan: dict[str, tuple[VerificationFinding, ...]] = {}
         route_failure_fields: set[str] = set()
         route_failure_field_sets: list[set[str]] = []
+        availability_failure_codes: set[str] = set()
         availability_batches = 0
         route_leg_verifications = 0
         exhausted_repair_chain = False
@@ -912,6 +913,11 @@ class PlanningService:
                     batch_failure_field_sets.append(issue_fields)
                     route_failure_fields.update(issue_fields)
                     route_failure_field_sets.append(issue_fields)
+                    availability_failure_codes.update(
+                        violation.code
+                        for violation in verification.violations
+                        if violation.field in {"availability", "opening_hours"}
+                    )
                     repair = repair_coordinator.decide(
                         context=_RepairContext(
                             failed=attempt,
@@ -1185,6 +1191,7 @@ class PlanningService:
                     search_traces=local_result.search_traces,
                     catalog_violations=catalog_result.violations,
                     route_failure_field_sets=route_failure_field_sets,
+                    availability_failure_codes=tuple(availability_failure_codes),
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
@@ -1212,8 +1219,11 @@ class PlanningService:
             reported_failure_fields = (
                 universal_failure_fields or route_failure_fields
             )
+            availability_fields = {"availability", "opening_hours"}
             availability_failed_all = bool(route_failure_field_sets) and all(
-                "availability" in finding for finding in route_failure_field_sets
+                bool(finding & availability_fields)
+                and finding.issubset(availability_fields)
+                for finding in route_failure_field_sets
             )
             conflict = ConstraintConflict(
                 code=(
@@ -1224,7 +1234,7 @@ class PlanningService:
                     else "NO_PLAN_AFTER_ROUTE_VERIFICATION"
                 ),
                 message=(
-                    "动态可用性复核后，没有确认有位或可执行的候选地点。"
+                    "营业时间或动态可用性复核后，没有符合条件的候选地点。"
                     if availability_failed_all
                     else "路线和整单可行性复核后，候选方案均违反硬约束。"
                 ),
@@ -1243,6 +1253,7 @@ class PlanningService:
                     search_traces=local_result.search_traces,
                     catalog_violations=catalog_result.violations,
                     route_failure_field_sets=route_failure_field_sets,
+                    availability_failure_codes=tuple(availability_failure_codes),
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,

@@ -1491,7 +1491,7 @@ class NativePlanningBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result.plans, [])
         self.assertEqual(result.conflict.fields, ["opening_hours"])
-        self.assertEqual(result.recovery_reason.stage.value, "route")
+        self.assertEqual(result.recovery_reason.stage.value, "availability")
         self.assertEqual(result.recovery_reason.fields, ("opening_hours",))
         self.assertEqual(len(route_provider.requests), 24)
 

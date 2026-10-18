@@ -16,6 +16,7 @@ from evals.run_s_rx_multiturn import (
     _matches,
     _plan_stats,
     _replacement_diff_invariants,
+    _recovery_action_applied,
     _snapshot_diff,
     _snapshot_delta,
     _step_precondition,
@@ -512,6 +513,24 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
             diff,
             {"planning_window.start_at": {"before": "14:00", "after": "09:00"}},
         )
+
+    def test_recovery_applied_matches_nested_target_field_changes(self) -> None:
+        row = {
+            "selected_recovery_action": {
+                "kind": "apply_request_patch",
+                "patch_fields": ["max_distance_km"],
+            },
+            "request_constraint_changes": {
+                "max_distance_km.value": {"before": 12.0, "after": 18.0},
+            },
+        }
+
+        self.assertTrue(_recovery_action_applied(row))
+
+        row["request_constraint_changes"] = {
+            "planning_window.end_at.value": {"before": "18:00", "after": "20:00"},
+        }
+        self.assertFalse(_recovery_action_applied(row))
 
     def test_schedule_diagnostics_measure_stop_span_and_period_coverage(self) -> None:
         stats = _plan_stats(

@@ -64,6 +64,18 @@ RecoveryField: TypeAlias = Literal[
     "replacement_criteria",
 ]
 
+AvailabilityFailureCode: TypeAlias = Literal[
+    "availability_verified_unavailable",
+    "availability_unknown_requires_explicit_acceptance",
+    "availability_fact_missing",
+    # Retained for old persisted recovery records; new verifier findings use
+    # the more specific codes above and policy treats this legacy code safely.
+    "availability_confirmation_required",
+    "availability_unconfirmed",
+    "availability_provider_degraded",
+    "visit_outside_opening_hours",
+]
+
 
 class RecoveryDiagnostics(BaseModel):
     """Small numeric and provenance summary; never carries raw tool/model data."""
@@ -79,6 +91,7 @@ class RecoveryDiagnostics(BaseModel):
     rejected_by_time_window: int = Field(default=0, ge=0)
     rejected_by_route: int = Field(default=0, ge=0)
     rejected_by_availability: int = Field(default=0, ge=0)
+    availability_failure_codes: tuple[AvailabilityFailureCode, ...] = ()
     structures_considered: int = Field(default=0, ge=0)
     combinations_expanded: int = Field(default=0, ge=0)
     route_candidates: int = Field(default=0, ge=0)

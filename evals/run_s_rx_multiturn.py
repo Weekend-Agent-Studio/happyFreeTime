@@ -295,6 +295,7 @@ def _safe_recovery_diagnostics(reason: dict[str, Any]) -> dict[str, Any]:
         "rejected_by_time_window",
         "rejected_by_route",
         "rejected_by_availability",
+        "availability_failure_codes",
         "structures_considered",
         "combinations_expanded",
         "route_candidates",
@@ -402,6 +403,9 @@ def _patch_action_fields(action: dict[str, Any]) -> set[str]:
 
 def _recovery_action_fields(action: dict[str, Any]) -> set[str]:
     fields = {str(action["field"])} if action.get("field") else set()
+    projected_fields = action.get("patch_fields") or ()
+    if isinstance(projected_fields, (list, tuple, set)):
+        fields.update(str(field) for field in projected_fields if field)
     return fields | _patch_action_fields(action)
 
 
@@ -411,7 +415,13 @@ def _recovery_action_applied(row: dict[str, Any]) -> bool:
     action = row.get("selected_recovery_action") or {}
     target_fields = _recovery_action_fields(action)
     changed_fields = set(row.get("request_constraint_changes") or {})
-    return bool(target_fields & changed_fields)
+    return any(
+        target == changed
+        or target.startswith(f"{changed}.")
+        or changed.startswith(f"{target}.")
+        for target in target_fields
+        for changed in changed_fields
+    )
 
 
 def _recovery_bottleneck_kind(row: dict[str, Any]) -> str | None:
@@ -462,11 +472,15 @@ def _recovery_action_aligned(row: dict[str, Any]) -> bool:
             "adjust:planning_area",
             "reduce:stop_count",
             "edit:exact_stop_count",
-            "relax:preference",
-            "relax:role_requirements",
+            "edit:required_stop_roles",
         }
         or kind == "availability"
-        and strategy in {"edit:date", "edit:time_window", "adjust:constraints"}
+        and strategy in {
+            "edit:date",
+            "edit:time_window",
+            "adjust:constraints",
+            "retry:availability",
+        }
     )
 
 

@@ -52,7 +52,7 @@ _FIELD_INPUTS: dict[RecoveryField, tuple[str, str]] = {
     "location": ("出发地点", "text"),
     "planning_area": ("活动区域", "text"),
     "exact_stop_count": ("站点数量", "number"),
-    "availability": ("营业确认方式", "choice"),
+    "required_stop_roles": ("站点要求", "text"),
 }
 
 
@@ -175,6 +175,68 @@ class RecoveryPolicy:
                 )
             )
 
+        if primary_bottleneck.kind == PrimaryBottleneckKind.AVAILABILITY:
+            availability_codes = set(reason.diagnostics.availability_failure_codes)
+            if (
+                availability_codes
+                == {"availability_unknown_requires_explicit_acceptance"}
+                and request.require_availability_confirmation
+            ):
+                actions.append(
+                    ApplyRequestPatchAction(
+                        action_id=f"accept-unconfirmed-availability-r{request.revision}",
+                        kind="apply_request_patch",
+                        label="允许使用未确认可用状态的地点并重新规划",
+                        description="系统无法确认实际有位；生成后请自行向地点核实。",
+                        request_revision=request.revision,
+                        plan_version_id=plan_version_id,
+                        continuation=(
+                            "modify"
+                            if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                            else "plan"
+                        ),
+                        patch=RequestPatch(
+                            base_revision=request.revision,
+                            set_fields={"require_availability_confirmation": False},
+                            source=ConstraintSource.SESSION_CONFIRMED,
+                            evidence={
+                                "require_availability_confirmation": (
+                                    "用户明确接受动态可用性尚未确认"
+                                )
+                            },
+                        ),
+                    )
+                )
+            elif (
+                availability_codes
+                & {
+                    "availability_provider_degraded",
+                    "availability_fact_missing",
+                }
+                or (
+                    request.require_availability_confirmation
+                    and "availability_unconfirmed" in availability_codes
+                )
+            ) and not availability_codes & {
+                "visit_outside_opening_hours",
+                "availability_verified_unavailable",
+            }:
+                actions.append(
+                    ReplanCurrentRequestAction(
+                        action_id=f"retry-availability-r{request.revision}",
+                        kind="replan_current_request",
+                        label="重新核查营业状态并规划",
+                        description="本轮缺少足以判断的动态营业状态证据；系统将按原条件重新核查。",
+                        request_revision=request.revision,
+                        plan_version_id=plan_version_id,
+                        continuation=(
+                            "modify"
+                            if reason.kind == RecoveryKind.MODIFICATION_FAILED
+                            else "plan"
+                        ),
+                    )
+                )
+
         if (
             reason.kind == RecoveryKind.NO_FEASIBLE_PLAN
             and (
@@ -206,57 +268,6 @@ class RecoveryPolicy:
                             set_fields={"exact_stop_count": current_count - 1},
                             source=ConstraintSource.SESSION_CONFIRMED,
                             evidence={"exact_stop_count": "用户确认调整站点数量"},
-                        ),
-                    )
-                )
-
-        if primary_bottleneck.kind == PrimaryBottleneckKind.CANDIDATE_SUPPLY:
-            # These are explicit, user-confirmed relaxations.  They are only
-            # offered when the corresponding value exists; the policy never
-            # invents a role or silently deletes a preference.
-            if request.required_stop_roles is not None:
-                actions.append(
-                    ApplyRequestPatchAction(
-                        action_id=f"relax-role-requirements-r{request.revision}",
-                        kind="apply_request_patch",
-                        label="放宽必需站点类型并重新规划",
-                        description="保留站点数量，但不再强制每个指定的站点类型都必须出现。",
-                        request_revision=request.revision,
-                        plan_version_id=plan_version_id,
-                        continuation=(
-                            "modify"
-                            if reason.kind == RecoveryKind.MODIFICATION_FAILED
-                            else "plan"
-                        ),
-                        patch=RequestPatch(
-                            base_revision=request.revision,
-                            clear_fields=("required_stop_roles",),
-                            source=ConstraintSource.SESSION_CONFIRMED,
-                        ),
-                    )
-                )
-            for index, preference in enumerate(request.preferences[:1]):
-                remaining = tuple(
-                    item for item in request.preferences if item != preference
-                )
-                display = preference[:32]
-                actions.append(
-                    ApplyRequestPatchAction(
-                        action_id=f"relax-preference-{index}-r{request.revision}",
-                        kind="apply_request_patch",
-                        label=f"暂不考虑“{display}”并重新规划",
-                        description="仅移除这一条软偏好，其他条件保持不变。",
-                        request_revision=request.revision,
-                        plan_version_id=plan_version_id,
-                        continuation=(
-                            "modify"
-                            if reason.kind == RecoveryKind.MODIFICATION_FAILED
-                            else "plan"
-                        ),
-                        patch=RequestPatch(
-                            base_revision=request.revision,
-                            set_fields={"preferences": remaining},
-                            source=ConstraintSource.SESSION_CONFIRMED,
                         ),
                     )
                 )
@@ -307,12 +318,17 @@ class RecoveryPolicy:
             if metadata is None:
                 continue
             label, input_type = metadata
+            description = (
+                "诊断没有定位到具体缺少的类型；请填写你愿意保留的站点类型，用逗号或顿号分隔。支持活动、餐食、午餐、晚餐、休息；输入“不限制”可清除此要求。"
+                if field == "required_stop_roles"
+                else "修改后会重新检查约束并规划。"
+            )
             actions.append(
                 RequestFieldAction(
                     action_id=f"edit-{field}-r{request.revision}",
                     kind="request_field",
                     label=f"调整{label}",
-                    description="修改后会重新检查约束并规划。",
+                    description=description,
                     request_revision=request.revision,
                     plan_version_id=plan_version_id,
                     continuation=(
@@ -322,7 +338,6 @@ class RecoveryPolicy:
                     ),
                     field=field,
                     input_type=input_type,
-                    choices=self._field_choices(field, request),
                 )
             )
 
@@ -482,8 +497,9 @@ class RecoveryPolicy:
                 "planning_area",
                 "max_distance_km",
                 "exact_stop_count",
+                "required_stop_roles",
             ),
-            PrimaryBottleneckKind.AVAILABILITY: ("date", "time_window", "availability"),
+            PrimaryBottleneckKind.AVAILABILITY: ("date", "time_window"),
             PrimaryBottleneckKind.SEARCH_BUDGET: (),
             # Unknown evidence is not enough to choose a typed field.  Keep
             # the explicit editor below as the safe escape hatch instead of
@@ -491,6 +507,35 @@ class RecoveryPolicy:
             PrimaryBottleneckKind.UNKNOWN: (),
         }
         fields = by_kind.get(kind, ())
+        if (
+            kind == PrimaryBottleneckKind.CANDIDATE_SUPPLY
+            and request.required_stop_roles is not None
+        ):
+            # Aggregate candidate diagnostics do not identify which individual
+            # role is missing. Let the user edit the complete role requirement
+            # explicitly instead of deleting roles or preferences by guess.
+            fields = ("required_stop_roles",)
+        availability_codes = set(reason.diagnostics.availability_failure_codes)
+        availability_data_only = not availability_codes & {
+            "visit_outside_opening_hours",
+            "availability_verified_unavailable",
+        }
+        if (
+            kind == PrimaryBottleneckKind.AVAILABILITY
+            and availability_data_only
+            and (
+                availability_codes
+                & {"availability_provider_degraded", "availability_fact_missing"}
+                or (
+                    request.require_availability_confirmation
+                    and "availability_unconfirmed" in availability_codes
+                )
+            )
+        ):
+            # Missing, degraded, or unverified dynamic facts are not repaired
+            # by changing the user's date/time. Offer retry instead, unless
+            # the same run also has a concrete closed/unavailable finding.
+            fields = ()
         if kind == PrimaryBottleneckKind.TEMPORAL_CONFLICT:
             # A temporal contradiction is a field-edit problem, not a
             # capacity problem.  Restrict the editor choices to the exact
@@ -512,14 +557,6 @@ class RecoveryPolicy:
             or field in {"time_window", "departure_at", "return_by", "availability"}
         }
         return tuple(field for field in fields if field in available)
-
-    @staticmethod
-    def _field_choices(field: RecoveryField, request: PlanRequest) -> tuple[str, ...]:
-        if field != "availability":
-            return ()
-        # Do not present the current boolean value as a fake recovery action;
-        # selecting it would produce a no-op patch and the same failure card.
-        return ("不需要确认",) if request.require_availability_confirmation else ("必须确认",)
 
     @staticmethod
     def _filter_history(
@@ -623,6 +660,8 @@ class RecoveryPolicy:
         if isinstance(action, ReplanCurrentRequestAction):
             if action.action_id.startswith("retry-search-budget-"):
                 return "retry:search_budget"
+            if action.action_id.startswith("retry-availability-"):
+                return "retry:availability"
             return "retry:plan"
         return None
 

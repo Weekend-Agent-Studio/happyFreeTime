@@ -1330,6 +1330,7 @@ const RECOVERY_FIELD_LABELS: Record<string, string> = {
   max_distance_km: "搜索范围",
   total_distance_km: "全程距离上限",
   exact_stop_count: "站点数量",
+  required_stop_roles: "站点要求",
   budget_per_person: "人均预算",
   return_by: "最晚回家时间",
   start_at: "出发时间",

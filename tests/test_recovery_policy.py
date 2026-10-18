@@ -366,7 +366,7 @@ class RecoveryPolicyTests(unittest.TestCase):
             )
         )
 
-    def test_candidate_supply_offers_explicit_role_and_preference_relaxations(self) -> None:
+    def test_candidate_supply_edits_role_requirements_without_guessing_what_to_remove(self) -> None:
         request = PlanRequest(
             revision=3,
             exact_stop_count=ConstraintValue(
@@ -394,17 +394,18 @@ class RecoveryPolicyTests(unittest.TestCase):
 
         decision = self.policy.decide(reason, request)
         patch_actions = [
-            item
-            for item in decision.actions
-            if isinstance(item, ApplyRequestPatchAction)
+            item for item in decision.actions if isinstance(item, ApplyRequestPatchAction)
+        ]
+        field_actions = [
+            item for item in decision.actions if isinstance(item, RequestFieldAction)
         ]
 
-        self.assertTrue(
-            any("required_stop_roles" in item.patch.clear_fields for item in patch_actions)
-        )
-        self.assertTrue(
+        self.assertTrue(any(item.field == "required_stop_roles" for item in field_actions))
+        self.assertFalse(
             any(
-                item.patch.set_fields.get("preferences") == ("少走路",)
+                "required_stop_roles" in item.patch.clear_fields
+                or "preferences" in item.patch.set_fields
+                or "preferences" in item.patch.remove_from_fields
                 for item in patch_actions
             )
         )
