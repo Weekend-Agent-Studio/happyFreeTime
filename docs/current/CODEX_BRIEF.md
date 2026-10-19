@@ -76,6 +76,7 @@ S-UI1B 前端采用本地 V4 原型的暖白/深灰方向：220/64px 折叠会�
 - Live B0 8 条 HITL 诊断回放：脚本路径 8/8，无 HTTP/应用异常；报告来自 dirty 工作树，只能证明链路诊断，不是发布成功率。
 - HITL 收口证据：`docs/status/s_hitl6_reliability_closeout_20261018.md`。
 - S-UI1B 前端验证与范围：`docs/status/s_ui1b_shell_20261019.md`；真实 API 浏览器测试命令为 `pnpm --dir frontend test:integration`（临时 SQLite、规则语义适配器和离线 Provider，不是 Live 质量指标）。
+- S-UI1 后续协作与 C 执行任务书：`docs/collaboration/s_ui1_luna_handoff.md`。B 提交 `c3507d9`；连续切片沿用开发分支，默认由侧边会话实现、主会话集中验收，不启动子 agent。
 
 ## 已知问题
 
