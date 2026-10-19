@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
-import type { AgentResponse, Plan } from "./types";
+import type { AgentResponse, Plan, PlanningContextSummary } from "./types";
 
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -67,9 +67,35 @@ function plan(planId: string, title: string): Plan {
 const response: AgentResponse = {
   status: "completed", reply: "已生成方案", question: null, assumptions: [], constraint_summary: [],
   plans: [plan("plan-one", "方案一"), plan("plan-two", "方案二")], conflict: null,
-  provider_facts: [], catalog_violations: [], catalog_warnings: [],
+  provider_facts: [], catalog_violations: [], catalog_warnings: [], plan_version_id: "v1",
   poi_presentations: [],
 };
+
+function planningContext(overrides: Partial<PlanningContextSummary> = {}): PlanningContextSummary {
+  const field = (displayValue: string) => ({ value: displayValue, display_value: displayValue, source: "default" as const, editable: true, status: "resolved" as const });
+  return {
+    request_revision: 1,
+    request_view: "committed",
+    committed_request_revision: 1,
+    planned_request_revision: 1,
+    has_active_plan: true,
+    plan_stale: false,
+    ready_for_planning: true,
+    where: field("北京市朝阳区"),
+    when: {
+      date: field("2026-10-19"),
+      start_at: field("14:00"),
+      end_at: field("18:00"),
+      start_kind: "trip_start",
+      end_kind: "trip_end",
+    },
+    who: field("1 位成人"),
+    budget: field("不限"),
+    preferences: field("未设置"),
+    pending_field: null,
+    ...overrides,
+  };
+}
 
 function presentation(resourceId: string, name: string) {
   return {
@@ -110,8 +136,10 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
-    await user.click(screen.getByRole("button", { name: "查看方案二" }));
-    expect(screen.getByRole("button", { name: "查看方案二" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    expect(screen.getByRole("button", { name: "预览方案二" })).toHaveAttribute("aria-pressed", "true");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("方案二");
+    expect(api.selectPlan).not.toHaveBeenCalled();
     expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }));
@@ -209,7 +237,7 @@ describe("planning workspace", () => {
     expect(within(document.querySelector(".evidence-panel") as HTMLElement).queryByText("方案二不应展示。")).not.toBeInTheDocument();
   });
 
-  it("adds POI context to plan cards and supports renaming and deleting history", async () => {
+  it("keeps simulated POI ratings in details instead of comparison cards and manages history", async () => {
     const user = userEvent.setup();
     api.listSessions.mockResolvedValue([{
       session_id: "history-to-manage",
@@ -227,7 +255,11 @@ describe("planning workspace", () => {
 
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
-    expect(await screen.findAllByText(/朝阳区 · 演示评分 4\.6/)).not.toHaveLength(0);
+    await screen.findByRole("heading", { name: "方案一", level: 3 });
+    expect(document.querySelector(".plan-grid")).not.toHaveTextContent("演示评分");
+    await user.click(screen.getByRole("button", { name: "打开方案一详情" }));
+    expect(await screen.findAllByText("演示评分")).not.toHaveLength(0);
+    expect(document.querySelector(".detail-panel")).toHaveTextContent("POI 商业信息为模拟数据");
 
     await screen.findByText("周末出游规划");
     const sessionRow = document.querySelector<HTMLButtonElement>(".session-row-shell .session-row");
@@ -272,6 +304,25 @@ describe("planning workspace", () => {
     expect(screen.queryByPlaceholderText(/餐厅保留|换近一点/)).not.toBeInTheDocument();
   });
 
+  it("renders only the returned candidate with a missing-image placeholder and truthful metrics", async () => {
+    const user = userEvent.setup();
+    const longTitle = "适合慢慢逛的室内展览与安静晚餐组合方案";
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      plans: [{ ...plan("only-plan", longTitle), total_price: 180, price_status: "incomplete" }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(await screen.findByRole("heading", { name: longTitle, level: 3 })).toHaveAttribute("title", longTitle);
+    expect(document.querySelectorAll(".plan-card")).toHaveLength(1);
+    expect(screen.getByText("暂无可靠图片")).toBeInTheDocument();
+    expect(screen.getByLabelText("地点费用，不含交通：全员已知费用 ¥180 + 未知价格")).toBeInTheDocument();
+    expect(screen.getByLabelText("累计路线距离 5 公里")).toBeInTheDocument();
+    expect(api.selectPlan).not.toHaveBeenCalled();
+  });
+
   it("renders grounded recommendation advice and marks the recommended plan", async () => {
     const user = userEvent.setup();
     api.sendMessage.mockResolvedValue({
@@ -301,7 +352,7 @@ describe("planning workspace", () => {
     expect(await screen.findByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("本轮理解");
     expect(screen.getByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("最推荐：方案二");
     expect(screen.queryByText("方案二更适合轻松约会。")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "查看方案二" }));
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
     expect(await screen.findByText("方案二更适合轻松约会。")).toBeInTheDocument();
     expect(screen.getAllByText("主要取舍").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "方案二", level: 3 }).closest(".plan-card")).toHaveClass("recommended");
@@ -426,7 +477,7 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
-    expect(await screen.findByLabelText("方案待确认信息")).toHaveTextContent("动态可用性尚未得到完整确认");
+    expect(await screen.findByRole("note", { name: "方案待确认信息" })).toHaveTextContent("动态可用性尚未得到完整确认");
   });
 
   it("renders presentation details from the separate resource-id keyed payload", async () => {
@@ -563,9 +614,9 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
-    expect(screen.getByRole("button", { name: "查看方案一" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("正在查看")).toBeInTheDocument();
-    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览方案一" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("正在预览")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument();
   });
 
   it("marks a plan selected only after the backend confirms", async () => {
@@ -576,11 +627,208 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
-    await user.click(screen.getByRole("button", { name: "选择方案二" }));
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
-    expect(await screen.findByText("已选择这个方案")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: "已选择此方案" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "预览方案二" })).toHaveAttribute("aria-pressed", "true");
+    expect(document.querySelector('.plan-card.selected')).toHaveTextContent("当前已选");
     expect(api.selectPlan).toHaveBeenCalledWith("session-test", "plan-two");
+  });
+
+  it("keeps A selected while previewing B and requires confirmation before switching", async () => {
+    const user = userEvent.setup();
+    api.selectPlan
+      .mockResolvedValueOnce({ active_plan_version_id: "v1", selected_plan_id: "plan-one" })
+      .mockResolvedValueOnce({ active_plan_version_id: "v1", selected_plan_id: "plan-two" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await screen.findByRole("button", { name: "已选择此方案" });
+
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    expect(document.querySelector(".plan-card.selected")).toHaveTextContent("方案一");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("当前预览 · 未改变正式选择");
+    await user.click(screen.getByRole("button", { name: "返回已选方案：方案一" }));
+    expect(screen.getByRole("button", { name: "预览方案一" })).toHaveAttribute("aria-pressed", "true");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("当前正式选择");
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    const switchButton = screen.getByRole("button", { name: "选择此方案" });
+    await user.click(switchButton);
+    expect(await screen.findByRole("dialog", { name: "切换正式选择？" })).toHaveTextContent("方案一");
+    expect(screen.getByRole("dialog", { name: "切换正式选择？" })).toHaveTextContent("方案二");
+    expect(api.selectPlan).toHaveBeenCalledTimes(1);
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "切换正式选择？" })).not.toBeInTheDocument());
+    expect(switchButton).toHaveFocus();
+    expect(api.selectPlan).toHaveBeenCalledTimes(1);
+
+    await user.click(switchButton);
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(api.selectPlan).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".plan-card.selected")).toHaveTextContent("方案一");
+
+    await user.click(switchButton);
+    await user.click(screen.getByRole("button", { name: "确认切换" }));
+    await waitFor(() => expect(api.selectPlan).toHaveBeenCalledTimes(2));
+    expect(api.selectPlan).toHaveBeenLastCalledWith("session-test", "plan-two");
+    expect(await screen.findByRole("button", { name: "已选择此方案" })).toBeDisabled();
+    expect(document.querySelector(".plan-card.selected")).toHaveTextContent("方案二");
+  });
+
+  it("disables repeat selection while the backend request is pending", async () => {
+    const user = userEvent.setup();
+    let resolveSelection: ((value: { active_plan_version_id: string; selected_plan_id: string }) => void) | undefined;
+    api.selectPlan.mockImplementation(() => new Promise((resolve) => { resolveSelection = resolve; }));
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    const pendingButton = await screen.findByRole("button", { name: "正在保存…" });
+    expect(pendingButton).toBeDisabled();
+    fireEvent.click(pendingButton);
+    expect(api.selectPlan).toHaveBeenCalledTimes(1);
+    resolveSelection?.({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
+    expect(await screen.findByRole("button", { name: "已选择此方案" })).toBeDisabled();
+  });
+
+  it("blocks formal choice for stale or draft conditions and pending recovery", async () => {
+    const user = userEvent.setup();
+    const recovery = {
+      kind: "recovery_choice",
+      interaction_id: "recovery-pending-selection",
+      request_revision: 3,
+      plan_version_id: "v1",
+      reason: {
+        code: "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
+        kind: "no_feasible_plan",
+        stage: "retrieval",
+        fields: ["max_distance_km"],
+        request_revision: 3,
+        plan_version_id: "v1",
+        public_summary: "当前条件下暂未找到可行方案。",
+        diagnostics: {},
+      },
+      actions: [],
+    } satisfies NonNullable<AgentResponse["recovery"]>;
+    api.sendMessage
+      .mockResolvedValueOnce({ ...response, planning_context: planningContext({ plan_stale: true }) })
+      .mockResolvedValueOnce({ ...response, planning_context: planningContext({ request_view: "draft" }) })
+      .mockResolvedValueOnce({ ...response, status: "needs_recovery", recovery, planning_context: planningContext() });
+    render(<App />);
+    const input = screen.getByLabelText("描述你的空闲时间和偏好");
+    const send = screen.getByRole("button", { name: "发送需求" });
+
+    await user.type(input, "第一轮方案");
+    await user.click(send);
+    const selectionButton = await screen.findByRole("button", { name: "选择此方案" });
+    expect(selectionButton).toBeDisabled();
+    expect(screen.getByText("规划条件已变化；请先按新条件重新规划。")).toBeInTheDocument();
+    fireEvent.click(selectionButton);
+
+    await user.type(input, "未提交的条件草稿");
+    await user.click(send);
+    expect(await screen.findByText("规划条件有未提交草稿；提交或取消草稿后再选择。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择此方案" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "选择此方案" }));
+
+    await user.type(input, "等待处理恢复操作");
+    await user.click(send);
+    expect(await screen.findByText("有待处理的恢复操作，请先完成或取消。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择此方案" })).toBeDisabled();
+    expect(api.selectPlan).not.toHaveBeenCalled();
+  });
+
+  it("invalidates a pending switch confirmation when browser navigation changes sessions", async () => {
+    const user = userEvent.setup();
+    api.listSessions.mockResolvedValue([{
+      session_id: "other-session", title: "另一个规划", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z", last_message_preview: "另一个版本",
+    }]);
+    const otherResponse = { ...response, plans: [plan("other-plan", "另一个版本")], plan_version_id: "v2" };
+    api.getSession.mockResolvedValue({
+      session_id: "other-session", title: "另一个规划", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      messages: [{ id: "other-assistant", role: "assistant", content: otherResponse.reply }],
+      plans: otherResponse.plans, latest_response: otherResponse, response_history: [otherResponse],
+      active_plan_version_id: "v2", selected_plan_id: null,
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await screen.findByRole("button", { name: "已选择此方案" });
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    expect(await screen.findByRole("dialog", { name: "切换正式选择？" })).toBeInTheDocument();
+    expect(api.selectPlan).toHaveBeenCalledTimes(1);
+
+    window.history.replaceState({}, "", "/?session=other-session");
+    fireEvent.popState(window);
+    await screen.findByRole("heading", { name: "另一个版本", level: 3 });
+    expect(screen.queryByRole("dialog", { name: "切换正式选择？" })).not.toBeInTheDocument();
+    expect(api.selectPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an older response previewable but read-only when its version differs", async () => {
+    const user = userEvent.setup();
+    const oldResponse = { ...response, plans: [plan("same-plan-id", "旧版本方案")], plan_version_id: "v1" };
+    const currentPlan = plan("same-plan-id", "当前版本方案");
+    api.listSessions.mockResolvedValue([{
+      session_id: "versioned-history", title: "有历史版本的会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z", last_message_preview: "旧版本方案",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "versioned-history", title: "有历史版本的会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      messages: [{ id: "old-assistant", role: "assistant", content: oldResponse.reply }],
+      plans: [currentPlan], latest_response: oldResponse, response_history: [oldResponse],
+      active_plan_version_id: "v2", selected_plan_id: "same-plan-id",
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /有历史版本的会话/ }));
+    await user.click(await screen.findByRole("button", { name: "预览旧版本方案" }));
+
+    expect(document.querySelector(".plan-card.selected")).toBeNull();
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("历史版本 · 只读预览");
+    expect(screen.getByRole("button", { name: "选择此方案" })).toBeDisabled();
+    expect(screen.getByText("此方案来自历史版本，仅可预览。")).toBeInTheDocument();
+    expect(within(document.querySelector(".detail-panel") as HTMLElement).getAllByRole("button", { name: "换这站" })[0]).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "返回已选方案：当前版本方案" }));
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("当前正式选择");
+    expect(document.querySelector(".inspector-plan-header h2")).toHaveTextContent("当前版本方案");
+    expect(api.selectPlan).not.toHaveBeenCalled();
+  });
+
+  it("does not infer a historical candidate version from a matching plan id", async () => {
+    const user = userEvent.setup();
+    const unanchoredResponse = { ...response, plans: [plan("same-plan-id", "同名历史方案")], plan_version_id: null };
+    const activePlan = plan("same-plan-id", "当前活动方案");
+    api.listSessions.mockResolvedValue([{
+      session_id: "legacy-version-history", title: "缺少版本锚点的历史会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z", last_message_preview: "同名历史方案",
+    }]);
+    api.getSession.mockResolvedValue({
+      session_id: "legacy-version-history", title: "缺少版本锚点的历史会话", status: "completed",
+      created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T02:00:00Z",
+      messages: [{ id: "unanchored-assistant", role: "assistant", content: unanchoredResponse.reply }],
+      plans: [activePlan], latest_response: unanchoredResponse, response_history: [unanchoredResponse],
+      active_plan_version_id: "v2", selected_plan_id: null,
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /缺少版本锚点的历史会话/ }));
+    await user.click(await screen.findByRole("button", { name: "预览同名历史方案" }));
+
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("历史版本 · 只读预览");
+    expect(screen.getByText("缺少方案版本归属信息；此方案仅可预览。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择此方案" })).toBeDisabled();
+    expect(api.selectPlan).not.toHaveBeenCalled();
   });
 
   it("exposes POI essentials in the collapsed timeline summary", async () => {
@@ -620,7 +868,7 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
     const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
     expect(detailDisclosure).not.toBeNull();
@@ -670,7 +918,7 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
     const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
     expect(detailDisclosure).not.toBeNull();
@@ -700,10 +948,10 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
-    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("该方案不属于当前版本");
-    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+    expect(await screen.findByText("该方案不属于当前版本", { selector: ".inspector-selection-error" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument();
   });
 
   it("restores the persisted selected plan from the session snapshot", async () => {
@@ -723,12 +971,14 @@ describe("planning workspace", () => {
       plans: response.plans,
       latest_response: response,
       response_history: [response],
+      active_plan_version_id: "v1",
       selected_plan_id: "plan-two",
     });
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /已选方案会话/ }));
 
-    expect(await screen.findByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: "已选择此方案" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "预览方案二" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("keeps the active plan visible when the latest restored turn is a question", async () => {
@@ -768,7 +1018,8 @@ describe("planning workspace", () => {
 
     const detailPanel = document.querySelector(".detail-panel");
     expect(detailPanel).not.toBeNull();
-    expect(within(detailPanel as HTMLElement).getByRole("heading", { name: "方案二", level: 2 })).toBeVisible();
+    expect(within(detailPanel as HTMLElement).queryByText("历史版本 · 只读预览")).not.toBeInTheDocument();
+    expect(detailPanel?.querySelector(".inspector-plan-header")).toHaveTextContent("方案二");
   });
 
   it("uses the selected plan id returned by the backend", async () => {
@@ -779,10 +1030,12 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
-    await user.click(screen.getByRole("button", { name: "选择方案二" }));
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
-    expect(await screen.findByRole("button", { name: "选择方案一" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "false");
+    expect(await screen.findByRole("button", { name: "已选择此方案" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "预览方案一" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "预览方案二" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("ignores a stale selection response after a newer plan version arrives", async () => {
@@ -804,15 +1057,15 @@ describe("planning workspace", () => {
     await user.type(input, "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: "选择方案一" }));
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
     await user.type(input, "重新生成一轮");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("heading", { name: "新一轮方案", level: 3 });
-    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument();
 
     resolveSelection?.({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
-    await waitFor(() => expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument());
   });
 
   it("keeps the active plan details visible when a live turn asks a question", async () => {
@@ -831,8 +1084,8 @@ describe("planning workspace", () => {
     await user.type(input, "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: "选择方案一" }));
-    await screen.findByText("已选择这个方案");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await screen.findByRole("button", { name: "已选择此方案" });
 
     await user.type(input, "预算是多少");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
@@ -840,8 +1093,8 @@ describe("planning workspace", () => {
 
     const detailPanel = document.querySelector(".detail-panel");
     expect(detailPanel).not.toBeNull();
-    expect(within(detailPanel as HTMLElement).getByRole("heading", { name: "方案一", level: 2 })).toBeVisible();
-    expect(screen.getByText("已选择这个方案")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText("当前正式选择")).toBeVisible();
+    expect(screen.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
   });
 
   it("renders backend clarification options and sends a scoped default action", async () => {
@@ -1095,13 +1348,13 @@ describe("planning workspace", () => {
     await user.type(input, "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: "选择方案一" }));
-    await screen.findByText("已选择这个方案");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await screen.findByRole("button", { name: "已选择此方案" });
 
     await user.type(input, "再来一轮");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("heading", { name: "新一轮方案", level: 3 });
 
-    expect(screen.queryByText("已选择这个方案")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument();
   });
 });

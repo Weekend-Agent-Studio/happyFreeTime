@@ -4,6 +4,7 @@ import path from "node:path";
 const response = {
   status: "completed",
   reply: "已生成方案",
+  plan_version_id: "v1",
   planning_context: {
     request_revision: 1,
     planned_request_revision: 1,
@@ -89,13 +90,15 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/config/map", (route) => route.fulfill({ json: { data: { enabled: false, provider: "none", js_api_key: null, version: null, service_host_path: null } } }));
 });
 
-test("offline planning path keeps route and fallback map interactive", async ({ page }) => {
+test("offline planning path keeps route and fallback map interactive", async ({ page }, testInfo) => {
+  const mobile = testInfo.project.name === "mobile-375";
   await page.goto("/");
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
 
-  await page.getByRole("button", { name: "查看方案二" }).click();
+  await page.getByRole("button", { name: "预览方案二" }).click();
+  if (mobile) await page.getByRole("button", { name: "打开方案二详情" }).click();
   await page.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }).click();
   await expect(page.getByText("未配置高德 JS API，当前仅显示路线文字摘要")).toBeVisible();
   await page.getByRole("button", { name: /展览 → 晚餐/ }).click();
@@ -108,6 +111,7 @@ test("POI details keep demo data disclosure on desktop and 375px", async ({ page
   await page.goto("/");
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
+  await page.getByRole("button", { name: "打开方案一详情" }).click();
   await page.locator(".poi-disclosure summary").first().click();
   await expect(page.getByText("演示评分").first()).toBeVisible();
   await expect(page.getByText("测试路 1 号").first()).toBeVisible();
@@ -258,7 +262,8 @@ test("recovery editor destinations retain visible section names", async ({ page 
   await expect(page.getByRole("dialog", { name: "日期时间", exact: true })).toBeVisible();
 });
 
-test("selection persists across refresh and clears after a new plan", async ({ page }) => {
+test("selection persists across refresh and clears after a new plan", async ({ page }, testInfo) => {
+  const mobile = testInfo.project.name === "mobile-375";
   let selectedPlanId: string | null = null;
 
   await page.route("**/api/sessions/offline-session/plans/*/select", async (route) => {
@@ -285,6 +290,7 @@ test("selection persists across refresh and clears after a new plan", async ({ p
       plans: response.plans,
       latest_response: response,
       response_history: [response],
+      active_plan_version_id: "v1",
       selected_plan_id: selectedPlanId,
     } } });
   });
@@ -294,15 +300,45 @@ test("selection persists across refresh and clears after a new plan", async ({ p
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
 
-  await page.getByRole("button", { name: "选择方案二" }).click();
-  await expect(page.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".plan-card").first().getByRole("button", { name: "打开方案一详情" }).click();
+  await page.getByRole("button", { name: "选择此方案" }).click();
+  await expect(page.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
+  expect(selectedPlanId).toBe("plan-0");
+
+  if (mobile) await page.getByRole("button", { name: "关闭" }).click();
+  await page.getByRole("button", { name: "预览方案二" }).click();
+  if (mobile) await page.getByRole("button", { name: "打开方案二详情" }).click();
+  await expect(page.locator(".inspector-plan-header")).toContainText("当前预览 · 未改变正式选择");
+  await page.getByRole("button", { name: "选择此方案" }).click();
+  const confirmation = page.getByRole("dialog", { name: "切换正式选择？" });
+  await expect(confirmation).toBeVisible();
+  const cancelSwitch = confirmation.getByRole("button", { name: "取消" });
+  const confirmSwitch = confirmation.getByRole("button", { name: "确认切换" });
+  await expect(cancelSwitch).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(confirmSwitch).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(cancelSwitch).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "选择此方案" })).toBeFocused();
+  expect(selectedPlanId).toBe("plan-0");
+
+  await page.getByRole("button", { name: "选择此方案" }).click();
+  await page.getByRole("dialog", { name: "切换正式选择？" }).getByRole("button", { name: "取消" }).click();
+  expect(selectedPlanId).toBe("plan-0");
+
+  await page.getByRole("button", { name: "选择此方案" }).click();
+  await page.getByRole("dialog", { name: "切换正式选择？" }).getByRole("button", { name: "确认切换" }).click();
+  await expect(page.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
+  expect(selectedPlanId).toBe("plan-1");
 
   await page.reload();
-  await expect(page.getByRole("button", { name: "选择方案二" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".plan-card.selected .plan-preview-button")).toHaveAttribute("aria-pressed", "true");
 
   await page.getByLabel("描述你的空闲时间和偏好").fill("再来一轮");
   await page.getByRole("button", { name: "发送需求" }).click();
-  await expect(page.getByText("已选择这个方案")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "已选择此方案" })).toHaveCount(0);
 });
 
 test("When edits save without replanning until the user confirms", async ({ page }) => {

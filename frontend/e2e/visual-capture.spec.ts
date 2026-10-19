@@ -145,7 +145,7 @@ test("captures the approved desktop and mobile product states", async ({ page },
   const filename = mobile ? "mobile-repro.png" : "hero-repro.png";
   await page.screenshot({ path: path.resolve(process.cwd(), `../.impeccable/review/${filename}`), fullPage: false });
   if (mobile) {
-    const openDetail = page.getByRole("button", { name: "打开完整行程与地图" });
+    const openDetail = page.locator(".plan-card").first().getByRole("button", { name: /打开.+详情/ });
     await openDetail.scrollIntoViewIfNeeded();
     await openDetail.click();
     await expect(page.getByRole("heading", { name: "方案工作区" })).toBeVisible();
