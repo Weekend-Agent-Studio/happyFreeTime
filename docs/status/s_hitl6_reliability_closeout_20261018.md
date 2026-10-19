@@ -30,6 +30,6 @@ tests/test_s_rx3_quality.py::S_RX3QualityTest::test_all_day_top_plan_covers_mult
 
 ## 发布边界与后续
 
-- 当前分支的 HITL 改动仍需按仓库流程提交、推送并经 PR 审核；本记录本身不代表已提交或已发布。
+- HITL 改动已提交并推送至 `codex/s-hitl6-reliability@b541c13`；截至 2026-10-19 仍待 PR 审核和合并，因此本记录不代表 `main` 或新的冻结发布。
 - 全天覆盖排序问题保留为独立 Planner 质量项；它不应与 HITL 收口混为一谈。
 - “用户明确要求 Demo World 未覆盖的具体类别时，不能静默替代”仍是独立的语义 grounding / 目录覆盖问题，不在本切片内解决。
