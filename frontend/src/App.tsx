@@ -1504,6 +1504,7 @@ function App() {
       <AppHeader
         sessionTitle={recentSessions.find((item) => item.session_id === sessionId)?.title ?? "周末规划"}
         context={planningContext}
+        sessionId={sessionId}
         busy={loading || restoring || Boolean(response?.recovery)}
         externalOpen={contextFocus}
         onExternalOpenHandled={() => setContextFocus(null)}
@@ -1617,9 +1618,10 @@ function App() {
   );
 }
 
-function AppHeader({ sessionTitle, context, busy, externalOpen, onExternalOpenHandled, onSave, inspectorAvailable, onOpenHistory, onOpenInspector }: {
+function AppHeader({ sessionTitle, context, sessionId, busy, externalOpen, onExternalOpenHandled, onSave, inspectorAvailable, onOpenHistory, onOpenInspector }: {
   sessionTitle: string;
   context: PlanningContextSummary | null;
+  sessionId: string | null;
   busy: boolean;
   externalOpen: ContextOpenTarget | null;
   onExternalOpenHandled: () => void;
@@ -1630,7 +1632,7 @@ function AppHeader({ sessionTitle, context, busy, externalOpen, onExternalOpenHa
 }) {
   return <header className="app-header">
     <div className="app-header-title"><span title={sessionTitle}>{sessionTitle}</span></div>
-    <PlanningContextBar context={context} busy={busy} externalOpen={externalOpen} onExternalOpenHandled={onExternalOpenHandled} onSave={onSave} />
+    <PlanningContextBar context={context} sessionId={sessionId} busy={busy} externalOpen={externalOpen} onExternalOpenHandled={onExternalOpenHandled} onSave={onSave} />
     <div className="app-header-mobile-actions">
       <button type="button" onClick={onOpenHistory} aria-label="打开历史会话"><History size={19} /></button>
       <button type="button" onClick={onOpenInspector} aria-label="打开方案详情" disabled={!inspectorAvailable}><PanelRight size={19} /></button>

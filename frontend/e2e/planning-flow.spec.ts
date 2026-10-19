@@ -278,6 +278,50 @@ test("narrow shell keeps the composer visible and history sheet keyboard-dismiss
   await expect(chips.getByRole("button", { name: /修改出行偏好/ })).toBeInViewport();
 });
 
+test("planning condition dialog fits desktop and 375px layouts and restores focus without saving on dismiss", async ({ page }, testInfo) => {
+  const mobile = testInfo.project.name === "mobile-375";
+  await page.setViewportSize(mobile ? { width: 375, height: 812 } : { width: 1440, height: 900 });
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: /修改日期时间/ });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "日期时间", exact: true });
+  await expect(dialog).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(mobile ? 375 : 1440);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(900);
+
+  await page.keyboard.press("Tab");
+  await expect(dialog.locator(":focus")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await page.locator(".planning-context-backdrop").click({ position: { x: 2, y: 2 } });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  if (mobile) {
+    await page.setViewportSize({ width: 375, height: 560 });
+    await page.getByRole("button", { name: /修改出行偏好/ }).click();
+    const preferenceDialog = page.getByRole("dialog", { name: "出行偏好", exact: true });
+    const addInput = preferenceDialog.getByLabel("添加偏好");
+    for (let index = 0; index < 20; index += 1) {
+      await addInput.fill(`体验标签${index + 1}`);
+      await preferenceDialog.getByRole("button", { name: "添加", exact: true }).click();
+    }
+    const scrollable = preferenceDialog.locator(".context-form-content");
+    const scrollMetrics = await scrollable.evaluate((element) => ({ height: element.clientHeight, content: element.scrollHeight }));
+    expect(scrollMetrics.content).toBeGreaterThan(scrollMetrics.height);
+    await scrollable.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    expect(await scrollable.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect(preferenceDialog.getByRole("button", { name: "保存条件" })).toBeInViewport();
+  }
+});
+
 test("last history actions stay reachable and rename cancellation is unobstructed", async ({ page }, testInfo) => {
   const sessions = Array.from({ length: 20 }, (_, index) => ({
     session_id: `history-${index}`, title: `历史规划 ${index + 1}`, status: "completed",

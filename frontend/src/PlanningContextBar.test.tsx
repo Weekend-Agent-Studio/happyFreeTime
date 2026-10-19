@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PlanningContextBar, PlanningContextNotice } from "./PlanningContextBar";
@@ -44,6 +44,7 @@ describe("PlanningContextBar typed patches", () => {
     render(
       <PlanningContextBar
         context={context}
+        sessionId="session-1"
         busy={false}
         externalOpen={null}
         onExternalOpenHandled={() => undefined}
@@ -112,6 +113,7 @@ describe("PlanningContextBar typed patches", () => {
       <PlanningContextNotice context={staleContext} busy={false} onReplan={onReplan} />
       <PlanningContextBar
         context={staleContext}
+        sessionId="session-1"
         busy={false}
         externalOpen={null}
         onExternalOpenHandled={() => undefined}
@@ -135,6 +137,7 @@ describe("PlanningContextBar typed patches", () => {
     render(
       <PlanningContextBar
         context={context}
+        sessionId="session-1"
         busy={false}
         externalOpen={null}
         onExternalOpenHandled={() => undefined}
@@ -152,5 +155,158 @@ describe("PlanningContextBar typed patches", () => {
 
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps date and time controls in one local value and rejects reverse time without submitting", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PlanningContextBar
+        context={{ ...context, pending_field: "departure_at", when: { ...context.when, start_kind: "departure", end_kind: "return_deadline" } }}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /修改日期时间/ }));
+    expect(screen.getByLabelText("出发时间")).toHaveValue("14:00");
+    expect(screen.getByLabelText("最晚到家")).toHaveValue("18:00");
+    await user.click(screen.getByRole("button", { name: "上午 09:00–12:00" }));
+    expect(screen.getByLabelText("出发时间")).toHaveValue("09:00");
+    expect(screen.getByLabelText("最晚到家")).toHaveValue("12:00");
+    const startSlider = screen.getByLabelText("时段开始时间快捷滑块");
+    fireEvent.change(startSlider, { target: { value: "541" } });
+    expect(screen.getByLabelText("出发时间")).toHaveValue("09:01");
+    await user.click(screen.getByRole("button", { name: "上午 09:00–12:00" }));
+    await user.click(screen.getByRole("button", { name: "2 小时" }));
+    expect(screen.getByLabelText("时段开始时间快捷滑块")).toHaveAttribute("aria-valuetext", "09:00");
+    expect(screen.getByLabelText("时段结束时间快捷滑块")).toHaveAttribute("aria-valuetext", "11:00");
+    await user.clear(screen.getByLabelText("最晚到家"));
+    await user.type(screen.getByLabelText("最晚到家"), "08:00");
+    await user.click(screen.getByRole("button", { name: "确认并继续" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("结束时间需要晚于开始时间");
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("preserves exact budgets outside the slider convenience range", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const highBudgetContext = {
+      ...context,
+      budget: {
+        ...context.budget,
+        value: { mode: "per_person", amount: 1500, strict: true },
+        display_value: "人均 ¥1500 · 严格",
+        source: "user" as const,
+      },
+    };
+    render(
+      <PlanningContextBar
+        context={highBudgetContext}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /修改人均预算/ }));
+    expect(screen.getByLabelText("人均金额（元）")).toHaveValue(1500);
+    expect(screen.queryByLabelText("人均金额快捷滑块")).not.toBeInTheDocument();
+    await user.clear(screen.getByLabelText("人均金额（元）"));
+    await user.type(screen.getByLabelText("人均金额（元）"), "1750");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      base_revision: 4,
+      budget: { mode: "per_person", amount: 1750, strict: true },
+    }));
+  });
+
+  it("closes on Escape, restores focus, and invalidates an editor when the server revision changes", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const view = render(
+      <PlanningContextBar
+        context={context}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: /修改出发区域/ });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    await user.keyboard("{Tab}");
+    expect(dialog).toContainElement(document.activeElement as HTMLElement | null);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+    expect(onSave).not.toHaveBeenCalled();
+
+    await user.click(trigger);
+    const backdrop = document.querySelector(".planning-context-backdrop");
+    expect(backdrop).not.toBeNull();
+    await user.click(backdrop as HTMLElement);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(onSave).not.toHaveBeenCalled();
+
+    await user.click(trigger);
+    view.rerender(
+      <PlanningContextBar
+        context={{ ...context, request_revision: 5 }}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(onSave).not.toHaveBeenCalled();
+
+    await user.click(trigger);
+    view.rerender(
+      <PlanningContextBar
+        context={context}
+        sessionId="session-2"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("keeps edited values visible when a save fails", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockRejectedValue(new Error("revision conflict"));
+    render(
+      <PlanningContextBar
+        context={context}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /修改出发区域/ }));
+    await user.clear(screen.getByLabelText("出发地点"));
+    await user.type(screen.getByLabelText("出发地点"), "国贸站");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("revision conflict");
+    expect(screen.getByLabelText("出发地点")).toHaveValue("国贸站");
   });
 });
