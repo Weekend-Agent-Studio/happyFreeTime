@@ -1,0 +1,88 @@
+# Codex Brief：HappyFreeTime 当前事实索引
+
+_最后核对：2026-10-19。本文是低成本接手地图，不替代代码、测试或完整架构说明。开始工作前仍应检查 Git 状态。_
+
+## 版本边界
+
+- `origin/main@49ae2b0`：已合并 S-RX4 体验质量阶段。
+- 当前候选分支：`codex/s-hitl6-reliability@b541c13`，在主线之上收口 HITL 恢复可靠性；截至本文写作尚待 PR 合并。
+- 冻结评测基线：tag `planner-v2-eval-baseline`。冻结指标只属于对应代码、Fixture 和报告，不能被后续分支结果覆盖。
+- 先用 `git status --short --branch` 和 `git log -1 --oneline` 验证以上快照是否仍有效。
+
+## 产品与架构一句话
+
+HappyFreeTime 是北京本地生活/周末出行的受约束规划 Agent：LLM 负责开放语义、有限结构提案和推荐说明；确定性 Harness 负责状态、候选生成、外部事实、搜索、硬约束、恢复动作和持久化。
+
+当前主链：
+
+```text
+User message
+  → Router / TurnProposal
+  → TurnCompiler + DecisionContext
+  → RequestPatch
+  → ConstraintEngine → PlanRequest
+  → Readiness / QuestionPolicy
+  → PlanningIntent + PlanSpecCompiler
+  → Retrieval + Beam + Scheduler
+  → Route / Weather / Availability + Verifier
+  → Advisor
+  → PlanVersion / PlanDiff / SQLite
+```
+
+顶部栏编辑和字段反问回答不重新经过 Router；它们直接生成类型化 `RequestPatch`，并与自然语言更新汇入同一个 `ConstraintEngine`。
+
+## HITL 与失败恢复
+
+- 缺失或模糊字段：`QuestionPolicy → interrupt/resume → 字段级 Patch`。
+- 硬冲突、无可行方案或修改失败：`RecoveryReasonAdapter → PrimaryBottleneck → RecoveryPolicy → typed RecoveryAction → interrupt/resume`。
+- 用户确认动作后仍走 `RequestPatch → ConstraintEngine → 原 Planning/Modification 链路`；没有 Recovery Agent，也没有第二套 Planner。
+- 动作由结构化失败证据和有界规则动态生成，不由 LLM 自由编造；具体/策略指纹和恢复历史会抑制重复无效动作。
+- 恢复卡片持久化动作、字段变化、前后主因和最终状态；stale revision、错误方案版本和重复点击会被拒绝。
+
+## 主要代码入口
+
+| 工作领域 | 代码入口 |
+| --- | --- |
+| Graph 与应用入口 | `app/orchestration/entry_graph.py`、`app/orchestration/workflows.py`、`app/api/planning_turn.py` |
+| 语义动作 | `app/domain/turn.py`、`app/domain/decision_context.py`、`app/services/router_extractor.py` |
+| 请求与硬约束 | `app/domain/constraints.py`、`app/services/request_patch_compiler.py`、`app/services/request_patch_update.py`、`app/services/constraint_engine.py` |
+| 反问 | `app/services/question_policy.py`、`app/services/clarification_patch.py`、`app/services/clarification.py` |
+| 规划失败恢复 | `app/domain/recovery.py`、`app/services/recovery_reason_adapter.py`、`app/services/recovery_bottleneck.py`、`app/services/recovery_policy.py` |
+| 规划与搜索 | `app/services/planning.py`、`app/services/planning_intent.py`、`app/services/plan_spec_compiler.py`、`app/services/candidate_retriever.py` |
+| 最终校验与事实 | `app/services/plan_verifier.py`、`app/providers/` |
+| 持久化 | `app/persistence/database.py`、`app/persistence/models.py`、`app/persistence/repositories.py` |
+| HTTP 与前端 | `app/api/application.py`、`app/api/planning_context.py`、`frontend/src/App.tsx`、`frontend/src/PlanningContextBar.tsx` |
+| Trace | `app/domain/run_trace.py`、`frontend/src/runProgress.ts` |
+| 评测 | `evals/run_resume_release_eval.py`、`evals/run_s_rx_multiturn.py`、`evals/run_retrieval_eval.py` |
+
+## 已验证能力与明确边界
+
+已实现：类型化请求更新、字段级反问与 checkpoint 恢复、动态 PlanSpec、Hybrid Retrieval、Beam 搜索、时间排程、Provider 复核、硬约束 Verifier、最多三个方案、单站修改、PlanVersion/PlanDiff、Grounded Advisor、安全 Trace、类型化失败恢复。
+
+未实现：真实预订/支付/叫车、长期用户记忆、MCP 主链、生产级实时 POI/库存/价格、任意城市、完整 Temporal/Constraint AST、开放式 Agent loop。
+
+开发 checkpoint 使用 `planner-hitl1-v1` namespace；旧开发 checkpoint 不做迁移。Session/PlanVersion 等产品事实以 Repository 为准，checkpoint 只承担 Graph 暂停与本轮临时状态。
+
+## 当前可信证据
+
+- 正式 Frozen 指标：见 `docs/releases/resume_v2_release_report.md`，不要用后续单次 Live 结果替换。
+- 当前 HITL 候选分支最新定向回归：98 passed、29 subtests；`compileall` 与 `git diff --check` 通过。
+- 最近一次全后端回归：600 passed、1 failed、77 subtests；唯一失败是独立的全天排序质量用例。
+- Live B0 8 条 HITL 诊断回放：脚本路径 8/8，无 HTTP/应用异常；报告来自 dirty 工作树，只能证明链路诊断，不是发布成功率。
+- HITL 收口证据：`docs/status/s_hitl6_reliability_closeout_20261018.md`。
+
+## 已知问题
+
+1. `tests/test_s_rx3_quality.py::S_RX3QualityTest::test_all_day_top_plan_covers_multiple_periods`：默认 Beam 首方案缺少有意义的下午覆盖，Legacy 可通过。这里同时存在排序质量缺口和旧 fixture 对“全天”要求晚间覆盖的口径差异；应在独立 Planner 质量切片统一语义后修复，不能在 HITL PR 中调权或弱化断言。
+2. Demo World 的类别/候选覆盖有限。用户明确要求不存在的类别时，系统不应静默替代；这是独立的 semantic grounding / catalog coverage 问题。
+3. Live Router/Advisor 会受模型和网络波动影响。Live 单次结果只作诊断，正式结论必须注明运行条件并与 Frozen 结果分开。
+
+## 深入阅读顺序
+
+1. 当前任务相关代码和测试；
+2. `docs/current/resume_v2_architecture.md`：完整已实现链路；
+3. `docs/releases/resume_v2_release_report.md`：冻结证据；
+4. `docs/canonical/`：目标设计，仅在形成独立判断后阅读；
+5. `docs/status/` 与 `docs/archive/`：历史诊断，不是当前契约。
+
+文档权威层级和维护规则见 `docs/README.md`。

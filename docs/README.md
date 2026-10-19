@@ -8,13 +8,13 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 
 如果你要学习或解释当前 Resume V2，按这个顺序阅读：
 
-1. 根目录 README.md：项目是什么、现在能做什么、如何运行
-2. [Resume V2 当前架构](current/resume_v2_architecture.md)：只看已实现的运行链路
-3. [Resume V2 发布评测](releases/resume_v2_release_report.md)：确认数据、指标和限制
-4. [CONTEXT.md](../CONTEXT.md)：统一领域术语
-5. [面试材料索引](interview/README.md)：按主题学习和准备表达
-6. 需要理解演进原因时，再读 learning/ 和 archive/
-7. 需要讨论未来功能时，最后读 canonical/v2_roadmap.md 和对应 backlog；个人未决想法保存在本地 `docs/local/`
+1. 先检查 `git status --short --branch`，不要假设正在 main 或文档快照仍是最新 HEAD
+2. [Codex Brief](current/CODEX_BRIEF.md)：当前事实、代码入口、版本边界和已知问题
+3. 根目录 README.md：项目定位、当前能力和运行方法
+4. 按任务用 `rg` 定位实际代码和测试；只有需要完整链路时再读 [Resume V2 当前架构](current/resume_v2_architecture.md)
+5. [Resume V2 发布评测](releases/resume_v2_release_report.md)：确认冻结数据、指标和限制
+6. [CONTEXT.md](../CONTEXT.md)：需要统一领域术语时阅读
+7. 形成独立判断后，再读 canonical/、learning/、interview/ 和 archive/ 中的历史方案或目标设计
 
 不要一开始直接阅读目标架构或历史交接文档。它们会把“当前已经实现”和“以后希望实现”混在一次长叙述里。
 
@@ -22,7 +22,7 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 
 | 状态 | 含义 | 代表文档 |
 | --- | --- | --- |
-| Current | 当前代码和发布版本可以验证的能力 | 根 README、current/、发布报告 |
+| Current | 指定 branch/commit 上可由代码和测试验证的能力；不必然等于冻结发布 | 根 README、current/ |
 | Frozen | 某次发布或评测的不可变证据 | Resume V2 tag、releases/resume_v2_release_report.md |
 | Canonical target | 已确认的目标设计，不等于已实现 | canonical/architecture_v2.md、canonical/v2_roadmap.md |
 | Learning | 个人学习和复盘，不替代代码契约 | learning/ |
@@ -44,13 +44,15 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 
 ### Current implementation
 
+- [Codex Brief](current/CODEX_BRIEF.md)：低成本接手地图，区分 main、当前候选分支、冻结基线与已知问题
 - [Resume V2 当前架构](current/resume_v2_architecture.md)：当前 Graph、DecisionContext、Wire Proposal、TurnCompiler、Enrichment、ConstraintEngine、PlanSpecCompiler、Beam、Provider、Verifier、持久化和降级边界
 - [Resume V2 发布评测](releases/resume_v2_release_report.md)：36 条 reviewed Fixture、C0–C4、B0/B3、Retrieval、Advisor、Beam 和发布限制
+- [S-HITL6 Reliability 收口](status/s_hitl6_reliability_closeout_20261018.md)：类型化恢复、失败主因、动作历史与当前已知 Planner 质量缺口
 - [S-CORE3H4 收口记录](status/s_core3h4_closeout_20261007.md)：统一动作入口、删除旧路由回退，以及干净提交上的 C/B 复验
 - [S-CORE1C PlanSpec 收敛验收](status/s_core1c_release_20261002.md)：三阶段重构、Rule fallback、C0–C4 与 Live B0/B3 的新分支回归结果
 - [CONTEXT.md](../CONTEXT.md)：Session、Planning Run、Plan Version、Constraint、Provider 和 Memory 等术语
 
-冻结发布 tag 仍是 `planner-v2-eval-baseline`（评测代码 `db8603b`，文档收口 `bef5fa3`）。S-CORE1A/B/C 的代码评测提交为 `52fd353`，已完成正式回归并记录在上方验收报告；它仍是独立功能分支，未自动合并 `main`，也不应与旧冻结 tag 混称为同一提交。
+冻结发布 tag 仍是 `planner-v2-eval-baseline`（评测代码 `db8603b`，文档收口 `bef5fa3`）。S-CORE1A/B/C 后续已进入主线，但对应阶段报告仍只是当时提交的验收快照；不得与旧冻结 tag 混称为同一提交或倒写冻结指标。
 
 ### Canonical target and roadmap
 
@@ -73,8 +75,9 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 ```text
 docs/
 ├── README.md                         # 本入口：状态、权威层级、阅读顺序
-├── current/                          # 当前发布版本的实现说明
-│   └── resume_v2_architecture.md
+├── current/                          # 明确标注 branch/commit 的当前实现说明
+│   ├── CODEX_BRIEF.md                # 新会话的短事实索引
+│   └── resume_v2_architecture.md     # 完整当前架构
 ├── releases/                         # 冻结发布与可复现实验报告
 ├── canonical/                        # 已确认的目标架构和路线图
 ├── adr/                              # 关键架构取舍及原因
@@ -148,6 +151,7 @@ archive/ 下的旧 Router 设计和 V1 Mock/迁移说明只用于追溯。原始
 ## ✍️ 维护规则
 
 - 功能、运行方式或主链路改变时，先更新根 README、current/ 和对应 status/ 证据
+- 当前代码入口、版本边界、可信基线或已知问题改变时，同步更新 current/CODEX_BRIEF.md；不要把它扩写成第二份完整架构
 - 新增评测只创建带日期的 status 快照，不覆盖旧报告；冻结版本报告进入 releases/
 - 目标设计必须写明“目标/未实现”，不能混入当前能力列表
 - 面试材料中的指标必须链接发布报告或具体评测产物

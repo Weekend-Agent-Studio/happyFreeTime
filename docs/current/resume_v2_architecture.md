@@ -1,6 +1,6 @@
 # Resume V2 当前架构
 
-_Resume V2 当前实现快照；核对日期：2026-10-09。S-CORE2A–E 与 S-CORE3A–H4 已在主线完成；S-HITL1–4 的恢复实现正在 `codex/s-hitl-recovery` 验收，尚未合入或发布。_
+_Resume V2 当前实现快照；核对日期：2026-10-19。`origin/main@49ae2b0` 已包含 S-RX4；本文同时描述待合并的 `codex/s-hitl6-reliability@b541c13` 类型化恢复候选实现，冻结发布指标仍以对应 tag 和报告为准。_
 
 ---
 
@@ -13,6 +13,7 @@ _Resume V2 当前实现快照；核对日期：2026-10-09。S-CORE2A–E 与 S-C
 - 36 条人工复核 Frozen Fixture；
 - S-CORE1A/B/C 的代码、自动测试和阶段报告；其评测代码提交 `52fd353` 的正式结果见 [S-CORE1C 报告](../status/s_core1c_release_20261002.md)。
 - S-CORE2A–E、S-CORE3A–H4 的代码、测试和阶段报告；冻结 tag 的历史指标仍只对应各自冻结提交，不能把本地开发分支的复验结果倒写成发布指标。
+- S-HITL6 Reliability 候选分支的代码与 [收口记录](../status/s_hitl6_reliability_closeout_20261018.md)；在 PR 合并前，它不代表 `main` 或新的冻结发布。
 
 如果本文与根 README、代码或自动测试冲突，以代码和测试为准。目标架构、长期记忆、真实执行、Saga 和 MCP 演进见 canonical/architecture_v2.md，不能从目标设计推断为当前能力。
 
@@ -53,7 +54,7 @@ flowchart TB
         verify -->|无可行方案| failure[RecoveryReasonAdapter]
         modify -->|修改失败| failure
         failure --> recovery
-        recovery -->|默认条件且本轮未尝试| auto[一次有界自动恢复]
+        recovery -->|有充分证据且策略允许| auto[有界自动恢复]
         auto --> patch
         recovery -->|需用户决定| recovery_pause[恢复选择 interrupt]
         recovery_pause -->|typed RecoveryAction| recovery_action[应用 Patch / 字段值]
@@ -106,15 +107,15 @@ H4 后，Graph 运行时只接受 `interpret_with_runtime() -> TurnInterpreterRe
 
 反问由 `interrupt/resume` 恢复。每个待问 Issue 绑定 `clarification_id + request_revision`；用户回答由字段 Compiler 限定在当前字段，顶部栏 Patch 可解决对应 Issue。旧 ID/revision 被拒绝为明确的 stale 状态；有效回答不会把整段对话重新送回 Router。
 
-### Planning failure recovery（S-HITL1–4 验收中）
+### Planning failure recovery（S-HITL6 候选实现）
 
 字段反问与规划失败恢复是两种策略、同一类 Graph 交互：`QuestionPolicy` 处理缺失/模糊字段；`RecoveryPolicy` 处理硬冲突、无可行方案和定向修改失败。失败先由 `RecoveryReasonAdapter` 从原始 `ConstraintConflict`、搜索统计和 Provider finding 投影出带真实阶段、字段与安全诊断的 `RecoveryReason`；底层 finding 仍保留，不让 Planner 依赖 UI 动作。
 
-`RecoveryPolicy` 只读取结构化请求和失败事实，返回有限判别联合 `RecoveryAction`。动作 payload 才是执行依据，label 只用于展示；点击动作不重新调用 Router。恢复 Patch 仍由 `ConstraintEngine` 原子校验，成功后回到原 Planning 或 Modification 路径。旧的 `relaxation_options` 字符串按钮及前端 label→意图映射已删除。
+`RecoveryReasonAdapter` 保留底层失败漏斗，`resolve_primary_bottleneck()` 再把它归为时间冲突、排程容量、候选供给、距离限制、路线可行性、营业状态、搜索预算或未知主因。`RecoveryPolicy` 只读取 `RecoveryContext` 中的结构化请求、主因和历史尝试，返回有限判别联合 `RecoveryAction`。动作 payload 才是执行依据，label 只用于展示；点击动作不重新调用 Router。恢复 Patch 仍由 `ConstraintEngine` 原子校验，成功后回到原 Planning 或 Modification 路径。旧的字符串按钮和前端 label→意图映射已删除。
 
-系统只允许对来源为 `DEFAULT_RULE`、`DERIVED` 或 `SYSTEM_CONTEXT` 的默认/内部距离条件进行一次自动尝试；显式或用户推断的限制必须由用户确认。自动动作先经 ConstraintEngine 预检，本轮 `auto_recovery_attempted` 后不再自动尝试；再次失败转为用户可选的 RecoveryChoice。修改失败不创建 Plan Version 或不完整 PlanDiff，并保留“保留当前方案”选项。顶部栏直接编辑在恢复卡片待处理时被拒绝；选择“手动调整条件”后，原约束草稿才交给顶部栏，不会提前覆盖已提交请求。
+策略只在已有失败证据支持时生成少量动作：例如排程容量优先延长时间或减少站数，距离限制可有界扩展半径，候选供给转为编辑站点要求，营业状态则区分明确不可用、时间不匹配、未知和 Provider 降级。没有可靠数值时只请求字段或打开编辑器，不猜数字；用户显式硬约束不会被静默放宽。具体动作指纹立即防重，策略指纹和 `RecoveryAttempt` 历史会在连续无效后屏蔽同类建议；再次失败必须重新基于新漏斗判定主因。修改失败不创建 Plan Version 或不完整 PlanDiff，并保留“保留当前方案”选项。
 
-Graph 的待处理交互是 `FieldClarificationInteraction | RecoveryChoiceInteraction`；恢复响应绑定 `interaction_id + action_id + request_revision + plan_version_id`，旧操作、错版本和重复动作被拒绝。恢复状态由版本化 checkpoint namespace 隔离，开发旧 checkpoint 不做迁移。HITL Fixture 当前覆盖 9 个确定性失败→动作合同；它不是完整的真实模型多轮成功率基准。Graph/API 的人工恢复覆盖和发布级 C/B 评测仍以 S-HITL 收口报告为准。
+Graph 的待处理交互是 `FieldClarificationInteraction | RecoveryChoiceInteraction`；恢复响应绑定 `interaction_id + action_id + request_revision + plan_version_id`，旧操作、错版本和重复动作被拒绝。`RecoveryOutcome` 持久化动作、字段变化、前后主因和成功/仍失败状态，刷新后不需要重放 checkpoint 才能解释结果。恢复状态由版本化 checkpoint namespace 隔离，开发旧 checkpoint 不做迁移。Fixture 和 Live replay 是恢复链路诊断，不等同于通用多轮成功率或生产指标。
 
 ### CREATE、约束修改与局部替换
 
@@ -181,7 +182,7 @@ Beam 是默认主路径。Legacy Search 仅通过显式实验模式或 Beam 在�
 
 Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单、预订、叫车或长期用户记忆模块。
 
-当前 Graph 状态以 `active_request`、一个 `pending_interaction`、待应用 Patch、方案/候选结果和运行诊断为主；恢复阶段另保存当前失败事实、未提交的冲突草稿、自动恢复标记和已用动作 ID。Enrichment 结果只作为瞬时输出，假设与地理编码事实按需单独存储。S-HITL 使用 `CHECKPOINT_SCHEMA_VERSION=planner-hitl1-v1`，旧开发 checkpoint 不做读取 Adapter，需新建开发会话；本轮不主动删除用户本地消息和历史记录。Repository 是 `PlanRequest`、PlanVersion 和 selected plan 的产品事实来源；尚未生成 PlanVersion 的已保存请求也写入 SessionSnapshot，checkpoint 只保存暂停位置、pending interaction 和本轮临时状态。
+当前 Graph 状态以 `active_request`、一个 `pending_interaction`、待应用 Patch、方案/候选结果和运行诊断为主；恢复阶段保存当前失败事实、恢复尝试/结果和用于并发、防重的稳定标识。Enrichment 结果只作为瞬时输出，假设与地理编码事实按需单独存储。当前仍使用 `CHECKPOINT_SCHEMA_VERSION=planner-hitl1-v1`；旧开发 checkpoint 不做读取 Adapter，需新建开发会话。Repository 是 `PlanRequest`、PlanVersion 和 selected plan 的产品事实来源；尚未生成 PlanVersion 的已保存请求也写入 SessionSnapshot，checkpoint 只保存暂停位置、pending interaction 和本轮临时状态。
 
 ## 📊 当前评测证据
 
@@ -194,6 +195,7 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 - H4 干净提交 `2e9f0f0` 的复验中，C3/C4 均为 36/36，B0/B3 分别为 30/36 与 33/36；四组硬约束安全和冲突归因均保持 100%，Live 结果只用于稳定性诊断，完整限制见 [H4 收口记录](../status/s_core3h4_closeout_20261007.md)。
 - Hybrid Retrieval 的历史正式 Recall@5 为 0.537，Rule baseline 为 0.240；Advisor 接受结果经过 Plan/Evidence/Fact ID grounding，失败时安全回退；
 - BGE 冷启动延迟与稳态延迟分开记录。
+- S-HITL6 Reliability 候选分支的最近全后端回归为 600 passed、1 failed、77 subtests；唯一失败是与 HITL 无关的全天首方案排序质量断言。最新 HITL/Graph/评测定向回归为 98 passed、29 subtests。Live B0 8 条回放无 HTTP/应用异常，但报告来自 dirty 工作树，只能作为诊断；完整限制见 [S-HITL6 收口记录](../status/s_hitl6_reliability_closeout_20261018.md)。
 
 ## 🚫 当前明确未实现
 
@@ -219,7 +221,7 @@ Checkpoint 不是订单事实，也不是长期记忆。当前没有真实订单
 | 语义入口 | app/services/router_extractor.py、app/services/demo_router.py |
 | 请求编译与执行 | app/services/enrichment.py、app/services/request_patch_compiler.py、app/services/request_patch_update.py、app/services/constraint_engine.py |
 | 反问策略与恢复 | app/services/question_policy.py、app/services/clarification_patch.py、app/services/clarification.py |
-| 规划失败恢复 | app/domain/recovery.py、app/services/recovery_policy.py、app/services/recovery_reason_adapter.py |
+| 规划失败恢复 | app/domain/recovery.py、app/services/recovery_reason_adapter.py、app/services/recovery_bottleneck.py、app/services/recovery_policy.py |
 | 规划与结构 | app/services/planning.py、app/services/planning_intent.py、app/services/plan_spec_compiler.py |
 | Provider | app/providers/ |
 | 持久化 | app/persistence/ |

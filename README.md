@@ -12,7 +12,7 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 
 项目重点不是让模型自由编写一段看似合理的行程，而是证明：模型可以参与规划，同时不能绕过事实和安全边界。
 
-冻结发布基线：`planner-v2-eval-baseline`。评测使用 36 条人工复核 Fixture、DeepSeek Flash、BGE 本地向量模型和可复现 Demo World；它是可回放的工程评测版本，不是实时商户数据或生产成功率承诺。当前架构分支正在完成 S-CORE3H4 收口，最新代码提交和复验结果见 [H4 收口记录](docs/status/s_core3h4_closeout_20261007.md)。
+冻结发布基线：`planner-v2-eval-baseline`。评测使用 36 条人工复核 Fixture、DeepSeek Flash、BGE 本地向量模型和可复现 Demo World；它是可回放的工程评测版本，不是实时商户数据或生产成功率承诺。主线已完成 S-RX4；当前 `codex/s-hitl6-reliability` 候选分支继续收口类型化 HITL 恢复，合并状态、代码入口和已知问题见 [Codex Brief](docs/current/CODEX_BRIEF.md)。
 
 - 在线体验：待补充
 - 演示视频：待补充
@@ -23,7 +23,7 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 | 能力 | Resume V2 状态 | 说明 |
 | --- | --- | --- |
 | 自然语言入口 | 已实现 | 真实 LLM Router 或离线 Demo Router |
-| 反问与恢复 | 已实现 | Graph interrupt/resume、SQLite checkpoint、字段级补充、默认值和取消 |
+| 反问与恢复 | 已实现 | Graph interrupt/resume、SQLite checkpoint、字段级补充，以及基于失败证据的类型化恢复动作 |
 | 受约束结构提案 | 已实现 | PlanningIntent 提出 objectives、角色顺序和语义查询；`PlanSpecCompiler` 负责合法性裁决 |
 | 方案搜索 | 已实现 | Beam 默认主路径，Legacy Search 作为显式模式和受控回退 |
 | 多站规划 | 已实现 | 支持 1–4 个停靠点、午餐/活动/休息/晚餐等受支持结构 |
