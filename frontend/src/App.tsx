@@ -106,6 +106,14 @@ type PoiNavigation = {
   returnFocusElement: HTMLElement | null;
 };
 
+type TimelineRouteScrollTarget = {
+  sessionId: string | null;
+  response: AgentResponse | null;
+  planId: string | null;
+  legIndex: number;
+  isMobile: boolean;
+};
+
 type ReplacementDraft = {
   planVersionId: string;
   planId: string;
@@ -681,6 +689,7 @@ function App() {
   const selectionInFlightRef = useRef(false);
   const selectionRequestTokenRef = useRef(0);
   const poiNavigationRef = useRef<PoiNavigation | null>(null);
+  const timelineRouteScrollRef = useRef<TimelineRouteScrollTarget | null>(null);
   const inspectorScrollContextRef = useRef<{
     sessionId: string | null;
     response: AgentResponse | null;
@@ -726,11 +735,36 @@ function App() {
     const previous = workspaceContextRef.current;
     if (previous.sessionId !== nextContext.sessionId || previous.response !== nextContext.response || previous.planId !== nextContext.planId) {
       workspaceContextRef.current = nextContext;
+      timelineRouteScrollRef.current = null;
       setPoiNavigation(null);
       setFocusedLegIndex(null);
       setRightTab("trip");
     }
   }, [detailResponse, inspectorPlan?.plan_id, sessionId]);
+  useLayoutEffect(() => {
+    const pending = timelineRouteScrollRef.current;
+    if (!pending) return;
+    if (pending.sessionId !== sessionId || pending.response !== detailResponse || pending.planId !== inspectorPlan?.plan_id || pending.isMobile !== isMobile) {
+      timelineRouteScrollRef.current = null;
+      return;
+    }
+    if (rightTab !== "trip") return;
+
+    timelineRouteScrollRef.current = null;
+    const scrollHost = pending.isMobile ? mobileInspectorScrollRef.current : desktopInspectorScrollRef.current;
+    const target = scrollHost?.querySelector<HTMLElement>(`[data-route-leg-index="${pending.legIndex}"]`);
+    if (!scrollHost || !target) return;
+
+    const hostRect = scrollHost.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const stickyHeaderBottom = scrollHost.querySelector<HTMLElement>(".inspector-sticky-header")?.getBoundingClientRect().bottom;
+    const visibleTop = Math.max(hostRect.top + scrollHost.clientTop, stickyHeaderBottom ?? hostRect.top);
+    const visibleBottom = hostRect.bottom - scrollHost.clientTop;
+    const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+    const targetHeight = Math.min(targetRect.height, visibleHeight);
+    const desiredTop = visibleTop + Math.max(0, (visibleHeight - targetHeight) / 2);
+    scrollHost.scrollTop = Math.max(0, scrollHost.scrollTop + targetRect.top - desiredTop);
+  }, [detailResponse, inspectorPlan?.plan_id, isMobile, rightTab, sessionId]);
   const previousIsMobileRef = useRef(isMobile);
   useEffect(() => {
     if (previousIsMobileRef.current === isMobile) return;
@@ -1270,6 +1304,7 @@ function App() {
   }
 
   const openRouteOnMap = useCallback((legIndex: number) => {
+    timelineRouteScrollRef.current = null;
     setFocusedLegIndex(legIndex);
     setRightTab("map");
   }, []);
@@ -1279,11 +1314,20 @@ function App() {
   }, []);
 
   const showRouteInTimeline = useCallback((legIndex: number) => {
+    const context = inspectorScrollContextRef.current;
+    timelineRouteScrollRef.current = {
+      sessionId: context.sessionId,
+      response: context.response,
+      planId: context.plan?.plan_id ?? null,
+      legIndex,
+      isMobile: context.isMobile,
+    };
     setFocusedLegIndex(legIndex);
     setRightTab("trip");
   }, []);
 
   const viewPlan = useCallback((targetResponse: AgentResponse, planId: string) => {
+    timelineRouteScrollRef.current = null;
     setInspectedResponse(targetResponse);
     setViewedPlanId(planId);
     setPoiNavigation(null);

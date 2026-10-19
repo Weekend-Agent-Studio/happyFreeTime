@@ -103,9 +103,23 @@ test("offline planning path keeps route and fallback map interactive", async ({ 
   await expect(page.getByText("当前响应没有可绘制的有效路线坐标；可从下方站点列表查看 POI 与文字路线")).toBeVisible();
   await page.getByRole("button", { name: "聚焦第 2 段路线：展览 到 晚餐" }).click();
   await expect(page.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("button", { name: "在行程中定位" }).nth(1).click();
+  const scrollHost = page.locator(mobile ? ".sheet-content" : ".detail-panel");
+  const firstRouteTimelineAction = page.getByRole("button", { name: "在行程中定位" }).first();
+  await firstRouteTimelineAction.scrollIntoViewIfNeeded();
+  const mapScrollBefore = await scrollHost.evaluate((element) => element.scrollTop);
+  await firstRouteTimelineAction.click();
   await expect(page.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
+  const focusedTimelineRoute = page.locator('.timeline-route[data-route-leg-index="0"]');
+  await expect(focusedTimelineRoute).toHaveClass(/route-focused/);
+  await expect.poll(() => focusedTimelineRoute.evaluate((element) => {
+    const host = element.closest<HTMLElement>(".detail-panel, .sheet-content");
+    if (!host) return false;
+    const hostRect = host.getBoundingClientRect();
+    const targetRect = element.getBoundingClientRect();
+    const stickyBottom = host.querySelector<HTMLElement>(".inspector-sticky-header")?.getBoundingClientRect().bottom ?? hostRect.top;
+    return targetRect.top >= Math.max(hostRect.top + host.clientTop, stickyBottom) && targetRect.bottom <= hostRect.bottom - host.clientTop;
+  })).toBe(true);
+  await expect.poll(() => scrollHost.evaluate((element) => element.scrollTop)).not.toBe(mapScrollBefore);
   await expect(page.getByRole("button", { name: /查看返程/ })).toHaveCount(1);
 });
 
