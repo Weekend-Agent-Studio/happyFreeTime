@@ -1,5 +1,5 @@
 import { Dialog } from "@base-ui/react/dialog";
-import { FormEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { FormEvent, type ReactNode, type RefObject, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Bus,
   CalendarDays,
@@ -24,12 +24,10 @@ import {
   MapPin,
   Navigation,
   PanelRight,
-  ReceiptText,
   Route,
   Send,
   ShieldCheck,
   Sparkles,
-  Star,
   Store,
   Tag,
   Utensils,
@@ -93,7 +91,20 @@ const ASSUMPTION_LABELS: Record<string, string> = {
 };
 
 const SESSION_QUERY_KEY = "session";
-type InspectorTab = "trip" | "map" | "orders" | "evidence";
+type InspectorTab = "trip" | "map";
+
+type PoiNavigation = {
+  sessionId: string | null;
+  planVersionId: string | null;
+  response: AgentResponse;
+  planId: string;
+  stopIndex: number;
+  resourceId: string;
+  returnTab: InspectorTab;
+  returnScrollTop: number;
+  returnLegIndex: number | null;
+  returnFocusElement: HTMLElement | null;
+};
 
 type ReplacementDraft = {
   planVersionId: string;
@@ -540,8 +551,7 @@ function departureConstraint(response: AgentResponse): ConstraintSummaryItem | n
 }
 
 function planRationale(plan: Plan): string[] {
-  if (plan.highlights.length) return plan.highlights.slice(0, 3);
-  return [`这套方案以“${strategyLabel(plan.strategy)}”为主要取向，时间线和已知硬约束已经过规划校验。`];
+  return plan.highlights.slice(0, 3);
 }
 
 function planAdviceFor(advice: RecommendationAdvice | null | undefined, planId: string): PlanAdvice | undefined {
@@ -646,6 +656,7 @@ function App() {
   const [selectionError, setSelectionError] = useState("");
   const [focusedLegIndex, setFocusedLegIndex] = useState<number | null>(null);
   const [rightTab, setRightTab] = useState<InspectorTab>("trip");
+  const [poiNavigation, setPoiNavigation] = useState<PoiNavigation | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return window.localStorage.getItem("hft.sidebar.collapsed") === "true"; }
     catch { return false; }
@@ -669,6 +680,17 @@ function App() {
   const activePlanSnapshotRef = useRef<AgentResponse | null>(null);
   const selectionInFlightRef = useRef(false);
   const selectionRequestTokenRef = useRef(0);
+  const poiNavigationRef = useRef<PoiNavigation | null>(null);
+  const inspectorScrollContextRef = useRef<{
+    sessionId: string | null;
+    response: AgentResponse | null;
+    plan: Plan | undefined;
+    tab: InspectorTab;
+    legIndex: number | null;
+    isMobile: boolean;
+  }>({ sessionId: null, response: null, plan: undefined, tab: "trip", legIndex: null, isMobile: false });
+  const desktopInspectorScrollRef = useRef<HTMLElement>(null);
+  const mobileInspectorScrollRef = useRef<HTMLDivElement>(null);
 
   function invalidateSelectionFlow() {
     selectionRequestTokenRef.current += 1;
@@ -684,6 +706,37 @@ function App() {
     () => detailResponse?.plans.find((plan) => plan.plan_id === viewedPlanId) ?? detailResponse?.plans[0],
     [detailResponse, viewedPlanId],
   );
+  poiNavigationRef.current = poiNavigation;
+  inspectorScrollContextRef.current = {
+    sessionId,
+    response: detailResponse,
+    plan: inspectorPlan,
+    tab: rightTab,
+    legIndex: focusedLegIndex,
+    isMobile,
+  };
+
+  const workspaceContextRef = useRef<{ sessionId: string | null; response: AgentResponse | null; planId: string | null }>({
+    sessionId: null,
+    response: null,
+    planId: null,
+  });
+  useLayoutEffect(() => {
+    const nextContext = { sessionId, response: detailResponse, planId: inspectorPlan?.plan_id ?? null };
+    const previous = workspaceContextRef.current;
+    if (previous.sessionId !== nextContext.sessionId || previous.response !== nextContext.response || previous.planId !== nextContext.planId) {
+      workspaceContextRef.current = nextContext;
+      setPoiNavigation(null);
+      setFocusedLegIndex(null);
+      setRightTab("trip");
+    }
+  }, [detailResponse, inspectorPlan?.plan_id, sessionId]);
+  const previousIsMobileRef = useRef(isMobile);
+  useEffect(() => {
+    if (previousIsMobileRef.current === isMobile) return;
+    previousIsMobileRef.current = isMobile;
+    setMobileDetailOpen(isMobile && Boolean(inspectorPlan));
+  }, [inspectorPlan, isMobile]);
 
   const activeSelectedResponse = useMemo(() => {
     const activeVersionId = activePlanVersionIdRef.current;
@@ -700,6 +753,80 @@ function App() {
     )) ?? null;
   }, [inspectedResponse, messages, response, selectedPlanId]);
   const activeSelectedPlan = activeSelectedResponse?.plans.find((plan) => plan.plan_id === selectedPlanId);
+  const activePoiNavigation = poiNavigation
+    && poiNavigation.sessionId === sessionId
+    && poiNavigation.response === detailResponse
+    && poiNavigation.planVersionId === (detailResponse?.plan_version_id ?? null)
+    && poiNavigation.planId === inspectorPlan?.plan_id
+    && inspectorPlan?.stops[poiNavigation.stopIndex]?.resource_id === poiNavigation.resourceId
+    ? poiNavigation
+    : null;
+  const canReplaceInspectorPlan = Boolean(
+    inspectorPlan
+    && sessionId
+    && activePlanVersionIdRef.current
+    && detailResponse?.plan_version_id === activePlanVersionIdRef.current
+    && selectedPlanId === inspectorPlan.plan_id
+    && activeSelectedPlan?.plan_id === inspectorPlan.plan_id
+    && !loading
+    && !restoring
+    && !selectionPendingPlanId
+    && !selectionInFlightRef.current
+    && !selectionConfirmation
+    && !replacementDraft
+    && !failedRequest
+    && !response?.question
+    && !response?.recovery
+    && (!planningContext || (planningContext.request_view === "committed" && !planningContext.plan_stale && !planningContext.pending_field)),
+  );
+
+  const openPoiDetail = useCallback((stopIndex: number, triggerElement: HTMLElement | null = null) => {
+    const context = inspectorScrollContextRef.current;
+    const plan = context.plan;
+    const responseForPlan = context.response;
+    const stop = plan?.stops[stopIndex];
+    if (!plan || !responseForPlan || !stop) return;
+    const scrollHost = context.isMobile ? mobileInspectorScrollRef.current : desktopInspectorScrollRef.current;
+    setPoiNavigation({
+      sessionId: context.sessionId,
+      planVersionId: responseForPlan.plan_version_id ?? null,
+      response: responseForPlan,
+      planId: plan.plan_id,
+      stopIndex,
+      resourceId: stop.resource_id,
+      returnTab: context.tab,
+      returnScrollTop: scrollHost?.scrollTop ?? 0,
+      returnLegIndex: context.legIndex,
+      returnFocusElement: triggerElement,
+    });
+    requestAnimationFrame(() => {
+      const current = inspectorScrollContextRef.current;
+      const activeHost = current.isMobile ? mobileInspectorScrollRef.current : desktopInspectorScrollRef.current;
+      if (activeHost) activeHost.scrollTop = 0;
+    });
+  }, []);
+
+  const closePoiDetail = useCallback(() => {
+    const navigation = poiNavigationRef.current;
+    if (!navigation) return;
+    poiNavigationRef.current = null;
+    setPoiNavigation(null);
+    setRightTab(navigation.returnTab);
+    setFocusedLegIndex(navigation.returnLegIndex);
+    requestAnimationFrame(() => {
+      const current = inspectorScrollContextRef.current;
+      const activeHost = current.isMobile ? mobileInspectorScrollRef.current : desktopInspectorScrollRef.current;
+      if (activeHost) activeHost.scrollTop = navigation.returnScrollTop;
+      requestAnimationFrame(() => {
+        let focusTarget = navigation.returnFocusElement;
+        if (!focusTarget?.isConnected) {
+          focusTarget = activeHost?.querySelector<HTMLElement>(`[data-inspector-stop-index="${navigation.stopIndex}"]`) ?? null;
+        }
+        focusTarget?.focus({ preventScroll: true });
+        if (activeHost) activeHost.scrollTop = navigation.returnScrollTop;
+      });
+    });
+  }, []);
   const inspectorSelectionBlockReason = planSelectionBlockReason({
     response: detailResponse,
     planId: inspectorPlan?.plan_id ?? null,
@@ -1147,6 +1274,10 @@ function App() {
     setRightTab("map");
   }, []);
 
+  const focusRouteOnMap = useCallback((legIndex: number) => {
+    setFocusedLegIndex(legIndex);
+  }, []);
+
   const showRouteInTimeline = useCallback((legIndex: number) => {
     setFocusedLegIndex(legIndex);
     setRightTab("trip");
@@ -1155,6 +1286,8 @@ function App() {
   const viewPlan = useCallback((targetResponse: AgentResponse, planId: string) => {
     setInspectedResponse(targetResponse);
     setViewedPlanId(planId);
+    setPoiNavigation(null);
+    setRightTab("trip");
     setFocusedLegIndex(null);
     setSelectionError("");
   }, []);
@@ -1271,7 +1404,25 @@ function App() {
     const requestSessionId = sessionIdRef.current;
     const requestVersionId = activePlanVersionIdRef.current;
     const stop = plan.stops[stopIndex];
-    if (!requestSessionId || !requestVersionId || selectedPlanId !== plan.plan_id || !stop) {
+    const canModify = Boolean(
+      requestSessionId
+      && requestVersionId
+      && detailResponse?.plan_version_id === requestVersionId
+      && selectedPlanId === plan.plan_id
+      && activeSelectedPlan?.plan_id === plan.plan_id
+      && !loading
+      && !restoring
+      && !selectionPendingPlanId
+      && !selectionInFlightRef.current
+      && !selectionConfirmation
+      && !replacementDraft
+      && !failedRequest
+      && !response?.question
+      && !response?.recovery
+      && (!planningContext || (planningContext.request_view === "committed" && !planningContext.plan_stale && !planningContext.pending_field))
+      && stop,
+    );
+    if (!canModify || !requestSessionId || !requestVersionId || !stop) {
       setError("请先选择当前方案，再修改其中的站点。");
       return;
     }
@@ -1286,7 +1437,7 @@ function App() {
       criteria: [],
     });
     setInput("");
-  }, [selectedPlanId]);
+  }, [activeSelectedPlan?.plan_id, detailResponse?.plan_version_id, failedRequest, loading, planningContext, replacementDraft, response?.question, response?.recovery, restoring, selectedPlanId, selectionConfirmation, selectionPendingPlanId]);
 
   const chooseReplacementMode = useCallback((mode: ReplacementPreset) => {
     if (loading || restoring || !replacementDraft) return;
@@ -1377,8 +1528,8 @@ function App() {
         </div>
       </main>
 
-       <aside className="detail-panel" aria-label="方案详情" aria-hidden={inspectorCollapsed}>
-         {!isMobile ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
+        <aside ref={desktopInspectorScrollRef} className="detail-panel" aria-label="方案详情" aria-hidden={inspectorCollapsed}>
+          {!isMobile ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} canReplace={canReplaceInspectorPlan} poiNavigation={activePoiNavigation} onOpenPoi={openPoiDetail} onBackFromPoi={closePoiDetail} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onFocusMapRoute={focusRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
       </aside>
 
       <button className="inspector-toggle" type="button" onClick={() => setInspectorCollapsed((current) => !current)} aria-label={inspectorCollapsed ? "展开方案详情" : "收起方案详情"} aria-expanded={!inspectorCollapsed}>
@@ -1389,8 +1540,8 @@ function App() {
         <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} compact />
       </MobileSheet>
 
-      <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前预览方案；只有右侧确认会更新正式选择。">
-         <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} />
+       <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前预览方案；只有右侧确认会更新正式选择。" contentRef={mobileInspectorScrollRef}>
+          {isMobile && mobileDetailOpen ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} canReplace={canReplaceInspectorPlan} poiNavigation={activePoiNavigation} onOpenPoi={openPoiDetail} onBackFromPoi={closePoiDetail} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onFocusMapRoute={focusRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
       </MobileSheet>
 
       <Dialog.Root open={Boolean(selectionConfirmation)} onOpenChange={(open) => { if (!open) setSelectionConfirmation(null); }}>
@@ -1805,17 +1956,36 @@ function PlanCard({ plan, recommended = false, index, warning, viewed, selected,
 }
 
 function InspectorViewPicker({ activeTab, onTabChange }: { activeTab: InspectorTab; onTabChange: (tab: InspectorTab) => void }) {
-  const labels: Record<InspectorTab, string> = { trip: "行程", map: "地图", orders: "订单", evidence: "核验" };
-  const icons: Record<InspectorTab, ReactNode> = {
-    trip: <CalendarDays size={16} aria-hidden="true" />,
-    map: <MapIcon size={16} aria-hidden="true" />,
-    orders: <ReceiptText size={16} aria-hidden="true" />,
-    evidence: <ShieldCheck size={16} aria-hidden="true" />,
+  const buttons = useRef<Array<HTMLButtonElement | null>>([]);
+  const tabs: Array<{ id: InspectorTab; label: string; icon: ReactNode }> = [
+    { id: "trip", label: "行程", icon: <CalendarDays size={16} aria-hidden="true" /> },
+    { id: "map", label: "地图", icon: <MapIcon size={16} aria-hidden="true" /> },
+  ];
+  const focusTab = (index: number) => {
+    const nextIndex = (index + tabs.length) % tabs.length;
+    const nextTab = tabs[nextIndex].id;
+    onTabChange(nextTab);
+    buttons.current[nextIndex]?.focus();
   };
-  return <div className="detail-view-nav" role="group" aria-label="方案详情视图">
-    {(Object.keys(labels) as InspectorTab[]).map((tab) => <button type="button" key={tab} aria-pressed={activeTab === tab} className={activeTab === tab ? "active" : ""} onClick={() => onTabChange(tab)}>
-      {icons[tab]}<span>{labels[tab]}</span>
-    </button>)}
+  return <div className="detail-view-nav" role="tablist" aria-label="方案工作区">
+    {tabs.map((tab, index) => <button
+      type="button"
+      role="tab"
+      id={`inspector-tab-${tab.id}`}
+      aria-controls={`inspector-panel-${tab.id}`}
+      aria-selected={activeTab === tab.id}
+      tabIndex={activeTab === tab.id ? 0 : -1}
+      key={tab.id}
+      ref={(element) => { buttons.current[index] = element; }}
+      className={activeTab === tab.id ? "active" : ""}
+      onClick={() => onTabChange(tab.id)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowRight") { event.preventDefault(); focusTab(index + 1); }
+        else if (event.key === "ArrowLeft") { event.preventDefault(); focusTab(index - 1); }
+        else if (event.key === "Home") { event.preventDefault(); focusTab(0); }
+        else if (event.key === "End") { event.preventDefault(); focusTab(tabs.length - 1); }
+      }}
+    >{tab.icon}<span>{tab.label}</span></button>)}
   </div>;
 }
 
@@ -1859,18 +2029,35 @@ function PlanInspectorHeader({ plan, selectedPlanId, selectedPlan, isCurrentVers
   );
 }
 
-function Inspector({ response, plan, selectedPlanId, isCurrentVersion, selectionDisabledReason, selectionError, selectionPending, selectedPlan, onSelectPlan, onReturnToSelectedPlan, activeTab, activeLegIndex, onTabChange, onMapRoute, onTimelineRoute, onReplaceStop }: { response: AgentResponse | null; plan?: Plan; selectedPlanId: string | null; isCurrentVersion: boolean; selectionDisabledReason: string | null; selectionError: string; selectionPending: boolean; selectedPlan?: Plan; onSelectPlan: () => void; onReturnToSelectedPlan: () => void; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
+function Inspector({ response, plan, selectedPlanId, isCurrentVersion, selectionDisabledReason, selectionError, selectionPending, selectedPlan, canReplace, poiNavigation, onOpenPoi, onBackFromPoi, onSelectPlan, onReturnToSelectedPlan, activeTab, activeLegIndex, onTabChange, onMapRoute, onFocusMapRoute, onTimelineRoute, onReplaceStop }: { response: AgentResponse | null; plan?: Plan; selectedPlanId: string | null; isCurrentVersion: boolean; selectionDisabledReason: string | null; selectionError: string; selectionPending: boolean; selectedPlan?: Plan; canReplace: boolean; poiNavigation: PoiNavigation | null; onOpenPoi: (stopIndex: number, triggerElement?: HTMLElement | null) => void; onBackFromPoi: () => void; onSelectPlan: () => void; onReturnToSelectedPlan: () => void; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onFocusMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
   const advice = plan ? planAdviceFor(response?.recommendation_advice, plan.plan_id) : undefined;
+  const poiStop = poiNavigation && plan?.plan_id === poiNavigation.planId
+    ? plan.stops[poiNavigation.stopIndex]
+    : undefined;
+  const poiPresentation = poiStop
+    ? response?.poi_presentations.find((item) => item.resource_id === poiStop.resource_id)
+    : undefined;
+  const showingPoi = Boolean(poiNavigation && poiStop && poiStop.resource_id === poiNavigation.resourceId);
   return (
     <div className="inspector">
       <div className="inspector-sticky-header">
         {plan ? <PlanInspectorHeader plan={plan} selectedPlanId={selectedPlanId} selectedPlan={selectedPlan} isCurrentVersion={isCurrentVersion} selectionDisabledReason={selectionDisabledReason} selectionError={selectionError} selectionPending={selectionPending} onSelectPlan={onSelectPlan} onReturnToSelectedPlan={onReturnToSelectedPlan} /> : null}
-        <div className="inspector-view-switcher"><InspectorViewPicker activeTab={activeTab} onTabChange={onTabChange} /></div>
+        {showingPoi ? <div className="inspector-poi-context"><span>地点详情</span><span>第 {poiNavigation!.stopIndex + 1} 站</span></div> : <div className="inspector-view-switcher"><InspectorViewPicker activeTab={activeTab} onTabChange={onTabChange} /></div>}
       </div>
-      {activeTab === "trip" ? <TripPanel plan={plan} advice={advice} presentations={response?.poi_presentations ?? []} canReplace={Boolean(plan && isCurrentVersion && selectedPlanId === plan.plan_id && response?.plan_version_id)} onReplaceStop={onReplaceStop} activeLegIndex={activeLegIndex} onSelectRoute={onMapRoute} /> : null}
-      {activeTab === "map" ? <MapPanel plan={plan} activeLegIndex={activeLegIndex} onSelectRoute={onTimelineRoute} /> : null}
-      {activeTab === "orders" ? <OrdersPanel /> : null}
-      {activeTab === "evidence" ? <EvidencePanel response={response} plan={plan} /> : null}
+      {showingPoi && plan && poiStop && poiNavigation ? <PoiDetailPage
+        key={`${poiNavigation.sessionId ?? "history"}:${poiNavigation.planVersionId ?? "unanchored"}:${poiNavigation.planId}:${poiStop.resource_id}`}
+        stop={poiStop}
+        stopIndex={poiNavigation.stopIndex}
+        presentation={poiPresentation}
+        returnTab={poiNavigation.returnTab}
+        canReplace={canReplace}
+        onBack={onBackFromPoi}
+        onReplace={() => onReplaceStop(plan, poiNavigation.stopIndex)}
+      /> : <div className="inspector-tabpanel" role="tabpanel" id={`inspector-panel-${activeTab}`} aria-labelledby={`inspector-tab-${activeTab}`} tabIndex={0}>
+        {activeTab === "trip" ? <TripPanel plan={plan} advice={advice} presentations={response?.poi_presentations ?? []} canReplace={canReplace} onReplaceStop={onReplaceStop} activeLegIndex={activeLegIndex} onOpenPoi={onOpenPoi} onMapRoute={onMapRoute} /> : null}
+        {activeTab === "map" ? <MapPanel plan={plan} activeLegIndex={activeLegIndex} onOpenPoi={onOpenPoi} onFocusRoute={onFocusMapRoute} onTimelineRoute={onTimelineRoute} /> : null}
+      </div>}
+      {response ? <details className="inspector-evidence-disclosure"><summary><ShieldCheck size={16} aria-hidden="true" /><span>核验与来源</span><ChevronDown size={15} aria-hidden="true" /></summary><EvidencePanel response={response} plan={plan} /></details> : null}
     </div>
   );
 }
@@ -1878,25 +2065,25 @@ function Inspector({ response, plan, selectedPlanId, isCurrentVersion, selection
 function RecommendationSummary({ plan, advice }: { plan: Plan; advice?: PlanAdvice }) {
   const reasons = advice ? [advice.reason] : planRationale(plan);
   const tradeoffs = advice?.tradeoffs.length ? advice.tradeoffs : plan.tradeoffs;
-  return <section className="recommendation-summary"><h3>管家为什么推荐</h3>{advice ? <span className="recommendation-explanation-label">推荐解释 · 基于已验证事实</span> : null}<ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul><div><strong>主要取舍</strong><p>{tradeoffs.length ? tradeoffs.slice(0, 2).join("；") : "当前没有额外取舍提示；临近出发时仍需关注“核验”中的动态状态。"}</p></div></section>;
+  return <section className="recommendation-summary"><h3>为什么推荐这条路线</h3>{advice ? <span className="recommendation-explanation-label">当前响应中的方案推荐依据</span> : null}{reasons.length ? <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul> : <p>当前响应没有提供方案级推荐说明。</p>}<details><summary>主要取舍与注意事项</summary>{tradeoffs.length ? <ul>{tradeoffs.slice(0, 3).map((tradeoff) => <li key={tradeoff}>{tradeoff}</li>)}</ul> : <p>当前响应没有提供额外取舍说明；动态核验信息见下方“核验与来源”。</p>}</details></section>;
 }
 
-function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, activeLegIndex, onSelectRoute }: { plan?: Plan; advice?: PlanAdvice; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
+function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, activeLegIndex, onOpenPoi, onMapRoute }: { plan?: Plan; advice?: PlanAdvice; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; activeLegIndex: number | null; onOpenPoi: (stopIndex: number, triggerElement?: HTMLElement | null) => void; onMapRoute: (legIndex: number) => void }) {
   if (!plan) return <DetailEmpty icon={<CalendarDays size={24} />} title="行程将在这里展开" text="生成方案后，可逐站查看 POI、时间、通勤和推荐取舍。" />;
   const returnLegIndex = plan.route_legs.length > plan.stops.length ? plan.route_legs.length - 1 : null;
+  const routeDuration = plan.route_legs.reduce((sum, leg) => sum + leg.duration_minutes, 0);
   return (
     <div className="trip-detail">
-      <div className="detail-title"><span>{strategyLabel(plan.strategy)}</span><h2>{plan.title}</h2><p>{planPriceLabel(plan)}（地点费用，不含交通）· {plan.total_duration_minutes} 分钟 · {totalDistance(plan).toFixed(1)} km</p></div>
       <RecommendationSummary plan={plan} advice={advice} />
-      <div className="detail-section-heading"><h3>详细行程</h3><span>{plan.stops.length} 站</span></div>
+      <div className="detail-section-heading trip-section-title"><div><span>{strategyLabel(plan.strategy)}</span><h3>详细行程</h3></div><span>{plan.stops.length} 站</span></div>
       <ol className="timeline">
-         {plan.stops.map((stop, index) => <li key={stop.resource_id}>{plan.route_legs[index] ? <TimelineRoute leg={plan.route_legs[index]} index={index} active={activeLegIndex === index} kind={index === 0 ? "start" : "next"} onSelect={onSelectRoute} /> : null}<div className="timeline-stop"><div className="timeline-stop-meta"><time>{stop.start}<small>{stop.end}</small></time><span className="timeline-marker">{index + 1}</span></div><PoiDisclosure stop={stop} presentation={presentations.find((item) => item.resource_id === stop.resource_id)} canReplace={canReplace} onReplace={() => onReplaceStop(plan, index)} /></div></li>)}
-        {returnLegIndex !== null ? <li><TimelineRoute leg={plan.route_legs[returnLegIndex]} index={returnLegIndex} active={activeLegIndex === returnLegIndex} kind="return" onSelect={onSelectRoute} /></li> : null}
+         {plan.stops.map((stop, index) => <li key={stop.resource_id} className="timeline-item">{plan.route_legs[index] ? <TimelineRoute leg={plan.route_legs[index]} index={index} active={activeLegIndex === index} kind={index === 0 ? "start" : "next"} onSelect={onMapRoute} /> : null}<div className="timeline-stop"><div className="timeline-stop-meta"><span className="timeline-marker">{index + 1}</span><span><small>到达</small><time>{stop.start}</time></span><span><small>离开</small><time>{stop.end}</time></span><small className="timeline-stop-duration">停留 {stop.duration_minutes} 分钟</small></div><div className="timeline-stop-content"><button className="timeline-stop-open" type="button" data-inspector-stop-index={index} aria-label={`查看第 ${index + 1} 站 ${stop.name} 详情`} onClick={(event) => onOpenPoi(index, event.currentTarget)}><StopImage stop={stop} galleryImage={presentations.find((item) => item.resource_id === stop.resource_id)?.gallery[0]} variant="thumb" /><span className="timeline-stop-copy"><small>{presentations.find((item) => item.resource_id === stop.resource_id)?.category_label ?? (stop.type === "restaurant" ? "餐饮" : "活动")} · {priceLabel(stop)}</small><strong>{stop.name}<ChevronRight size={16} aria-hidden="true" /></strong><span>查看地点介绍、到访信息与数据说明</span></span></button><button className="poi-action poi-replace" type="button" disabled={!canReplace} onClick={() => onReplaceStop(plan, index)} title={canReplace ? "替换当前站点，其他站点保持不变" : "当前方案不可修改站点"}>换这站</button></div></div></li>)}
+         {returnLegIndex !== null ? <li className="timeline-item"><TimelineRoute leg={plan.route_legs[returnLegIndex]} index={returnLegIndex} active={activeLegIndex === returnLegIndex} kind="return" onSelect={onMapRoute} /></li> : null}
       </ol>
       <section className="trip-route-overview">
-        <div><h3>路线预览</h3><span>{totalDistance(plan).toFixed(1)} km · 通勤约 {plan.route_legs.reduce((sum, leg) => sum + leg.duration_minutes, 0)} 分钟</span></div>
-        <div className="route-track" aria-label="路线站点顺序"><span><i>出</i><small>出发地</small></span>{plan.stops.map((stop, index) => <span key={stop.resource_id}><i>{index + 1}</i><small>{stop.name}</small></span>)}{returnLegIndex !== null ? <span><i>返</i><small>出发地</small></span> : null}</div>
-        <button type="button" onClick={() => onSelectRoute(activeLegIndex ?? 0)}>在地图中查看完整路线<ChevronRight size={15} /></button>
+         <div><h3>整段路线概览</h3><span>全程 {totalDistance(plan).toFixed(1)} km · 交通约 {routeDuration} 分钟</span></div>
+         <div className="route-track" aria-label="路线站点顺序"><span><i>出</i><small>出发地</small></span>{plan.stops.map((stop, index) => <span key={stop.resource_id}><i>{index + 1}</i><small>{stop.name}</small></span>)}{returnLegIndex !== null ? <span><i>返</i><small>出发地</small></span> : null}</div>
+         <button type="button" onClick={() => onMapRoute(activeLegIndex ?? 0)} disabled={plan.route_legs.length === 0}>在地图中查看完整路线<ChevronRight size={15} /></button>
       </section>
     </div>
   );
@@ -1904,48 +2091,67 @@ function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, act
 
 function TimelineRoute({ leg, index, active, kind, onSelect }: { leg: RouteLeg; index: number; active: boolean; kind: "start" | "next" | "return"; onSelect: (legIndex: number) => void }) {
   const label = routeActionLabel(leg, kind);
-  return <div className={`timeline-route ${active ? "route-focused" : ""}`}><span className="route-mode-icon"><RouteModeIcon mode={leg.mode} size={16} /></span><span><strong>{kind === "return" ? "返回出发地" : `${routeModeLabel(leg.mode)} ${leg.duration_minutes} 分钟`}</strong><small>{leg.origin_name} → {leg.destination_name} · {formatDistance(leg.distance_km)} km</small></span><button type="button" aria-pressed={active} onClick={() => onSelect(index)}>{label}</button></div>;
+  return <div className={`timeline-route ${active ? "route-focused" : ""}`} data-route-leg-index={index}><span className="route-mode-icon"><RouteModeIcon mode={leg.mode} size={16} /></span><span><strong>{kind === "return" ? "返程" : `${routeModeLabel(leg.mode)} · ${leg.duration_minutes} 分钟`}</strong><small>{leg.start}–{leg.end} · {leg.origin_name} → {leg.destination_name} · {formatDistance(leg.distance_km)} km</small><small>{routeProviderLabel(leg)}{leg.degraded && leg.degraded_reason ? ` · ${leg.degraded_reason}` : ""}</small></span><button type="button" aria-pressed={active} onClick={() => onSelect(index)}>{label}</button></div>;
 }
 
-function PoiDisclosure({ stop, presentation, canReplace = false, onReplace }: { stop: Stop; presentation?: PoiPresentation; canReplace?: boolean; onReplace?: () => void }) {
+function displayIfKnown(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return /^(unknown|unk|未知|不详|n\/a)$/i.test(trimmed) ? "待确认" : trimmed;
+}
+
+function referencePriceLabel(value: number | null): string | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  return `¥${value}（展示参考）`;
+}
+
+function PoiDetailPage({ stop, stopIndex, presentation, returnTab, canReplace, onBack, onReplace }: { stop: Stop; stopIndex: number; presentation?: PoiPresentation; returnTab: InspectorTab; canReplace: boolean; onBack: () => void; onReplace: () => void }) {
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const galleryImage = presentation?.gallery[0];
-  const mapUrl = `https://ditu.amap.com/search?query=${encodeURIComponent(`${stop.name} ${presentation?.address ?? ""}`)}`;
-  const onReplaceClick = (event: MouseEvent<HTMLButtonElement>) => {
-    // A button inside <summary> would otherwise toggle the disclosure before
-    // starting the replacement action.
-    event.preventDefault();
-    event.stopPropagation();
-    onReplace?.();
-  };
-  return (
-    <details className="poi-disclosure">
-      <summary className="poi-summary">
-        <StopImage stop={stop} galleryImage={galleryImage} variant="thumb" />
-          <span className="poi-summary-copy">
-          <span className="poi-summary-kicker"><span className="poi-type-icon">{stop.type === "restaurant" ? <Utensils size={14} /> : <MapPin size={14} />}</span><small>{presentation?.category_label ?? (stop.type === "restaurant" ? "餐饮" : "活动")} · {stop.duration_minutes} 分钟</small></span>
-          <strong>{stop.name}</strong>
-          <em>{priceLabel(stop)}{presentation ? ` · 演示评分 ${presentation.demo_rating.toFixed(1)}` : ""}</em>
-          <small className="poi-summary-time">本次安排 {stop.start}–{stop.end}</small>
-          {presentation ? <small className="poi-summary-address">{presentation.business_area} · {presentation.address}</small> : <small className="poi-summary-address">POI 详情待补充，当前安排仍已完成规划校验</small>}
-        </span>
-        <span className="poi-summary-side">
-          <button className="poi-action poi-replace" type="button" disabled={!canReplace} onClick={onReplaceClick} title={canReplace ? "替换当前站点，其他站点保持不变" : "先选择方案，再修改站点"}>换这站</button>
-          <span className="poi-summary-expand"><span>详情</span><ChevronDown size={16} aria-hidden="true" /></span>
-        </span>
-      </summary>
-      <div className="poi-detail">
-        {presentation ? <>
-          <p className="poi-description">{presentation.description}</p>
-          <div className="poi-tags">{[...presentation.scene_tags, ...presentation.facility_tags].slice(0, 7).map((tag) => <span key={tag}><Tag size={12} />{tag}</span>)}</div>
-          <dl><div><dt><Clock3 size={14} />本次安排</dt><dd>{stop.start}–{stop.end} · 建议停留 {presentation.suggested_duration_minutes} 分钟</dd></div><div><dt><Star size={14} />演示评分</dt><dd>{presentation.demo_rating.toFixed(1)}（演示评论 {presentation.demo_review_count.toLocaleString()} 条）</dd></div><div><dt><Store size={14} />营业</dt><dd>{presentation.opening_status} · {presentation.opening_hours_display}</dd></div><div><dt><CircleDollarSign size={14} />参考人均</dt><dd>{presentation.reference_avg_price === 0 ? "免费" : `¥${presentation.reference_avg_price ?? "—"}`}</dd></div><div><dt><MapPin size={14} />位置</dt><dd>{presentation.business_area} · {presentation.address}</dd></div><div><dt><Info size={14} />到访提示</dt><dd>{presentation.reservation_requirement}；{presentation.queue_profile}</dd></div></dl>
-          <div className="poi-risk-list">{[presentation.weather_suitability, presentation.child_suitability, ...presentation.risk_tips].slice(0, 4).map((tip) => <span key={tip}>{tip}</span>)}</div>
-          <div className="poi-actions"><a className="poi-action" href={mapUrl} target="_blank" rel="noreferrer"><MapPin size={14} />地图定位</a><a className="poi-action" href={mapUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} />在高德查看</a></div>
-          <details className="poi-data-disclosure"><summary>数据说明</summary><p>{presentation.data_notice}{galleryImage?.kind === "illustrative" ? " 当前图片为场景示意，不代表门店实拍。" : ""}</p></details>
-        </> : <p className="poi-unavailable-note"><Info size={14} />当前方案未附带 POI 详情快照；规划、路线和时间线仍可正常查看。</p>}
-         <div className="poi-source"><Database size={14} />{catalogSourceLabel(stop.source)} · {stop.source.collected_at.slice(0, 10)}</div>
-      </div>
-    </details>
-  );
+  const mapQuery = [stop.name, displayIfKnown(presentation?.address)].filter(Boolean).join(" ");
+  const mapUrl = `https://ditu.amap.com/search?query=${encodeURIComponent(mapQuery)}`;
+  const category = displayIfKnown(presentation?.category_label) ?? (stop.type === "restaurant" ? "餐饮" : stop.type === "cafe" ? "咖啡" : stop.type === "dessert" ? "甜品" : "活动");
+  const businessAddress = [displayIfKnown(presentation?.business_area), displayIfKnown(presentation?.address)].filter(Boolean).join(" · ");
+  const tags = [...(presentation?.scene_tags ?? []), ...(presentation?.facility_tags ?? [])].filter(Boolean);
+  const riskNotes = [presentation?.weather_suitability, presentation?.child_suitability, ...(presentation?.risk_tips ?? [])]
+    .map((item) => displayIfKnown(item))
+    .filter((item): item is string => Boolean(item));
+  const opening = [displayIfKnown(presentation?.opening_status), displayIfKnown(presentation?.opening_hours_display)].filter(Boolean).join(" · ");
+  const reservation = [displayIfKnown(presentation?.reservation_requirement), displayIfKnown(presentation?.booking_mode)].filter(Boolean).join(" · ");
+  const queue = displayIfKnown(presentation?.queue_profile);
+
+  useLayoutEffect(() => { titleRef.current?.focus(); }, [stop.resource_id]);
+
+  return <article className="poi-page">
+    <button className="poi-back" type="button" onClick={onBack}><ChevronLeft size={17} aria-hidden="true" />返回{returnTab === "map" ? "地图" : "行程"}</button>
+    <div className="poi-page-hero">
+      <StopImage stop={stop} galleryImage={galleryImage} variant="detail" />
+      <span className="poi-hero-number">第 {stopIndex + 1} 站</span>
+      {galleryImage?.kind === "illustrative" ? <span className="poi-image-kind">场景示意 · 非门店实拍</span> : null}
+    </div>
+    <p className="poi-image-attribution">{galleryImage?.kind === "source" ? [galleryImage.attribution, galleryImage.license].filter(Boolean).join(" · ") || "来源图片；具体拍摄与门店对应关系以数据说明为准" : stop.image && !galleryImage ? "目录图片；是否为门店实拍请以来源说明为准" : galleryImage?.kind === "illustrative" ? "当前图片为场景示意，不代表该地点实拍。" : "暂无可靠图片，未以其他地点照片替代。"}</p>
+    <div className="poi-page-title"><span className="eyebrow">{category}</span><h2 ref={titleRef} tabIndex={-1}>{stop.name}</h2><p>{businessAddress || "地址待确认"}</p></div>
+    <div className="poi-visit-metrics"><span><Clock3 size={15} aria-hidden="true" />到达 {stop.start}</span><span>离开 {stop.end}</span><span>停留 {stop.duration_minutes} 分钟</span></div>
+
+    {presentation && displayIfKnown(presentation.description) ? <section className="poi-detail-section"><h3>地点介绍</h3><p>{presentation.description}</p></section> : null}
+    <section className="poi-facts" aria-label="到访信息"><h3>到访信息</h3><dl>
+      <div><dt><CircleDollarSign size={14} aria-hidden="true" />当前方案站点费用</dt><dd>{priceLabel(stop)}</dd></div>
+      {presentation?.reference_avg_price !== undefined ? <div><dt><CircleDollarSign size={14} aria-hidden="true" />展示参考人均</dt><dd>{referencePriceLabel(presentation.reference_avg_price) ?? "未提供"}</dd></div> : null}
+      {opening ? <div><dt><Store size={14} aria-hidden="true" />营业展示</dt><dd>{opening}</dd></div> : null}
+      {reservation ? <div><dt><Info size={14} aria-hidden="true" />预约与入场</dt><dd>{reservation}</dd></div> : null}
+      {queue ? <div><dt><Info size={14} aria-hidden="true" />客流提示</dt><dd>{queue}</dd></div> : null}
+    </dl></section>
+    {tags.length ? <section className="poi-detail-section"><h3>地点标签</h3><div className="poi-tags">{tags.slice(0, 10).map((tag) => <span key={tag}><Tag size={12} aria-hidden="true" />{tag}</span>)}</div></section> : null}
+    {riskNotes.length ? <section className="poi-detail-section"><h3>到访提示与风险</h3><ul className="poi-risk-list">{riskNotes.map((tip) => <li key={tip}><Info size={14} aria-hidden="true" />{tip}</li>)}</ul></section> : null}
+    {!presentation ? <p className="poi-unavailable-note"><Info size={15} aria-hidden="true" />当前预览响应未附 POI 展示快照；以上仅使用方案站点与目录来源信息。</p> : null}
+    <section className="poi-detail-actions" aria-label="地点操作">
+      <a className="poi-action" href={mapUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} aria-hidden="true" />在高德地图中搜索</a>
+      <button className="poi-action poi-replace" type="button" disabled={!canReplace} onClick={onReplace} title={canReplace ? "替换当前站点，其他站点保持不变" : "当前方案不可修改站点"}>换这站</button>
+    </section>
+    {!canReplace ? <p className="poi-readonly-note"><Info size={14} aria-hidden="true" />仅当前活动版本的正式已选方案可修改站点。</p> : null}
+    <p className="poi-map-link-note">地图链接按地点名称和当前地址构造；打开链接不代表位置已实时核实。</p>
+    <details className="poi-data-disclosure"><summary>数据与来源说明</summary><p>{presentation ? presentation.data_notice : "当前预览响应未提供 PoiPresentation；详情字段仅来自方案 Stop 和目录来源。"}{galleryImage?.kind === "illustrative" ? " 图片为场景示意，不是门店实拍。" : ""}</p><div className="poi-source"><Database size={14} aria-hidden="true" />{catalogSourceLabel(stop.source)} · 收集于 {stop.source.collected_at.slice(0, 10)}</div></details>
+  </article>;
 }
 
 function StopImage({ stop, galleryImage, variant = "detail" }: { stop: Stop; galleryImage?: PoiPresentation["gallery"][number]; variant?: "hero" | "detail" | "thumb" }) {
@@ -1958,10 +2164,37 @@ function StopImage({ stop, galleryImage, variant = "detail" }: { stop: Stop; gal
   return <img className={`stop-image ${variant}`} src={image} alt={galleryImage?.alt ?? stop.name} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
 }
 
-function MapPanel({ plan, activeLegIndex, onSelectRoute }: { plan?: Plan; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
+function routeProviderLabel(leg: RouteLeg): string {
+  const provider = { live: "实时模式", record: "记录模式", replay: "回放模式", mock: "模拟模式" }[leg.provider_mode];
+  const verified = leg.verified_at ? ` · 核验于 ${safeDateTime(leg.verified_at)}` : "";
+  return `${routeSourceLabel(leg.source)} · ${provider}${verified}`;
+}
+
+function MapPanel({ plan, activeLegIndex, onOpenPoi, onFocusRoute, onTimelineRoute }: { plan?: Plan; activeLegIndex: number | null; onOpenPoi: (stopIndex: number, triggerElement?: HTMLElement | null) => void; onFocusRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void }) {
   const sources = plan ? [...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))] : [];
   const sourceSummary = sources.length === 1 ? sources[0] : sources.length > 1 ? "多来源路线" : "路线摘要";
-  return <div className="map-detail">{plan ? <AmapPlanMap plan={plan} activeLegIndex={activeLegIndex} onSelectRoute={onSelectRoute} /> : <div className="map-canvas amap-map-status disabled">生成方案后显示地图路线</div>}<div className="detail-title"><span>路线预览</span><h2>{sourceSummary}</h2><p>{plan ? `${totalDistance(plan).toFixed(1)} km · 已按路线耗时重建时间线` : "生成方案后显示路线摘要"}</p></div>{plan?.route_legs.map((leg, index) => <button className={`route-row ${activeLegIndex === index ? "active" : ""}`} type="button" key={`${leg.destination_name}-${index}`} aria-pressed={activeLegIndex === index} onClick={() => onSelectRoute(index)}><RouteModeIcon mode={leg.mode} size={18} /><span><strong>{leg.origin_name} → {leg.destination_name}</strong><small>{leg.start}–{leg.end} · {formatDistance(leg.distance_km)}km · {leg.duration_minutes} 分钟 · {routeSourceLabel(leg.source)}{leg.degraded ? " · 降级估算" : ""}</small></span></button>)}</div>;
+  if (!plan) return <DetailEmpty icon={<MapIcon size={24} />} title="路线将在这里展开" text="生成方案后，可查看地图状态、路线文字与站点详情。" />;
+  const returnLegIndex = plan.route_legs.length > plan.stops.length ? plan.route_legs.length - 1 : null;
+  return <div className="map-detail">
+    <AmapPlanMap plan={plan} activeLegIndex={activeLegIndex} onFocusRoute={onFocusRoute} onOpenPoi={(stopIndex) => onOpenPoi(stopIndex, null)} />
+    <div className="map-page-heading"><div><strong>地图与路线</strong><p>{sourceSummary} · {totalDistance(plan).toFixed(1)} km 全程路线</p></div><span className="map-mode-label">路线可信度见分段来源</span></div>
+    <section className="map-stop-list" aria-label="途经地点"><div className="detail-section-heading"><h3>途经地点</h3><span>{plan.stops.length} 站</span></div>
+      {plan.stops.length ? plan.stops.map((stop, index) => {
+        const inbound = plan.route_legs[index];
+        return <button className="map-stop-row" type="button" key={stop.resource_id} data-inspector-stop-index={index} aria-label={`从地图列表打开第 ${index + 1} 站 ${stop.name} 详情`} onClick={(event) => onOpenPoi(index, event.currentTarget)}><span className="map-stop-index">{index + 1}</span><span><strong>{stop.name}</strong><small>{stop.start}–{stop.end} · 停留 {stop.duration_minutes} 分钟{inbound ? ` · ${routeModeLabel(inbound.mode)} ${inbound.duration_minutes} 分钟` : ""}</small></span><ChevronRight size={17} aria-hidden="true" /></button>;
+      }) : <p className="map-fallback-note">当前方案没有站点；路线文字仅按响应实际提供的路段显示。</p>}
+    </section>
+    <section className="map-route-list" aria-label="路线分段"><div className="detail-section-heading"><h3>路线分段</h3><span>{plan.route_legs.length} 段</span></div>
+      {plan.route_legs.map((leg, index) => {
+        const kind = returnLegIndex === index ? "return" : index === 0 ? "start" : "next";
+        return <div className={`map-route-entry ${activeLegIndex === index ? "active" : ""}`} key={`${leg.origin_name}-${leg.destination_name}-${index}`}>
+          <button className="map-route-focus" type="button" aria-pressed={activeLegIndex === index} aria-label={`聚焦第 ${index + 1} 段路线：${leg.origin_name} 到 ${leg.destination_name}`} onClick={() => onFocusRoute(index)}><RouteModeIcon mode={leg.mode} size={17} /><span><strong>{kind === "return" ? "返程" : kind === "start" ? "出发路线" : "站间路线"} · {leg.origin_name} → {leg.destination_name}</strong><small>{leg.start}–{leg.end} · {formatDistance(leg.distance_km)} km · {leg.duration_minutes} 分钟</small><small>{routeProviderLabel(leg)}{leg.degraded ? ` · 降级：${leg.degraded_reason || "非实时路线"}` : ""}</small></span></button>
+          <button className="map-route-timeline" type="button" onClick={() => onTimelineRoute(index)}>在行程中定位</button>
+        </div>;
+      })}
+      {!plan.route_legs.length ? <p className="map-fallback-note">响应没有提供路线段，未生成路线或坐标；可通过上方站点列表打开 POI。</p> : null}
+    </section>
+  </div>;
 }
 
 type RetrievalEvidence = NonNullable<AgentResponse["retrieval_evidence"]>[number];
@@ -2085,16 +2318,12 @@ function ProviderEvidence({ fact }: { fact: ProviderFact }) {
   return <article className={`evidence-row ${fact.degraded ? "warning" : ""}`}><span className="evidence-icon">{fact.kind === "weather" ? <CloudSun size={17} /> : fact.kind === "geocoding" ? <MapPin size={17} /> : <Store size={17} />}</span><div><strong>{title}</strong><p>{description}</p><small>{providerSourceLabel(fact)} · 核验于 {safeDateTime(fact.verified_at)}{fact.degraded ? ` · 降级：${fact.degraded_reason}` : ""}</small></div></article>;
 }
 
-function OrdersPanel() {
-  return <DetailEmpty icon={<ReceiptText size={24} />} title="尚无执行订单" text="当前版本支持规划与核验；确认方案、幂等下单和失败补偿将在后续执行阶段接入。" />;
-}
-
 function DetailEmpty({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return <div className="detail-empty"><div>{icon}</div><h2>{title}</h2><p>{text}</p></div>;
 }
 
-function MobileSheet({ open, onOpenChange, title, description, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; children: ReactNode }) {
-  return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal><Dialog.Backdrop className="sheet-backdrop" /><Dialog.Popup className="mobile-sheet"><header className="sheet-header"><div><Dialog.Title>{title}</Dialog.Title><Dialog.Description>{description}</Dialog.Description></div><Dialog.Close className="sheet-close" aria-label="关闭"><X size={20} /></Dialog.Close></header><div className="sheet-content">{children}</div></Dialog.Popup></Dialog.Portal></Dialog.Root>;
+function MobileSheet({ open, onOpenChange, title, description, children, contentRef }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; children: ReactNode; contentRef?: RefObject<HTMLDivElement | null> }) {
+  return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal><Dialog.Backdrop className="sheet-backdrop" /><Dialog.Popup className="mobile-sheet"><header className="sheet-header"><div><Dialog.Title>{title}</Dialog.Title><Dialog.Description>{description}</Dialog.Description></div><Dialog.Close className="sheet-close" aria-label="关闭"><X size={20} /></Dialog.Close></header><div className="sheet-content" ref={contentRef}>{children}</div></Dialog.Popup></Dialog.Portal></Dialog.Root>;
 }
 
 export default App;

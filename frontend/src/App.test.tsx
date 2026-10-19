@@ -22,8 +22,8 @@ vi.mock("./api", () => ({
 }));
 
 vi.mock("./AmapPlanMap", () => ({
-  AmapPlanMap: ({ activeLegIndex, onSelectRoute }: { activeLegIndex: number | null; onSelectRoute: (index: number) => void }) => (
-    <button type="button" onClick={() => onSelectRoute(1)}>测试地图，当前路线 {activeLegIndex ?? "none"}</button>
+  AmapPlanMap: ({ activeLegIndex, onFocusRoute, onOpenPoi }: { activeLegIndex: number | null; onFocusRoute: (index: number) => void; onOpenPoi: (index: number) => void }) => (
+    <div><button type="button" onClick={() => onFocusRoute(1)}>测试地图，当前路线 {activeLegIndex ?? "none"}</button><button type="button" onClick={() => onOpenPoi(0)}>测试地图标记，打开第一站</button></div>
   ),
 }));
 
@@ -136,6 +136,18 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
+    const tripTab = screen.getByRole("tab", { name: "行程" });
+    tripTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "地图" })).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(tripTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowLeft}");
+    expect(tripTab).toHaveAttribute("aria-selected", "true");
+
     await user.click(screen.getByRole("button", { name: "预览方案二" }));
     expect(screen.getByRole("button", { name: "预览方案二" })).toHaveAttribute("aria-pressed", "true");
     expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("方案二");
@@ -143,14 +155,18 @@ describe("planning workspace", () => {
     expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }));
-    expect(screen.getByRole("button", { name: "地图" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("测试地图，当前路线 0")).toBeInTheDocument();
     // Route source now also appears on each candidate card, so scope this
     // assertion to the map row the test is actually about.
-    expect(screen.getByRole("button", { name: /出发地 → 展览/ })).toHaveTextContent("本地估算");
+    expect(screen.getByRole("button", { name: "聚焦第 1 段路线：出发地 到 展览" })).toHaveTextContent("本地估算");
 
-    await user.click(screen.getByRole("button", { name: /展览 → 晚餐/ }));
-    expect(screen.getByRole("button", { name: "行程" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "测试地图，当前路线 0" }));
+    expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("button", { name: "聚焦第 2 段路线：展览 到 晚餐" }));
+    expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getAllByRole("button", { name: "在行程中定位" })[1]);
+    expect(screen.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -184,7 +200,8 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
     expect(screen.getByText("规划完成 · 查看本轮处理过程")).toBeInTheDocument();
     await user.click(screen.getByText("规划完成 · 查看本轮处理过程"));
-    await user.click(screen.getByRole("button", { name: "核验" }));
+    await user.click(screen.getByText("核验与来源"));
+    await user.click(screen.getByText("开发者详情"));
 
     expect(screen.queryByText("本轮处理过程")).not.toBeInTheDocument();
     expect(screen.getByText("数据与证据")).toBeInTheDocument();
@@ -227,7 +244,7 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: "核验" }));
+    await user.click(screen.getByText("核验与来源"));
 
     expect(screen.getByText("方案一安静")).not.toBeVisible();
     await user.click(screen.getByText("数据与证据"));
@@ -237,7 +254,7 @@ describe("planning workspace", () => {
     expect(within(document.querySelector(".evidence-panel") as HTMLElement).queryByText("方案二不应展示。")).not.toBeInTheDocument();
   });
 
-  it("keeps simulated POI ratings in details instead of comparison cards and manages history", async () => {
+  it("does not present simulated POI ratings as facts and manages history", async () => {
     const user = userEvent.setup();
     api.listSessions.mockResolvedValue([{
       session_id: "history-to-manage",
@@ -258,7 +275,9 @@ describe("planning workspace", () => {
     await screen.findByRole("heading", { name: "方案一", level: 3 });
     expect(document.querySelector(".plan-grid")).not.toHaveTextContent("演示评分");
     await user.click(screen.getByRole("button", { name: "打开方案一详情" }));
-    expect(await screen.findAllByText("演示评分")).not.toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "查看第 1 站 展览 详情" }));
+    expect(screen.queryByText(/演示评分|演示评论/)).not.toBeInTheDocument();
+    await user.click(screen.getByText("数据与来源说明"));
     expect(document.querySelector(".detail-panel")).toHaveTextContent("POI 商业信息为模拟数据");
 
     await screen.findByText("周末出游规划");
@@ -354,7 +373,7 @@ describe("planning workspace", () => {
     expect(screen.queryByText("方案二更适合轻松约会。")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "预览方案二" }));
     expect(await screen.findByText("方案二更适合轻松约会。")).toBeInTheDocument();
-    expect(screen.getAllByText("主要取舍").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/主要取舍与注意事项/).length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "方案二", level: 3 }).closest(".plan-card")).toHaveClass("recommended");
   });
 
@@ -490,9 +509,12 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
-    expect((await screen.findAllByText("演示评分")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/测试路 1 号/).length).toBeGreaterThan(0);
-    expect(screen.getByText("POI 商业信息为模拟数据；路线来源和降级状态见各路线段。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看第 1 站 展览 详情" }));
+    expect(await screen.findByText(/测试路 1 号/)).toBeInTheDocument();
+    expect(screen.queryByText(/演示评分|演示评论/)).not.toBeInTheDocument();
+    await user.click(screen.getByText("数据与来源说明"));
+    expect(document.querySelector(".poi-data-disclosure p")).toBeVisible();
+    expect(document.querySelector(".poi-data-disclosure p")).toHaveTextContent("POI 商业信息为模拟数据");
   });
 
   it("keeps every rich planning reply inside its original assistant turn", async () => {
@@ -831,19 +853,63 @@ describe("planning workspace", () => {
     expect(api.selectPlan).not.toHaveBeenCalled();
   });
 
-  it("exposes POI essentials in the collapsed timeline summary", async () => {
+  it("opens a POI subpage and returns to its original tab and keyboard entry point", async () => {
     const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, poi_presentations: [presentation("plan-one-activity", "展览")] });
     render(<App />);
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
 
-    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
-    expect(detailDisclosure).not.toBeNull();
-    expect(detailDisclosure?.open).toBe(false);
-    expect(detailDisclosure?.querySelector(".stop-image.thumb")).not.toBeNull();
-    expect(detailDisclosure?.querySelector(".poi-summary-time")).toHaveTextContent("本次安排 14:10–15:10");
-    expect(within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" })).toBeDisabled();
+    const trigger = screen.getByRole("button", { name: "查看第 1 站 展览 详情" });
+    await user.click(trigger);
+    expect(await screen.findByRole("heading", { name: "展览", level: 2 })).toBeVisible();
+    expect(screen.queryByRole("tablist", { name: "方案工作区" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/演示评分|演示评论/)).not.toBeInTheDocument();
+    expect(screen.getByText("当前方案站点费用").parentElement).toHaveTextContent("¥30");
+    expect(screen.getByText("展示参考人均").parentElement).toHaveTextContent("¥30（展示参考）");
+    expect(screen.getByText("场景示意 · 非门店实拍")).toBeVisible();
+    const mapLink = screen.getByRole("link", { name: "在高德地图中搜索" });
+    expect(mapLink).toHaveAttribute("href", expect.stringContaining(encodeURIComponent("展览 测试路 1 号")));
+    expect(mapLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("button", { name: "换这站" })).toBeDisabled();
+    await user.click(screen.getByText("数据与来源说明"));
+    expect(document.querySelector(".poi-data-disclosure p")).toBeVisible();
+    expect(document.querySelector(".poi-data-disclosure p")).toHaveTextContent("POI 商业信息为模拟数据");
+    await user.click(screen.getByRole("button", { name: "返回行程" }));
+    const restoredTrigger = screen.getByRole("button", { name: "查看第 1 站 展览 详情" });
+    await waitFor(() => expect(restoredTrigger).toHaveFocus());
+    expect(screen.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows the Stop fallback when the current response has no POI presentation", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "查看第 1 站 展览 详情" }));
+
+    expect(await screen.findByText(/当前预览响应未附 POI 展示快照/)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "展览", level: 2 })).toBeInTheDocument();
+    expect(screen.queryByText(/演示评分|演示评论/)).not.toBeInTheDocument();
+    expect(screen.getByText("当前方案站点费用").parentElement).toHaveTextContent("¥30");
+  });
+
+  it("clears POI details when the preview plan changes", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, poi_presentations: [presentation("plan-one-activity", "展览")] });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "查看第 1 站 展览 详情" }));
+    expect(await screen.findByRole("heading", { name: "展览", level: 2 })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    expect(await screen.findByRole("heading", { name: "方案二", level: 2 })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "展览", level: 2 })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("sends an anchored structured command for one selected stop", async () => {
@@ -870,10 +936,7 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
-    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
-    expect(detailDisclosure).not.toBeNull();
-    fireEvent.click(detailDisclosure?.querySelector("summary") as HTMLElement);
-    const replaceButton = within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" });
+    const replaceButton = screen.getAllByRole("button", { name: "换这站" })[0];
     expect(replaceButton).not.toBeDisabled();
     await user.click(replaceButton);
     expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("第 1 站");
@@ -920,10 +983,7 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
-    const detailDisclosure = document.querySelector<HTMLDetailsElement>(".detail-panel .poi-disclosure");
-    expect(detailDisclosure).not.toBeNull();
-    fireEvent.click(detailDisclosure?.querySelector("summary") as HTMLElement);
-    await user.click(within(detailDisclosure as HTMLElement).getByRole("button", { name: "换这站" }));
+    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
 
     await user.click(screen.getByRole("button", { name: "全程更近" }));
 
@@ -1071,7 +1131,7 @@ describe("planning workspace", () => {
   it("keeps the active plan details visible when a live turn asks a question", async () => {
     const user = userEvent.setup();
     api.sendMessage
-      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({ ...response, poi_presentations: [presentation("plan-one-activity", "展览")] })
       .mockResolvedValueOnce({
         status: "needs_input",
         reply: "",
@@ -1086,10 +1146,14 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
     await screen.findByRole("button", { name: "已选择此方案" });
+    await user.click(screen.getByRole("button", { name: "查看第 1 站 展览 详情" }));
+    expect(await screen.findByRole("heading", { name: "展览", level: 2 })).toBeVisible();
 
     await user.type(input, "预算是多少");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByText("预算是多少？");
+    expect(screen.getByRole("heading", { name: "展览", level: 2 })).toBeVisible();
+    expect(screen.getByRole("button", { name: "返回行程" })).toBeVisible();
 
     const detailPanel = document.querySelector(".detail-panel");
     expect(detailPanel).not.toBeNull();

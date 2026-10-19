@@ -100,23 +100,73 @@ test("offline planning path keeps route and fallback map interactive", async ({ 
   await page.getByRole("button", { name: "预览方案二" }).click();
   if (mobile) await page.getByRole("button", { name: "打开方案二详情" }).click();
   await page.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }).click();
-  await expect(page.getByText("未配置高德 JS API，当前仅显示路线文字摘要")).toBeVisible();
-  await page.getByRole("button", { name: /展览 → 晚餐/ }).click();
+  await expect(page.getByText("当前响应没有可绘制的有效路线坐标；可从下方站点列表查看 POI 与文字路线")).toBeVisible();
+  await page.getByRole("button", { name: "聚焦第 2 段路线：展览 到 晚餐" }).click();
+  await expect(page.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "在行程中定位" }).nth(1).click();
+  await expect(page.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /查看返程/ })).toHaveCount(1);
 });
 
-test("POI details keep demo data disclosure on desktop and 375px", async ({ page }) => {
+test("POI subpage keeps demo data boundaries on 375px", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
   await page.getByRole("button", { name: "打开方案一详情" }).click();
-  await page.locator(".poi-disclosure summary").first().click();
-  await expect(page.getByText("演示评分").first()).toBeVisible();
+  await page.getByRole("button", { name: "查看第 1 站 展览 详情" }).click();
+  await expect(page.getByRole("heading", { name: "展览", level: 2 })).toBeVisible();
   await expect(page.getByText("测试路 1 号").first()).toBeVisible();
-  await expect(page.getByText("地图定位").first()).toBeVisible();
-  await expect(page.locator(".poi-disclosure[open] .poi-data-disclosure p").first()).toContainText("演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。");
+  await expect(page.getByRole("link", { name: "在高德地图中搜索" })).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(page.getByText(/演示评分|演示评论/)).toHaveCount(0);
+  await page.locator(".poi-data-disclosure summary").click();
+  await expect(page.locator(".poi-data-disclosure p")).toContainText("POI 商业信息为模拟数据");
+});
+
+test("POI return restores real scroll, originating tab, and focus", async ({ page }, testInfo) => {
+  const mobile = testInfo.project.name === "mobile-375";
+  await page.setViewportSize(mobile ? { width: 375, height: 812 } : { width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  if (mobile) await page.getByRole("button", { name: "打开方案一详情" }).click();
+  const scrollHost = page.locator(mobile ? ".sheet-content" : ".detail-panel");
+  const secondTimelineEntry = page.getByRole("button", { name: "查看第 2 站 晚餐 详情" });
+  await secondTimelineEntry.scrollIntoViewIfNeeded();
+  const tripScrollBefore = await scrollHost.evaluate((element) => element.scrollTop);
+  expect(tripScrollBefore).toBeGreaterThan(0);
+  await secondTimelineEntry.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "晚餐", level: 2 })).toBeVisible();
+  await page.getByRole("button", { name: "返回行程" }).click();
+  await expect(page.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => scrollHost.evaluate((element) => element.scrollTop)).toBe(tripScrollBefore);
+  await expect(page.locator(`[data-inspector-stop-index="1"].timeline-stop-open`)).toBeFocused();
+
+  await page.getByRole("tab", { name: "地图" }).click();
+  const secondMapEntry = page.locator(".map-stop-row[data-inspector-stop-index='1']");
+  await secondMapEntry.scrollIntoViewIfNeeded();
+  const mapScrollBefore = await scrollHost.evaluate((element) => element.scrollTop);
+  expect(mapScrollBefore).toBeGreaterThan(0);
+  await secondMapEntry.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "晚餐", level: 2 })).toBeVisible();
+  await page.getByRole("button", { name: "返回地图" }).click();
+  await expect(page.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => scrollHost.evaluate((element) => element.scrollTop)).toBe(mapScrollBefore);
+  await expect(page.locator(".map-stop-row[data-inspector-stop-index='1']")).toBeFocused();
+
+  if (mobile) {
+    await page.locator(".map-stop-row[data-inspector-stop-index='1']").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "晚餐", level: 2 })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "方案工作区" })).toBeHidden();
+    await page.getByRole("button", { name: "打开方案一详情" }).click();
+    await expect(page.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("heading", { name: "晚餐", level: 2 })).toHaveCount(0);
+  }
 });
 
 test("desktop keeps the workspace chrome fixed while the conversation scrolls", async ({ page }, testInfo) => {

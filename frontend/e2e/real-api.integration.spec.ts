@@ -24,6 +24,55 @@ test("real API preserves selection, restores a session, and saves conditions wit
   const selected = await snapshot();
   expect(selected.selected_plan_id).toBe(before.plans[0].plan_id);
   expect(selected.active_plan_version_id).toBe(before.active_plan_version_id);
+
+  // The D inspector is a read-only view of the response snapshot. Keep a
+  // mutation counter around its trip, POI and map paths and compare the
+  // session's selected plan/version/revision before continuing with C checks.
+  let inspectorWrites = 0;
+  page.on("request", (request) => {
+    if (/\/api\//.test(request.url()) && ["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) inspectorWrites += 1;
+  });
+  const inspectorSnapshot = {
+    selectedPlanId: selected.selected_plan_id,
+    activeVersionId: selected.active_plan_version_id,
+    requestRevision: selected.planning_context.request_revision,
+  };
+  const screenshot = (name: string) => page.screenshot({ path: path.resolve(`../.impeccable/review/${name}.png`) });
+  await expect(page.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
+  await screenshot(mobile ? "s-ui1d-mobile-trip" : "s-ui1d-desktop-trip");
+  const firstStop = page.locator(".timeline-stop-open").first();
+  await expect(firstStop).toBeVisible();
+  await firstStop.click();
+  await expect(page.locator(".poi-page")).toBeVisible();
+  await expect(page.locator(".poi-page-title h2")).toBeVisible();
+  await screenshot(mobile ? "s-ui1d-mobile-poi" : "s-ui1d-desktop-poi");
+  await page.getByRole("button", { name: "返回行程" }).click();
+  await expect(page.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "地图" }).click();
+  await expect(page.locator(".map-detail")).toBeVisible();
+  await expect(page.locator(".map-stop-row").first()).toBeVisible();
+  // This local API fixture may intentionally omit geometry or a browser key;
+  // the visible fallback is still a valid map workspace state.
+  const mapStatus = page.locator(".amap-map-status");
+  if (await mapStatus.count()) await expect(mapStatus.first()).toBeVisible();
+  if (!mobile) await screenshot("s-ui1d-desktop-map");
+  await page.locator(".map-stop-row").first().click();
+  await expect(page.locator(".poi-page")).toBeVisible();
+  await page.getByRole("button", { name: "返回地图" }).click();
+  await expect(page.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+  if (mobile) {
+    await page.locator(".map-stop-row").first().click();
+    await expect(page.locator(".poi-page")).toBeVisible();
+    await page.getByRole("button", { name: "返回地图" }).click();
+    await expect(page.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    await screenshot("s-ui1d-mobile-return");
+  }
+  const afterInspector = await snapshot();
+  expect(afterInspector.selected_plan_id).toBe(inspectorSnapshot.selectedPlanId);
+  expect(afterInspector.active_plan_version_id).toBe(inspectorSnapshot.activeVersionId);
+  expect(afterInspector.planning_context.request_revision).toBe(inspectorSnapshot.requestRevision);
+  expect(inspectorWrites).toBe(0);
+
   await page.screenshot({ path: path.resolve(`../.impeccable/review/s-ui1c-selected-${testInfo.project.name}.png`) });
   if (before.plans.length > 1) {
     if (mobile) await page.getByRole("button", { name: "关闭" }).click();
