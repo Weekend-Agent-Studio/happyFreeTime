@@ -22,28 +22,25 @@ import {
   Info,
   Map as MapIcon,
   MapPin,
-  MoreHorizontal,
   Navigation,
   PanelRight,
-  Pencil,
-  Plus,
   ReceiptText,
   Route,
   Send,
-  Settings2,
   ShieldCheck,
   Sparkles,
   Star,
   Store,
   Tag,
-  Trash2,
   Utensils,
   X,
 } from "lucide-react";
 
 import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessageStream, updatePlanningContext } from "./api";
+import { SessionNavigation } from "./SessionNavigation";
+import { ConversationHeading } from "./ConversationHeading";
 import { AmapPlanMap } from "./AmapPlanMap";
-import { clarificationSection, PlanningContextBar, type ContextOpenTarget } from "./PlanningContextBar";
+import { clarificationSection, PlanningContextBar, PlanningContextNotice, type ContextOpenTarget } from "./PlanningContextBar";
 import { projectRunProgress, type RunStageViewModel } from "./runProgress";
 import type {
   AgentResponse,
@@ -189,18 +186,6 @@ function updateSessionUrl(sessionId: string | null, replace = false) {
   else url.searchParams.delete(SESSION_QUERY_KEY);
   const method = replace ? "replaceState" : "pushState";
   window.history[method]({}, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
-function statusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    active: "等待开始",
-    running: "规划中",
-    needs_input: "待补充信息",
-    needs_recovery: "等待选择恢复操作",
-    completed: "已生成方案",
-    failed: "上次失败",
-  };
-  return labels[status] ?? status;
 }
 
 function normalizeAgentResponse(response: Partial<AgentResponse>): AgentResponse {
@@ -613,6 +598,14 @@ function App() {
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [focusedLegIndex, setFocusedLegIndex] = useState<number | null>(null);
   const [rightTab, setRightTab] = useState<InspectorTab>("trip");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return window.localStorage.getItem("hft.sidebar.collapsed") === "true"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem("hft.sidebar.collapsed", String(sidebarCollapsed)); }
+    catch { /* Layout preferences remain usable when storage is unavailable. */ }
+  }, [sidebarCollapsed]);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newRequestMode, setNewRequestMode] = useState(false);
@@ -1116,11 +1109,11 @@ function App() {
   }, [isMobile]);
 
   return (
-    <div className={`app-shell ${inspectorCollapsed ? "inspector-collapsed" : ""}`}>
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${inspectorCollapsed ? "inspector-collapsed" : ""}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
 
-      <aside className="session-sidebar" aria-label="会话导航">
-        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} />
+      <aside className="session-sidebar" id="desktop-session-navigation" aria-label="会话导航">
+        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((current) => !current)} onOpenHistory={() => setHistoryOpen(true)} />
       </aside>
 
       <AppHeader
@@ -1130,13 +1123,14 @@ function App() {
         externalOpen={contextFocus}
         onExternalOpenHandled={() => setContextFocus(null)}
         onSave={updateContext}
-        onReplan={replanContext}
         inspectorAvailable={Boolean(inspectorPlan)}
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenInspector={() => setMobileDetailOpen(true)}
       />
 
       <main className="workspace" id="main-content">
+        {messages.length > 0 ? <ConversationHeading compact /> : null}
+        <PlanningContextNotice context={planningContext} busy={loading || restoring || Boolean(response?.recovery)} onReplan={replanContext} />
         <section className="conversation" aria-live="polite" ref={conversationRef}>
           {messages.length === 0 ? <EmptyConversation onSelect={(suggestion) => void submit(suggestion)} /> : (
             <div className="message-list">
@@ -1189,7 +1183,7 @@ function App() {
           <form className="composer" onSubmit={onSubmit}>
             <label className="sr-only" htmlFor="planning-input">{response?.recovery ? "请先选择恢复操作" : response?.question ? (newRequestMode ? "输入新的规划需求" : "补充这个信息后继续") : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
             <div className="composer-row">
-              <div className="composer-tools" aria-hidden="true"><Plus size={19} /><Compass size={18} /><Settings2 size={18} /></div>
+              <div className="composer-tools" aria-hidden="true"><Compass size={20} /></div>
               <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.recovery ? "请先选择上方的恢复方式" : newRequestMode ? "描述新的规划需求……" : response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring || Boolean(response?.recovery)} />
               <button type="submit" disabled={loading || restoring || Boolean(response?.recovery) || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
             </div>
@@ -1216,25 +1210,20 @@ function App() {
   );
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
-  return <div className={`brand-block ${compact ? "compact" : ""}`}><span className="brand-mark"><Compass size={20} aria-hidden="true" /></span><span><strong>HappyFreeTime</strong>{compact ? null : <small>周末管家</small>}</span></div>;
-}
-
-function AppHeader({ sessionTitle, context, busy, externalOpen, onExternalOpenHandled, onSave, onReplan, inspectorAvailable, onOpenHistory, onOpenInspector }: {
+function AppHeader({ sessionTitle, context, busy, externalOpen, onExternalOpenHandled, onSave, inspectorAvailable, onOpenHistory, onOpenInspector }: {
   sessionTitle: string;
   context: PlanningContextSummary | null;
   busy: boolean;
   externalOpen: ContextOpenTarget | null;
   onExternalOpenHandled: () => void;
   onSave: (patch: PlanningContextPatch) => Promise<void>;
-  onReplan: () => Promise<void>;
   inspectorAvailable: boolean;
   onOpenHistory: () => void;
   onOpenInspector: () => void;
 }) {
   return <header className="app-header">
     <div className="app-header-title"><span title={sessionTitle}>{sessionTitle}</span></div>
-    <PlanningContextBar context={context} busy={busy} externalOpen={externalOpen} onExternalOpenHandled={onExternalOpenHandled} onSave={onSave} onReplan={onReplan} />
+    <PlanningContextBar context={context} busy={busy} externalOpen={externalOpen} onExternalOpenHandled={onExternalOpenHandled} onSave={onSave} />
     <div className="app-header-mobile-actions">
       <button type="button" onClick={onOpenHistory} aria-label="打开历史会话"><History size={19} /></button>
       <button type="button" onClick={onOpenInspector} aria-label="打开方案详情" disabled={!inspectorAvailable}><PanelRight size={19} /></button>
@@ -1242,81 +1231,10 @@ function AppHeader({ sessionTitle, context, busy, externalOpen, onExternalOpenHa
   </header>;
 }
 
-function SessionNavigation({ recentSessions, sessionId, onNew, onOpen, onRename, onDelete, compact = false }: {
-  recentSessions: SessionSummary[];
-  sessionId: string | null;
-  onNew: () => void;
-  onOpen: (sessionId: string) => void;
-  onRename: (sessionId: string, title: string) => Promise<void>;
-  onDelete: (sessionId: string) => Promise<void>;
-  compact?: boolean;
-}) {
-  const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [actionError, setActionError] = useState("");
-  const [managingSessions, setManagingSessions] = useState(false);
-
-  async function saveTitle(sessionId: string) {
-    const title = titleDraft.trim();
-    if (!title || !recentSessions.some((item) => item.session_id === sessionId)) return;
-    try {
-      await onRename(sessionId, title);
-      setRenamingSessionId(null);
-      setActionError("");
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "重命名失败");
-    }
-  }
-
-  async function removeSession(session: SessionSummary) {
-    if (!window.confirm(`删除“${session.title}”？会话消息和方案也会一起删除，且无法恢复。`)) return;
-    try {
-      await onDelete(session.session_id);
-      setMenuSessionId(null);
-      setActionError("");
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "删除会话失败");
-    }
-  }
-
-  return (
-    <div className={`session-navigation ${compact ? "compact" : ""}`}>
-      {!compact ? <Brand /> : null}
-      <button className="new-session-button" type="button" aria-label="新建规划" onClick={onNew}><Plus size={18} aria-hidden="true" />新建出游方案</button>
-      <div className="sidebar-section-label">历史会话</div>
-      <div className="session-history-list">
-        {recentSessions.map((session) => <div className={`session-row-shell ${managingSessions ? "managing" : ""}`} key={session.session_id} onContextMenu={(event) => { event.preventDefault(); setMenuSessionId(session.session_id); setActionError(""); }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuSessionId(null); }}>
-          {renamingSessionId === session.session_id ? <form className="session-rename-form" onSubmit={(event) => { event.preventDefault(); void saveTitle(session.session_id); }}>
-            <input autoFocus aria-label="规划名称" maxLength={120} value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setRenamingSessionId(null); }} />
-            <button type="submit" aria-label="保存名称" disabled={!titleDraft.trim()}><Check size={15} /></button>
-            <button type="button" aria-label="取消重命名" onClick={() => setRenamingSessionId(null)}><X size={15} /></button>
-          </form> : <button className={`session-row ${session.session_id === sessionId ? "active" : ""}`} type="button" aria-current={session.session_id === sessionId ? "page" : undefined} onClick={() => onOpen(session.session_id)}>
-            <span><strong>{session.title}</strong><small>{session.last_message_preview || statusLabel(session.status)}</small></span>
-            <time>{new Date(session.updated_at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}</time>
-          </button>}
-          <button className="session-more" type="button" aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuSessionId === session.session_id} onClick={() => { setActionError(""); setMenuSessionId((current) => current === session.session_id ? null : session.session_id); }}><MoreHorizontal size={17} /></button>
-          {menuSessionId === session.session_id ? <div className="session-actions-menu" role="menu">
-            <button type="button" role="menuitem" onClick={() => { setTitleDraft(session.title); setRenamingSessionId(session.session_id); setMenuSessionId(null); }}><Pencil size={14} />重命名</button>
-            <button type="button" role="menuitem" className="danger" onClick={() => void removeSession(session)}><Trash2 size={14} />删除规划</button>
-          </div> : null}
-        </div>)}
-        {!recentSessions.length ? <p className="session-history-empty">完成一次规划后，会话和方案会保留在这里。</p> : null}
-      </div>
-      {actionError ? <p className="session-action-error" role="alert">{actionError}</p> : null}
-      <div className="sidebar-spacer" />
-      <button className={`sidebar-utility ${managingSessions ? "active" : ""}`} type="button" aria-pressed={managingSessions} onClick={() => setManagingSessions((current) => !current)}><ReceiptText size={17} />{managingSessions ? "完成管理" : "管理会话"}</button>
-      <button className="sidebar-utility" type="button"><Settings2 size={17} />设置</button>
-    </div>
-  );
-}
-
 function EmptyConversation({ onSelect }: { onSelect: (suggestion: string) => void }) {
   return (
     <div className="empty-conversation">
-      <div className="empty-icon"><Sparkles size={25} aria-hidden="true" /></div>
-      <h2>把半天交给管家</h2>
-      <p>不需要先想清楚所有条件。说一句大概想法，我会在必要时追问，再给出可比较、可解释的安排。</p>
+      <ConversationHeading />
       <div className="suggestion-list">{SUGGESTIONS.map((suggestion) => <button key={suggestion} type="button" onClick={() => onSelect(suggestion)}>{suggestion}<ChevronRight size={15} /></button>)}</div>
     </div>
   );

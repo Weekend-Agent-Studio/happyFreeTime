@@ -985,7 +985,7 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("group", { name: "规划恢复选项" });
     expect(screen.getByText("将调整：搜索范围 → 12")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /修改Where/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /修改出发区域/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /尝试扩大到 12 公里/ }));
 
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));

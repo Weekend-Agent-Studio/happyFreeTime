@@ -4,8 +4,8 @@ _最后核对：2026-10-19。本文是低成本接手地图，不替代代码、
 
 ## 版本边界
 
-- `origin/main@49ae2b0`：已合并 S-RX4 体验质量阶段。
-- 当前候选分支：`codex/s-hitl6-reliability@b541c13`，在主线之上收口 HITL 恢复可靠性；截至本文写作尚待 PR 合并。
+- `origin/main@9be530e`：已合并 S-RX4、S-HITL6 及交接文档；2026-10-19 拉取核对。
+- 当前 S-UI1 开发分支：`codex/s-ui1-product-frontend`，从上述 main 创建；B 切片重构前端布局与视觉系统，尚未代表 main 或新的冻结发布。
 - 冻结评测基线：tag `planner-v2-eval-baseline`。冻结指标只属于对应代码、Fixture 和报告，不能被后续分支结果覆盖。
 - 先用 `git status --short --branch` 和 `git log -1 --oneline` 验证以上快照是否仍有效。
 
@@ -52,6 +52,7 @@ User message
 | 最终校验与事实 | `app/services/plan_verifier.py`、`app/providers/` |
 | 持久化 | `app/persistence/database.py`、`app/persistence/models.py`、`app/persistence/repositories.py` |
 | HTTP 与前端 | `app/api/application.py`、`app/api/planning_context.py`、`frontend/src/App.tsx`、`frontend/src/PlanningContextBar.tsx` |
+| 前端外壳与视觉 | `frontend/src/SessionNavigation.tsx`、`frontend/src/ConversationHeading.tsx`、`frontend/src/tokens.css`、`frontend/src/shell.css`；保留功能样式在 `styles.css` |
 | Trace | `app/domain/run_trace.py`、`frontend/src/runProgress.ts` |
 | 评测 | `evals/run_resume_release_eval.py`、`evals/run_s_rx_multiturn.py`、`evals/run_retrieval_eval.py` |
 
@@ -63,13 +64,18 @@ User message
 
 开发 checkpoint 使用 `planner-hitl1-v1` namespace；旧开发 checkpoint 不做迁移。Session/PlanVersion 等产品事实以 Repository 为准，checkpoint 只承担 Graph 暂停与本轮临时状态。
 
+S-UI1B 前端采用本地 V4 原型的暖白/深灰方向：220/64px 折叠会话导航、桌面聊天与详情均分、五个紧凑条件 Chip、欢迎/44px 聊天标题、独立滚动和固定输入区。只重排既有真实能力；右侧现有行程/地图/订单空态/核验及卡片内操作保留至 C/D 切片迁移，尚未完成整个 V4 接入。条件草稿/stale 提示在工作区正常布局中显示，不覆盖顶部标题。
+
+距离合同注意：`max_distance_km` 当前同时限制候选检索范围与单段路线距离；`total_distance_km` 是另一个全程累计距离上限。顶部编辑尚未开放这两个字段，不能直接把原型“搜索范围”开关当作纯检索半径；后续 E 切片适配。宠物仅讨论为未核实普通偏好，B 未新增该字段。
+
 ## 当前可信证据
 
 - 正式 Frozen 指标：见 `docs/releases/resume_v2_release_report.md`，不要用后续单次 Live 结果替换。
-- 当前 HITL 候选分支最新定向回归：98 passed、29 subtests；`compileall` 与 `git diff --check` 通过。
+- S-HITL6 合并前定向回归记录：98 passed、29 subtests；`compileall` 与 `git diff --check` 通过。
 - 最近一次全后端回归：600 passed、1 failed、77 subtests；唯一失败是独立的全天排序质量用例。
 - Live B0 8 条 HITL 诊断回放：脚本路径 8/8，无 HTTP/应用异常；报告来自 dirty 工作树，只能证明链路诊断，不是发布成功率。
 - HITL 收口证据：`docs/status/s_hitl6_reliability_closeout_20261018.md`。
+- S-UI1B 前端验证与范围：`docs/status/s_ui1b_shell_20261019.md`；真实 API 浏览器测试命令为 `pnpm --dir frontend test:integration`（临时 SQLite、规则语义适配器和离线 Provider，不是 Live 质量指标）。
 
 ## 已知问题
 

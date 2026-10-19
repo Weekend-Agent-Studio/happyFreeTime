@@ -6,11 +6,11 @@ export type ContextSection = "where" | "when" | "who" | "budget" | "preferences"
 export type ContextOpenTarget = ContextSection | "all";
 
 const SECTIONS: Array<{ id: ContextSection; label: string; icon: typeof MapPin }> = [
-  { id: "where", label: "Where", icon: MapPin },
-  { id: "when", label: "When", icon: CalendarDays },
-  { id: "who", label: "Who", icon: Users },
-  { id: "budget", label: "Budget", icon: CircleDollarSign },
-  { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
+  { id: "when", label: "日期时间", icon: CalendarDays },
+  { id: "where", label: "出发区域", icon: MapPin },
+  { id: "who", label: "同行人数", icon: Users },
+  { id: "budget", label: "人均预算", icon: CircleDollarSign },
+  { id: "preferences", label: "出行偏好", icon: SlidersHorizontal },
 ];
 
 function currentValue(field: PlanningContextSummary["where"] | undefined): unknown {
@@ -75,14 +75,12 @@ export function PlanningContextBar({
   externalOpen,
   onExternalOpenHandled,
   onSave,
-  onReplan,
 }: {
   context: PlanningContextSummary | null;
   busy: boolean;
   externalOpen: ContextOpenTarget | null;
   onExternalOpenHandled: () => void;
   onSave: (patch: PlanningContextPatch) => Promise<void>;
-  onReplan: () => Promise<void>;
 }) {
   const [section, setSection] = useState<ContextSection | null>(null);
   const [sectionChooserOpen, setSectionChooserOpen] = useState(false);
@@ -103,8 +101,6 @@ export function PlanningContextBar({
   const [preferenceCategory, setPreferenceCategory] = useState<PreferenceCategory>("preferences");
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [replanning, setReplanning] = useState(false);
-  const [replanError, setReplanError] = useState("");
 
   const values = useMemo(() => {
     const party = asRecord(currentValue(context?.who));
@@ -168,19 +164,6 @@ export function PlanningContextBar({
   function close() {
     if (!saving) setSection(null);
     if (!saving) setSectionChooserOpen(false);
-  }
-
-  async function replan() {
-    if (busy || replanning) return;
-    setReplanning(true);
-    setReplanError("");
-    try {
-      await onReplan();
-    } catch (error) {
-      setReplanError(error instanceof Error ? error.message : "重新规划失败，请重试");
-    } finally {
-      setReplanning(false);
-    }
   }
 
   function fieldEdit<T>(next: string, previous: string): FieldEdit<T> | undefined {
@@ -271,7 +254,7 @@ export function PlanningContextBar({
           const assumed = id === "when"
             ? timeFields.length > 0 && timeFields.every((item) => item.source === "default")
             : field?.source === "default";
-          const displayValue = id === "when"
+          const displayValue = !context ? label : id === "when"
             ? whenSummary(context)
             : field?.display_value ?? "设置";
           const pending = clarificationSection(context?.pending_field) === id;
@@ -285,7 +268,7 @@ export function PlanningContextBar({
             disabled={busy}
           >
             <Icon size={15} aria-hidden="true" />
-            <span>{label}</span>
+            <span className="sr-only">{label}</span>
             <small>{id === "when" && displayValue === "未设置" ? "选择日期" : displayValue}</small>
           </button>;
         })}
@@ -308,19 +291,6 @@ export function PlanningContextBar({
               ))}
             </div>
           </section>
-        </div>
-      ) : null}
-      {context && (context.request_view === "draft" || context.plan_stale || (context.ready_for_planning && !context.has_active_plan)) ? (
-        <div className="planning-context-notice" role="status">
-          <span>{context.request_view === "draft"
-            ? `当前显示的是未提交草稿；原方案仍基于第 ${context.committed_request_revision ?? ""} 版条件。`
-            : context.plan_stale
-              ? "条件已更新，当前方案基于旧条件。"
-              : "规划条件已就绪。"}</span>
-          {context.ready_for_planning ? <button type="button" onClick={() => void replan()} disabled={busy || replanning}>
-            {replanning ? "正在规划…" : context.has_active_plan ? "按新条件重新规划" : "开始规划"}
-          </button> : <small>请先补齐待确认条件</small>}
-          {replanError ? <small role="alert">{replanError}</small> : null}
         </div>
       ) : null}
       {section ? (
@@ -393,4 +363,41 @@ export function PlanningContextBar({
       ) : null}
     </div>
   );
+}
+
+/** Request status is in normal workspace flow, so it cannot cover the fixed chat title. */
+export function PlanningContextNotice({ context, busy, onReplan }: {
+  context: PlanningContextSummary | null;
+  busy: boolean;
+  onReplan: () => Promise<void>;
+}) {
+  const [replanning, setReplanning] = useState(false);
+  const [replanError, setReplanError] = useState("");
+  async function replan() {
+    if (busy || replanning) return;
+    setReplanning(true);
+    setReplanError("");
+    try {
+      await onReplan();
+    } catch (error) {
+      setReplanError(error instanceof Error ? error.message : "重新规划失败，请重试");
+    } finally {
+      setReplanning(false);
+    }
+  }
+
+  if (!context) return null;
+  return (context.request_view === "draft" || context.plan_stale || (context.ready_for_planning && !context.has_active_plan)) ? (
+        <div className="planning-context-notice" role="status">
+          <span>{context.request_view === "draft"
+            ? `当前显示的是未提交草稿；原方案仍基于第 ${context.committed_request_revision ?? ""} 版条件。`
+            : context.plan_stale
+              ? "条件已更新，当前方案基于旧条件。"
+              : "规划条件已就绪。"}</span>
+          {context.ready_for_planning ? <button type="button" onClick={() => void replan()} disabled={busy || replanning}>
+            {replanning ? "正在规划…" : context.has_active_plan ? "按新条件重新规划" : "开始规划"}
+          </button> : <small>请先补齐待确认条件</small>}
+          {replanError ? <small role="alert">{replanError}</small> : null}
+        </div>
+      ) : null;
 }

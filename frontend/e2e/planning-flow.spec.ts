@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import path from "node:path";
 
 const response = {
   status: "completed",
@@ -127,6 +128,8 @@ test("desktop keeps the workspace chrome fixed while the conversation scrolls", 
   const composer = page.locator(".composer-dock");
   const inspector = page.locator(".detail-panel");
   const before = {
+    heading: await page.locator(".conversation-heading.compact").boundingBox(),
+    conditions: await page.locator(".app-header").boundingBox(),
     navigation: await navigation.boundingBox(),
     composer: await composer.boundingBox(),
     inspector: await inspector.boundingBox(),
@@ -134,6 +137,8 @@ test("desktop keeps the workspace chrome fixed while the conversation scrolls", 
   await expect.poll(() => conversation.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await conversation.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   const after = {
+    heading: await page.locator(".conversation-heading.compact").boundingBox(),
+    conditions: await page.locator(".app-header").boundingBox(),
     navigation: await navigation.boundingBox(),
     composer: await composer.boundingBox(),
     inspector: await inspector.boundingBox(),
@@ -143,6 +148,114 @@ test("desktop keeps the workspace chrome fixed while the conversation scrolls", 
   expect(after.navigation?.y).toBeCloseTo(before.navigation?.y ?? 0, 0);
   expect(after.composer?.y).toBeCloseTo(before.composer?.y ?? 0, 0);
   expect(after.inspector?.y).toBeCloseTo(before.inspector?.y ?? 0, 0);
+  expect(after.heading?.y).toBeCloseTo(before.heading?.y ?? 0, 0);
+  expect(after.heading?.height).toBe(44);
+  expect(after.conditions?.height).toBe(before.conditions?.height);
+  expect(after.heading!.y).toBeGreaterThanOrEqual(after.conditions!.y + after.conditions!.height);
+});
+
+test("shell keeps equal desktop panes and a keyboard-accessible persistent navigation rail", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "desktop navigation contract");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "给周末一点好心情" })).toBeVisible();
+  await expect(page.getByText("YOUR WEEKEND, YOUR WAY")).toBeVisible();
+  await expect(page.getByText("轻松规划，放心选择。")).toBeVisible();
+  const nav = page.locator(".session-sidebar");
+  const workspace = page.locator(".workspace");
+  const inspector = page.locator(".detail-panel");
+  const conditions = page.getByRole("navigation", { name: "规划条件" }).getByRole("button");
+  await expect(conditions).toHaveCount(5);
+  expect(await conditions.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")?.split("，")[0]))).toEqual([
+    "修改日期时间", "修改出发区域", "修改同行人数", "修改人均预算", "修改出行偏好",
+  ]);
+  expect((await nav.boundingBox())!.width).toBe(220);
+  expect((await workspace.boundingBox())!.width).toBeCloseTo((await inspector.boundingBox())!.width, 0);
+  await page.screenshot({ path: path.resolve("../.impeccable/review/s-ui1b-welcome-desktop.png") });
+  const collapse = page.getByRole("button", { name: "收起侧边栏" });
+  await collapse.focus();
+  await collapse.press("Enter");
+  const expand = page.getByRole("button", { name: "展开侧边栏" });
+  await expect(expand).toBeFocused();
+  await expect.poll(async () => Math.round((await nav.boundingBox())!.width)).toBe(64);
+  await page.screenshot({ path: path.resolve("../.impeccable/review/s-ui1b-collapsed-desktop.png") });
+  await page.reload();
+  await expect(page.locator(".app-shell")).toHaveClass(/sidebar-collapsed/);
+  await page.getByRole("button", { name: "展开侧边栏" }).focus();
+  await page.getByRole("button", { name: "展开侧边栏" }).press("Enter");
+  await expect(page.getByRole("button", { name: "收起侧边栏" })).toBeFocused();
+  await expect.poll(async () => Math.round((await nav.boundingBox())!.width)).toBe(220);
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".conversation-heading.compact")).toBeVisible();
+  await expect(page.getByText("YOUR WEEKEND, YOUR WAY")).toHaveCount(0);
+  await page.screenshot({ path: path.resolve("../.impeccable/review/s-ui1b-chat-desktop.png") });
+});
+
+test("narrow shell keeps the composer visible and history sheet keyboard-dismissible", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "发送需求" })).toBeInViewport();
+  await expect(page.getByRole("heading", { name: "给周末一点好心情" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375);
+  await page.screenshot({ path: path.resolve("../.impeccable/review/s-ui1b-welcome-mobile.png") });
+  const history = page.getByRole("button", { name: "打开历史会话" });
+  await history.click();
+  await expect(page.getByRole("dialog", { name: "历史会话" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(history).toBeFocused();
+  const chips = page.getByRole("navigation", { name: "规划条件" });
+  await chips.evaluate((node) => { node.scrollLeft = node.scrollWidth; });
+  await expect(chips.getByRole("button", { name: /修改出行偏好/ })).toBeInViewport();
+});
+
+test("last history actions stay reachable and rename cancellation is unobstructed", async ({ page }, testInfo) => {
+  const sessions = Array.from({ length: 20 }, (_, index) => ({
+    session_id: `history-${index}`, title: `历史规划 ${index + 1}`, status: "completed",
+    created_at: "2026-08-15T00:00:00Z", updated_at: "2026-08-15T00:00:00Z",
+    last_message_preview: "一个较长的历史会话标题与方案摘要",
+  }));
+  await page.route(/\/api\/sessions(?:\?[^/]*)?$/, (route) => route.fulfill({ json: { data: { sessions } } }));
+  await page.goto("/");
+  const mobile = testInfo.project.name === "mobile-375";
+  if (mobile) await page.getByRole("button", { name: "打开历史会话" }).click();
+  const navigation = mobile ? page.getByRole("dialog", { name: "历史会话" }) : page.locator(".session-sidebar");
+  await expect(navigation.locator(".session-row-shell")).toHaveCount(20);
+  const last = navigation.locator(".session-row-shell").last();
+  await last.getByRole("button", { name: "更多会话操作" }).focus();
+  await last.getByRole("button", { name: "更多会话操作" }).click();
+  const remove = last.getByRole("menuitem", { name: "删除规划" });
+  await remove.scrollIntoViewIfNeeded();
+  await expect(remove).toBeInViewport({ ratio: 1 });
+  await last.getByRole("menuitem", { name: "重命名" }).click();
+  await expect(last.getByLabel("规划名称")).toBeFocused();
+  await expect(last.getByRole("button", { name: "更多会话操作" })).toHaveCount(0);
+  const cancel = last.getByRole("button", { name: "取消重命名" });
+  await cancel.scrollIntoViewIfNeeded();
+  await expect(cancel).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/s-ui1b-rename-${testInfo.project.name}.png`) });
+  await cancel.click();
+  await expect(last.getByLabel("规划名称")).toHaveCount(0);
+  await expect(last.getByRole("button", { name: "历史规划 20", exact: true })).toBeVisible();
+});
+
+test("recovery editor destinations retain visible section names", async ({ page }, testInfo) => {
+  await page.route("**/api/sessions/offline-session/messages/stream", (route) => route.fulfill(streamResponse({
+    ...response, status: "needs_recovery", plans: [], recovery_resolution: "open_constraint_editor",
+    reply: "选择要修改的条件。", recovery: null,
+  })));
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("调整当前条件");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  const dialog = page.getByRole("dialog", { name: "手动调整条件" });
+  await expect(dialog).toBeVisible();
+  const labels = dialog.locator(".recovery-editor-sections button > span");
+  await expect(labels).toHaveText(["日期时间", "出发区域", "同行人数", "人均预算", "出行偏好"]);
+  for (const label of await labels.all()) expect((await label.boundingBox())!.width).toBeGreaterThan(20);
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/s-ui1b-recovery-editor-${testInfo.project.name}.png`) });
+  await dialog.getByRole("button", { name: /日期时间/ }).click();
+  await expect(page.getByRole("dialog", { name: "日期时间", exact: true })).toBeVisible();
 });
 
 test("selection persists across refresh and clears after a new plan", async ({ page }) => {
@@ -225,8 +338,8 @@ test("When edits save without replanning until the user confirms", async ({ page
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
 
-  await page.getByRole("button", { name: "修改When" }).click();
-  await page.getByLabel("日期").fill("2026-08-16");
+  await page.getByRole("button", { name: "修改日期时间" }).click();
+  await page.getByLabel("日期", { exact: true }).fill("2026-08-16");
   await page.getByRole("button", { name: "保存条件" }).click();
 
   await expect.poll(() => submittedPatch).not.toBeNull();
@@ -234,7 +347,10 @@ test("When edits save without replanning until the user confirms", async ({ page
     base_revision: 1,
     when: { date: { operation: "set", value: "2026-08-16" } },
   });
-  await expect(page.getByRole("button", { name: /When.*2026-08-16/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /日期时间.*2026-08-16/ })).toBeVisible();
+  const notice = await page.locator(".planning-context-notice").boundingBox();
+  const heading = await page.locator(".conversation-heading.compact").boundingBox();
+  expect(notice!.y).toBeGreaterThanOrEqual(heading!.y + heading!.height);
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
   expect(replanSubmitted).toBe(false);
   await page.getByRole("button", { name: "按新条件重新规划" }).click();
@@ -278,7 +394,7 @@ test("clarification card opens When and resolves through the same topbar request
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByText("早上大概几点出发？")).toBeVisible();
   await page.getByRole("button", { name: "去顶部修改" }).click();
-  await expect(page.getByRole("dialog", { name: "When" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "日期时间" })).toBeVisible();
   await page.getByLabel("出发时间").fill("09:30");
   await page.getByRole("button", { name: "确认并继续" }).click();
 

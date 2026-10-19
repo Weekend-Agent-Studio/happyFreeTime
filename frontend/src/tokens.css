@@ -1,0 +1,44 @@
+/* S-UI1: shared typography, spacing and colors, based on the approved V4 prototype. */
+:root {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  color-scheme: light;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-body: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-title: 1.5rem;
+  --text-display: 1.875rem;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --color-canvas: #fbfaf7;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f5f5f1;
+  --color-inspector: #fafaf7;
+  --color-text: #303735;
+  --color-muted: #646b66;
+  --color-quiet: #6d746e;
+  --color-action: #343b38;
+  --color-action-hover: #202622;
+  --color-line: #e6e7e1;
+  --color-line-strong: #c8cdc4;
+  --color-accent: #fff3d5;
+  --color-accent-line: #e7c789;
+  --color-warning: #785a25;
+  --color-danger: #a33e35;
+  --color-success: #35664a;
+  --color-ink-rgb: 48 55 53;
+  --color-surface-rgb: 255 255 255;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-soft: 0 5px 16px rgb(48 55 53 / 0.05);
+  --shadow-float: 0 16px 48px rgb(48 55 53 / 0.14);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
