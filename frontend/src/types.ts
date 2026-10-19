@@ -302,6 +302,18 @@ export type PlanningRunTrace = {
   events: PlanningRunEvent[];
 };
 
+export type FailureEnvelope = {
+  schema_version: "planning-failure.v1";
+  run_id: string;
+  request_id: string;
+  failure_stage: string;
+  diagnostic_code: "PROVIDER_TEMPORARY_FAILURE" | "INPUT_VALIDATION_FAILURE" | "INTERNAL_EXECUTION_ERROR";
+  retryable: boolean;
+  last_completed_stage: string | null;
+  public_message: string;
+  trace: PlanningRunTrace;
+};
+
 export type ReplacementCriterion =
   | { kind: "semantic"; text: string; strength: "preferred" }
   | { kind: "route_objective"; metric: "total_route_distance"; direction: "decrease"; strength: "required" };
@@ -344,6 +356,8 @@ export type PlanningContextField = {
 
 export type PlanningContextSummary = {
   request_revision: number;
+  request_view: "committed" | "draft";
+  committed_request_revision: number | null;
   planned_request_revision: number | null;
   has_active_plan: boolean;
   plan_stale: boolean;
@@ -385,6 +399,8 @@ export type PlanningContextPatch = {
 
 export type RecoveryAction = {
   action_id: string;
+  action_fingerprint?: string | null;
+  strategy_fingerprint?: string | null;
   label: string;
   description: string;
   request_revision: number;
@@ -414,6 +430,12 @@ export type RecoveryChoice = {
     plan_version_id: string | null;
     public_summary: string;
     diagnostics: Record<string, unknown>;
+    primary_bottleneck?: {
+      kind: string;
+      evidence_codes: string[];
+      affected_fields: string[];
+      evidence_summary: string;
+    } | null;
   };
   actions: RecoveryAction[];
 };
@@ -428,7 +450,7 @@ export type RecoveryActionRequest = {
 
 export type AgentResponse = {
   /** needs_input 表示需要用户补充；规划字段可能暂停 Graph，修改引用可重新描述。 */
-  status: "completed" | "needs_input" | "needs_recovery" | "context_saved";
+  status: "completed" | "needs_input" | "needs_recovery" | "context_saved" | "failed";
   reply: string;
   question: {
     field: string | null;
@@ -444,6 +466,20 @@ export type AgentResponse = {
   } | null;
   recovery?: RecoveryChoice | null;
   recovery_resolution?: "cancel_turn" | "start_new_request" | "keep_current_plan" | "open_constraint_editor" | null;
+  recovery_outcome?: {
+    interaction_id?: string | null;
+    action_id: string;
+    action_fingerprint?: string | null;
+    strategy_fingerprint?: string | null;
+    kind: string;
+    label: string;
+    status: "awaiting_input" | "succeeded" | "still_failed" | "cancelled" | "finished" | "retryable";
+    changed_fields: string[];
+    field_changes?: { field: string; before: string | null; after: string | null }[];
+    previous_bottleneck?: string | null;
+    current_bottleneck?: string | null;
+    summary: string;
+  } | null;
   assumptions: Assumption[];
   constraint_summary: ConstraintSummaryItem[];
   plans: Plan[];
@@ -459,6 +495,7 @@ export type AgentResponse = {
   plan_version_id?: string | null;
   runtime_decisions?: RuntimeDecision[];
   run_trace?: PlanningRunTrace | null;
+  failure?: FailureEnvelope | null;
   retrieval_evidence?: EvidenceRef[];
   retrieval_mode?: string | null;
   retrieval_index_version?: string | null;

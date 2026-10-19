@@ -240,6 +240,7 @@ def create_app(
             graph_values.get("pending_request_base")
             or graph_values.get("recovery_base_request")
         )
+        request_view = "draft" if draft_value is not None else "committed"
         display_request = (
             draft_value
             if isinstance(draft_value, PlanRequest)
@@ -280,6 +281,8 @@ def create_app(
                     session_id,
                     display_request,
                     pending_field=pending_field,
+                    request_view=request_view,
+                    committed_request_revision=active_request.revision,
                 ).model_dump(mode="json"),
                 "plan_versions": [
                     PlanVersionSummary(

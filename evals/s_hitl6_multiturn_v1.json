@@ -1,0 +1,29 @@
+{
+  "schema_version": "s-hitl6-multiturn.v1",
+  "suite": "s_hitl6_multiturn_v1",
+  "review_status": "reviewed deterministic cases selected from S-RX4",
+  "source_suite": "evals/s_rx_multiturn_v1.json",
+  "scope_note": "Focused reliability view over the reviewed S-RX4 HTTP suite. The source cases are executed by run_s_rx_multiturn.py; this manifest does not create a second conversation runner.",
+  "metric_definitions": {
+    "silent_failure_count": "A failed or interrupted response without its typed failure, question, conflict, or recovery envelope.",
+    "unexplained_repeat_question_count": "Repeated clarification fields that are not accompanied by a changed strategy or an explicit exit.",
+    "recovery_action_applied_rate": "Typed mutation recovery actions whose target request fields changed, divided by submitted typed mutation recovery actions; HTTP success alone is not sufficient.",
+    "recovery_to_feasible_plan_rate": "Recovery actions that changed a request constraint and entered planning, plus explicit retries that entered planning; cancellation, new-request reset, keep-plan, and editor-opening actions are excluded from the denominator.",
+    "bottleneck_improvement_rate": "Planning recovery attempts that generated a plan or changed the diagnosed primary bottleneck, divided by planning recovery attempts; terminal/reset/editor actions are excluded.",
+    "diagnosis_action_alignment_rate": "Planning recovery attempts whose target fields or strategy align with the diagnosed primary bottleneck, divided by planning recovery attempts; terminal/reset/editor actions are excluded.",
+    "repeated_ineffective_strategy_count": "A recovery strategy that is attempted again after a prior ineffective attempt and still fails to improve the bottleneck.",
+    "new_request_constraint_leak_count": "Explicit new-request cases where constraints declared absent remain in the final request.",
+    "failure_diagnosis_coverage": "Failure or recovery responses carrying a typed public diagnosis divided by failure/recovery responses.",
+    "modification_failure_preservation_rate": "Failed replacement cases preserving the active PlanVersion divided by evaluable failed replacement cases."
+  },
+  "cases": [
+    {"case_id": "auto_recovery_trace_reentry", "source_case_id": "automatic_recovery_reenters_planner_trace", "focus": "recovery_trace_reentry_and_safe_terminal_no_plan", "metric_families": ["recovery_to_feasible_plan_rate", "bottleneck_improvement_rate", "diagnosis_action_alignment_rate", "repeated_ineffective_strategy_count", "failure_diagnosis_coverage"]},
+    {"case_id": "location_answer_no_repeat", "source_case_id": "session_area_answer_no_repeat", "focus": "unresolved_location_clarification_and_context_patch", "metric_families": ["unexplained_repeat_question_count", "failure_diagnosis_coverage"]},
+    {"case_id": "distance_recovery_requires_consent", "source_case_id": "distance_conflict_requires_consent", "focus": "explicit_hard_constraint_recovery", "metric_families": ["recovery_action_applied_rate", "diagnosis_action_alignment_rate", "failure_diagnosis_coverage"]},
+    {"case_id": "fresh_request_resets_constraints", "source_case_id": "start_new_request_after_recovery", "focus": "new_request_boundary_and_constraint_reset", "metric_families": ["new_request_constraint_leak_count"]},
+    {"case_id": "replacement_failure_preserves_plan", "source_case_id": "single_stop_replacement_no_candidate", "focus": "failed_single_stop_replacement_preservation", "metric_families": ["modification_failure_preservation_rate", "failure_diagnosis_coverage"]},
+    {"case_id": "budget_recovery_and_stale_action", "source_case_id": "strict_budget_typed_recovery", "focus": "typed_recovery_and_stale_action_rejection", "metric_families": ["recovery_action_applied_rate", "failure_diagnosis_coverage"]},
+    {"case_id": "departure_clarification_resume", "source_case_id": "post_plan_morning_departure_clarify", "focus": "scoped_time_clarification_resume", "metric_families": ["unexplained_repeat_question_count", "recovery_to_feasible_plan_rate"]},
+    {"case_id": "cancel_recovery_without_side_effect", "source_case_id": "cancel_recovery_turn", "focus": "cancel_exit_and_original_plan_preservation", "metric_families": ["silent_failure_count", "failure_diagnosis_coverage"]}
+  ]
+}

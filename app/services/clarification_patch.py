@@ -15,6 +15,7 @@ from app.domain.constraints import (
     PlanRequest,
     PlanningWindow,
     RequestPatch,
+    StopRole,
 )
 from app.services.enrichment import EnvironmentContext
 from app.services.request_patch_update import RequestPatchUpdateCompiler
@@ -81,6 +82,41 @@ class ClarificationPatchCompiler:
             if count is None or not 1 <= count <= 4:
                 return None
             proposal = ConstraintPatch(exact_stop_count=count)
+            compiled = self._proposal_compiler.compile_update_proposal(
+                base=request,
+                proposal=proposal,
+                actor=actor,
+                environment=environment,
+            )
+            return None if compiled.issues else compiled.patch
+
+        if field == "required_stop_roles":
+            if text.casefold() in {"不限", "不限制", "无必选类型", "取消必选类型"}:
+                proposal = ConstraintPatch(clear_fields=("required_stop_roles",))
+            else:
+                role_aliases = {
+                    "activity": StopRole.ACTIVITY,
+                    "活动": StopRole.ACTIVITY,
+                    "meal": StopRole.MEAL,
+                    "餐食": StopRole.MEAL,
+                    "lunch": StopRole.LUNCH,
+                    "午餐": StopRole.LUNCH,
+                    "午饭": StopRole.LUNCH,
+                    "dinner": StopRole.DINNER,
+                    "晚餐": StopRole.DINNER,
+                    "晚饭": StopRole.DINNER,
+                    "break": StopRole.BREAK,
+                    "休息": StopRole.BREAK,
+                }
+                tokens = [
+                    token.strip().casefold()
+                    for token in re.split(r"[,，、;；]+", text)
+                    if token.strip()
+                ]
+                roles = tuple(role_aliases.get(token) for token in tokens)
+                if not roles or any(role is None for role in roles) or len(roles) > 4:
+                    return None
+                proposal = ConstraintPatch(required_stop_roles=roles)
             compiled = self._proposal_compiler.compile_update_proposal(
                 base=request,
                 proposal=proposal,

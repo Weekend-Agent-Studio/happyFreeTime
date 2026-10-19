@@ -12,6 +12,7 @@ import uuid
 from typing import Any, Callable
 
 from langgraph.types import Command
+from pydantic import ValidationError as PydanticValidationError
 
 from app.api.planning_context import PlanningContextApplication
 from app.api.schemas import AgentResponse, ConstraintSummaryItem, MessageRequest, PlanningContextSummary
@@ -29,13 +30,14 @@ from app.domain.providers import WeatherFact
 from app.domain.recommendation import RecommendationAdvice, RecommendationAdviceRequest
 from app.domain.runtime import RuntimeDecision
 from app.domain.run_trace import (
+    FailureEnvelope,
     InMemoryRunObserver,
     PlanningRunEventDraft,
     PlanningRunEvent,
     RunEventStatus,
     RunStage,
 )
-from app.domain.recovery import RecoveryActionResponse
+from app.domain.recovery import RecoveryActionResponse, RecoveryOutcome
 from app.domain.semantics import SemanticRequest
 from app.orchestration.entry_graph import EnvironmentProvider, checkpoint_config
 from app.persistence.repositories import SessionRepository
@@ -89,6 +91,8 @@ class PlanningTurnApplication:
         *,
         pending_field: str | None = None,
         just_planned: bool = False,
+        request_view: str = "committed",
+        committed_request_revision: int | None = None,
     ) -> PlanningContextSummary:
         snapshot = self._repository.get_session_snapshot(user_id, session_id)
         has_active_plan = bool(snapshot and snapshot.active_plan_version_id)
@@ -107,6 +111,12 @@ class PlanningTurnApplication:
             pending_interaction=pending_field,
             planned_request_revision=planned_revision,
             has_active_plan=has_active_plan or just_planned,
+            request_view=request_view,
+            committed_request_revision=(
+                committed_request_revision
+                if committed_request_revision is not None
+                else request.revision
+            ),
         )
 
     def handle(
@@ -589,6 +599,10 @@ class PlanningTurnApplication:
                     reply=recovery_summary,
                     question=question if isinstance(question, dict) else None,
                     recovery=recovery if isinstance(recovery, dict) else None,
+                    recovery_outcome=_recovery_outcome(
+                        current,
+                        status="needs_recovery" if is_recovery else "needs_input",
+                    ),
                     assumptions=_dump_assumptions(result),
                     constraint_summary=_dump_constraint_summary(result),
                     **_candidate_set_response_fields(candidate_set),
@@ -600,6 +614,10 @@ class PlanningTurnApplication:
                         session_id,
                         display_request,
                         pending_field=question.get("field") if isinstance(question, dict) else None,
+                        request_view=(
+                            "draft" if display_request_value is not None else "committed"
+                        ),
+                        committed_request_revision=current_request.revision,
                     ),
                 )
                 self._repository.complete_planning_run(
@@ -772,6 +790,11 @@ class PlanningTurnApplication:
                 status="context_saved" if context_saved else "completed",
                 reply="" if context_saved else reply,
                 recovery_resolution=recovery_resolution,
+                recovery_outcome=_recovery_outcome(
+                    result,
+                    status="completed" if not context_saved else "context_saved",
+                    resolution=recovery_resolution,
+                ),
                 assumptions=_dump_assumptions(result),
                 constraint_summary=_dump_constraint_summary(result),
                 **_candidate_set_response_fields(candidate_set),
@@ -839,19 +862,104 @@ class PlanningTurnApplication:
                 supersedes_version_id=supersedes_version_id,
             )
             return response
-        except Exception:
-            # Keep the public execution trace lifecycle closed even when an
-            # unexpected provider or application error aborts the turn. The
-            # observer only emits a bounded, generic failure event; raw error
-            # text and stack traces never enter the public response.
-            run_observer.fail_open_stages()
+        except Exception as error:
+            # Convert unexpected execution failures into a safe, persisted
+            # result.  The exception itself never crosses the application
+            # seam; callers receive a retry/exit-capable response instead of a
+            # silent failed run and a transient banner.
+            try:
+                run_observer.fail_open_stages()
+            except Exception:
+                # Trace finalization must not mask the original execution
+                # failure.  The snapshot remains safe even without a final
+                # synthetic event.
+                pass
+            failure = _failure_envelope(
+                error,
+                run_id=run.planning_run_id,
+                request_id=request.request_id,
+                trace=run_observer.snapshot(),
+            )
+            response = AgentResponse(
+                status="failed",
+                reply=failure.public_message,
+                failure=failure,
+                run_trace=failure.trace,
+            )
             self._repository.fail_planning_run(
                 user_id=user_id,
                 session_id=session_id,
                 planning_run_id=run.planning_run_id,
+                failure=failure,
+                assistant_content=failure.public_message,
             )
-            raise
+            return response
 
+def _failure_envelope(
+    error: Exception,
+    *,
+    run_id: str,
+    request_id: str,
+    trace: object,
+) -> FailureEnvelope:
+    """Project an internal exception into the small public failure contract."""
+
+    error_name = type(error).__name__.casefold()
+    transient_markers = (
+        "timeout",
+        "connection",
+        "ratelimit",
+        "rate_limit",
+        "temporar",
+        "upstream",
+    )
+    if isinstance(error, (TimeoutError, ConnectionError, OSError)) or any(
+        marker in error_name for marker in transient_markers
+    ):
+        diagnostic_code = "PROVIDER_TEMPORARY_FAILURE"
+        retryable = True
+        public_message = "外部服务暂时不可用，本轮没有修改当前方案，可以重试。"
+    elif isinstance(error, PydanticValidationError):
+        diagnostic_code = "INPUT_VALIDATION_FAILURE"
+        retryable = False
+        public_message = "本轮规划条件或结构校验未完成，当前方案没有被修改。"
+    else:
+        diagnostic_code = "INTERNAL_EXECUTION_ERROR"
+        retryable = False
+        public_message = "本轮规划未能完成，当前方案没有被修改。可以开始新的规划。"
+
+    safe_trace = trace
+    events = getattr(trace, "events", ())
+    failed_events = [
+        event for event in events
+        if event.status == RunEventStatus.FAILED
+    ]
+    failure_stage = (
+        failed_events[-1].stage.value
+        if failed_events
+        else events[-1].stage.value
+        if events
+        else "unknown"
+    )
+    completed_events = [
+        event for event in events
+        if event.status in {
+            RunEventStatus.COMPLETED,
+            RunEventStatus.FALLBACK,
+            RunEventStatus.WAITING_INPUT,
+        }
+    ]
+    last_completed_stage = completed_events[-1].stage.value if completed_events else None
+    return FailureEnvelope(
+        run_id=run_id,
+        request_id=request_id,
+        failure_stage=failure_stage,
+        diagnostic_code=diagnostic_code,
+        retryable=retryable,
+        last_completed_stage=last_completed_stage,
+        public_message=public_message,
+        trace=safe_trace,
+    )
 
 
 def _dump_assumptions(result: dict) -> list[dict]:
@@ -860,6 +968,79 @@ def _dump_assumptions(result: dict) -> list[dict]:
         item.model_dump(mode="json") if hasattr(item, "model_dump") else item
         for item in assumptions
     ]
+
+
+def _recovery_outcome(
+    values: object,
+    *,
+    status: str,
+    resolution: str | None = None,
+) -> RecoveryOutcome | None:
+    """Project the consumed recovery action into a refresh-safe response fact."""
+
+    if isinstance(values, dict):
+        state_values = values
+    else:
+        snapshot_values = getattr(values, "values", None)
+        state_values = snapshot_values if isinstance(snapshot_values, dict) else {}
+    action = state_values.get("recovery_applied_action")
+    if action is None:
+        return None
+    payload = (
+        action.model_dump(mode="json")
+        if hasattr(action, "model_dump")
+        else dict(action)
+    )
+    if resolution == "cancel_turn":
+        outcome_status = "cancelled"
+        summary = "本轮已取消，原方案和已确认条件保持不变。"
+    elif resolution is not None:
+        outcome_status = "finished"
+        summary = "恢复操作已结束，当前条件没有被继续修改。"
+    elif status == "completed":
+        outcome_status = "succeeded"
+        summary = "调整已应用，新的方案已生成并重新核验。"
+    elif status == "needs_recovery":
+        outcome_status = "still_failed"
+        summary = "调整已应用，但当前条件下仍未找到可行方案；已生成新的恢复选项。"
+    elif status == "needs_input":
+        outcome_status = "awaiting_input"
+        summary = "调整已提交，还需要补充一个条件。"
+    else:
+        outcome_status = "retryable"
+        summary = "恢复操作未完成，当前操作仍可重试。"
+    field_changes = tuple(
+        state_values.get("recovery_field_changes") or ()
+    )
+    if field_changes:
+        rendered_changes = []
+        for change in field_changes:
+            item = (
+                change.model_dump(mode="json")
+                if hasattr(change, "model_dump")
+                else change
+            )
+            if isinstance(item, dict):
+                rendered_changes.append(
+                    f"{item.get('field')}: {item.get('before') or '未设置'} → "
+                    f"{item.get('after') or '已清除'}"
+                )
+        if rendered_changes:
+            summary = f"{'；'.join(rendered_changes)}。{summary}"
+    return RecoveryOutcome(
+        interaction_id=state_values.get("recovery_interaction_id"),
+        action_id=str(payload.get("action_id", "recovery-action")),
+        action_fingerprint=payload.get("action_fingerprint"),
+        strategy_fingerprint=payload.get("strategy_fingerprint"),
+        kind=str(payload.get("kind", "recovery")),
+        label=str(payload.get("label", "恢复操作")),
+        status=outcome_status,
+        changed_fields=tuple(state_values.get("recovery_changed_fields") or ()),
+        field_changes=field_changes,
+        previous_bottleneck=state_values.get("recovery_previous_bottleneck"),
+        current_bottleneck=state_values.get("recovery_current_bottleneck"),
+        summary=summary[:240],
+    )
 
 
 def _candidate_set_response_fields(candidate_set: CandidateSet | None) -> dict[str, Any]:

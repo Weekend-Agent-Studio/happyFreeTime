@@ -31,6 +31,7 @@ from app.domain.turn import (
     PatchConstraintsProposal,
     QueryPlanProposal,
     ReplaceStopProposal,
+    ResetRequestProposal,
     TurnProposal,
     TurnTargetProposal,
 )
@@ -824,7 +825,17 @@ class DemoRouter:
         # the live Router before entering the compiler.  This makes the Demo
         # adapter exercise the production action boundary instead of keeping a
         # second interpretation-to-action route in the graph.
-        proposal = self._proposal_from_interpretation(interpretation)
+        proposal = (
+            TurnProposal(
+                act=ResetRequestProposal(
+                    raw_constraints=interpretation.raw_constraints,
+                    time_proposals=interpretation.time_proposals,
+                    evidence_map=dict(interpretation.evidence_map),
+                )
+            )
+            if TurnCompiler.is_explicit_new_request(user_input)
+            else self._proposal_from_interpretation(interpretation)
+        )
         compilation = TurnCompiler.compile(
             proposal,
             context=context.decision_context,

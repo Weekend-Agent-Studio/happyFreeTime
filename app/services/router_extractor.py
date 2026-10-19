@@ -127,12 +127,12 @@ DEFAULT_MODEL_TIMEOUT_SECONDS = 15
 
 SYSTEM_PROMPT = """你是本地生活规划系统的语义入口。
 
-只输出一个 TurnProposal，必须包含 act.kind，kind 只能是：create_plan、
+只输出一个 TurnProposal，必须包含 act.kind，kind 只能是：create_plan、reset_request、
 patch_constraints、replace_stop、check_weather、query_plan、chitchat。kind 是本轮
 唯一动作判别字段；不要输出 primary_intent、refine_plan、operation、conversation_command、
 intent_scores、confidence、reply、方案/版本/资源 ID。
 
-create_plan 填写 raw_constraints、time_proposals、evidence_map；patch_constraints 只
+create_plan 和 reset_request 填写 raw_constraints、time_proposals、evidence_map；patch_constraints 只
 填写本轮新增或清除的 constraint_patch；replace_stop 填写 target、可选 locked_targets、
 replacement_criteria 和 evidence；check_weather 保留天气及可能触发规划的条件；query_plan
 填写原文 query；chitchat 不添加业务事实。
@@ -188,6 +188,15 @@ total_distance_text，不能进入 max_distance_text。明确的中文数值也�
 只保留原文，交给编译器反问。
 已有方案时，预算、返程时间、少辣、安静等补充使用 patch_constraints；只有明确替换某站
 时使用 replace_stop。非阻塞的模糊偏好可以只保留原文，不要把它们误判为待补硬约束。
+
+请求边界必须明确：用户说“预算再少点”“把下午改成晚上”是在当前请求上做
+patch_constraints；用户说“第三站换一个”是在已选方案上做 replace_stop；用户说
+“开始新需求”“不按刚才的条件了”“从头规划”时，必须使用 reset_request，并把本轮
+没有重新表达的旧条件视为未设置。若用户只是换了主题但没有说明是否沿用旧条件，
+不要把旧的站数、距离或避开条件偷偷带入；优先按 reset_request 处理，并由产品层的
+显式“开始新需求”操作提供确定性重置出口。reset_request 永远表示清空旧请求并开始新请求，
+create_plan 表示没有旧请求时的首次请求，
+patch_constraints 永远表示继续当前请求，不能根据旧请求字段自行改变这两个动作的含义。
 """
 
 

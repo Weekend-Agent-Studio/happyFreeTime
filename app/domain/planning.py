@@ -147,15 +147,23 @@ class SkeletonSearchTrace(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     skeleton_id: str = Field(min_length=1)
+    # Candidate funnel counters use stage-specific denominators.  The pool
+    # count is the retrieved catalog size; role_pool_entries counts the
+    # role-filtered slot pools (so repeated roles are intentionally counted
+    # per slot rather than pretending to be unique resources).
+    candidate_pool_count: int = Field(default=0, ge=0)
+    role_pool_entries: int = Field(default=0, ge=0)
     theoretical_combinations: int = Field(default=0, ge=0)
     expansions: int = Field(default=0, ge=0)
     finalists: int = Field(default=0, ge=0)
     local_schedule_passes: int = Field(default=0, ge=0)
+    local_schedule_failures: int = Field(default=0, ge=0)
     rejected_by: dict[str, int] = Field(default_factory=dict)
     route_candidates: int = Field(default=0, ge=0)
     route_provider_requests: int = Field(default=0, ge=0)
     route_leg_count: int = Field(default=0, ge=0)
     final_selected: int = Field(default=0, ge=0)
+    search_budget_exhausted: bool = False
 
 
 class PlanPriceStatus(str, Enum):

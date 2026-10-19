@@ -16,6 +16,7 @@ from app.domain.turn import (
     PatchConstraintsProposal,
     QueryPlanProposal,
     ReplaceStopProposal,
+    ResetRequestProposal,
     TurnCompiler,
     TurnProposal,
     TurnTargetProposal,
@@ -34,7 +35,15 @@ class InterpretationRouter:
     ) -> TurnInterpreterResult:
         interpretation = self.interpret(user_input, context)
         command = interpretation.conversation_command
-        if command is not None and command.operation == CommandOperation.PATCH_CONSTRAINTS:
+        if TurnCompiler.is_explicit_new_request(user_input):
+            proposal = TurnProposal(
+                act=ResetRequestProposal(
+                    raw_constraints=interpretation.raw_constraints,
+                    time_proposals=interpretation.time_proposals,
+                    evidence_map=dict(interpretation.evidence_map),
+                )
+            )
+        elif command is not None and command.operation == CommandOperation.PATCH_CONSTRAINTS:
             proposal = TurnProposal(
                 act=PatchConstraintsProposal(
                     constraint_patch=command.constraint_patch,

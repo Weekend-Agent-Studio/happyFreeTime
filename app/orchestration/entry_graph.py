@@ -78,8 +78,13 @@ from app.domain.recovery import (
     OpenConstraintEditorAction,
     PendingInteraction,
     RecoveryActionResponse,
+    RecoveryAction,
     RecoveryChoiceInteraction,
+    RecoveryAttempt,
+    FieldChange,
     RecoveryDiagnostics,
+    PrimaryBottleneck,
+    PrimaryBottleneckKind,
     RecoveryKind,
     RecoveryReason,
     RecoveryStage,
@@ -188,12 +193,15 @@ from app.services.constraint_engine import (
 )
 from app.services.request_patch_compiler import RequestPatchProposalCompiler
 from app.services.recovery_policy import RecoveryPolicy
+from app.services.recovery_bottleneck import resolve_primary_bottleneck
 from app.services.router_extractor import RouterContext, TurnInterpreterResult
 from app.domain.turn import (
     AnswerQuery,
     ApplyRequestPatch,
     CompiledNextAction,
     ModifySelectedPlan,
+    ResetRequestProposal,
+    StartNewRequest,
     NeedsClarification as ActionNeedsClarification,
     NoAction,
     TurnCompiler,
@@ -286,7 +294,15 @@ class TurnResultState(TypedDict, total=False):
     recovery_auto_failed: bool
     auto_recovery_attempted: bool
     used_recovery_action_ids: tuple[str, ...]
+    used_recovery_action_fingerprints: tuple[str, ...]
+    recovery_attempts: tuple[RecoveryAttempt, ...]
     recovery_resolution: str | None
+    recovery_applied_action: RecoveryAction | None
+    recovery_interaction_id: str | None
+    recovery_changed_fields: tuple[str, ...]
+    recovery_field_changes: tuple[FieldChange, ...]
+    recovery_previous_bottleneck: str | None
+    recovery_current_bottleneck: str | None
     new_request_pending: bool
     # Request committed before the current turn started.  A failed planning
     # draft may temporarily become the active execution input, but cancelling
@@ -385,7 +401,10 @@ def build_entry_graph(
         )
         actor = state["actor"]
         environment = environment_provider(actor)
-        start_fresh_request = state.get("new_request_pending", False)
+        # A pending reset is already a compiled state transition from the
+        # previous turn.  The semantic Router, not Graph, classifies the
+        # current natural-language turn as ``StartNewRequest``.
+        start_fresh_request = bool(state.get("new_request_pending", False))
         turn_base_request = (
             PlanRequest()
             if start_fresh_request
@@ -457,6 +476,9 @@ def build_entry_graph(
             interpretation = turn_result.interpretation
             action = turn_result.action
             runtime_decision = turn_result.runtime
+            if isinstance(action, StartNewRequest):
+                start_fresh_request = True
+                turn_base_request = PlanRequest()
         _trace(
             config,
             stage=RunStage.UNDERSTAND,
@@ -490,8 +512,16 @@ def build_entry_graph(
             "recovery_response": None,
             "recovery_auto_action": None,
             "recovery_resolution": None,
+            "recovery_applied_action": None,
+            "recovery_interaction_id": None,
+            "recovery_changed_fields": (),
+            "recovery_field_changes": (),
+            "recovery_attempts": (),
+            "recovery_previous_bottleneck": None,
+            "recovery_current_bottleneck": None,
             "auto_recovery_attempted": False,
             "used_recovery_action_ids": (),
+            "used_recovery_action_fingerprints": (),
             "new_request_pending": False,
             "turn_base_request": turn_base_request,
             **(
@@ -515,6 +545,8 @@ def build_entry_graph(
                 if action.mode == "update"
                 else WorkflowRoute.COMPILE_REQUEST.value
             )
+        if isinstance(action, StartNewRequest):
+            return WorkflowRoute.RESET_REQUEST.value
         if isinstance(action, ModifySelectedPlan):
             return WorkflowRoute.MODIFY_PLAN.value
         if isinstance(action, ActionNeedsClarification):
@@ -536,6 +568,48 @@ def build_entry_graph(
                 else WorkflowRoute.END.value
             )
         return WorkflowRoute.END.value
+
+    def reset_request_node(state: EntryState) -> dict[str, object]:
+        """Execute the semantic reset, then optionally compile new content."""
+
+        action = state.get("next_action")
+        if not isinstance(action, StartNewRequest):
+            raise ValueError("reset_request requires a compiled reset action")
+        raw = action.raw_constraints.model_dump(
+            mode="json", exclude_defaults=True, exclude_none=True
+        )
+        has_new_content = bool(raw or action.time_proposals)
+        updates: dict[str, object] = {
+            "active_request": PlanRequest(),
+            "has_plans": False,
+            "selected_plan": None,
+            "active_plan_version_id": None,
+            "turn_base_request": PlanRequest(),
+            "new_request_pending": not has_new_content,
+            "workflow_outcome": "start_new_request",
+            "active_recovery_reason": None,
+            "candidate_set": None,
+            "recovery_base_request": None,
+            "recovery_attempts": (),
+            "used_recovery_action_ids": (),
+            "used_recovery_action_fingerprints": (),
+            "recovery_field_changes": (),
+            "recovery_previous_bottleneck": None,
+            "recovery_current_bottleneck": None,
+        }
+        if has_new_content:
+            updates["next_action"] = ApplyRequestPatch(
+                mode="create",
+                raw_constraints=action.raw_constraints,
+                time_proposals=action.time_proposals,
+                evidence_map=dict(action.evidence_map),
+                condition_requests_plan=action.condition_requests_plan,
+            )
+            updates["workflow_route"] = WorkflowRoute.COMPILE_REQUEST.value
+        else:
+            updates["next_action"] = None
+            updates["workflow_route"] = WorkflowRoute.END.value
+        return updates
 
     def modify_plan_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:
         _trace(
@@ -824,6 +898,20 @@ def build_entry_graph(
                 update={"provider_facts": [geocoding_fact, *candidate_set.provider_facts]}
             )
         active_recovery_reason = candidate_set.recovery_reason
+        recovery_attempts = tuple(
+            item
+            for item in state.get("recovery_attempts", ())
+            if isinstance(item, RecoveryAttempt)
+        )
+        recovery_action = state.get("recovery_applied_action")
+        recovery_attempt = _recovery_attempt_after_planning(
+            state,
+            candidate_set,
+            active_recovery_reason,
+            recovery_action,
+        )
+        if recovery_attempt is not None:
+            recovery_attempts = (*recovery_attempts, recovery_attempt)
         observer = run_observer_from_config(config)
         if active_recovery_reason is None and _recovery_stage_is_open(observer):
             _trace(
@@ -836,6 +924,13 @@ def build_entry_graph(
         return {
             "candidate_set": candidate_set,
             "active_recovery_reason": active_recovery_reason,
+            "recovery_attempts": recovery_attempts,
+            "recovery_current_bottleneck": (
+                active_recovery_reason.primary_bottleneck.kind.value
+                if active_recovery_reason is not None
+                and active_recovery_reason.primary_bottleneck is not None
+                else None
+            ),
             "ready_for_planning": True,
             "workflow_route": (
                 "decide_recovery"
@@ -1042,6 +1137,7 @@ def build_entry_graph(
 
     graph = StateGraph(EntryState)
     graph.add_node("router", router_node)
+    graph.add_node("reset_request", reset_request_node)
     graph.add_node("apply_request_patch", apply_request_patch_node)
     graph.add_node("replan_current_request", replan_current_request_node)
     graph.add_node("compile_patch", compile_patch_node)
@@ -1079,9 +1175,15 @@ def build_entry_graph(
         {
             "compile_request": "compile_request",
             "compile_patch": "compile_patch",
+            "reset_request": "reset_request",
             "modify_plan": "modify_plan",
             END: END,
         },
+    )
+    graph.add_conditional_edges(
+        "reset_request",
+        lambda state: state.get("workflow_route") or END,
+        {"compile_request": "compile_request", END: END},
     )
     graph.add_conditional_edges(
         "compile_patch",
@@ -1228,14 +1330,68 @@ def _prepare_question_decision(decision: QuestionDecision) -> QuestionDecision:
     if decision.request_revision is None:
         raise ValueError("blocking questions must be bound to a request revision")
     clarification_id = decision.clarification_id or uuid.uuid4().hex
-    options = decision.options or _clarification_options(decision.field)
+    options = _merge_clarification_options(
+        decision.options,
+        _clarification_options(decision.field),
+    )
+    question = decision.question
+    if decision.attempt == 1:
+        question = _retry_question(decision)
+    elif decision.attempt >= decision.max_attempts:
+        question = _exhausted_question(decision)
     return decision.model_copy(
         update={
             "clarification_id": clarification_id,
             "options": options,
+            "question": question,
             "allow_free_text": decision.allow_free_text and decision.attempt < decision.max_attempts,
         }
     )
+
+
+def _merge_clarification_options(
+    primary: tuple[ClarificationOption, ...],
+    fallback: tuple[ClarificationOption, ...],
+) -> tuple[ClarificationOption, ...]:
+    """Keep provider/compiler suggestions while guaranteeing safe exits."""
+
+    merged: list[ClarificationOption] = []
+    seen: set[str] = set()
+    for option in (*primary, *fallback):
+        if option.id not in seen:
+            merged.append(option)
+            seen.add(option.id)
+    return tuple(merged)
+
+
+def _retry_question(decision: QuestionDecision) -> str:
+    field = decision.field or "该信息"
+    labels = {
+        "location": "出发地点",
+        "planning_area": "活动区域",
+        "date": "日期",
+        "departure_at": "出发时间",
+        "return_by": "返程时间",
+        "budget_per_person": "人均预算",
+        "max_distance_km": "最远距离",
+        "total_distance_km": "全程距离",
+    }
+    examples = {
+        "location": "例如“北京朝阳区太古里”或“国贸地铁站附近”",
+        "planning_area": "例如“朝阳区”“望京”或“国贸附近”",
+        "date": "例如“2026年10月18日”“明天”",
+        "departure_at": "例如“09:00”或“早上9点”",
+        "return_by": "例如“20:00”或“晚上8点前”",
+        "budget_per_person": "例如“人均200元”",
+        "max_distance_km": "例如“最远8公里”",
+        "total_distance_km": "例如“全程不超过12公里”",
+    }
+    return f"我还不能把这条信息用于规划。请直接提供{labels.get(field, field)}的明确值，{examples.get(field, '也可以选择下方操作退出本轮。')}"
+
+
+def _exhausted_question(decision: QuestionDecision) -> str:
+    field = decision.field or "这项信息"
+    return f"我仍无法确认{field}，暂时不会猜测。请使用下方的默认值（如果可用）、取消本轮，或开始新的需求。"
 
 
 def _field_interaction(
@@ -1385,6 +1541,70 @@ def route_after_planning(state: EntryState) -> str:
     return END
 
 
+def _recovery_attempt_after_planning(
+    state: EntryState,
+    candidate_set: CandidateSet,
+    reason: RecoveryReason | None,
+    action: RecoveryAction | None,
+) -> RecoveryAttempt | None:
+    """Turn one resumed action plus its new planning result into an audit row."""
+
+    if action is None or not getattr(action, "action_id", None):
+        return None
+    concrete = getattr(action, "action_fingerprint", None) or action.action_id
+    strategy = getattr(action, "strategy_fingerprint", None) or f"action:{action.kind}"
+    target_fields: tuple[str, ...] = ()
+    target_values: tuple[str, ...] = ()
+    patch = getattr(action, "patch", None)
+    if patch is not None:
+        target_fields = tuple(
+            sorted(set(patch.set_fields) | set(patch.clear_fields))
+        )
+        target_values = tuple(
+            f"{field}={patch.set_fields[field]}"
+            for field in sorted(patch.set_fields)
+        )
+    elif hasattr(action, "field"):
+        target_fields = (str(action.field),)
+        target_values = (f"{action.field}=user_input",)
+    before_raw = state.get("recovery_previous_bottleneck") or "unknown"
+    after_raw = "unknown"
+    if reason is not None:
+        after_raw = (
+            reason.primary_bottleneck or resolve_primary_bottleneck(reason, reason.diagnostics)
+        ).kind.value
+    try:
+        before = PrimaryBottleneckKind(before_raw)
+    except ValueError:
+        before = PrimaryBottleneckKind.UNKNOWN
+    try:
+        after = PrimaryBottleneckKind(after_raw)
+    except ValueError:
+        after = PrimaryBottleneckKind.UNKNOWN
+    generated = bool(candidate_set.plans)
+    improved = generated or after != before and after != PrimaryBottleneckKind.UNKNOWN
+    changed = tuple(state.get("recovery_changed_fields", ()))
+    if generated or improved:
+        outcome = "improved"
+    elif changed:
+        outcome = "still_failed"
+    else:
+        outcome = "rejected"
+    return RecoveryAttempt(
+        action_kind=action.kind,
+        strategy_fingerprint=strategy,
+        concrete_fingerprint=concrete,
+        target_fields=target_fields,
+        target_values=target_values,
+        before_bottleneck=before,
+        after_bottleneck=after,
+        changed_fields=changed,
+        plan_generated=generated,
+        improved=improved,
+        outcome=outcome,
+    )
+
+
 def _clarification_runtime_decision(
     decision: QuestionDecision,
     reply: ClarificationReply,
@@ -1459,6 +1679,10 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             ResourceType,
             QuestionDecision,
             RecoveryActionResponse,
+            RecoveryAttempt,
+            FieldChange,
+            PrimaryBottleneck,
+            PrimaryBottleneckKind,
             RequestFieldAction,
             ReplanCurrentRequestAction,
             KeepCurrentPlanAction,
@@ -1489,6 +1713,8 @@ def checkpoint_serializer() -> JsonPlusSerializer:
             WeatherFact,
             RuntimeDecision,
             ApplyRequestPatch,
+            ResetRequestProposal,
+            StartNewRequest,
             ModifySelectedPlan,
             AnswerQuery,
             NoAction,

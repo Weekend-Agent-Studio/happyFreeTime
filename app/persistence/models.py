@@ -87,6 +87,7 @@ class PlanningRunRecord(Base):
     request_content: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="running")
     response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

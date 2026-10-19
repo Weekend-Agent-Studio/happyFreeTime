@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import sessionmaker
 
 from app.domain.planning import Plan
+from app.domain.run_trace import FailureEnvelope, PlanningRunTrace
 from app.persistence.models import (
     MessageRecord,
     PlanRecord,
@@ -247,6 +248,9 @@ class SessionRepository:
                         should_execute=False,
                     )
                 existing.status = "running"
+                # A retry reuses the logical run, so the previous safe failure
+                # must not survive beside the eventual response in history.
+                existing.failure_json = None
                 existing.updated_at = now
                 session = database.get(SessionRecord, session_id)
                 if session is not None:
@@ -458,6 +462,9 @@ class SessionRepository:
                     )
                 )
             planning_run.status = status
+            # A successful/question/recovery response supersedes any previous
+            # failure recorded for this retried logical run.
+            planning_run.failure_json = None
             planning_run.response_json = json.dumps(response, ensure_ascii=False)
             planning_run.updated_at = now
             session = database.get(SessionRecord, session_id)
@@ -471,6 +478,8 @@ class SessionRepository:
         user_id: str,
         session_id: str,
         planning_run_id: str,
+        failure: FailureEnvelope | None = None,
+        assistant_content: str = "",
     ) -> None:
         now = utc_now()
         with self._session_factory.begin() as database:
@@ -482,8 +491,29 @@ class SessionRepository:
                 )
             )
             if planning_run is not None and planning_run.response_json is None:
+                persisted_failure = failure or FailureEnvelope(
+                    run_id=planning_run.id,
+                    request_id=planning_run.request_id,
+                    failure_stage="unknown",
+                    diagnostic_code="INTERNAL_EXECUTION_ERROR",
+                    retryable=False,
+                    public_message="本轮规划未能完成，当前方案未被修改。",
+                    trace=PlanningRunTrace(run_id=planning_run.id),
+                )
                 planning_run.status = "failed"
+                planning_run.failure_json = persisted_failure.model_dump_json()
                 planning_run.updated_at = now
+                if assistant_content:
+                    database.add(
+                        MessageRecord(
+                            id=uuid.uuid4().hex,
+                            user_id=user_id,
+                            session_id=session_id,
+                            role="assistant",
+                            content=assistant_content,
+                            created_at=now,
+                        )
+                    )
             session = database.get(SessionRecord, session_id)
             if session is not None:
                 session.status = "failed"
@@ -496,16 +526,31 @@ class SessionRepository:
                 .where(
                     PlanningRunRecord.user_id == user_id,
                     PlanningRunRecord.session_id == session_id,
-                    PlanningRunRecord.response_json.is_not(None),
+                    (
+                        PlanningRunRecord.response_json.is_not(None)
+                        | PlanningRunRecord.failure_json.is_not(None)
+                    ),
                 )
                 .order_by(
                     PlanningRunRecord.updated_at.desc(),
                     PlanningRunRecord.id.desc(),
                 )
             )
-            if planning_run is None or planning_run.response_json is None:
+            if planning_run is None:
                 return None
-            return json.loads(planning_run.response_json)
+            if planning_run.response_json is not None:
+                return json.loads(planning_run.response_json)
+            if planning_run.failure_json is not None:
+                failure = FailureEnvelope.model_validate(
+                    json.loads(planning_run.failure_json)
+                )
+                return {
+                    "status": "failed",
+                    "reply": failure.public_message,
+                    "failure": failure.model_dump(mode="json"),
+                    "run_trace": failure.trace.model_dump(mode="json"),
+                }
+            return None
 
     def response_history(self, user_id: str, session_id: str) -> list[dict]:
         """Return every completed response in conversation order.
@@ -520,18 +565,33 @@ class SessionRepository:
                 .where(
                     PlanningRunRecord.user_id == user_id,
                     PlanningRunRecord.session_id == session_id,
-                    PlanningRunRecord.response_json.is_not(None),
+                    (
+                        PlanningRunRecord.response_json.is_not(None)
+                        | PlanningRunRecord.failure_json.is_not(None)
+                    ),
                 )
                 .order_by(
                     PlanningRunRecord.created_at,
                     PlanningRunRecord.id,
                 )
             )
-            return [
-                json.loads(planning_run.response_json)
-                for planning_run in planning_runs
-                if planning_run.response_json is not None
-            ]
+            history: list[dict] = []
+            for planning_run in planning_runs:
+                if planning_run.failure_json is not None:
+                    failure = FailureEnvelope.model_validate(
+                        json.loads(planning_run.failure_json)
+                    )
+                    history.append(
+                        {
+                            "status": "failed",
+                            "reply": failure.public_message,
+                            "failure": failure.model_dump(mode="json"),
+                            "run_trace": failure.trace.model_dump(mode="json"),
+                        }
+                    )
+                if planning_run.response_json is not None:
+                    history.append(json.loads(planning_run.response_json))
+            return history
 
     def get_session_snapshot(
         self,

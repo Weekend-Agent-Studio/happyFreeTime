@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.constraints import (
     ConstraintSource,
+    PlanRequest,
     QuestionDecision,
     RequestPatch,
 )
@@ -32,6 +33,19 @@ class RecoveryStage(StrEnum):
     MODIFICATION = "modification"
 
 
+class PrimaryBottleneckKind(StrEnum):
+    """Finite, user-facing categories for the current recovery blocker."""
+
+    TEMPORAL_CONFLICT = "temporal_conflict"
+    SCHEDULE_CAPACITY = "schedule_capacity"
+    DISTANCE_LIMIT = "distance_limit"
+    CANDIDATE_SUPPLY = "candidate_supply"
+    AVAILABILITY = "availability"
+    ROUTE_FEASIBILITY = "route_feasibility"
+    SEARCH_BUDGET = "search_budget"
+    UNKNOWN = "unknown"
+
+
 RecoveryField: TypeAlias = Literal[
     "date",
     "time_window",
@@ -50,6 +64,18 @@ RecoveryField: TypeAlias = Literal[
     "replacement_criteria",
 ]
 
+AvailabilityFailureCode: TypeAlias = Literal[
+    "availability_verified_unavailable",
+    "availability_unknown_requires_explicit_acceptance",
+    "availability_fact_missing",
+    # Retained for old persisted recovery records; new verifier findings use
+    # the more specific codes above and policy treats this legacy code safely.
+    "availability_confirmation_required",
+    "availability_unconfirmed",
+    "availability_provider_degraded",
+    "visit_outside_opening_hours",
+]
+
 
 class RecoveryDiagnostics(BaseModel):
     """Small numeric and provenance summary; never carries raw tool/model data."""
@@ -63,14 +89,22 @@ class RecoveryDiagnostics(BaseModel):
     available_minutes: int | None = Field(default=None, ge=0)
     optimistic_duration_minutes: int | None = Field(default=None, ge=0)
     rejected_by_time_window: int = Field(default=0, ge=0)
+    rejected_by_distance: int = Field(default=0, ge=0)
     rejected_by_route: int = Field(default=0, ge=0)
     rejected_by_availability: int = Field(default=0, ge=0)
+    availability_failure_codes: tuple[AvailabilityFailureCode, ...] = ()
     structures_considered: int = Field(default=0, ge=0)
     combinations_expanded: int = Field(default=0, ge=0)
     route_candidates: int = Field(default=0, ge=0)
     route_provider_requests: int = Field(default=0, ge=0)
     route_verification_failures: int = Field(default=0, ge=0)
     rejected_by_hard_filter: int = Field(default=0, ge=0)
+    retrieved_candidate_count: int | None = Field(default=None, ge=0)
+    role_pool_entries: int = Field(default=0, ge=0)
+    local_schedule_passes: int = Field(default=0, ge=0)
+    local_schedule_failures: int = Field(default=0, ge=0)
+    finalist_count: int = Field(default=0, ge=0)
+    search_budget_exhausted: bool = False
     constraint_sources: dict[str, ConstraintSource] = Field(default_factory=dict)
 
     @field_validator("constraint_sources")
@@ -102,6 +136,28 @@ class RecoveryDiagnostics(BaseModel):
         return value
 
 
+class PrimaryBottleneck(BaseModel):
+    """A bounded explanation of the dominant failure funnel stage."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: PrimaryBottleneckKind
+    evidence_codes: tuple[str, ...] = ()
+    affected_fields: tuple[str, ...] = ()
+    evidence_summary: str = Field(min_length=1, max_length=240)
+
+    @field_validator("evidence_codes", "affected_fields")
+    @classmethod
+    def validate_identifiers(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        safe_identifier = re.compile(r"[a-z][a-z0-9_.-]*")
+        if any(
+            len(item) > 80 or safe_identifier.fullmatch(item) is None
+            for item in value
+        ):
+            raise ValueError("bottleneck evidence must use safe identifiers")
+        return tuple(dict.fromkeys(value))
+
+
 class RecoveryReason(BaseModel):
     """A safe projection of the actual conflict/failure that blocks progress."""
 
@@ -118,6 +174,7 @@ class RecoveryReason(BaseModel):
     plan_version_id: str | None = Field(default=None, min_length=1, max_length=128)
     public_summary: str = Field(min_length=1, max_length=240)
     diagnostics: RecoveryDiagnostics = Field(default_factory=RecoveryDiagnostics)
+    primary_bottleneck: "PrimaryBottleneck | None" = None
 
     @field_validator("fields")
     @classmethod
@@ -135,6 +192,37 @@ class RecoveryReason(BaseModel):
         return value
 
 
+class RecoveryAttempt(BaseModel):
+    """Persisted, non-sensitive outcome of one recovery action."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action_kind: str = Field(min_length=1, max_length=64)
+    strategy_fingerprint: str = Field(min_length=1, max_length=160)
+    concrete_fingerprint: str = Field(min_length=1, max_length=200)
+    target_fields: tuple[str, ...] = ()
+    target_values: tuple[str, ...] = ()
+    before_bottleneck: PrimaryBottleneckKind = PrimaryBottleneckKind.UNKNOWN
+    after_bottleneck: PrimaryBottleneckKind = PrimaryBottleneckKind.UNKNOWN
+    changed_fields: tuple[str, ...] = ()
+    plan_generated: bool = False
+    improved: bool = False
+    outcome: Literal["applied", "improved", "still_failed", "rejected"]
+
+
+class RecoveryContext(BaseModel):
+    """The small interface supplied to RecoveryPolicy for one decision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: RecoveryReason
+    primary_bottleneck: PrimaryBottleneck
+    request: PlanRequest
+    current_plan_version_id: str | None = None
+    previous_attempts: tuple[RecoveryAttempt, ...] = ()
+    used_concrete_fingerprints: tuple[str, ...] = ()
+
+
 RecoveryContinuation: TypeAlias = Literal[
     "compile_patch", "plan", "modify", "clarify_field", "finish"
 ]
@@ -144,6 +232,14 @@ class _RecoveryAction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action_id: str = Field(min_length=1, max_length=120)
+    # Stable semantic identity across request revisions.  ``action_id`` is a
+    # UI/concurrency token and may change when a new recovery card is issued;
+    # this field lets the evaluator and policy suppress the same ineffective
+    # recovery operation without conflating stale interactions.
+    action_fingerprint: str | None = Field(default=None, min_length=1, max_length=160)
+    # ``action_fingerprint`` remains the wire-compatible concrete fingerprint.
+    # This second identity groups different values of the same recovery idea.
+    strategy_fingerprint: str | None = Field(default=None, min_length=1, max_length=160)
     label: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=240)
     request_revision: int = Field(ge=0)
@@ -249,3 +345,44 @@ class RecoveryDecision(BaseModel):
     actions: tuple[RecoveryAction, ...] = ()
     auto_action: ApplyRequestPatchAction | None = None
     stale: bool = False
+
+
+class FieldChange(BaseModel):
+    """Safe before/after projection for a recovery patch."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str = Field(min_length=1, max_length=120)
+    before: str | None = Field(default=None, max_length=160)
+    after: str | None = Field(default=None, max_length=160)
+
+
+class RecoveryOutcome(BaseModel):
+    """Persisted result of one user-confirmed recovery action.
+
+    The interaction card may disappear after resume, but this small projection
+    remains in the response/history so clients can explain what changed after
+    refresh without replaying the Graph checkpoint.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    interaction_id: str | None = Field(default=None, max_length=128)
+    action_id: str = Field(min_length=1, max_length=120)
+    action_fingerprint: str | None = Field(default=None, max_length=160)
+    strategy_fingerprint: str | None = Field(default=None, max_length=160)
+    kind: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=100)
+    status: Literal[
+        "awaiting_input",
+        "succeeded",
+        "still_failed",
+        "cancelled",
+        "finished",
+        "retryable",
+    ]
+    changed_fields: tuple[str, ...] = ()
+    field_changes: tuple["FieldChange", ...] = ()
+    previous_bottleneck: PrimaryBottleneckKind | None = None
+    current_bottleneck: PrimaryBottleneckKind | None = None
+    summary: str = Field(min_length=1, max_length=240)

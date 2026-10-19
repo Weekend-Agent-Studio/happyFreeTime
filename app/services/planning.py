@@ -790,6 +790,7 @@ class PlanningService:
         verification_warnings_by_plan: dict[str, tuple[VerificationFinding, ...]] = {}
         route_failure_fields: set[str] = set()
         route_failure_field_sets: list[set[str]] = []
+        availability_failure_codes: set[str] = set()
         availability_batches = 0
         route_leg_verifications = 0
         exhausted_repair_chain = False
@@ -912,6 +913,11 @@ class PlanningService:
                     batch_failure_field_sets.append(issue_fields)
                     route_failure_fields.update(issue_fields)
                     route_failure_field_sets.append(issue_fields)
+                    availability_failure_codes.update(
+                        violation.code
+                        for violation in verification.violations
+                        if violation.field in {"availability", "opening_hours"}
+                    )
                     repair = repair_coordinator.decide(
                         context=_RepairContext(
                             failed=attempt,
@@ -1185,6 +1191,7 @@ class PlanningService:
                     search_traces=local_result.search_traces,
                     catalog_violations=catalog_result.violations,
                     route_failure_field_sets=route_failure_field_sets,
+                    availability_failure_codes=tuple(availability_failure_codes),
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
@@ -1212,8 +1219,11 @@ class PlanningService:
             reported_failure_fields = (
                 universal_failure_fields or route_failure_fields
             )
+            availability_fields = {"availability", "opening_hours"}
             availability_failed_all = bool(route_failure_field_sets) and all(
-                "availability" in finding for finding in route_failure_field_sets
+                bool(finding & availability_fields)
+                and finding.issubset(availability_fields)
+                for finding in route_failure_field_sets
             )
             conflict = ConstraintConflict(
                 code=(
@@ -1224,7 +1234,7 @@ class PlanningService:
                     else "NO_PLAN_AFTER_ROUTE_VERIFICATION"
                 ),
                 message=(
-                    "动态可用性复核后，没有确认有位或可执行的候选地点。"
+                    "营业时间或动态可用性复核后，没有符合条件的候选地点。"
                     if availability_failed_all
                     else "路线和整单可行性复核后，候选方案均违反硬约束。"
                 ),
@@ -1243,6 +1253,7 @@ class PlanningService:
                     search_traces=local_result.search_traces,
                     catalog_violations=catalog_result.violations,
                     route_failure_field_sets=route_failure_field_sets,
+                    availability_failure_codes=tuple(availability_failure_codes),
                 ),
                 planning_intent_decision=planning_intent_decision,
                 runtime_decision=runtime_decision,
@@ -1529,6 +1540,13 @@ class PlanningService:
                 candidate_set=CandidateSet(
                     catalog_violations=recalled.violations,
                     catalog_warnings=recalled.warnings,
+                    search_traces=[
+                        SkeletonSearchTrace(
+                            skeleton_id=selected_plan.skeleton_id,
+                            candidate_pool_count=len(recalled.candidates),
+                            rejected_by={"locked_stop_unavailable": len(missing_fixed)},
+                        )
+                    ],
                     conflict=ConstraintConflict(
                         code="LOCKED_STOP_UNAVAILABLE",
                         message="原方案中的非目标站点当前无法满足目录约束，系统没有擅自解除固定位置。",
@@ -1554,6 +1572,7 @@ class PlanningService:
             and candidate.resource_id not in fixed_ids
             and not (weather.is_adverse and candidate.weather_sensitive)
         ]
+        role_compatible_count = len(replacement_candidates)
         if not replacement_candidates:
             self._trace(
                 observer,
@@ -1567,6 +1586,14 @@ class PlanningService:
                 "NO_REPLACEMENT_CANDIDATES",
                 "当前目录中没有与该站点角色兼容的其他候选。",
                 fields=["replacement", "catalog"],
+                search_traces=(
+                    SkeletonSearchTrace(
+                        skeleton_id=selected_plan.skeleton_id,
+                        candidate_pool_count=len(recalled.candidates),
+                        role_pool_entries=role_compatible_count,
+                        rejected_by={"empty_role_pool": 1},
+                    ),
+                ),
             )
 
         criteria = command.replacement_criteria
@@ -1621,6 +1648,7 @@ class PlanningService:
             for item in retrieved_replacements.items
         }
         replacement_candidates = [item.candidate for item in retrieved_replacements.items]
+        retrieved_replacement_count = len(replacement_candidates)
         origin = GeoPoint(
             latitude=constraints.location.value.latitude,
             longitude=constraints.location.value.longitude,
@@ -1671,12 +1699,18 @@ class PlanningService:
             ),
         )
         replacement_candidates = replacement_candidates[:max_candidates]
+        search_budget_exhausted = retrieved_replacement_count > len(replacement_candidates)
 
         modification_intent = build_rule_based_planning_intent(constraints)
         base_distance = _total_route_distance(selected_plan)
         verified_plans: list[tuple[Plan, tuple[VerificationFinding, ...], tuple[AvailabilityFact, ...], int]] = []
         route_leg_verifications = 0
         availability_batches = 0
+        local_schedule_passes = 0
+        local_schedule_failures = 0
+        route_candidates_count = 0
+        verification_failures = 0
+        rejected_by: dict[str, int] = {}
         self._trace(
             observer,
             stage=RunStage.VERIFY,
@@ -1701,10 +1735,16 @@ class PlanningService:
                 ),
             )
             if local_plan is None:
-                del rejected_field
+                local_schedule_failures += 1
+                rejected_by[rejected_field or "local_plan"] = (
+                    rejected_by.get(rejected_field or "local_plan", 0) + 1
+                )
                 continue
+            local_schedule_passes += 1
             if route_leg_verifications + legs_per_candidate > _MAX_ROUTE_LEG_VERIFICATIONS:
+                search_budget_exhausted = True
                 break
+            route_candidates_count += 1
             verified = self._rebuild_route_timeline(
                 local_plan,
                 constraints,
@@ -1741,9 +1781,13 @@ class PlanningService:
                 availability_facts=availability_facts,
             )
             if not verification.is_feasible:
+                verification_failures += 1
+                for violation in verification.violations:
+                    rejected_by[violation.field] = rejected_by.get(violation.field, 0) + 1
                 continue
             total_distance = _total_route_distance(verified)
             if needs_shorter_route and not total_distance < base_distance - 1e-6:
+                rejected_by["route_distance"] = rejected_by.get("route_distance", 0) + 1
                 continue
             matches = [
                 evidence
@@ -1805,6 +1849,28 @@ class PlanningService:
                 if needs_shorter_route
                 else "候选替换均未通过完整的时间、营业、预算或动态可用性复核。"
             )
+            replacement_trace = SkeletonSearchTrace(
+                skeleton_id=selected_plan.skeleton_id,
+                candidate_pool_count=len(recalled.candidates),
+                role_pool_entries=role_compatible_count,
+                theoretical_combinations=retrieved_replacement_count,
+                expansions=len(replacement_candidates),
+                finalists=local_schedule_passes,
+                local_schedule_passes=local_schedule_passes,
+                local_schedule_failures=local_schedule_failures,
+                rejected_by={
+                    **rejected_by,
+                    **(
+                        {"verification": verification_failures}
+                        if verification_failures
+                        else {}
+                    ),
+                },
+                route_candidates=route_candidates_count,
+                route_provider_requests=route_leg_verifications,
+                route_leg_count=route_leg_verifications,
+                search_budget_exhausted=search_budget_exhausted,
+            )
             return PlanModificationResult(
                 candidate_set=CandidateSet(
                     provider_facts=[weather],
@@ -1819,6 +1885,7 @@ class PlanningService:
                     retrieval_mode=retrieved_replacements.mode,
                     retrieval_index_version=retrieved_replacements.index_version,
                     semantic_request=replacement_semantic_request,
+                    search_traces=[replacement_trace],
                 )
             )
 
@@ -1840,6 +1907,22 @@ class PlanningService:
         )
         verified_plans = verified_plans[:2]
         plans = [item[0] for item in verified_plans]
+        replacement_trace = SkeletonSearchTrace(
+            skeleton_id=selected_plan.skeleton_id,
+            candidate_pool_count=len(recalled.candidates),
+            role_pool_entries=role_compatible_count,
+            theoretical_combinations=retrieved_replacement_count,
+            expansions=len(replacement_candidates),
+            finalists=local_schedule_passes,
+            local_schedule_passes=local_schedule_passes,
+            local_schedule_failures=local_schedule_failures,
+            rejected_by=rejected_by,
+            route_candidates=route_candidates_count,
+            route_provider_requests=route_leg_verifications,
+            route_leg_count=route_leg_verifications,
+            final_selected=len(plans),
+            search_budget_exhausted=search_budget_exhausted,
+        )
         verification_warnings = {
             plan.plan_id: item[1] for plan, item in zip(plans, verified_plans, strict=True)
         }
@@ -1876,6 +1959,7 @@ class PlanningService:
                 retrieved_replacements,
                 plans,
             ),
+            search_traces=[replacement_trace],
         )
         diffs = tuple(
             PlanDiff(
@@ -2897,6 +2981,8 @@ def _rank_plan_specs_legacy(
             search_traces.append(
                 SkeletonSearchTrace(
                     skeleton_id=spec.spec_id,
+                    candidate_pool_count=len(candidates),
+                    role_pool_entries=sum(len(pool) for pool in role_pools),
                     theoretical_combinations=theoretical_combinations,
                     rejected_by=rejected_by,
                 )
@@ -2927,10 +3013,13 @@ def _rank_plan_specs_legacy(
         search_traces.append(
             SkeletonSearchTrace(
                 skeleton_id=spec.spec_id,
+                candidate_pool_count=len(candidates),
+                role_pool_entries=sum(len(pool) for pool in role_pools),
                 theoretical_combinations=theoretical_combinations,
                 expansions=expansions,
                 finalists=local_schedule_passes,
                 local_schedule_passes=local_schedule_passes,
+                local_schedule_failures=max(expansions - local_schedule_passes, 0),
                 rejected_by=rejected_by,
             )
         )
@@ -3029,6 +3118,7 @@ def _rank_plan_specs_beam(
             search_traces.append(
                 SkeletonSearchTrace(
                     skeleton_id=spec.spec_id,
+                    candidate_pool_count=len(candidates),
                     theoretical_combinations=theoretical_combinations,
                     rejected_by={"empty_role_pool": 1},
                 )
@@ -3101,11 +3191,22 @@ def _rank_plan_specs_beam(
         search_traces.append(
             SkeletonSearchTrace(
                 skeleton_id=spec.spec_id,
+                candidate_pool_count=len(candidates),
+                role_pool_entries=sum(len(pool) for pool in role_pools),
                 theoretical_combinations=theoretical_combinations,
                 expansions=result.stats.expansions,
                 finalists=result.stats.finalists,
                 local_schedule_passes=local_schedule_passes,
+                local_schedule_failures=max(
+                    len(result.sequences) - local_schedule_passes,
+                    0,
+                ),
                 rejected_by=local_rejected_by,
+                search_budget_exhausted=(
+                    result.stats.expansions >= result.stats.max_expansions
+                    if result.stats.max_expansions > 0
+                    else False
+                ),
             )
         )
         remaining_specs -= 1
@@ -4093,11 +4194,13 @@ def _modification_conflict(
     message: str,
     *,
     fields: list[str],
+    search_traces: tuple[SkeletonSearchTrace, ...] = (),
 ) -> PlanModificationResult:
     """Build a failed modification result without leaking partial candidates."""
 
     return PlanModificationResult(
         candidate_set=CandidateSet(
+            search_traces=list(search_traces),
             conflict=ConstraintConflict(
                 code=code,
                 message=message,

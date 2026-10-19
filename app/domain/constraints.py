@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic_core import PydanticCustomError
 
 from app.domain.catalog import ResourceType
-from app.domain.providers import GeocodingFact
+from app.domain.providers import GeocodeResolution, GeocodingFact
 
 
 # Stable, non-sensitive contract codes used by the structured Router
@@ -880,6 +880,11 @@ class ClarificationIssue(BaseModel):
     suggested_options: tuple[ClarificationOption, ...] = ()
     allow_free_text: bool = True
     request_revision: int = Field(ge=0)
+    # Keep the user's unresolved expression separate from the normalized
+    # request.  This is what lets the next question explain *why* an answer
+    # could not be used instead of repeating a generic missing-field prompt.
+    source_text: str | None = Field(default=None, max_length=200)
+    provider_resolution: GeocodeResolution | None = None
 
 
 class RequestPatch(BaseModel):

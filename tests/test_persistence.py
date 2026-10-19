@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.domain.constraints import PlanRequest
 from app.domain.planning import Plan
+from app.domain.run_trace import FailureEnvelope, PlanningRunTrace
 from app.persistence.database import Database
 from app.persistence.models import SessionSnapshotRecord
 from app.persistence.repositories import SessionRepository
@@ -25,6 +26,51 @@ def make_plan(plan_id: str) -> Plan:
 
 
 class SessionRepositoryTest(unittest.TestCase):
+    def test_failed_run_persists_safe_failure_and_can_be_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "app.db")
+            try:
+                database.create_schema()
+                repository = SessionRepository(database.session_factory)
+                session = repository.create_session(user_id="user-a", identity_type="demo")
+                run = repository.begin_planning_run(
+                    user_id="user-a",
+                    session_id=session.id,
+                    request_id="failure-retry-001",
+                    content="今天下午出去玩",
+                )
+                failure = FailureEnvelope(
+                    run_id=run.planning_run_id,
+                    request_id="failure-retry-001",
+                    failure_stage="retrieve",
+                    diagnostic_code="PROVIDER_TEMPORARY_FAILURE",
+                    retryable=True,
+                    last_completed_stage="compile_request",
+                    public_message="外部服务暂时不可用，本轮没有修改当前方案，可以重试。",
+                    trace=PlanningRunTrace(run_id=run.planning_run_id),
+                )
+                repository.fail_planning_run(
+                    user_id="user-a",
+                    session_id=session.id,
+                    planning_run_id=run.planning_run_id,
+                    failure=failure,
+                    assistant_content=failure.public_message,
+                )
+
+                self.assertEqual(repository.latest_response("user-a", session.id)["status"], "failed")
+                self.assertEqual(repository.response_history("user-a", session.id)[-1]["failure"]["diagnostic_code"], "PROVIDER_TEMPORARY_FAILURE")
+                self.assertEqual(repository.list_messages("user-a", session.id)[-1].role, "assistant")
+
+                retry = repository.begin_planning_run(
+                    user_id="user-a",
+                    session_id=session.id,
+                    request_id="failure-retry-001",
+                    content="今天下午出去玩",
+                )
+                self.assertTrue(retry.should_execute)
+            finally:
+                database.close()
+
     def test_session_and_messages_are_isolated_by_user(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Database(Path(directory) / "app.db")

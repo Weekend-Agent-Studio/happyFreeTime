@@ -12,8 +12,8 @@ from app.domain.constraints import (
     PartyProfile,
 )
 from app.domain.runtime import RuntimeDecision
-from app.domain.run_trace import PlanningRunTrace
-from app.domain.recovery import RecoveryActionResponse, RecoveryChoiceInteraction
+from app.domain.run_trace import FailureEnvelope, PlanningRunTrace
+from app.domain.recovery import RecoveryActionResponse, RecoveryChoiceInteraction, RecoveryOutcome
 
 
 T = TypeVar("T")
@@ -159,6 +159,11 @@ class PlanningContextSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_revision: int = Field(ge=0)
+    # ``request`` may be a recoverable draft while the committed request and
+    # its active PlanVersion remain unchanged.  Exposing this distinction keeps
+    # the context bar from making an uncommitted recovery candidate look final.
+    request_view: Literal["committed", "draft"] = "committed"
+    committed_request_revision: int | None = Field(default=None, ge=0)
     where: PlanningContextField
     when: PlanningContextWhen
     who: PlanningContextField
@@ -267,7 +272,7 @@ class AgentResponse(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["completed", "needs_input", "needs_recovery", "context_saved"]
+    status: Literal["completed", "needs_input", "needs_recovery", "context_saved", "failed"]
     reply: str = ""
     question: dict[str, Any] | None = None
     recovery: RecoveryChoiceInteraction | None = None
@@ -277,6 +282,7 @@ class AgentResponse(BaseModel):
         "keep_current_plan",
         "open_constraint_editor",
     ] | None = None
+    recovery_outcome: RecoveryOutcome | None = None
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
     constraint_summary: list[ConstraintSummaryItem] = Field(default_factory=list)
     plans: list[dict[str, Any]] = Field(default_factory=list)
@@ -293,6 +299,7 @@ class AgentResponse(BaseModel):
     # Coarse, user-safe execution timeline.  Detailed model/search diagnostics
     # remain in their existing fields and are not duplicated here.
     run_trace: PlanningRunTrace | None = None
+    failure: FailureEnvelope | None = None
     retrieval_mode: str | None = None
     retrieval_index_version: str | None = None
     search_mode: str | None = None

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from app.domain.constraints import ConstraintSource, ConstraintValue, StopRole, TimeScope
 from app.services.catalog import SnapshotCatalog
+from app.services.candidate_retriever import RuleBasedCandidateRetriever
 from app.services.planning import PlanningService
 from app.services.poi_semantic_profiles import load_poi_semantic_profiles
 from tests.test_planning import FixedReplayRouteProvider, planning_constraints, with_planning_window
@@ -70,6 +71,7 @@ class S_RX3QualityTest(unittest.TestCase):
         return PlanningService(
             catalog=self.catalog,
             route_provider=FixedReplayRouteProvider(duration_minutes=10, distance_km=2),
+            candidate_retriever=RuleBasedCandidateRetriever(),
         ).plan(self._request(case_id))
 
     def test_explicit_single_stop_is_not_padded(self) -> None:

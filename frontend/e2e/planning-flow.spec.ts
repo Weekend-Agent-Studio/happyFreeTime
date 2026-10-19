@@ -356,3 +356,133 @@ test("recovery card submits a typed action and resumes planning", async ({ page 
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
   await expect(page.getByText("此恢复选项已结束，不能重复执行。")).toBeVisible();
 });
+
+test("recovery outcome and superseded card state persist after refresh", async ({ page }) => {
+  const firstRecovery = structuredClone(response) as Record<string, any>;
+  firstRecovery.status = "needs_recovery";
+  firstRecovery.reply = "";
+  firstRecovery.plans = [];
+  firstRecovery.conflict = { code: "NO_PLAN_WITHIN_DISTANCE", message: "当前条件下暂未找到可行方案。" };
+  firstRecovery.recovery = {
+    kind: "recovery_choice",
+    interaction_id: "recovery-distance-1",
+    request_revision: 2,
+    plan_version_id: null,
+    reason: {
+      code: "NO_PLAN_WITHIN_DISTANCE",
+      kind: "no_feasible_plan",
+      stage: "verification",
+      fields: ["max_distance_km"],
+      request_revision: 2,
+      plan_version_id: null,
+      public_summary: "当前条件下暂未找到可行方案。",
+      diagnostics: {},
+    },
+    actions: [{
+      kind: "apply_request_patch",
+      action_id: "expand-distance-r2",
+      label: "将范围扩大到 12km",
+      description: "扩大范围后重新规划。",
+      request_revision: 2,
+      plan_version_id: null,
+      continuation: "plan",
+      patch: { base_revision: 2, set_fields: { max_distance_km: 12 } },
+    }],
+  };
+
+  const stillUnsatisfied = structuredClone(firstRecovery);
+  stillUnsatisfied.recovery_outcome = {
+    interaction_id: "recovery-distance-1",
+    action_id: "expand-distance-r2",
+    action_fingerprint: "expand:max_distance=12",
+    strategy_fingerprint: "expand:max_distance",
+    kind: "apply_request_patch",
+    label: "将范围扩大到 12km",
+    status: "still_failed",
+    changed_fields: ["max_distance_km"],
+    field_changes: [{ field: "max_distance_km", before: "5", after: "12" }],
+    previous_bottleneck: "distance_limit",
+    current_bottleneck: "schedule_capacity",
+    summary: "最大距离：5 → 12。调整已应用，但仍未找到方案。",
+  };
+  stillUnsatisfied.recovery = {
+    ...firstRecovery.recovery,
+    interaction_id: "recovery-schedule-2",
+    request_revision: 3,
+    reason: {
+      ...firstRecovery.recovery.reason,
+      code: "NO_PLAN_WITHIN_TIME_WINDOW",
+      fields: ["planning_window"],
+      request_revision: 3,
+      public_summary: "扩大范围后，当前主要限制变为可用时间。",
+    },
+    actions: [{
+      kind: "apply_request_patch",
+      action_id: "reduce-stops-r3",
+      label: "改为三站并重新规划",
+      description: "减少站点数量后重新规划。",
+      request_revision: 3,
+      plan_version_id: null,
+      continuation: "plan",
+      patch: { base_revision: 3, set_fields: { exact_stop_count: 3 } },
+    }],
+  };
+  stillUnsatisfied.conflict = {
+    code: "NO_PLAN_WITHIN_TIME_WINDOW",
+    message: "扩大范围后，当前主要限制变为可用时间。",
+  };
+
+  let responseHistory: Record<string, any>[] = [];
+  await page.route("**/api/sessions/offline-session/messages/stream", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (body.recovery_action) {
+      responseHistory = [firstRecovery, stillUnsatisfied];
+      await route.fulfill(streamResponse(stillUnsatisfied));
+      return;
+    }
+    responseHistory = [firstRecovery];
+    await route.fulfill(streamResponse(firstRecovery));
+  });
+  await page.route("**/api/sessions/offline-session", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    const assistantMessages = responseHistory.map((item, index) => ({
+      id: `assistant-${index + 1}`,
+      role: "assistant",
+      content: item.conflict?.message ?? item.reply,
+    }));
+    await route.fulfill({ json: { data: {
+      session_id: "offline-session",
+      title: "恢复后仍无解",
+      status: "needs_recovery",
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T00:00:00Z",
+      messages: [
+        { id: "user-1", role: "user", content: "四站，14点到18点，范围5km" },
+        ...assistantMessages,
+      ],
+      plans: [],
+      latest_response: responseHistory.at(-1) ?? null,
+      response_history: responseHistory,
+      selected_plan_id: null,
+    } } });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("四站，14点到18点，范围5km");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await page.getByRole("button", { name: /将范围扩大到 12km/ }).click();
+
+  await expect(page.getByText("最大距离：5 → 12。调整已应用，但仍未找到方案。")).toBeVisible();
+  await expect(page.getByText("当前主要限制：时间容量（原限制：距离范围）")).toBeVisible();
+  await expect(page.getByRole("button", { name: /改为三站并重新规划/ })).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByText("最大距离：5 → 12。调整已应用，但仍未找到方案。")).toBeVisible();
+  await expect(page.getByText("当前主要限制：时间容量（原限制：距离范围）")).toBeVisible();
+  await expect(page.getByText("此恢复选项已结束，不能重复执行。")).toBeVisible();
+  await expect(page.getByRole("button", { name: /改为三站并重新规划/ })).toBeVisible();
+});

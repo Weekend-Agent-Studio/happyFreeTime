@@ -16,6 +16,10 @@ from evals.run_s_rx_multiturn import (
     _matches,
     _plan_stats,
     _replacement_diff_invariants,
+    _recovery_action_applied,
+    _recovery_action_aligned,
+    _attach_selected_recovery_metadata,
+    _is_recovery_planning_attempt,
     _snapshot_diff,
     _snapshot_delta,
     _step_precondition,
@@ -165,7 +169,6 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
             "all_day_prefer_fuller_plan",
             "post_plan_add_all_day",
             "post_plan_morning_departure_clarify",
-            "automatic_recovery_reenters_planner_trace",
         ):
             with self.subTest(case_id=case_id):
                 final = cases[case_id]["expected"]["final"]
@@ -176,6 +179,21 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
                 )
                 self.assertNotIn("minimum_duration_minutes", final)
                 self.assertNotIn("required_time_coverage_periods", final)
+
+    def test_auto_recovery_fixture_stops_repeating_radius_after_empty_role_pool(self) -> None:
+        suite = load_suite(ROOT / "evals" / "s_rx_multiturn_v1.json")
+        case = next(
+            item
+            for item in suite["cases"]
+            if item["case_id"] == "automatic_recovery_reenters_planner_trace"
+        )
+
+        self.assertFalse(case["counts_as_task_success"])
+        self.assertEqual(len(case["steps"]), 2)
+        final = case["expected"]["final"]
+        self.assertEqual(final["status"], "needs_recovery")
+        self.assertIn("required_stop_roles", final["required_recovery_action_fields"])
+        self.assertIn("apply_request_patch", final["forbid_recovery_action_kinds"])
 
     def test_meal_role_oracle_accepts_generic_meal_role(self) -> None:
         suite = load_suite(ROOT / "evals" / "s_rx_multiturn_v1.json")
@@ -512,6 +530,83 @@ class SrxMultiturnDatasetTest(unittest.TestCase):
             diff,
             {"planning_window.start_at": {"before": "14:00", "after": "09:00"}},
         )
+
+    def test_recovery_applied_matches_nested_target_field_changes(self) -> None:
+        row = {
+            "selected_recovery_action": {
+                "kind": "apply_request_patch",
+                "patch_fields": ["max_distance_km"],
+            },
+            "request_constraint_changes": {
+                "max_distance_km.value": {"before": 12.0, "after": 18.0},
+            },
+        }
+
+        self.assertTrue(_recovery_action_applied(row))
+
+        row["request_constraint_changes"] = {
+            "planning_window.end_at.value": {"before": "18:00", "after": "20:00"},
+        }
+        self.assertFalse(_recovery_action_applied(row))
+
+    def test_recovery_metrics_only_count_changed_planning_actions_and_retries(self) -> None:
+        terminal = {
+            "planning_ran": False,
+            "selected_recovery_action": {"kind": "cancel_turn"},
+        }
+        new_request = {
+            "planning_ran": True,
+            "selected_recovery_action": {"kind": "start_new_request"},
+        }
+        unchanged_patch = {
+            "planning_ran": True,
+            "selected_recovery_action": {
+                "kind": "apply_request_patch",
+                "patch_fields": ["max_distance_km"],
+            },
+            "request_constraint_changes": {},
+        }
+        changed_patch = {
+            "planning_ran": True,
+            "selected_recovery_action": {
+                "kind": "apply_request_patch",
+                "patch_fields": ["max_distance_km"],
+            },
+            "request_constraint_changes": {
+                "max_distance_km.value": {"before": 8.0, "after": 12.0},
+            },
+        }
+        retry = {
+            "planning_ran": True,
+            "selected_recovery_action": {"kind": "replan_current_request"},
+        }
+
+        self.assertFalse(_is_recovery_planning_attempt(terminal))
+        self.assertFalse(_is_recovery_planning_attempt(new_request))
+        self.assertFalse(_is_recovery_planning_attempt(unchanged_patch))
+        self.assertTrue(_is_recovery_planning_attempt(changed_patch))
+        self.assertTrue(_is_recovery_planning_attempt(retry))
+
+    def test_transcript_keeps_pre_action_diagnosis_for_alignment_metric(self) -> None:
+        row = {}
+        step_meta = {
+            "selected_recovery_action": {
+                "kind": "request_field",
+                "field": "total_distance_km",
+                "strategy_fingerprint": "edit:total_distance_km",
+            },
+            "selected_recovery_reason": {
+                "primary_bottleneck": {
+                    "kind": "distance_limit",
+                    "affected_fields": ["total_distance_km"],
+                    "evidence_codes": ["total_distance_limit"],
+                }
+            },
+        }
+
+        _attach_selected_recovery_metadata(row, step_meta)
+
+        self.assertTrue(_recovery_action_aligned(row))
 
     def test_schedule_diagnostics_measure_stop_span_and_period_coverage(self) -> None:
         stats = _plan_stats(

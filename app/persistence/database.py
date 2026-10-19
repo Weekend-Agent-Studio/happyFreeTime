@@ -47,6 +47,18 @@ class Database:
                         "ADD COLUMN active_request_json TEXT"
                     )
                 )
+        planning_run_columns = {
+            column["name"]
+            for column in inspect(self.engine).get_columns("planning_runs")
+        }
+        if "failure_json" not in planning_run_columns:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE planning_runs "
+                        "ADD COLUMN failure_json TEXT"
+                    )
+                )
 
     def close(self) -> None:
         self.engine.dispose()

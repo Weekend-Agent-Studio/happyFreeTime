@@ -6,6 +6,8 @@ import type { PlanningContextSummary } from "./types";
 
 const context: PlanningContextSummary = {
   request_revision: 4,
+  request_view: "committed",
+  committed_request_revision: 4,
   planned_request_revision: null,
   has_active_plan: false,
   plan_stale: false,

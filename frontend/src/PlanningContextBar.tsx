@@ -310,9 +310,13 @@ export function PlanningContextBar({
           </section>
         </div>
       ) : null}
-      {context && (context.plan_stale || (context.ready_for_planning && !context.has_active_plan)) ? (
+      {context && (context.request_view === "draft" || context.plan_stale || (context.ready_for_planning && !context.has_active_plan)) ? (
         <div className="planning-context-notice" role="status">
-          <span>{context.plan_stale ? "条件已更新，当前方案基于旧条件。" : "规划条件已就绪。"}</span>
+          <span>{context.request_view === "draft"
+            ? `当前显示的是未提交草稿；原方案仍基于第 ${context.committed_request_revision ?? ""} 版条件。`
+            : context.plan_stale
+              ? "条件已更新，当前方案基于旧条件。"
+              : "规划条件已就绪。"}</span>
           {context.ready_for_planning ? <button type="button" onClick={() => void replan()} disabled={busy || replanning}>
             {replanning ? "正在规划…" : context.has_active_plan ? "按新条件重新规划" : "开始规划"}
           </button> : <small>请先补齐待确认条件</small>}

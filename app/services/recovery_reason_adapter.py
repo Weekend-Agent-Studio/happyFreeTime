@@ -8,14 +8,15 @@ from app.domain.catalog import ConstraintViolation
 from app.domain.constraints import ConstraintSource, PlanRequest
 from app.domain.planning import ConstraintConflict, SkeletonSearchTrace
 from app.domain.recovery import RecoveryDiagnostics, RecoveryKind, RecoveryReason, RecoveryStage
+from app.services.recovery_bottleneck import resolve_primary_bottleneck
 
 
 _HARD_CONFLICT_CODES = frozenset(
-        {
-            "DEPARTURE_NOT_BEFORE_RETURN_BY",
-            "DEPARTURE_OUTSIDE_TIME_WINDOW",
-            "INVALID_TIME_WINDOW_ORDER",
-            "STALE_REQUEST_REVISION",
+    {
+        "DEPARTURE_NOT_BEFORE_RETURN_BY",
+        "DEPARTURE_OUTSIDE_TIME_WINDOW",
+        "INVALID_TIME_WINDOW_ORDER",
+        "STALE_REQUEST_REVISION",
         "UNKNOWN_REQUEST_FIELD",
         "FIELD_PROVENANCE_UNSUPPORTED",
         "REQUEST_FIELD_NOT_CLEARABLE",
@@ -42,6 +43,17 @@ _ROUTE_REJECTION_KEYS = frozenset(
     {"route_distance", "max_distance_km", "total_distance_km", "route_time"}
 )
 _ROUTE_FINDING_FIELDS = _ROUTE_REJECTION_KEYS | {"opening_hours"}
+_AVAILABILITY_FAILURE_CODES = frozenset(
+    {
+        "availability_verified_unavailable",
+        "availability_unknown_requires_explicit_acceptance",
+        "availability_fact_missing",
+        "availability_confirmation_required",
+        "availability_unconfirmed",
+        "availability_provider_degraded",
+        "visit_outside_opening_hours",
+    }
+)
 
 
 class RecoveryReasonAdapter:
@@ -57,6 +69,7 @@ class RecoveryReasonAdapter:
         search_traces: Sequence[SkeletonSearchTrace] = (),
         catalog_violations: Sequence[ConstraintViolation] = (),
         route_failure_field_sets: Sequence[Iterable[str]] = (),
+        availability_failure_codes: Sequence[str] = (),
     ) -> RecoveryReason:
         fields = tuple(dict.fromkeys(field for field in conflict.fields if field))
         route_failure_sets = tuple(frozenset(items) for items in route_failure_field_sets)
@@ -75,7 +88,15 @@ class RecoveryReasonAdapter:
             or conflict.code in _MODIFICATION_CODES
             else RecoveryKind.NO_FEASIBLE_PLAN
         )
-        return RecoveryReason(
+        diagnostics = self._diagnostics(
+            request,
+            fields,
+            search_traces,
+            catalog_violations,
+            route_failure_sets,
+            availability_failure_codes,
+        )
+        reason = RecoveryReason(
             code=conflict.code,
             kind=kind,
             stage=resolved_stage,
@@ -83,13 +104,10 @@ class RecoveryReasonAdapter:
             request_revision=request.revision,
             plan_version_id=plan_version_id,
             public_summary=conflict.message,
-            diagnostics=self._diagnostics(
-                request,
-                fields,
-                search_traces,
-                catalog_violations,
-                route_failure_sets,
-            ),
+            diagnostics=diagnostics,
+        )
+        return reason.model_copy(
+            update={"primary_bottleneck": resolve_primary_bottleneck(reason, diagnostics)}
         )
 
     @classmethod
@@ -135,8 +153,11 @@ class RecoveryReasonAdapter:
                 if route_failure_sets
                 else RecoveryStage.RETRIEVAL
             )
+        availability_fields = {"availability", "opening_hours"}
         if route_failure_sets and all(
-            "availability" in finding for finding in route_failure_sets
+            bool(finding & availability_fields)
+            and finding.issubset(availability_fields)
+            for finding in route_failure_sets
         ):
             return RecoveryStage.AVAILABILITY
         if route_failure_sets:
@@ -162,6 +183,7 @@ class RecoveryReasonAdapter:
         traces: Sequence[SkeletonSearchTrace],
         violations: Sequence[ConstraintViolation],
         route_failure_sets: Sequence[frozenset[str]],
+        availability_failure_codes: Sequence[str] = (),
     ) -> RecoveryDiagnostics:
         rejected_by: dict[str, int] = {}
         for trace in traces:
@@ -244,9 +266,17 @@ class RecoveryReasonAdapter:
         rejected_by_time = sum(
             rejected_by.get(reason, 0) for reason in _TIME_REJECTION_KEYS
         )
+        rejected_by_distance = rejected_by.get("max_distance_km", 0) + sum(
+            1 for violation in violations if violation.field == "max_distance_km"
+        )
         rejected_by_route = sum(
             rejected_by.get(reason, 0) for reason in _ROUTE_REJECTION_KEYS
         )
+        candidate_counts = [
+            trace.candidate_pool_count
+            for trace in traces
+            if trace.candidate_pool_count > 0
+        ]
         return RecoveryDiagnostics(
             current_max_distance_km=(
                 request.max_distance_km.value
@@ -258,13 +288,23 @@ class RecoveryReasonAdapter:
             required_role_count=len(required_roles) if required_roles else None,
             available_minutes=available_minutes,
             rejected_by_time_window=rejected_by_time,
+            rejected_by_distance=rejected_by_distance,
             rejected_by_route=max(rejected_by_route, route_finding_count),
             rejected_by_availability=availability_count,
+            availability_failure_codes=tuple(
+                sorted(set(availability_failure_codes) & _AVAILABILITY_FAILURE_CODES)
+            ),
             structures_considered=len(traces),
             combinations_expanded=sum(trace.expansions for trace in traces),
             route_candidates=sum(trace.route_candidates for trace in traces),
             route_provider_requests=sum(trace.route_provider_requests for trace in traces),
             route_verification_failures=len(route_failure_sets),
             rejected_by_hard_filter=len(violations),
+            retrieved_candidate_count=max(candidate_counts) if candidate_counts else None,
+            role_pool_entries=sum(trace.role_pool_entries for trace in traces),
+            local_schedule_passes=sum(trace.local_schedule_passes for trace in traces),
+            local_schedule_failures=sum(trace.local_schedule_failures for trace in traces),
+            finalist_count=sum(trace.finalists for trace in traces),
+            search_budget_exhausted=any(trace.search_budget_exhausted for trace in traces),
             constraint_sources=sources,
         )

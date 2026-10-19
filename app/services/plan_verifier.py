@@ -176,7 +176,7 @@ class PlanVerifier:
             if fact is None:
                 finding = VerificationFinding(
                     code=(
-                        "availability_confirmation_required"
+                        "availability_fact_missing"
                         if constraints.require_availability_confirmation
                         else "availability_unconfirmed"
                     ),
@@ -202,6 +202,36 @@ class PlanVerifier:
                     )
                 )
                 continue
+            if fact.stale or fact.degraded:
+                finding = VerificationFinding(
+                    code="availability_provider_degraded",
+                    field="availability",
+                    message=f"{stop.name} 的动态可用性事实来自降级或过期结果，需要重新核查。",
+                    resource_id=stop.resource_id,
+                )
+                (violations if constraints.require_availability_confirmation else warnings).append(
+                    finding
+                )
+                continue
+            if fact.status == AvailabilityStatus.UNKNOWN:
+                finding = VerificationFinding(
+                    code=(
+                        "availability_unknown_requires_explicit_acceptance"
+                        if constraints.require_availability_confirmation
+                        else "availability_unconfirmed"
+                    ),
+                    field="availability",
+                    message=(
+                        f"{stop.name} 的动态可用性为未知，不能确认有位。"
+                        if constraints.require_availability_confirmation
+                        else f"{stop.name} 的动态可用性尚未得到确认。"
+                    ),
+                    resource_id=stop.resource_id,
+                )
+                (violations if constraints.require_availability_confirmation else warnings).append(
+                    finding
+                )
+                continue
             confirmed_available = (
                 fact.status == AvailabilityStatus.AVAILABLE
                 and fact.verified
@@ -210,14 +240,10 @@ class PlanVerifier:
             )
             if not confirmed_available:
                 finding = VerificationFinding(
-                    code=(
-                        "availability_confirmation_required"
-                        if constraints.require_availability_confirmation
-                        else "availability_unconfirmed"
-                    ),
+                    code="availability_unconfirmed",
                     field="availability",
                     message=(
-                        f"{stop.name} 的动态可用性不是可确认的 AVAILABLE，不能确认有位。"
+                        f"{stop.name} 的动态可用性尚未得到验证，不能确认有位。"
                         if constraints.require_availability_confirmation
                         else f"{stop.name} 的动态可用性尚未得到完整确认。"
                     ),
