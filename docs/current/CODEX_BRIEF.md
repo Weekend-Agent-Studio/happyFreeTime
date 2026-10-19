@@ -82,6 +82,7 @@ C 不改 Planner 或选择 API 合同，也不实现 POI 子页面、地图改�
 - S-UI1B 前端验证与范围：`docs/status/s_ui1b_shell_20261019.md`；真实 API 浏览器测试命令为 `pnpm --dir frontend test:integration`（临时 SQLite、规则语义适配器和离线 Provider，不是 Live 质量指标）。
 - S-UI1C 当前分支快照及验证：`docs/status/s_ui1c_comparison_20261019.md`；覆盖候选预览/正式选择确认、历史只读和手机详情抽屉，尚未进入 D。
 - S-UI1 后续协作与 C 执行任务书：`docs/collaboration/s_ui1_luna_handoff.md`。B 提交 `c3507d9`；连续切片沿用开发分支，默认由侧边会话实现、主会话集中验收，不启动子 agent。
+- C 实现提交为 `f4e1911`，尚待 C+D 集中验收。下一片 D 的 Target 任务书：`docs/collaboration/s_ui1d_inspector_task.md`；该任务书不代表 D 已实现。
 
 ## 已知问题
 
