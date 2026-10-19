@@ -1048,16 +1048,18 @@ class RecoveryWorkflow:
         plan_version_id = state.get("active_plan_version_id")
         if reason.plan_version_id is None and plan_version_id is not None:
             reason = reason.model_copy(update={"plan_version_id": plan_version_id})
-        primary_bottleneck = reason.primary_bottleneck or resolve_primary_bottleneck(
-            reason, reason.diagnostics
-        )
-        if reason.primary_bottleneck != primary_bottleneck:
-            reason = reason.model_copy(update={"primary_bottleneck": primary_bottleneck})
         attempts = tuple(
             item
             for item in state.get("recovery_attempts", ())
             if isinstance(item, RecoveryAttempt)
         )
+        primary_bottleneck = resolve_primary_bottleneck(
+            reason,
+            reason.diagnostics,
+            attempts,
+        )
+        if reason.primary_bottleneck != primary_bottleneck:
+            reason = reason.model_copy(update={"primary_bottleneck": primary_bottleneck})
         used_fingerprints = tuple(state.get("used_recovery_action_fingerprints", ()))
         context = RecoveryContext(
             reason=reason,
@@ -1094,6 +1096,7 @@ class RecoveryWorkflow:
                     "candidate_set": CandidateSet(conflict=conflict),
                     "active_recovery_reason": None,
                     "pending_interaction": None,
+                    "recovery_current_bottleneck": None,
                     "workflow_outcome": WorkflowOutcome.CONFLICT.value,
                 },
                 route=WorkflowRoute.END,
@@ -1110,6 +1113,7 @@ class RecoveryWorkflow:
                 return WorkflowResult(
                     updates={
                         "active_recovery_reason": reason,
+                        "recovery_current_bottleneck": primary_bottleneck.kind.value,
                         "recovery_auto_action": auto_action,
                         "recovery_prevalidated_request": checked.request,
                         "recovery_auto_failed": False,
@@ -1136,6 +1140,7 @@ class RecoveryWorkflow:
         return WorkflowResult(
             updates={
                 "active_recovery_reason": reason,
+                "recovery_current_bottleneck": primary_bottleneck.kind.value,
                 "recovery_auto_action": None,
                 "recovery_prevalidated_request": None,
                 "recovery_auto_failed": auto_failed,

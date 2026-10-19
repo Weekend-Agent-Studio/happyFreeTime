@@ -75,7 +75,11 @@ class RecoveryPolicy:
 
         plan_version_id = reason.plan_version_id or current_plan_version_id
         primary_bottleneck = (
-            context.primary_bottleneck
+            resolve_primary_bottleneck(
+                reason,
+                reason.diagnostics,
+                context.previous_attempts,
+            )
             if context is not None
             else reason.primary_bottleneck
             or resolve_primary_bottleneck(reason, reason.diagnostics)
@@ -102,6 +106,7 @@ class RecoveryPolicy:
                 PrimaryBottleneckKind.ROUTE_FEASIBILITY,
             }
             and reason.code in _DISTANCE_FAILURE_CODES
+            and "max_distance_km" in primary_bottleneck.affected_fields
             and request.max_distance_km is not None
         ):
             target = self._next_distance(
@@ -515,6 +520,18 @@ class RecoveryPolicy:
             # role is missing. Let the user edit the complete role requirement
             # explicitly instead of deleting roles or preferences by guess.
             fields = ("required_stop_roles",)
+        elif (
+            kind == PrimaryBottleneckKind.CANDIDATE_SUPPLY
+            and reason.diagnostics.nearest_candidate_distance_km is None
+        ):
+            # Without a nearest candidate outside the radius, another radius
+            # increase is not supported by the observed candidate funnel.
+            fields = tuple(field for field in fields if field != "max_distance_km")
+        if (
+            kind == PrimaryBottleneckKind.DISTANCE_LIMIT
+            and "total_distance_km" in getattr(bottleneck, "affected_fields", ())
+        ):
+            fields = ("total_distance_km",)
         availability_codes = set(reason.diagnostics.availability_failure_codes)
         availability_data_only = not availability_codes & {
             "visit_outside_opening_hours",

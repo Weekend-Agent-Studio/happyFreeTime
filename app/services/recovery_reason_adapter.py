@@ -266,6 +266,9 @@ class RecoveryReasonAdapter:
         rejected_by_time = sum(
             rejected_by.get(reason, 0) for reason in _TIME_REJECTION_KEYS
         )
+        rejected_by_distance = rejected_by.get("max_distance_km", 0) + sum(
+            1 for violation in violations if violation.field == "max_distance_km"
+        )
         rejected_by_route = sum(
             rejected_by.get(reason, 0) for reason in _ROUTE_REJECTION_KEYS
         )
@@ -285,6 +288,7 @@ class RecoveryReasonAdapter:
             required_role_count=len(required_roles) if required_roles else None,
             available_minutes=available_minutes,
             rejected_by_time_window=rejected_by_time,
+            rejected_by_distance=rejected_by_distance,
             rejected_by_route=max(rejected_by_route, route_finding_count),
             rejected_by_availability=availability_count,
             availability_failure_codes=tuple(

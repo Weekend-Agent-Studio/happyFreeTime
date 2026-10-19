@@ -424,6 +424,26 @@ def _recovery_action_applied(row: dict[str, Any]) -> bool:
     )
 
 
+def _is_recovery_planning_attempt(row: dict[str, Any]) -> bool:
+    """Count only recovery actions that changed a constraint and entered planning.
+
+    Explicit retries are also planning attempts, but terminal/reset/editor
+    actions are not recoveries of the current request even when they return
+    HTTP 200 or a completed status.
+    """
+
+    if not row.get("planning_ran"):
+        return False
+    action = row.get("selected_recovery_action") or {}
+    kind = action.get("kind")
+    if kind == "replan_current_request":
+        return True
+    return (
+        kind in {"apply_request_patch", "request_field"}
+        and _recovery_action_applied(row)
+    )
+
+
 def _recovery_bottleneck_kind(row: dict[str, Any]) -> str | None:
     outcome = row.get("recovery_outcome") or {}
     primary = (
@@ -482,6 +502,17 @@ def _recovery_action_aligned(row: dict[str, Any]) -> bool:
             "retry:availability",
         }
     )
+
+
+def _attach_selected_recovery_metadata(
+    row: dict[str, Any], step_meta: dict[str, Any]
+) -> None:
+    """Keep the pre-execution diagnosis beside the action in the transcript."""
+
+    for key in ("selected_recovery_action", "selected_recovery_reason"):
+        value = step_meta.get(key)
+        if value is not None:
+            row[key] = value
 
 
 def _safe_recovery_action(action: dict[str, Any]) -> dict[str, Any]:
@@ -1297,6 +1328,7 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                 runtime_decisions=runtime_delta,
                 search_traces=search_delta,
             )
+            safe["planning_ran"] = planning_ran
             constraint_snapshot_after_step = _diagnostic_constraint_snapshot(
                 _session_view(client, session_id)
             )
@@ -1307,8 +1339,7 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
                 constraint_snapshot_before_step,
                 constraint_snapshot_after_step,
             )
-            if step_meta.get("selected_recovery_action") is not None:
-                safe["selected_recovery_action"] = step_meta["selected_recovery_action"]
+            _attach_selected_recovery_metadata(safe, step_meta)
             if data.get("recovery_outcome") is not None:
                 safe["recovery_outcome"] = data["recovery_outcome"]
             if data.get("recovery") is not None:
@@ -1494,26 +1525,22 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         if (row.get("selected_recovery_action") or {}).get("kind")
         in {"apply_request_patch", "request_field"}
     ]
+    recovery_actionable_rows = [
+        row
+        for row in recovery_rows
+        if (row.get("selected_recovery_action") or {}).get("kind")
+        in {"apply_request_patch", "request_field", "replan_current_request"}
+    ]
+    recovery_planning_rows = [
+        row for row in recovery_actionable_rows if _is_recovery_planning_attempt(row)
+    ]
     recovery_mutations_applied = sum(
         int(_recovery_action_applied(row))
         for row in recovery_mutation_rows
     )
-    recovery_action_fingerprints = [
-        (
-            (row.get("selected_recovery_action") or {}).get("action_fingerprint")
-            or (row.get("selected_recovery_action") or {}).get("kind")
-            or (row.get("selected_recovery_action") or {}).get("action_id")
-        )
-        for row in recovery_rows
-    ]
-    repeated_ineffective_recovery_count = sum(
-        1
-        for index, fingerprint in enumerate(recovery_action_fingerprints)
-        if fingerprint and fingerprint in recovery_action_fingerprints[:index]
-    )
     recovery_bottleneck_improved = [
         row
-        for row in recovery_rows
+        for row in recovery_planning_rows
         if row.get("status") == "completed"
         or (
             _recovery_previous_bottleneck_kind(row) is not None
@@ -1522,10 +1549,10 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         )
     ]
     aligned_recovery_rows = [
-        row for row in recovery_rows if _recovery_action_aligned(row)
+        row for row in recovery_planning_rows if _recovery_action_aligned(row)
     ]
     strategy_outcomes: dict[str, list[bool]] = {}
-    for row in recovery_rows:
+    for row in recovery_planning_rows:
         strategy = (row.get("selected_recovery_action") or {}).get(
             "strategy_fingerprint"
         )
@@ -1556,7 +1583,7 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
     failure_diagnosis_numerator = sum(int(bool(row.get("has_public_diagnosis"))) for row in diagnosis_rows)
     recovery_to_feasible_plan_numerator = sum(
         int(row.get("status") == "completed" and int(row.get("plan_count") or 0) > 0)
-        for row in recovery_rows
+        for row in recovery_planning_rows
     )
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     counts_as_task_success = bool(case.get("counts_as_task_success", True))
@@ -1575,18 +1602,18 @@ def _run_case(app: Any, case: dict[str, Any], *, label_status: str) -> dict[str,
         "recovery_action_steps_http_success": recovery_steps_ok,
         "recovery_action_mutation_steps": len(recovery_mutation_rows),
         "recovery_action_mutations_applied": recovery_mutations_applied,
+        "recovery_planning_attempts": len(recovery_planning_rows),
         "recovery_action_applied_target_rate": (
             recovery_mutations_applied / len(recovery_mutation_rows)
             if recovery_mutation_rows else None
         ),
         "bottleneck_improvement_numerator": len(recovery_bottleneck_improved),
-        "bottleneck_improvement_denominator": len(recovery_rows),
+        "bottleneck_improvement_denominator": len(recovery_planning_rows),
         "diagnosis_action_alignment_numerator": len(aligned_recovery_rows),
-        "diagnosis_action_alignment_denominator": len(recovery_rows),
+        "diagnosis_action_alignment_denominator": len(recovery_planning_rows),
         "repeated_ineffective_strategy_count": repeated_ineffective_strategy_count,
         "recovery_to_feasible_plan_numerator": recovery_to_feasible_plan_numerator,
-        "recovery_to_feasible_plan_denominator": len(recovery_rows),
-        "repeated_ineffective_recovery_count": repeated_ineffective_recovery_count,
+        "recovery_to_feasible_plan_denominator": len(recovery_planning_rows),
         "silent_failure_count": silent_failure_count,
         "failure_diagnosis_numerator": failure_diagnosis_numerator,
         "failure_diagnosis_denominator": failure_diagnosis_denominator,
@@ -1804,9 +1831,6 @@ def main() -> int:
             "repeated_question_count": sum(len(item.get("repeated_question_fields", [])) for item in executed),
             "unexplained_repeat_question_count": sum(
                 len(item.get("unexplained_repeat_question_fields", [])) for item in executed
-            ),
-            "repeated_ineffective_recovery_count": sum(
-                int(item.get("repeated_ineffective_recovery_count", 0)) for item in executed
             ),
             "silent_failure_count": sum(
                 int(item.get("silent_failure_count", 0)) for item in executed

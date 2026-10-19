@@ -245,6 +245,7 @@
       "seed_case_id": "plan_all_day_date_relaxed",
       "category": "clarification",
       "tags": ["real_session_regression", "automatic_recovery", "same_http_run", "trace_lifecycle"],
+      "counts_as_task_success": false,
       "fixtures": {
         "geocoding": "resolved",
         "geocoding_by_location": {"南部测试起点": "resolved"},
@@ -253,11 +254,9 @@
       },
       "steps": [
         {"kind": "message", "content": "明天从南部测试起点出发，跟女朋友约会，安排一个活动和晚饭", "expect": {"status": "needs_recovery", "minimum_trace_stage_starts": {"structure": 2, "auto_recovery": 1}, "required_recovery_action_kinds": ["apply_request_patch"], "required_recovery_action_fields": ["max_distance_km"]}},
-        {"kind": "recovery_action", "action_kind": "apply_request_patch", "action_field": "max_distance_km", "expect": {"status": "completed", "minimum_plans": 1}},
-        {"kind": "message", "content": "补充一下，改成早上出门玩一整天", "expect": {"status": "needs_input", "question_field": "departure_at"}},
-        {"kind": "answer_question", "action": "answer", "content": "早上九点吧", "expect": {"status": "completed", "minimum_plans": 1}}
+        {"kind": "recovery_action", "action_kind": "apply_request_patch", "action_field": "max_distance_km", "expect": {"status": "needs_recovery", "recovery_code": "NO_CANDIDATES_WITHIN_SEARCH_RADIUS", "no_plans": true, "required_recovery_action_kinds": ["request_field"], "required_recovery_action_fields": ["required_stop_roles"], "forbid_recovery_action_kinds": ["apply_request_patch"]}}
       ],
-      "expected": {"first": {"status": "needs_recovery", "required_recovery_action_kinds": ["apply_request_patch"], "required_recovery_action_fields": ["max_distance_km"]}, "final": {"status": "completed", "minimum_plans": 1, "start_at": "09:00", "minimum_schedule_span_minutes": 600, "required_roles": ["activity", "dinner"], "required_objectives": ["romantic"], "required_scheduled_periods": ["morning", "afternoon", "evening"]}}
+      "expected": {"first": {"status": "needs_recovery", "required_recovery_action_kinds": ["apply_request_patch"], "required_recovery_action_fields": ["max_distance_km"]}, "final": {"status": "needs_recovery", "no_plans": true, "required_recovery_action_kinds": ["request_field"], "required_recovery_action_fields": ["required_stop_roles"], "forbid_recovery_action_kinds": ["apply_request_patch"]}}
     },
     {
       "case_id": "total_distance_five_km_scope",

@@ -89,6 +89,7 @@ class RecoveryDiagnostics(BaseModel):
     available_minutes: int | None = Field(default=None, ge=0)
     optimistic_duration_minutes: int | None = Field(default=None, ge=0)
     rejected_by_time_window: int = Field(default=0, ge=0)
+    rejected_by_distance: int = Field(default=0, ge=0)
     rejected_by_route: int = Field(default=0, ge=0)
     rejected_by_availability: int = Field(default=0, ge=0)
     availability_failure_codes: tuple[AvailabilityFailureCode, ...] = ()

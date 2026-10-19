@@ -621,9 +621,10 @@ class EntryGraphTest(unittest.TestCase):
             catalog=InMemoryCatalog([far_activity]),
         )
 
+        config = {"configurable": {"thread_id": actor.session_id}}
         result = graph.invoke(
             {"user_input": "今天下午出去玩", "actor": actor},
-            config={"configurable": {"thread_id": actor.session_id}},
+            config=config,
         )
 
         self.assertIn("__interrupt__", result)
@@ -646,6 +647,40 @@ class EntryGraphTest(unittest.TestCase):
                 item["kind"] == "apply_request_patch"
                 and "max_distance_km" in item["patch"].get("set_fields", {})
                 for item in interaction["actions"]
+            )
+        )
+        expand = next(
+            item
+            for item in interaction["actions"]
+            if item["kind"] == "apply_request_patch"
+            and "max_distance_km" in item["patch"].get("set_fields", {})
+        )
+        second = graph.invoke(
+            Command(
+                resume=RecoveryActionResponse(
+                    interaction_id=interaction["interaction_id"],
+                    action_id=expand["action_id"],
+                    request_revision=interaction["request_revision"],
+                    plan_version_id=interaction["plan_version_id"],
+                ).model_dump(mode="json")
+            ),
+            config=config,
+        )
+
+        second_interaction = second["__interrupt__"][0].value
+        self.assertEqual(
+            second_interaction["reason"]["primary_bottleneck"]["kind"],
+            PrimaryBottleneckKind.CANDIDATE_SUPPLY.value,
+        )
+        self.assertEqual(
+            second["recovery_current_bottleneck"],
+            PrimaryBottleneckKind.CANDIDATE_SUPPLY.value,
+        )
+        self.assertFalse(
+            any(
+                item["kind"] == "apply_request_patch"
+                and "max_distance_km" in item["patch"].get("set_fields", {})
+                for item in second_interaction["actions"]
             )
         )
 

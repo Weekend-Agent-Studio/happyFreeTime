@@ -343,6 +343,248 @@ class RecoveryPolicyTests(unittest.TestCase):
             }.issubset({"departure_at", "return_by"})
         )
 
+    def test_total_distance_failure_edits_total_distance_not_search_radius(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            max_distance_km=ConstraintValue[float](
+                value=12.0, source=ConstraintSource.DEFAULT_RULE
+            ),
+            total_distance_km=ConstraintValue[float](
+                value=0.1,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text="total trip distance <= 0.1 km",
+            ),
+        )
+        reason = self.reason(code="NO_PLAN_WITHIN_DISTANCE").model_copy(
+            update={
+                "fields": ("duration_minutes", "total_distance_km"),
+                "stage": RecoveryStage.ROUTE,
+            }
+        )
+
+        decision = self.policy.decide(reason, request)
+
+        self.assertEqual(
+            decision.reason.primary_bottleneck.kind,
+            PrimaryBottleneckKind.DISTANCE_LIMIT,
+        )
+        self.assertEqual(
+            decision.reason.primary_bottleneck.affected_fields,
+            ("total_distance_km",),
+        )
+        self.assertIsNone(decision.auto_action)
+        self.assertFalse(
+            any(
+                isinstance(action, ApplyRequestPatchAction)
+                and "max_distance_km" in action.patch.set_fields
+                for action in decision.actions
+            )
+        )
+        self.assertIn(
+            "total_distance_km",
+            {
+                action.field
+                for action in decision.actions
+                if isinstance(action, RequestFieldAction)
+            },
+        )
+        self.assertNotIn(
+            "max_distance_km",
+            {
+                action.field
+                for action in decision.actions
+                if isinstance(action, RequestFieldAction)
+            },
+        )
+
+    def test_empty_retrieval_role_pool_is_candidate_supply_not_radius_failure(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            max_distance_km=ConstraintValue[float](
+                value=18.0, source=ConstraintSource.SESSION_CONFIRMED
+            ),
+        )
+        reason = self.reason(code="NO_CANDIDATES_WITHIN_SEARCH_RADIUS").model_copy(
+            update={
+                "stage": RecoveryStage.RETRIEVAL,
+                # Funnel evidence, not an optional upstream field annotation,
+                # determines that this is an empty role pool.
+                "fields": ("max_distance_km",),
+                "diagnostics": RecoveryDiagnostics(
+                    current_max_distance_km=18.0,
+                    retrieved_candidate_count=None,
+                    role_pool_entries=0,
+                    rejected_by_hard_filter=200,
+                    route_candidates=0,
+                    nearest_candidate_distance_km=None,
+                ),
+            }
+        )
+
+        decision = self.policy.decide(reason, request)
+
+        self.assertEqual(
+            decision.reason.primary_bottleneck.kind,
+            PrimaryBottleneckKind.CANDIDATE_SUPPLY,
+        )
+        self.assertFalse(
+            any(
+                isinstance(action, ApplyRequestPatchAction)
+                and "max_distance_km" in action.patch.set_fields
+                for action in decision.actions
+            )
+        )
+        self.assertNotIn(
+            "max_distance_km",
+            {
+                action.field
+                for action in decision.actions
+                if isinstance(action, RequestFieldAction)
+            },
+        )
+
+    def test_nearest_candidate_outside_radius_keeps_distance_as_bottleneck(self) -> None:
+        reason = self.reason(code="NO_CANDIDATES_WITHIN_SEARCH_RADIUS").model_copy(
+            update={
+                "stage": RecoveryStage.RETRIEVAL,
+                "fields": ("max_distance_km",),
+                "diagnostics": RecoveryDiagnostics(
+                    current_max_distance_km=18.0,
+                    nearest_candidate_distance_km=22.0,
+                    retrieved_candidate_count=0,
+                    role_pool_entries=0,
+                ),
+            }
+        )
+
+        primary = resolve_primary_bottleneck(reason)
+
+        self.assertEqual(primary.kind, PrimaryBottleneckKind.DISTANCE_LIMIT)
+        self.assertIn("max_distance_km", primary.affected_fields)
+
+    def test_two_ineffective_radius_expansions_reclassify_empty_role_pool(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            max_distance_km=ConstraintValue[float](
+                value=18.0, source=ConstraintSource.SESSION_CONFIRMED
+            ),
+        )
+        reason = self.reason(code="NO_CANDIDATES_WITHIN_SEARCH_RADIUS").model_copy(
+            update={
+                "stage": RecoveryStage.RETRIEVAL,
+                "fields": ("max_distance_km", "required_stop_roles"),
+                "diagnostics": RecoveryDiagnostics(
+                    current_max_distance_km=18.0,
+                    retrieved_candidate_count=None,
+                    role_pool_entries=0,
+                    rejected_by_distance=200,
+                    rejected_by_hard_filter=200,
+                    route_candidates=0,
+                ),
+            }
+        )
+        distance = resolve_primary_bottleneck(reason)
+        attempts = tuple(
+            RecoveryAttempt(
+                action_kind="apply_request_patch",
+                strategy_fingerprint="expand:max_distance",
+                concrete_fingerprint=f"expand:{value}",
+                target_fields=("max_distance_km",),
+                changed_fields=("max_distance_km",),
+                before_bottleneck=PrimaryBottleneckKind.DISTANCE_LIMIT,
+                after_bottleneck=PrimaryBottleneckKind.DISTANCE_LIMIT,
+                outcome="still_failed",
+            )
+            for value in (12, 18)
+        )
+
+        decision = self.policy.decide(
+            reason,
+            request,
+            context=RecoveryContext(
+                reason=reason,
+                primary_bottleneck=distance,
+                request=request,
+                previous_attempts=attempts,
+            ),
+        )
+
+        self.assertEqual(
+            decision.reason.primary_bottleneck.kind,
+            PrimaryBottleneckKind.CANDIDATE_SUPPLY,
+        )
+        self.assertFalse(
+            any(
+                isinstance(action, ApplyRequestPatchAction)
+                and "max_distance_km" in action.patch.set_fields
+                for action in decision.actions
+            )
+        )
+        self.assertNotIn(
+            "max_distance_km",
+            {
+                action.field
+                for action in decision.actions
+                if isinstance(action, RequestFieldAction)
+            },
+        )
+
+    def test_one_ineffective_radius_expansion_can_still_offer_next_step(self) -> None:
+        request = PlanRequest(
+            revision=3,
+            max_distance_km=ConstraintValue[float](
+                value=12.0, source=ConstraintSource.DERIVED
+            ),
+        )
+        reason = self.reason(code="NO_CANDIDATES_WITHIN_SEARCH_RADIUS").model_copy(
+            update={
+                "stage": RecoveryStage.RETRIEVAL,
+                "fields": ("max_distance_km", "required_stop_roles"),
+                "diagnostics": RecoveryDiagnostics(
+                    current_max_distance_km=12.0,
+                    retrieved_candidate_count=None,
+                    role_pool_entries=0,
+                    rejected_by_distance=200,
+                    rejected_by_hard_filter=200,
+                    route_candidates=0,
+                ),
+            }
+        )
+        distance = resolve_primary_bottleneck(reason)
+        attempt = RecoveryAttempt(
+            action_kind="apply_request_patch",
+            strategy_fingerprint="expand:max_distance",
+            concrete_fingerprint="expand:12",
+            target_fields=("max_distance_km",),
+            changed_fields=("max_distance_km",),
+            before_bottleneck=PrimaryBottleneckKind.DISTANCE_LIMIT,
+            after_bottleneck=PrimaryBottleneckKind.DISTANCE_LIMIT,
+            outcome="still_failed",
+        )
+
+        decision = self.policy.decide(
+            reason,
+            request,
+            context=RecoveryContext(
+                reason=reason,
+                primary_bottleneck=distance,
+                request=request,
+                previous_attempts=(attempt,),
+            ),
+        )
+
+        self.assertEqual(
+            decision.reason.primary_bottleneck.kind,
+            PrimaryBottleneckKind.DISTANCE_LIMIT,
+        )
+        self.assertTrue(
+            any(
+                isinstance(action, ApplyRequestPatchAction)
+                and "max_distance_km" in action.patch.set_fields
+                for action in decision.actions
+            )
+        )
+
     def test_search_budget_offers_a_bounded_retry_without_relaxing_constraints(self) -> None:
         reason = self.reason(code="SEARCH_BUDGET_EXHAUSTED").model_copy(
             update={

@@ -10,6 +10,7 @@ from __future__ import annotations
 from app.domain.recovery import (
     PrimaryBottleneck,
     PrimaryBottleneckKind,
+    RecoveryAttempt,
     RecoveryDiagnostics,
     RecoveryReason,
     RecoveryStage,
@@ -19,6 +20,7 @@ from app.domain.recovery import (
 def resolve_primary_bottleneck(
     reason: RecoveryReason,
     diagnostics: RecoveryDiagnostics | None = None,
+    previous_attempts: tuple[RecoveryAttempt, ...] = (),
 ) -> PrimaryBottleneck:
     """Choose one dominant funnel category from existing safe evidence."""
 
@@ -56,6 +58,40 @@ def resolve_primary_bottleneck(
             affected_fields=("date", "time_window", "availability"),
             evidence_summary=_availability_summary(facts),
         )
+
+    # Total itinerary distance is different from the search radius. When the
+    # verifier names total_distance_km, edit that exact user constraint rather
+    # than widening max_distance_km.
+    if (
+        "total_distance_km" in fields
+        and (
+            reason.stage == RecoveryStage.ROUTE
+            or reason.code == "NO_PLAN_WITHIN_DISTANCE"
+        )
+    ):
+        return PrimaryBottleneck(
+            kind=PrimaryBottleneckKind.DISTANCE_LIMIT,
+            evidence_codes=tuple(dict.fromkeys((*codes, "total_distance_limit"))),
+            affected_fields=("total_distance_km",),
+            evidence_summary="路线复核未满足用户设定的全程距离上限",
+        )
+
+    # A retrieval failure with no role candidates and no nearest-distance or
+    # route evidence cannot justify another radius increase. It falls through
+    # to the candidate-supply classification below, not the radius heuristic.
+    empty_unlocated_candidate_pool = (
+        reason.stage == RecoveryStage.RETRIEVAL
+        and facts.role_pool_entries == 0
+        and facts.retrieved_candidate_count in (None, 0)
+        and facts.nearest_candidate_distance_km is None
+        and (
+            facts.rejected_by_distance == 0
+            or _two_failed_radius_expansions(previous_attempts)
+        )
+        and facts.route_candidates == 0
+        and facts.route_verification_failures == 0
+        and facts.rejected_by_route == 0
+    )
 
     if reason.stage == RecoveryStage.ROUTE:
         return PrimaryBottleneck(
@@ -129,10 +165,14 @@ def resolve_primary_bottleneck(
     # A radius-specific retrieval failure is still a distance blocker, not a
     # generic candidate-supply issue.  Preserve that distinction before the
     # broader candidate code check below.
-    if reason.code in {
-        "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
-        "NO_PLAN_WITHIN_DISTANCE",
-    } or "max_distance_km" in fields:
+    if not empty_unlocated_candidate_pool and (
+        reason.code
+        in {
+            "NO_CANDIDATES_WITHIN_SEARCH_RADIUS",
+            "NO_PLAN_WITHIN_DISTANCE",
+        }
+        or "max_distance_km" in fields
+    ):
         return PrimaryBottleneck(
             kind=PrimaryBottleneckKind.DISTANCE_LIMIT,
             evidence_codes=tuple(dict.fromkeys((*codes, "distance_limit"))),
@@ -171,6 +211,11 @@ def resolve_primary_bottleneck(
             evidence_summary=(
                 f"召回候选 {facts.retrieved_candidate_count or 0} 个，"
                 f"角色池 {facts.role_pool_entries} 个"
+                + (
+                    "；没有距离或路线证据支持继续扩距"
+                    if empty_unlocated_candidate_pool
+                    else ""
+                )
             ),
         )
 
@@ -180,6 +225,26 @@ def resolve_primary_bottleneck(
         affected_fields=fields,
         evidence_summary="当前失败证据不足以安全归因到单一恢复方向",
     )
+
+
+def _two_failed_radius_expansions(
+    attempts: tuple[RecoveryAttempt, ...],
+) -> bool:
+    """Treat a still-empty role pool as supply failure after two failed expansions."""
+
+    consecutive_failures = 0
+    for attempt in reversed(attempts):
+        if (
+            attempt.strategy_fingerprint != "expand:max_distance"
+            or "max_distance_km" not in attempt.changed_fields
+            or attempt.outcome != "still_failed"
+            or attempt.plan_generated
+        ):
+            break
+        consecutive_failures += 1
+        if consecutive_failures >= 2:
+            return True
+    return False
 
 
 def _schedule_summary(facts: RecoveryDiagnostics) -> str:
