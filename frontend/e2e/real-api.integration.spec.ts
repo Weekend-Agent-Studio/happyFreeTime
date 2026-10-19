@@ -100,4 +100,53 @@ test("real API preserves selection, restores a session, and saves conditions wit
   await page.reload();
   await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toBeVisible();
   await expect(page.getByRole("button", { name: "按新条件重新规划" })).toBeVisible();
+
+  const staleVersion = edited.active_plan_version_id;
+  const advancedTrigger = page.getByRole("button", { name: /^更多条件/ });
+  await advancedTrigger.click();
+  await page.getByLabel("精确站数").fill("2");
+  await page.getByLabel("检索及单段距离上限（km）").fill("100");
+  await page.getByLabel("全程累计距离上限（km）").fill("250");
+  await screenshot(`s-ui1e-advanced-${testInfo.project.name}`);
+  await page.getByRole("button", { name: "保存条件" }).click();
+  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toBeVisible();
+  const advancedSaved = await snapshot();
+  expect(advancedSaved.planning_context.exact_stop_count.value).toBe(2);
+  expect(advancedSaved.planning_context.max_distance_km.value).toBe(100);
+  expect(advancedSaved.planning_context.total_distance_km.value).toBe(250);
+  expect(advancedSaved.planning_context.plan_stale).toBe(true);
+  expect(advancedSaved.active_plan_version_id).toBe(staleVersion);
+
+  await page.reload();
+  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toBeVisible();
+  await page.getByRole("button", { name: /^更多条件/ }).click();
+  await expect(page.getByLabel("精确站数")).toHaveValue("2");
+  await expect(page.getByLabel("检索及单段距离上限（km）")).toHaveValue("100");
+  await expect(page.getByLabel("全程累计距离上限（km）")).toHaveValue("250");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+
+  await page.getByRole("button", { name: "按新条件重新规划" }).click();
+  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toHaveCount(0);
+  const advancedReplanned = await snapshot();
+  expect(advancedReplanned.planning_context.plan_stale).toBe(false);
+  expect(advancedReplanned.active_plan_version_id).not.toBe(staleVersion);
+  expect(advancedReplanned.planning_context.exact_stop_count.value).toBe(2);
+
+  await page.getByRole("button", { name: /修改同行人数/ }).click();
+  const petPreference = page.getByRole("checkbox", { name: /携带宠物/ });
+  await expect(petPreference).not.toBeChecked();
+  await petPreference.check();
+  await screenshot(`s-ui1e-pet-${testInfo.project.name}`);
+  await page.getByRole("button", { name: "保存条件" }).click();
+  const petSaved = await snapshot();
+  expect(petSaved.planning_context.preferences.value.preferences).toContain("携带宠物");
+
+  await page.getByRole("button", { name: /修改出行偏好/ }).click();
+  await page.getByRole("button", { name: "移除体验偏好 携带宠物" }).click();
+  await page.getByRole("button", { name: "保存条件" }).click();
+  const petRemoved = await snapshot();
+  expect(petRemoved.planning_context.preferences.value.preferences).not.toContain("携带宠物");
+  await page.getByRole("button", { name: /修改同行人数/ }).click();
+  await expect(page.getByRole("checkbox", { name: /携带宠物/ })).not.toBeChecked();
+  await page.getByRole("button", { name: "取消", exact: true }).click();
 });

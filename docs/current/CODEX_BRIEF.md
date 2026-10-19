@@ -70,9 +70,11 @@ S-UI1C 当前开发分支已实现 V4 风格纵向方案比较：候选卡片只
 
 C 不改 Planner 或选择 API 合同；POI 子页面、地图改造/Tab 收敛已由 D 实现（见本文末尾），不提供预订或支付。卡片缺图明确占位；模拟 POI 评分不作为候选卡的真实口碑呈现。C 的分支证据见 `docs/status/s_ui1c_comparison_20261019.md`；该快照不代表 main、Frozen 或 S-UI1 全部完成。
 
-S-UI1E1 已把五个条件 Chip 接入统一的 Base UI 编辑弹窗：日期/时间、出发区域、同行人数、人均预算和分类偏好均从服务端摘要初始化，仅发送相对打开时快照的变更；no-op 不请求，取消不保存。弹窗提供焦点约束/返回、ESC 与遮罩关闭、内部滚动、过期 revision/session 编辑失效；时间可精确输入、选预设/时长并用双滑块调整，保持同日与既有开始/出发、结束/最晚到家语义；预算精确值不受便捷滑块范围裁剪。普通条件保存与显式重新规划仍分离，stale 状态显示在工作区。实现入口：`frontend/src/PlanningContextBar.tsx`、`frontend/src/App.tsx`。E2 的精确站数/距离和宠物偏好接入、E3 的反问与恢复产品交互仍未实现；不要把任务书的 Target 写成当前能力。
+S-UI1E1 已把五个条件 Chip 接入统一的 Base UI 编辑弹窗：日期/时间、出发区域、同行人数、人均预算和分类偏好均从服务端摘要初始化，仅发送相对打开时快照的变更；no-op 不请求，取消不保存。弹窗提供焦点约束/返回、ESC 与遮罩关闭、内部滚动、过期 revision/session 编辑失效；时间可精确输入、选预设/时长并用双滑块调整，保持同日与既有开始/出发、结束/最晚到家语义；预算精确值不受便捷滑块范围裁剪。普通条件保存与显式重新规划仍分离，stale 状态显示在工作区。实现入口：`frontend/src/PlanningContextBar.tsx`、`frontend/src/App.tsx`。
 
-距离合同注意：`max_distance_km` 当前同时限制候选检索范围与单段路线距离；`total_distance_km` 是另一个全程累计距离上限。顶部编辑尚未开放这两个字段，不能直接把原型“搜索范围”开关当作纯检索半径；后续 E 切片适配。宠物仅讨论为未核实普通偏好，B 未新增该字段。
+S-UI1E2 已在“更多条件”编辑器开放精确站数（1–4）、`max_distance_km` 与 `total_distance_km`。后端 Summary 投影字段值/来源，封闭类型化 `PlanningContextPatch.advanced` 原子编译成现有用户来源 RequestPatch；普通保存保留旧版本并标 stale，显式重新规划才建立新版本。`max_distance_km` 同时约束候选检索范围与单段路线距离，不能标成纯搜索半径；全程累计距离独立编辑。宠物只作为普通偏好标签“携带宠物”，同行入口与偏好入口同步，旁注明确地点携宠许可未经核实；不作为人数、费用或 Verifier 硬约束。入口仍为 `app/api/schemas.py`、`app/api/planning_context.py`、`app/domain/constraints.py` 与上述前端组件。E3 的反问与恢复产品交互仍未实现；不要把任务书的 Target 写成当前能力。
+
+距离合同注意：`max_distance_km` 同时限制候选检索范围与单段路线距离；`total_distance_km` 是另一个全程累计距离上限。UI 已分别呈现，不推导两者大小关系或将前者描述成几何半径。宠物仅以未核实的普通偏好保存，不代表目录或 Verifier 已确认地点允许携宠。
 
 ## 当前可信证据
 

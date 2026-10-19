@@ -4,7 +4,8 @@ import { CalendarDays, CircleDollarSign, MapPin, SlidersHorizontal, Users, X } f
 import type { FieldEdit, PlanningContextPatch, PlanningContextSummary, PreferenceCategory, PreferenceTag } from "./types";
 
 export type ContextSection = "where" | "when" | "who" | "budget" | "preferences";
-export type ContextOpenTarget = ContextSection | "all";
+export type ContextEditorSection = ContextSection | "advanced";
+export type ContextOpenTarget = ContextEditorSection | "all";
 
 const SECTIONS: Array<{ id: ContextSection; label: string; icon: typeof MapPin }> = [
   { id: "when", label: "日期时间", icon: CalendarDays },
@@ -32,7 +33,12 @@ type EditorValues = {
   budgetAmount: string;
   budgetStrict: boolean;
   preferences: PreferenceTag[];
+  exactStopCount: string;
+  maxDistanceKm: string;
+  totalDistanceKm: string;
 };
+
+const PET_PREFERENCE: PreferenceTag = { category: "preferences", value: "携带宠物" };
 
 function currentValue(field: PlanningContextSummary["where"] | undefined): unknown {
   return field?.value;
@@ -81,6 +87,12 @@ function samePreference(left: PreferenceTag, right: PreferenceTag) {
   return left.category === right.category && left.value === right.value;
 }
 
+function preferenceDiff(previous: PreferenceTag[], next: PreferenceTag[]) {
+  const add = next.filter((item) => !previous.some((saved) => samePreference(saved, item)));
+  const remove = previous.filter((item) => !next.some((saved) => samePreference(saved, item)));
+  return add.length || remove.length ? { add, remove } : undefined;
+}
+
 function minutesFromTime(value: string): number | null {
   const match = /^(\d{2}):(\d{2})$/.exec(value);
   if (!match) return null;
@@ -124,15 +136,19 @@ function getValues(context: PlanningContextSummary | null): EditorValues {
     preferences: savedPreferences.filter((item, index, values) =>
       values.findIndex((candidate) => samePreference(candidate, item)) === index,
     ),
+    exactStopCount: context?.exact_stop_count.value == null ? "" : String(context.exact_stop_count.value),
+    maxDistanceKm: context?.max_distance_km.value == null ? "" : String(context.max_distance_km.value),
+    totalDistanceKm: context?.total_distance_km.value == null ? "" : String(context.total_distance_km.value),
   };
 }
 
-export function clarificationSection(field: string | null | undefined): ContextSection | null {
+export function clarificationSection(field: string | null | undefined): ContextEditorSection | null {
   if (field === "location") return "where";
   if (["date", "time_window", "departure_at", "return_by"].includes(field ?? "")) return "when";
   if (["party", "child_age"].includes(field ?? "")) return "who";
   if (field === "budget_per_person") return "budget";
   if (["preferences", "diet_tags", "scene_tags", "avoid"].includes(field ?? "")) return "preferences";
+  if (["exact_stop_count", "max_distance_km", "total_distance_km"].includes(field ?? "")) return "advanced";
   return null;
 }
 
@@ -151,7 +167,7 @@ export function PlanningContextBar({
   onExternalOpenHandled: () => void;
   onSave: (patch: PlanningContextPatch) => Promise<void>;
 }) {
-  const [section, setSection] = useState<ContextSection | null>(null);
+  const [section, setSection] = useState<ContextEditorSection | null>(null);
   const [sectionChooserOpen, setSectionChooserOpen] = useState(false);
   const [where, setWhere] = useState("");
   const [whereClear, setWhereClear] = useState(false);
@@ -166,6 +182,9 @@ export function PlanningContextBar({
   const [budgetAmount, setBudgetAmount] = useState("");
   const [budgetStrict, setBudgetStrict] = useState(false);
   const [preferences, setPreferences] = useState<PreferenceTag[]>([]);
+  const [exactStopCount, setExactStopCount] = useState("");
+  const [maxDistanceKm, setMaxDistanceKm] = useState("");
+  const [totalDistanceKm, setTotalDistanceKm] = useState("");
   const [preferenceInput, setPreferenceInput] = useState("");
   const [preferenceCategory, setPreferenceCategory] = useState<PreferenceCategory>("preferences");
   const [saveError, setSaveError] = useState("");
@@ -191,7 +210,7 @@ export function PlanningContextBar({
     }));
   }
 
-  function open(next: ContextSection) {
+  function open(next: ContextEditorSection) {
     if (!sectionChooserOpen) captureFocusReturn();
     const baseValues = getValues(context);
     baseRef.current = {
@@ -216,6 +235,9 @@ export function PlanningContextBar({
     setBudgetAmount(baseValues.budgetAmount);
     setBudgetStrict(baseValues.budgetStrict);
     setPreferences(baseValues.preferences);
+    setExactStopCount(baseValues.exactStopCount);
+    setMaxDistanceKm(baseValues.maxDistanceKm);
+    setTotalDistanceKm(baseValues.totalDistanceKm);
     setPreferenceInput("");
     setPreferenceCategory("preferences");
   }
@@ -318,6 +340,8 @@ export function PlanningContextBar({
           : { operation: "clear" };
       }
       if (Object.keys(who).length) patch.who = who;
+      const preferencesEdit = preferenceDiff(original.preferences, preferences);
+      if (preferencesEdit) patch.preferences = preferencesEdit;
     } else if (section === "budget") {
       const nextMode = budgetMode === "per_person" ? "per_person" as const : "unlimited" as const;
       if (nextMode === "per_person" && (!budgetAmount.trim() || !Number.isFinite(Number(budgetAmount))
@@ -334,9 +358,39 @@ export function PlanningContextBar({
           : { mode: "unlimited" };
       }
     } else if (section === "preferences") {
-      const added = preferences.filter((item) => !original.preferences.some((saved) => samePreference(saved, item)));
-      const removed = original.preferences.filter((item) => !preferences.some((saved) => samePreference(saved, item)));
-      if (added.length || removed.length) patch.preferences = { add: added, remove: removed };
+      const preferencesEdit = preferenceDiff(original.preferences, preferences);
+      if (preferencesEdit) patch.preferences = preferencesEdit;
+    } else if (section === "advanced") {
+      const advanced: NonNullable<PlanningContextPatch["advanced"]> = {};
+      if (exactStopCount !== original.exactStopCount) {
+        if (exactStopCount.trim()) {
+          const count = Number(exactStopCount);
+          if (!Number.isInteger(count) || count < 1 || count > 4) {
+            setSaveError("精确站数需为 1 到 4 的整数。");
+            return;
+          }
+          advanced.exact_stop_count = { operation: "set", value: count };
+        } else if (original.exactStopCount) {
+          advanced.exact_stop_count = { operation: "clear" };
+        }
+      }
+      for (const [field, next, previous] of [
+        ["max_distance_km", maxDistanceKm, original.maxDistanceKm],
+        ["total_distance_km", totalDistanceKm, original.totalDistanceKm],
+      ] as const) {
+        if (next === previous) continue;
+        if (!next.trim()) {
+          if (previous) advanced[field] = { operation: "clear" };
+          continue;
+        }
+        const distance = Number(next);
+        if (!Number.isFinite(distance) || distance <= 0) {
+          setSaveError("距离上限需为有限且大于 0 的公里数。");
+          return;
+        }
+        if (String(distance) !== previous) advanced[field] = { operation: "set", value: distance };
+      }
+      if (Object.keys(advanced).length) patch.advanced = advanced;
     }
     if (Object.keys(patch).length === 1) {
       setSection(null);
@@ -420,6 +474,10 @@ export function PlanningContextBar({
           </button>;
         })}
       </nav>
+      <button type="button" className="planning-context-more" aria-haspopup="dialog" onClick={() => open("advanced")} disabled={busy}>
+        更多条件
+        {(context?.exact_stop_count.value != null || context?.max_distance_km.value != null || context?.total_distance_km.value != null) ? <small>已设置</small> : null}
+      </button>
 
       <Dialog.Root open={sectionChooserOpen} onOpenChange={(open) => { if (!open) { setSectionChooserOpen(false); restoreFocus(); } }}>
         <Dialog.Portal>
@@ -438,6 +496,11 @@ export function PlanningContextBar({
                   <small>{id === "when" ? whenSummary(context) : context?.[id]?.display_value ?? "设置"}</small>
                 </button>
               ))}
+              <button type="button" onClick={() => open("advanced")}>
+                <SlidersHorizontal size={17} aria-hidden="true" />
+                <span>更多条件</span>
+                <small>站数与距离</small>
+              </button>
             </div>
           </Dialog.Popup>
         </Dialog.Portal>
@@ -449,8 +512,8 @@ export function PlanningContextBar({
           <Dialog.Popup className="planning-context-dialog" aria-label="规划条件编辑器">
             <header>
               <div>
-                <small>规划条件{section && section !== "when" ? ` · ${sourceLabel(context?.[section]?.source)}` : ""}</small>
-                <Dialog.Title>{SECTIONS.find((item) => item.id === section)?.label ?? "规划条件"}</Dialog.Title>
+                <small>规划条件{section && section !== "when" && section !== "advanced" ? ` · ${sourceLabel(context?.[section]?.source)}` : ""}</small>
+                <Dialog.Title>{section === "advanced" ? "更多条件" : SECTIONS.find((item) => item.id === section)?.label ?? "规划条件"}</Dialog.Title>
               </div>
               <button type="button" aria-label="关闭" onClick={close} disabled={saving}><X size={18} /></button>
             </header>
@@ -496,6 +559,12 @@ export function PlanningContextBar({
                   </div>
                   {children > 0 ? <label>儿童年龄（可选）<input type="number" min="0" max="17" step="1" value={childAge} onChange={(event) => { setChildAge(event.target.value); setSaveError(""); }} /></label> : null}
                   <label className="context-form-wide">同行关系（可选）<input value={members} onChange={(event) => setMembers(event.target.value)} placeholder="例如：朋友、家人" /></label>
+                  <label className="context-pet-choice context-form-wide">
+                    <input type="checkbox" checked={preferences.some((item) => samePreference(item, PET_PREFERENCE))} onChange={(event) => setPreferences((current) => event.target.checked
+                      ? current.some((item) => samePreference(item, PET_PREFERENCE)) ? current : [...current, PET_PREFERENCE]
+                      : current.filter((item) => !samePreference(item, PET_PREFERENCE)))} />
+                    <span><strong>携带宠物</strong><small>作为出行偏好，地点是否允许携宠尚未核实。</small></span>
+                  </label>
                 </div> : null}
                 {section === "budget" ? <div className="context-budget-options" role="radiogroup" aria-label="预算方式">
                   <label className={`context-budget-choice${budgetMode === "unlimited" ? " selected" : ""}`}>
@@ -532,6 +601,23 @@ export function PlanningContextBar({
                   </select></label>
                   <label>添加偏好<input value={preferenceInput} onChange={(event) => setPreferenceInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addPreference(); } }} placeholder="例如：清淡、适合聊天" /></label>
                   <button type="button" className="context-secondary" onClick={addPreference}>添加</button>
+                </div> : null}
+                {section === "advanced" ? <div className="context-advanced-editor">
+                  <div className="context-advanced-field">
+                    <label htmlFor="context-exact-stop-count">精确站数 <small>{context?.exact_stop_count.source === "default" ? "默认" : context?.exact_stop_count.source === "derived" ? "推导" : context?.exact_stop_count.source === "user" ? "已确认" : "未设置"}</small></label>
+                    <div className="context-advanced-input"><input id="context-exact-stop-count" aria-label="精确站数" type="number" min="1" max="4" step="1" value={exactStopCount} onChange={(event) => { setExactStopCount(event.target.value); setSaveError(""); }} /><button type="button" className="context-secondary" onClick={() => setExactStopCount("")}>取消限制</button></div>
+                    <small>指定行程包含的站点数量，范围为 1–4；已有必需站点角色仍会保留。</small>
+                  </div>
+                  <div className="context-advanced-field">
+                    <label htmlFor="context-max-distance-km">检索及单段距离上限（km） <small>{context?.max_distance_km.source === "user" ? "已确认" : context?.max_distance_km.source === "derived" ? "推导" : context?.max_distance_km.source === "default" ? "默认" : "未设置"}</small></label>
+                    <div className="context-advanced-input"><input id="context-max-distance-km" aria-label="检索及单段距离上限（km）" type="number" min="0" step="any" value={maxDistanceKm} onChange={(event) => { setMaxDistanceKm(event.target.value); setSaveError(""); }} /><button type="button" className="context-secondary" onClick={() => setMaxDistanceKm("")}>取消限制</button></div>
+                    <small>同时影响候选检索范围和每段路线；全程总路程另设上限。</small>
+                  </div>
+                  <div className="context-advanced-field">
+                    <label htmlFor="context-total-distance-km">全程累计距离上限（km） <small>{context?.total_distance_km.source === "user" ? "已确认" : context?.total_distance_km.source === "derived" ? "推导" : context?.total_distance_km.source === "default" ? "默认" : "未设置"}</small></label>
+                    <div className="context-advanced-input"><input id="context-total-distance-km" aria-label="全程累计距离上限（km）" type="number" min="0" step="any" value={totalDistanceKm} onChange={(event) => { setTotalDistanceKm(event.target.value); setSaveError(""); }} /><button type="button" className="context-secondary" onClick={() => setTotalDistanceKm("")}>取消限制</button></div>
+                    <small>限制所有行程路段累计距离；不自动推导它与单段上限的大小关系。</small>
+                  </div>
                 </div> : null}
               </div>
               {saveError ? <p className="context-error" role="alert">{saveError}</p> : null}

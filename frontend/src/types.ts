@@ -373,6 +373,9 @@ export type PlanningContextSummary = {
   who: PlanningContextField;
   budget: PlanningContextField;
   preferences: PlanningContextField;
+  exact_stop_count: PlanningContextField;
+  max_distance_km: PlanningContextField;
+  total_distance_km: PlanningContextField;
   pending_field: string | null;
 };
 
@@ -395,6 +398,11 @@ export type PlanningContextPatch = {
   };
   budget?: { mode: "unlimited" } | { mode: "per_person"; amount: number; strict: boolean };
   preferences?: { add?: PreferenceTag[]; remove?: PreferenceTag[] };
+  advanced?: {
+    exact_stop_count?: FieldEdit<number>;
+    max_distance_km?: FieldEdit<number>;
+    total_distance_km?: FieldEdit<number>;
+  };
 };
 
 export type RecoveryAction = {

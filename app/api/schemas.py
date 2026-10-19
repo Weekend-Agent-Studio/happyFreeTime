@@ -1,9 +1,10 @@
 """HTTP 层的数据契约；负责稳定前后端接口，不承载规划业务规则。"""
 
 from datetime import date as DateValue, datetime
+from math import isfinite
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from app.domain.constraints import (
     ClarificationReply,
@@ -109,6 +110,59 @@ class PreferencesEdit(BaseModel):
         return self
 
 
+class AdvancedConditionsEdit(BaseModel):
+    """Closed typed edits for the advanced conditions exposed by the UI."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    exact_stop_count: FieldEdit[StrictInt] | None = None
+    max_distance_km: FieldEdit[float] | None = None
+    total_distance_km: FieldEdit[float] | None = None
+
+    @field_validator("exact_stop_count", mode="before")
+    @classmethod
+    def validate_stop_count(cls, edit: object) -> object:
+        value = _field_edit_value(edit)
+        if value is _NO_EDIT_VALUE:
+            return edit
+        if type(value) is not int or not 1 <= value <= 4:
+            raise ValueError("exact stop count must be an integer from 1 to 4")
+        return edit
+
+    @field_validator("max_distance_km", "total_distance_km", mode="before")
+    @classmethod
+    def validate_distance(cls, edit: object) -> object:
+        value = _field_edit_value(edit)
+        if value is _NO_EDIT_VALUE:
+            return edit
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("distance must be a finite positive number")
+        if not isfinite(float(value)) or value <= 0:
+            raise ValueError("distance must be a finite positive number")
+        return edit
+
+    @model_validator(mode="after")
+    def require_an_edit(self) -> "AdvancedConditionsEdit":
+        if all(value is None for value in (self.exact_stop_count, self.max_distance_km, self.total_distance_km)):
+            raise ValueError("advanced edit must change at least one field")
+        return self
+
+
+_NO_EDIT_VALUE = object()
+
+
+def _field_edit_value(edit: object) -> object:
+    if edit is None:
+        return _NO_EDIT_VALUE
+    if isinstance(edit, dict):
+        if edit.get("operation") != "set":
+            return _NO_EDIT_VALUE
+        return edit.get("value")
+    if getattr(edit, "operation", None) != "set":
+        return _NO_EDIT_VALUE
+    return getattr(edit, "value", _NO_EDIT_VALUE)
+
+
 class PlanningContextPatch(BaseModel):
     """Public typed editor contract; internal RequestPatch stays server-owned."""
 
@@ -120,10 +174,11 @@ class PlanningContextPatch(BaseModel):
     who: WhoEdit | None = None
     budget: BudgetEdit | None = None
     preferences: PreferencesEdit | None = None
+    advanced: AdvancedConditionsEdit | None = None
 
     @model_validator(mode="after")
     def require_an_edit(self) -> "PlanningContextPatch":
-        if all(value is None for value in (self.where, self.when, self.who, self.budget, self.preferences)):
+        if all(value is None for value in (self.where, self.when, self.who, self.budget, self.preferences, self.advanced)):
             raise ValueError("planning context patch must edit at least one section")
         return self
 
@@ -169,6 +224,9 @@ class PlanningContextSummary(BaseModel):
     who: PlanningContextField
     budget: PlanningContextField
     preferences: PlanningContextField
+    exact_stop_count: PlanningContextField
+    max_distance_km: PlanningContextField
+    total_distance_km: PlanningContextField
     pending_field: str | None = None
     planned_request_revision: int | None = Field(default=None, ge=0)
     has_active_plan: bool = False

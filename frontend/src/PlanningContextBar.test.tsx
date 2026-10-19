@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { PlanningContextBar, PlanningContextNotice } from "./PlanningContextBar";
+import { clarificationSection, PlanningContextBar, PlanningContextNotice } from "./PlanningContextBar";
 import type { PlanningContextSummary } from "./types";
 
 const context: PlanningContextSummary = {
@@ -34,6 +34,9 @@ const context: PlanningContextSummary = {
     value: { preferences: [], diet_tags: [], scene_tags: [], avoid: [] },
     display_value: "未设置", source: "default", editable: true, status: "assumed",
   },
+  exact_stop_count: { value: null, display_value: "未设置", source: "default", editable: true, status: "assumed" },
+  max_distance_km: { value: null, display_value: "未设置", source: "default", editable: true, status: "assumed" },
+  total_distance_km: { value: null, display_value: "未设置", source: "default", editable: true, status: "assumed" },
   pending_field: null,
 };
 
@@ -308,5 +311,138 @@ describe("PlanningContextBar typed patches", () => {
     await user.click(screen.getByRole("button", { name: "保存条件" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("revision conflict");
     expect(screen.getByLabelText("出发地点")).toHaveValue("国贸站");
+  });
+
+  it("saves all advanced conditions together and routes their clarifications to the advanced editor", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PlanningContextBar
+        context={context}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+
+    expect(clarificationSection("exact_stop_count")).toBe("advanced");
+    expect(clarificationSection("max_distance_km")).toBe("advanced");
+    expect(clarificationSection("total_distance_km")).toBe("advanced");
+    await user.click(screen.getByRole("button", { name: /^更多条件/ }));
+    await user.type(screen.getByLabelText("精确站数"), "3");
+    await user.type(screen.getByLabelText("检索及单段距离上限（km）"), "7.5");
+    await user.type(screen.getByLabelText("全程累计距离上限（km）"), "18");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      base_revision: 4,
+      advanced: {
+        exact_stop_count: { operation: "set", value: 3 },
+        max_distance_km: { operation: "set", value: 7.5 },
+        total_distance_km: { operation: "set", value: 18 },
+      },
+    });
+  });
+
+  it("clears only the selected advanced limit and blocks invalid values", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const constrainedContext: PlanningContextSummary = {
+      ...context,
+      exact_stop_count: { value: 3, display_value: "3 个站点", source: "user", editable: true, status: "resolved" },
+      max_distance_km: { value: 8, display_value: "8 km", source: "user", editable: true, status: "resolved" },
+      total_distance_km: { value: 24, display_value: "24 km", source: "user", editable: true, status: "resolved" },
+    };
+    render(
+      <PlanningContextBar
+        context={constrainedContext}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /^更多条件/ }));
+    const maxDistanceInput = screen.getByLabelText("检索及单段距离上限（km）");
+    await user.click(maxDistanceInput.closest(".context-advanced-field")!.querySelector("button")!);
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(onSave).toHaveBeenCalledWith({
+      base_revision: 4,
+      advanced: { max_distance_km: { operation: "clear" } },
+    });
+
+    await user.click(screen.getByRole("button", { name: /^更多条件/ }));
+    await user.clear(screen.getByLabelText("检索及单段距离上限（km）"));
+    await user.type(screen.getByLabelText("检索及单段距离上限（km）"), "0");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("距离上限需为有限且大于 0 的公里数");
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the pet preference in the ordinary preferences list across both editors", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const view = render(
+      <PlanningContextBar
+        context={context}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /修改同行人数/ }));
+    await user.click(screen.getByRole("checkbox", { name: /携带宠物/ }));
+    expect(screen.getByText("作为出行偏好，地点是否允许携宠尚未核实。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(onSave).toHaveBeenCalledWith({
+      base_revision: 4,
+      preferences: { add: [{ category: "preferences", value: "携带宠物" }], remove: [] },
+    });
+
+    const petContext: PlanningContextSummary = {
+      ...context,
+      preferences: {
+        ...context.preferences,
+        value: { preferences: ["携带宠物"], diet_tags: [], scene_tags: [], avoid: [] },
+      },
+    };
+    view.rerender(
+      <PlanningContextBar
+        context={petContext}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /修改出行偏好/ }));
+    expect(screen.getByRole("button", { name: "移除体验偏好 携带宠物" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "移除体验偏好 携带宠物" }));
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(onSave).toHaveBeenLastCalledWith({
+      base_revision: 4,
+      preferences: { add: [], remove: [{ category: "preferences", value: "携带宠物" }] },
+    });
+
+    view.rerender(
+      <PlanningContextBar
+        context={context}
+        sessionId="session-1"
+        busy={false}
+        externalOpen={null}
+        onExternalOpenHandled={() => undefined}
+        onSave={onSave}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /修改同行人数/ }));
+    expect(screen.getByRole("checkbox", { name: /携带宠物/ })).not.toBeChecked();
   });
 });

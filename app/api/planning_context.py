@@ -1,7 +1,7 @@
-"""Application seam for the five-field planning context editor.
+"""Application seam for the typed planning-context editor.
 
 The HTTP composition root should not know how a Where/When/Who/Budget/
-Preferences edit becomes a domain ``RequestPatch``.  This module owns that
+Preferences/Advanced edit becomes a domain ``RequestPatch``.  This module owns that
 projection and the closed UI DTO normalization while keeping the mutation
 itself in ``ConstraintEngine``.
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.api.schemas import (
+    AdvancedConditionsEdit,
     PlanningContextField,
     PlanningContextPatch,
     PlanningContextSummary,
@@ -165,6 +166,24 @@ class PlanningContextApplication:
                 display="、".join(preference_values) if preference_values else "未设置",
                 pending=pending_field in {"preferences", "diet_tags", "scene_tags", "avoid"},
             ),
+            exact_stop_count=self._context_field(
+                active.exact_stop_count.value if active.exact_stop_count else None,
+                source=active.exact_stop_count.source if active.exact_stop_count else None,
+                display=(f"{active.exact_stop_count.value} 个站点" if active.exact_stop_count else None),
+                pending=pending_field == "exact_stop_count",
+            ),
+            max_distance_km=self._context_field(
+                active.max_distance_km.value if active.max_distance_km else None,
+                source=active.max_distance_km.source if active.max_distance_km else None,
+                display=(f"{active.max_distance_km.value:g} km" if active.max_distance_km else None),
+                pending=pending_field == "max_distance_km",
+            ),
+            total_distance_km=self._context_field(
+                active.total_distance_km.value if active.total_distance_km else None,
+                source=active.total_distance_km.source if active.total_distance_km else None,
+                display=(f"{active.total_distance_km.value:g} km" if active.total_distance_km else None),
+                pending=pending_field == "total_distance_km",
+            ),
             pending_field=pending_field,
             planned_request_revision=planned_request_revision,
             has_active_plan=has_active_plan,
@@ -265,6 +284,13 @@ class PlanningContextApplication:
                         grouped.setdefault(item.category, []).append(value)
                 target.update({field: tuple(values) for field, values in grouped.items()})
 
+        if patch.advanced is not None:
+            self._compile_advanced(
+                patch.advanced,
+                set_fields=set_fields,
+                clear_fields=clear_fields,
+            )
+
         return PlanningContextEditResult(
             patch=RequestPatch(
                 base_revision=patch.base_revision,
@@ -276,6 +302,27 @@ class PlanningContextApplication:
             ),
             issues=tuple(issues),
         )
+
+    @staticmethod
+    def _compile_advanced(
+        advanced: AdvancedConditionsEdit,
+        *,
+        set_fields: dict[str, object],
+        clear_fields: list[str],
+    ) -> None:
+        for field_name in ("exact_stop_count", "max_distance_km", "total_distance_km"):
+            edit = getattr(advanced, field_name)
+            if edit is None:
+                continue
+            if edit.operation == "clear":
+                clear_fields.append(field_name)
+                continue
+            set_fields[field_name] = ConstraintValue(
+                value=edit.value,
+                source=ConstraintSource.USER_EXPLICIT,
+                raw_text=f"顶部条件设置 {field_name}={edit.value}",
+                rule_id=f"planning_context.{field_name}.v1",
+            )
 
     def _compile_where(
         self,

@@ -22,6 +22,9 @@ const response = {
     who: { value: { adults: 1, children: 0, child_age: null, members: [] }, display_value: "1 位成人 · 0 位儿童", source: "default", editable: true, status: "assumed" },
     budget: { value: { mode: "unlimited", amount: null, strict: false }, display_value: "不限", source: "default", editable: true, status: "assumed" },
     preferences: { value: { preferences: [], diet_tags: [], scene_tags: [], avoid: [] }, display_value: "未设置", source: "default", editable: true, status: "assumed" },
+    exact_stop_count: { value: null, display_value: "未设置", source: "default", editable: true, status: "assumed" },
+    max_distance_km: { value: null, display_value: "未设置", source: "default", editable: true, status: "assumed" },
+    total_distance_km: { value: null, display_value: "未设置", source: "default", editable: true, status: "assumed" },
     pending_field: null,
   },
   question: null,
@@ -363,7 +366,7 @@ test("recovery editor destinations retain visible section names", async ({ page 
   const dialog = page.getByRole("dialog", { name: "手动调整条件" });
   await expect(dialog).toBeVisible();
   const labels = dialog.locator(".recovery-editor-sections button > span");
-  await expect(labels).toHaveText(["日期时间", "出发区域", "同行人数", "人均预算", "出行偏好"]);
+  await expect(labels).toHaveText(["日期时间", "出发区域", "同行人数", "人均预算", "出行偏好", "更多条件"]);
   for (const label of await labels.all()) expect((await label.boundingBox())!.width).toBeGreaterThan(20);
   await page.screenshot({ path: path.resolve(`../.impeccable/review/s-ui1b-recovery-editor-${testInfo.project.name}.png`) });
   await dialog.getByRole("button", { name: /日期时间/ }).click();

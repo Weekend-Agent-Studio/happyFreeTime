@@ -85,8 +85,11 @@ button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visibl
 .app-header { position: relative; z-index: 50; grid-column: 2 / 4; grid-row: 1; display: flex; align-items: center; min-width: 0; padding: 0 var(--space-5); background: var(--color-surface); border-bottom: 1px solid var(--color-line); }
 .app-header-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .app-header-mobile-actions { display: none; }
-.planning-context-wrap { position: relative; z-index: 30; width: 100%; min-width: 0; }
-.planning-context-bar { display: flex; align-items: center; gap: var(--space-2); overflow-x: auto; width: 100%; padding: 4px; }
+.planning-context-wrap { position: relative; z-index: 30; display: flex; align-items: center; gap: var(--space-1); width: 100%; min-width: 0; }
+.planning-context-bar { display: flex; flex: 1 1 auto; align-items: center; gap: var(--space-2); overflow-x: auto; width: auto; min-width: 0; padding: 4px; }
+.planning-context-more { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; min-height: 36px; padding: 6px 10px; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-line); border-radius: 18px; font-size: var(--text-xs); font-weight: 700; }
+.planning-context-more small { color: var(--color-muted); font-size: 10px; }
+.planning-context-more:disabled { opacity: .6; }
 .planning-context-trigger { flex: 0 1 auto; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; min-height: 36px; max-width: 280px; padding: 6px var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 18px; text-align: left; }
 .planning-context-trigger:first-child { min-width: 180px; }
 .planning-context-trigger small { min-width: 0; overflow: hidden; color: inherit; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
@@ -142,6 +145,7 @@ button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visibl
   .app-header-mobile-actions button:disabled { opacity: 0.4; }
   .app-header > .planning-context-wrap { grid-column: 1 / -1; grid-row: 2; }
   .planning-context-trigger { flex: 0 0 auto; min-height: 44px; }
+  .planning-context-more { min-height: 44px; }
   .workspace { flex: 1 1 0; width: 100%; }
   .conversation-heading.compact { padding-inline: var(--space-4); }
   .conversation { padding: var(--space-4); }

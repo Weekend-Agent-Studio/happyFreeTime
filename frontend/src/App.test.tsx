@@ -92,6 +92,9 @@ function planningContext(overrides: Partial<PlanningContextSummary> = {}): Plann
     who: field("1 位成人"),
     budget: field("不限"),
     preferences: field("未设置"),
+    exact_stop_count: field("未设置"),
+    max_distance_km: field("未设置"),
+    total_distance_km: field("未设置"),
     pending_field: null,
     ...overrides,
   };
