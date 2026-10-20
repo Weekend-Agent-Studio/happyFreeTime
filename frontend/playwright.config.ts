@@ -6,6 +6,7 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.resolve(".playwright-browsers");
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "**/*.integration.spec.ts",
   timeout: 30_000,
   globalSetup: "./e2e/global-setup.ts",
   use: {

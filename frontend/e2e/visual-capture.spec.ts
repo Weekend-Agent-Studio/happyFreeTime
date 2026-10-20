@@ -122,7 +122,7 @@ function streamResponse(payload: unknown) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/sessions", async (route) => {
+  await page.route(/\/api\/sessions(?:\?[^/]*)?$/, async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({ json: { data: { sessions: [0, 1, 2, 3, 4].map((index) => ({ session_id: `history-${index}`, title: ["今天下午想出去走走，别太远", "周末一日亲子游推荐", "北京小众博物馆", "下周六露营地推荐", "带老人轻松半日游"][index], status: "completed", created_at: "2026-08-29T04:00:00Z", updated_at: `2026-08-${29 - index}T05:00:00Z`, last_message_preview: "已生成可执行方案" })) } } });
       return;
@@ -145,10 +145,11 @@ test("captures the approved desktop and mobile product states", async ({ page },
   const filename = mobile ? "mobile-repro.png" : "hero-repro.png";
   await page.screenshot({ path: path.resolve(process.cwd(), `../.impeccable/review/${filename}`), fullPage: false });
   if (mobile) {
-    const openDetail = page.getByRole("button", { name: "打开完整行程与地图" });
+    const openDetail = page.locator(".plan-card").first().getByRole("button", { name: /打开.+详情/ });
     await openDetail.scrollIntoViewIfNeeded();
     await openDetail.click();
     await expect(page.getByRole("heading", { name: "方案工作区" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "方案工作区" })).toHaveCSS("opacity", "1");
     await page.screenshot({ path: path.resolve(process.cwd(), "../.impeccable/review/mobile-detail-repro.png"), fullPage: false });
   }
 });

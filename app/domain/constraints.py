@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import date as Date
 from enum import Enum
+from math import isfinite
 from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -817,19 +818,45 @@ class PlanRequest(BaseModel):
     # distance limit as both the candidate-recall envelope and the per-leg
     # route bound.  ``total_distance_km`` remains the separate whole-route
     # constraint; split fields only when the UI exposes distinct semantics.
-    max_distance_km: ConstraintValue[float] | None = None
+    max_distance_km: ConstraintValue[Annotated[float, Field(gt=0, allow_inf_nan=False)]] | None = None
     preferences: list[str] = Field(default_factory=list)
     diet_tags: list[str] = Field(default_factory=list)
     scene_tags: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
     strict_budget: bool = False
     require_availability_confirmation: bool = False
-    exact_stop_count: ConstraintValue[int] | None = None
+    exact_stop_count: ConstraintValue[Annotated[int, Field(strict=True)]] | None = None
     required_stop_roles: ConstraintValue[tuple[StopRole, ...]] | None = None
     # A bounded stop-scoped timing hint.  It is intentionally not a second
     # planning window; schedulers may consume it as a soft objective later.
     activity_time_scope: ConstraintValue[TimeScope] | None = None
-    total_distance_km: ConstraintValue[float] | None = None
+    total_distance_km: ConstraintValue[Annotated[float, Field(gt=0, allow_inf_nan=False)]] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_advanced_condition_values(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        def wrapped_value(value: object) -> object:
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return value.get("value")
+            return getattr(value, "value", value)
+
+        stop_count = wrapped_value(data.get("exact_stop_count"))
+        if stop_count is not None and (type(stop_count) is not int or not 1 <= stop_count <= 4):
+            raise ValueError("exact_stop_count must be an integer from 1 to 4")
+        for field_name in ("max_distance_km", "total_distance_km"):
+            distance = wrapped_value(data.get(field_name))
+            if distance is None:
+                continue
+            if isinstance(distance, bool) or not isinstance(distance, (int, float)):
+                raise ValueError(f"{field_name} must be a finite positive number")
+            if not isfinite(float(distance)) or distance <= 0:
+                raise ValueError(f"{field_name} must be a finite positive number")
+        return data
 
 
 def _canonical_clock(value: str | None, *, field_name: str) -> str | None:

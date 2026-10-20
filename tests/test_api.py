@@ -7,9 +7,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api.application import create_app
-from app.api.schemas import MessageRequest
+from app.api.schemas import AdvancedConditionsEdit, MessageRequest
 from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
@@ -1997,6 +1998,132 @@ class ApiTest(unittest.TestCase):
                 "mode": "per_person", "amount": 9999, "strict": False,
             })
             self.assertEqual(next_context["preferences"]["value"]["diet_tags"], ["清淡"])
+
+    def test_advanced_planning_conditions_are_typed_persisted_and_replanned_explicitly(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩")
+        self.assertEqual(first.status_code, 200, first.text)
+        context = first.json()["data"]["planning_context"]
+        initial_view = self._session_view(session_id)
+        initial_version = initial_view["active_plan_version_id"]
+        initial_version_count = len(initial_view["plan_versions"])
+
+        saved = self.client.patch(
+            f"/api/sessions/{session_id}/planning-context",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "patch": {
+                    "base_revision": context["request_revision"],
+                    "advanced": {
+                        "exact_stop_count": {"operation": "set", "value": 2},
+                        "max_distance_km": {"operation": "set", "value": 100.5},
+                        "total_distance_km": {"operation": "set", "value": 250},
+                    },
+                },
+            },
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        saved_body = saved.json()["data"]
+        self.assertEqual(saved_body["status"], "context_saved")
+        self.assertFalse(saved_body["plans"])
+        advanced = saved_body["planning_context"]
+        self.assertEqual(advanced["exact_stop_count"]["value"], 2)
+        self.assertEqual(advanced["max_distance_km"]["value"], 100.5)
+        self.assertEqual(advanced["total_distance_km"]["value"], 250)
+        self.assertTrue(all(advanced[field]["source"] == "user" for field in (
+            "exact_stop_count", "max_distance_km", "total_distance_km",
+        )))
+        self.assertTrue(advanced["plan_stale"])
+
+        stale = self.client.patch(
+            f"/api/sessions/{session_id}/planning-context",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "patch": {
+                    "base_revision": context["request_revision"],
+                    "advanced": {"max_distance_km": {"operation": "set", "value": 12}},
+                },
+            },
+        )
+        self.assertEqual(stale.status_code, 409, stale.text)
+        persisted = self._session_view(session_id)
+        self.assertEqual(persisted["planning_context"]["request_revision"], context["request_revision"] + 1)
+        self.assertEqual(persisted["planning_context"]["max_distance_km"]["value"], 100.5)
+        self.assertEqual(persisted["active_plan_version_id"], initial_version)
+        self.assertEqual(len(persisted["plan_versions"]), initial_version_count)
+
+        replanned = self.client.post(
+            f"/api/sessions/{session_id}/planning-context/replan",
+            headers=self.headers,
+            json={"request_id": uuid.uuid4().hex},
+        )
+        self.assertEqual(replanned.status_code, 200, replanned.text)
+        replanned_body = replanned.json()["data"]
+        self.assertTrue(replanned_body["plans"])
+        self.assertFalse(replanned_body["planning_context"]["plan_stale"])
+        replanned_view = self._session_view(session_id)
+        self.assertNotEqual(replanned_view["active_plan_version_id"], initial_version)
+        self.assertEqual(len(replanned_view["plan_versions"]), initial_version_count + 1)
+        self.assertEqual(replanned_view["planning_context"]["exact_stop_count"]["value"], 2)
+
+        cleared = self.client.patch(
+            f"/api/sessions/{session_id}/planning-context",
+            headers=self.headers,
+            json={
+                "request_id": uuid.uuid4().hex,
+                "patch": {
+                    "base_revision": replanned_body["planning_context"]["request_revision"],
+                    "advanced": {
+                        "exact_stop_count": {"operation": "clear"},
+                        "max_distance_km": {"operation": "clear"},
+                    },
+                },
+            },
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        cleared_context = cleared.json()["data"]["planning_context"]
+        self.assertIsNone(cleared_context["exact_stop_count"]["value"])
+        self.assertIsNone(cleared_context["max_distance_km"]["value"])
+        self.assertEqual(cleared_context["total_distance_km"]["value"], 250)
+        self.assertEqual(len(self._session_view(session_id)["plan_versions"]), initial_version_count + 1)
+
+    def test_advanced_planning_conditions_reject_invalid_types_and_ranges(self) -> None:
+        session_id = self._create_session()
+        first = self._send_message(session_id, "今天下午出去玩")
+        context = first.json()["data"]["planning_context"]
+        baseline_values = {
+            field: context[field]["value"]
+            for field in ("exact_stop_count", "max_distance_km", "total_distance_km")
+        }
+        for advanced in (
+            {"exact_stop_count": {"operation": "set", "value": 0}},
+            {"exact_stop_count": {"operation": "set", "value": 5}},
+            {"exact_stop_count": {"operation": "set", "value": 2.5}},
+            {"exact_stop_count": {"operation": "set", "value": True}},
+            {"max_distance_km": {"operation": "set", "value": 0}},
+            {"total_distance_km": {"operation": "set", "value": -1}},
+            {"total_distance_km": {"operation": "set", "value": "10"}},
+        ):
+            with self.subTest(advanced=advanced):
+                invalid = self.client.patch(
+                    f"/api/sessions/{session_id}/planning-context",
+                    headers=self.headers,
+                    json={
+                        "request_id": uuid.uuid4().hex,
+                        "patch": {"base_revision": context["request_revision"], "advanced": advanced},
+                    },
+                )
+                self.assertEqual(invalid.status_code, 422, invalid.text)
+        with self.assertRaises(ValidationError):
+            AdvancedConditionsEdit.model_validate({
+                "max_distance_km": {"operation": "set", "value": float("inf")},
+            })
+        after = self._session_view(session_id)
+        self.assertEqual(after["planning_context"]["request_revision"], context["request_revision"])
+        for field, value in baseline_values.items():
+            self.assertEqual(after["planning_context"][field]["value"], value)
 
 
 if __name__ == "__main__":

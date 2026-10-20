@@ -380,6 +380,12 @@ class ConstraintEngineTest(unittest.TestCase):
         )
         self.assertIsInstance(result, ConflictedRequest)
         self.assertEqual(result.conflict.code, "STOP_COUNT_BELOW_REQUIRED_ROLES")
+        self.assertIsNotNone(result.candidate_request)
+        self.assertEqual(result.candidate_request.exact_stop_count.value, 1)
+        self.assertEqual(
+            [role.value for role in result.candidate_request.required_stop_roles.value],
+            ["activity", "dinner"],
+        )
 
 
 if __name__ == "__main__":

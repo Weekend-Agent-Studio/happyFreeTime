@@ -72,12 +72,30 @@ function legPath(plan: Plan): Array<{ index: number; path: Position[] }> {
     .filter(({ path }) => path.length >= 2);
 }
 
+function coordinatesForLeg(plan: Plan, index: number): Position[] {
+  return (plan.route_legs[index]?.geometry ?? [])
+    .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
+    .map((point): Position => [point.longitude, point.latitude]);
+}
+
+function stopMarkerPositions(plan: Plan): Array<{ stopIndex: number; position: Position }> {
+  return plan.stops.flatMap((_stop, stopIndex) => {
+    // RouteLeg index N-1 arrives at Stop N-1. If that leg has no coordinates,
+    // the following raw leg's origin can still locate the same stop.
+    const arrivalPath = coordinatesForLeg(plan, stopIndex);
+    const departurePath = coordinatesForLeg(plan, stopIndex + 1);
+    const position = arrivalPath.at(-1) ?? departurePath[0];
+    return position ? [{ stopIndex, position }] : [];
+  });
+}
+
 function renderPlan(
   container: HTMLElement,
   plan: Plan,
   AMap: AmapNamespace,
   activeLegIndex: number | null,
-  onSelectRoute: (legIndex: number) => void,
+  onFocusRoute: (legIndex: number) => void,
+  onOpenPoi: (stopIndex: number) => void,
 ): AmapMapInstance {
   const legPaths = legPath(plan);
   if (!legPaths.length) throw new Error("当前方案没有可绘制的路线坐标");
@@ -99,34 +117,52 @@ function renderPlan(
         lineJoin: "round",
         showDir: true,
       });
-    polyline.on?.("click", () => onSelectRoute(index));
+    polyline.on?.("click", () => onFocusRoute(index));
     overlays.push(polyline);
   });
 
-  const markerPoints = [
-    { position: legPaths[0].path[0], legIndex: null as number | null },
-    ...legPaths.map(({ index, path }) => ({ position: path[path.length - 1], legIndex: index })),
-  ];
-  markerPoints.forEach(({ position, legIndex }, markerIndex) => {
-    const label = legIndex === null ? "起" : legIndex < plan.stops.length ? String(legIndex + 1) : "返";
-    const title = legIndex === null
-      ? "出发地"
-      : plan.stops[legIndex]?.name ?? plan.route_legs[legIndex]?.destination_name ?? "目的地";
+  const originPosition = coordinatesForLeg(plan, 0)[0];
+  if (originPosition) {
     const marker = new AMap.Marker({
-        map,
-        position,
-        anchor: "center",
-        title,
-        content: `<div class="amap-plan-marker ${markerIndex === 0 ? "origin" : ""}">${label}</div>`,
+      map,
+      position: originPosition,
+      anchor: "center",
+      title: "出发地",
+      content: '<div class="amap-plan-marker origin">出</div>',
+    });
+    overlays.push(marker);
+  }
+
+  stopMarkerPositions(plan).forEach(({ stopIndex, position }) => {
+    const marker = new AMap.Marker({
+      map,
+      position,
+      anchor: "center",
+      title: plan.stops[stopIndex].name,
+      content: `<div class="amap-plan-marker">${stopIndex + 1}</div>`,
       });
-    if (legIndex !== null) marker.on?.("click", () => onSelectRoute(legIndex));
+    marker.on?.("click", () => onOpenPoi(stopIndex));
     overlays.push(marker);
   });
+
+  const returnLegIndex = plan.route_legs.length > plan.stops.length ? plan.route_legs.length - 1 : null;
+  const returnPath = returnLegIndex === null ? [] : coordinatesForLeg(plan, returnLegIndex);
+  const returnPosition = returnPath.at(-1);
+  if (returnPosition) {
+    const marker = new AMap.Marker({
+      map,
+      position: returnPosition,
+      anchor: "center",
+      title: "返程终点：出发地",
+      content: '<div class="amap-plan-marker origin">返</div>',
+    });
+    overlays.push(marker);
+  }
   map.setFitView(overlays, false, [42, 32, 42, 32], 15);
   return map;
 }
 
-export function AmapPlanMap({ plan, activeLegIndex, onSelectRoute }: { plan: Plan; activeLegIndex: number | null; onSelectRoute: (legIndex: number) => void }) {
+export function AmapPlanMap({ plan, activeLegIndex, onFocusRoute, onOpenPoi }: { plan: Plan; activeLegIndex: number | null; onFocusRoute: (legIndex: number) => void; onOpenPoi: (stopIndex: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "disabled" | "error">("loading");
   const [message, setMessage] = useState("正在加载高德地图…");
@@ -136,6 +172,12 @@ export function AmapPlanMap({ plan, activeLegIndex, onSelectRoute }: { plan: Pla
     let map: AmapMapInstance | null = null;
     setStatus("loading");
     setMessage("正在加载高德地图…");
+
+    if (!legPath(plan).length) {
+      setStatus("disabled");
+      setMessage("当前响应没有可绘制的有效路线坐标；可从下方站点列表查看 POI 与文字路线");
+      return () => { disposed = true; };
+    }
 
     getMapConfig()
       .then(async (config) => {
@@ -148,7 +190,7 @@ export function AmapPlanMap({ plan, activeLegIndex, onSelectRoute }: { plan: Pla
         }
         const AMap = await loadAmap(config);
         if (disposed || !containerRef.current) return;
-        map = renderPlan(containerRef.current, plan, AMap, activeLegIndex, onSelectRoute);
+        map = renderPlan(containerRef.current, plan, AMap, activeLegIndex, onFocusRoute, onOpenPoi);
         setStatus("ready");
       })
       .catch((error: unknown) => {
@@ -162,7 +204,7 @@ export function AmapPlanMap({ plan, activeLegIndex, onSelectRoute }: { plan: Pla
       disposed = true;
       map?.destroy();
     };
-  }, [activeLegIndex, onSelectRoute, plan]);
+  }, [activeLegIndex, onFocusRoute, onOpenPoi, plan]);
 
   return (
     <div className="map-canvas amap-map-shell" aria-label="高德地图路线图">
