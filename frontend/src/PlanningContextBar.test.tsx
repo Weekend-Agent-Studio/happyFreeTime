@@ -41,10 +41,26 @@ const context: PlanningContextSummary = {
 };
 
 describe("PlanningContextBar typed patches", () => {
+  it("navigates the calendar without saving and submits the selected local date", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={onSave} />);
+    await user.click(screen.getByRole("button", { name: /修改日期时间/ }));
+    await user.click(screen.getByRole("button", { name: "下个月" }));
+    expect(screen.getByLabelText("日期")).toHaveValue("2026-08-15");
+    expect(onSave).not.toHaveBeenCalled();
+    const first = screen.getByRole("button", { name: "2026年9月1日" });
+    first.focus();
+    await user.keyboard("{ArrowLeft}{Enter}");
+    expect(screen.getByLabelText("日期")).toHaveValue("2026-08-31");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(onSave).toHaveBeenCalledWith({ base_revision: 4, when: { date: { operation: "set", value: "2026-08-31" } } });
+  });
+
   it("emits a section-specific patch for each of the five controls", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(
+    const { container } = render(
       <PlanningContextBar
         context={context}
         sessionId="session-1"
@@ -54,6 +70,7 @@ describe("PlanningContextBar typed patches", () => {
         onSave={onSave}
       />,
     );
+    expect(container.querySelectorAll(".planning-context-trigger .context-edit-icon")).toHaveLength(5);
 
     await user.click(screen.getByRole("button", { name: /修改出发区域/ }));
     await user.clear(screen.getByLabelText("出发地点"));

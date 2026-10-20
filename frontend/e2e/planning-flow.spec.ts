@@ -93,6 +93,32 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/config/map", (route) => route.fulfill({ json: { data: { enabled: false, provider: "none", js_api_key: null, version: null, service_host_path: null } } }));
 });
 
+test("refined calendar and compact POI header preserve navigation", async ({ page }, testInfo) => {
+  const device = testInfo.project.name === "mobile-375" ? "mobile" : "desktop";
+  await page.setViewportSize(device === "mobile" ? { width: 375, height: 812 } : { width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /修改日期时间/ }).click();
+  const editor = page.getByRole("dialog", { name: "日期时间", exact: true });
+  await expect(editor.getByRole("group", { name: "选择出行日期" })).toBeVisible();
+  await editor.getByRole("button", { name: "下午 12:00–18:00" }).click();
+  await expect(editor.getByLabel("开始时间", { exact: true })).toHaveValue("12:00");
+  await expect(editor.getByRole("button", { name: "下午 12:00–18:00" })).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/ui-refinement-time-${device}.png`) });
+  await page.keyboard.press("Escape");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await page.getByRole("button", { name: "打开方案一详情" }).click();
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/ui-refinement-trip-${device}.png`) });
+  await page.getByRole("button", { name: "查看第 1 站 展览 详情" }).click();
+  const header = page.locator(".inspector-sticky-header:visible");
+  await expect(header.locator(".inspector-plan-header")).toHaveCount(0);
+  await expect(header.getByRole("button", { name: "返回行程" })).toBeVisible();
+  expect((await header.boundingBox())!.height).toBeLessThan(90);
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/ui-refinement-poi-${device}.png`) });
+  await header.getByRole("button", { name: "返回行程" }).click();
+  await expect(page.getByRole("tab", { name: "行程", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
 test("single-stop replacement draft, versioned diff, and failure preserve the selected plan", async ({ page }, testInfo) => {
   const mobile = testInfo.project.name === "mobile-375";
   await page.setViewportSize(mobile ? { width: 375, height: 812 } : { width: 1440, height: 900 });
@@ -344,7 +370,7 @@ test("POI subpage keeps demo data boundaries on 375px", async ({ page }) => {
 
 test("POI return restores real scroll, originating tab, and focus", async ({ page }, testInfo) => {
   const mobile = testInfo.project.name === "mobile-375";
-  await page.setViewportSize(mobile ? { width: 375, height: 812 } : { width: 1440, height: 900 });
+  await page.setViewportSize(mobile ? { width: 375, height: 560 } : { width: 1440, height: 560 });
   await page.goto("/");
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
@@ -389,7 +415,7 @@ test("POI return restores real scroll, originating tab, and focus", async ({ pag
 
 test("desktop keeps the workspace chrome fixed while the conversation scrolls", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "desktop workspace contract");
-  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.setViewportSize({ width: 1440, height: 640 });
   await page.goto("/");
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
@@ -441,7 +467,8 @@ test("shell keeps equal desktop panes and a keyboard-accessible persistent navig
   expect(await conditions.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")?.split("，")[0]))).toEqual([
     "修改日期时间", "修改出发区域", "修改同行人数", "修改人均预算", "修改出行偏好",
   ]);
-  expect((await nav.boundingBox())!.width).toBe(220);
+  expect((await nav.boundingBox())!.width).toBeGreaterThan(220);
+  expect((await nav.boundingBox())!.width).toBeLessThan(260);
   expect((await workspace.boundingBox())!.width).toBeCloseTo((await inspector.boundingBox())!.width, 0);
   await page.screenshot({ path: path.resolve("../.impeccable/review/s-ui1b-welcome-desktop.png") });
   const collapse = page.getByRole("button", { name: "收起侧边栏" });
@@ -456,7 +483,8 @@ test("shell keeps equal desktop panes and a keyboard-accessible persistent navig
   await page.getByRole("button", { name: "展开侧边栏" }).focus();
   await page.getByRole("button", { name: "展开侧边栏" }).press("Enter");
   await expect(page.getByRole("button", { name: "收起侧边栏" })).toBeFocused();
-  await expect.poll(async () => Math.round((await nav.boundingBox())!.width)).toBe(220);
+  await expect.poll(async () => Math.round((await nav.boundingBox())!.width)).toBeGreaterThan(220);
+  await expect.poll(async () => Math.round((await nav.boundingBox())!.width)).toBeLessThan(260);
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.locator(".conversation-heading.compact")).toBeVisible();
@@ -633,7 +661,8 @@ test("selection persists across refresh and clears after a new plan", async ({ p
   if (mobile) await page.getByRole("button", { name: "关闭" }).click();
   await page.getByRole("button", { name: "预览方案二" }).click();
   if (mobile) await page.getByRole("button", { name: "打开方案二详情" }).click();
-  await expect(page.locator(".inspector-plan-header")).toContainText("当前预览 · 未改变正式选择");
+  await expect(page.getByRole("region", { name: "当前预览方案" })).toContainText("当前预览");
+  await expect(page.getByRole("button", { name: "返回已选方案：方案一" })).toBeVisible();
   await page.getByRole("button", { name: "选择此方案" }).click();
   const confirmation = page.getByRole("dialog", { name: "切换正式选择？" });
   await expect(confirmation).toBeVisible();

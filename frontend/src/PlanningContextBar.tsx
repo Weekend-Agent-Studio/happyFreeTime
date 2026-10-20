@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
-import { CalendarDays, CircleDollarSign, MapPin, SlidersHorizontal, Users, X } from "lucide-react";
+import { CalendarDays, CircleDollarSign, MapPin, Pencil, SlidersHorizontal, Users, X } from "lucide-react";
 import type { FieldEdit, PlanningContextPatch, PlanningContextSummary, PreferenceCategory, PreferenceTag } from "./types";
+import { DateCalendar } from "./DateCalendar";
 
 export type ContextSection = "where" | "when" | "who" | "budget" | "preferences";
 export type ContextEditorSection = ContextSection | "advanced";
@@ -471,12 +472,14 @@ export function PlanningContextBar({
             <Icon size={15} aria-hidden="true" />
             <span className="sr-only">{label}</span>
             <small>{id === "when" && displayValue === "未设置" ? "选择日期" : displayValue}</small>
+            <Pencil className="context-edit-icon" size={12} aria-hidden="true" />
           </button>;
         })}
       </nav>
       <button type="button" className="planning-context-more" aria-haspopup="dialog" onClick={() => open("advanced")} disabled={busy}>
         更多条件
         {(context?.exact_stop_count.value != null || context?.max_distance_km.value != null || context?.total_distance_km.value != null) ? <small>已设置</small> : null}
+        <Pencil className="context-edit-icon" size={12} aria-hidden="true" />
       </button>
 
       <Dialog.Root open={sectionChooserOpen} onOpenChange={(open) => { if (!open) { setSectionChooserOpen(false); restoreFocus(); } }}>
@@ -509,7 +512,7 @@ export function PlanningContextBar({
       <Dialog.Root open={Boolean(section)} onOpenChange={(open) => { if (!open && !savingRef.current) close(); }}>
         <Dialog.Portal>
           <Dialog.Backdrop className="planning-context-backdrop" />
-          <Dialog.Popup className="planning-context-dialog" aria-label="规划条件编辑器">
+          <Dialog.Popup className={`planning-context-dialog ${section === "when" ? "context-date-dialog" : ""}`} aria-label="规划条件编辑器">
             <header>
               <div>
                 <small>规划条件{section && section !== "when" && section !== "advanced" ? ` · ${sourceLabel(context?.[section]?.source)}` : ""}</small>
@@ -525,31 +528,33 @@ export function PlanningContextBar({
                   <small>这是出发点和检索依据；由系统解析出发位置，不在此处模拟定位或地点建议。</small>
                   <button type="button" className="context-secondary" onClick={() => { setWhere(""); setWhereClear(true); }}>清除地点</button>
                 </div> : null}
-                {section === "when" ? <div className="context-form-grid">
+                {section === "when" ? <div className="context-date-layout">
+                  <DateCalendar key={date.slice(0, 7)} value={date} onChange={(value) => { setDate(value); setSaveError(""); }} />
+                  <div className="context-form-grid context-time-column">
                   <label className="context-form-wide"><span>日期 <small>{sourceHint(context?.when.date.source)}</small></span><input className={context?.when.date.source === "default" ? "context-assumed" : ""} aria-label="日期" type="date" value={date} onChange={(event) => { setDate(event.target.value); setSaveError(""); }} /></label>
                   <label><span>{context?.when.start_kind === "departure" || context?.pending_field === "departure_at" ? "出发时间" : "开始时间"} <small>{sourceHint(context?.when.start_at.source)}</small></span><input className={context?.when.start_at.source === "default" ? "context-assumed" : ""} aria-label={context?.when.start_kind === "departure" || context?.pending_field === "departure_at" ? "出发时间" : "开始时间"} type="time" value={startAt} onChange={(event) => { setStartAt(event.target.value); setSaveError(""); }} /></label>
                   <label><span>{context?.when.end_kind === "return_deadline" || context?.pending_field === "return_by" ? "最晚到家" : "结束时间"} <small>{sourceHint(context?.when.end_at.source)}</small></span><input className={context?.when.end_at.source === "default" ? "context-assumed" : ""} aria-label={context?.when.end_kind === "return_deadline" || context?.pending_field === "return_by" ? "最晚到家" : "结束时间"} type="time" value={endAt} onChange={(event) => { setEndAt(event.target.value); setSaveError(""); }} /></label>
                   <div className="context-time-tools context-form-wide">
                     <span className="context-tool-label">时段快捷设置</span>
                     <div className="context-preset-row" aria-label="时间预设">
-                      <button type="button" className="context-secondary" onClick={() => setTimePreset("09:00", "12:00")}>上午 09:00–12:00</button>
-                      <button type="button" className="context-secondary" onClick={() => setTimePreset("14:00", "18:00")}>下午 14:00–18:00</button>
-                      <button type="button" className="context-secondary" onClick={() => setTimePreset("16:00", "20:00")}>傍晚 16:00–20:00</button>
+                      <button type="button" className="context-secondary" aria-pressed={startAt === "09:00" && endAt === "12:00"} onClick={() => setTimePreset("09:00", "12:00")}>上午 09:00–12:00</button>
+                      <button type="button" className="context-secondary" aria-pressed={startAt === "12:00" && endAt === "18:00"} onClick={() => setTimePreset("12:00", "18:00")}>下午 12:00–18:00</button>
+                      <button type="button" className="context-secondary" aria-pressed={startAt === "18:00" && endAt === "22:00"} onClick={() => setTimePreset("18:00", "22:00")}>晚上 18:00–22:00</button>
                     </div>
                     <div className="context-preset-row" aria-label="行程时长">
-                      {[2, 4, 6].map((hours) => <button type="button" className="context-secondary" key={hours} onClick={() => setDuration(hours)}>{hours} 小时</button>)}
+                      {[2, 3, 4, 6].map((hours) => <button type="button" className="context-secondary" aria-pressed={minutesFromTime(endAt) !== null && minutesFromTime(startAt) !== null && minutesFromTime(endAt)! - minutesFromTime(startAt)! === hours * 60} key={hours} onClick={() => setDuration(hours)}>{hours} 小时</button>)}
                     </div>
-                    {isWithinTimeSlider(startAt) && isWithinTimeSlider(endAt) ? <div className="context-time-range-wrap">
+                    {isWithinTimeSlider(startAt) && isWithinTimeSlider(endAt) && minutesFromTime(startAt)! < minutesFromTime(endAt)! ? <div className="context-time-range-wrap">
                       <div className="context-time-range-track" aria-hidden="true">
                         <span style={{ left: `${((minutesFromTime(startAt)! - TIME_RANGE_MIN) / (TIME_RANGE_MAX - TIME_RANGE_MIN)) * 100}%`, width: `${((minutesFromTime(endAt)! - minutesFromTime(startAt)!) / (TIME_RANGE_MAX - TIME_RANGE_MIN)) * 100}%` }} />
                       </div>
-                      <input className="context-time-range-thumb context-time-range-start" type="range" min={TIME_RANGE_MIN} max={TIME_RANGE_MAX} step="1" value={minutesFromTime(startAt)!} aria-label="时段开始时间快捷滑块" aria-valuetext={startAt} onChange={(event) => { setStartAt(timeFromMinutes(Number(event.target.value))); setSaveError(""); }} />
-                      <input className="context-time-range-thumb context-time-range-end" type="range" min={TIME_RANGE_MIN} max={TIME_RANGE_MAX} step="1" value={minutesFromTime(endAt)!} aria-label="时段结束时间快捷滑块" aria-valuetext={endAt} onChange={(event) => { setEndAt(timeFromMinutes(Number(event.target.value))); setSaveError(""); }} />
-                      <small>快捷范围 06:00–23:00；精确时间仍可直接输入。滑块允许分别调整，结束不晚于开始时会提示。</small>
-                    </div> : <small>当前时刻超出 06:00–23:00 快捷范围时，请使用上方精确时间输入；现有时间不会被截断。</small>}
+                      <input className="context-time-range-thumb context-time-range-start" type="range" min={TIME_RANGE_MIN} max={TIME_RANGE_MAX} step="1" value={minutesFromTime(startAt)!} aria-label="时段开始时间快捷滑块" aria-valuetext={startAt} onChange={(event) => { setStartAt(timeFromMinutes(Math.min(Number(event.target.value), minutesFromTime(endAt)! - 1))); setSaveError(""); }} />
+                      <input className="context-time-range-thumb context-time-range-end" type="range" min={TIME_RANGE_MIN} max={TIME_RANGE_MAX} step="1" value={minutesFromTime(endAt)!} aria-label="时段结束时间快捷滑块" aria-valuetext={endAt} onChange={(event) => { setEndAt(timeFromMinutes(Math.max(Number(event.target.value), minutesFromTime(startAt)! + 1))); setSaveError(""); }} />
+                      <small>06:00–23:00 · 拖动两端调整时段，也可直接输入精确时间。</small>
+                    </div> : <small>设置有效时段后可拖动调整；06:00–23:00 以外请直接输入。</small>}
                   </div>
-                  <small>默认值会以弱化样式显示；清空已设置的必需时间后，系统会询问你补充。时间按同一日处理，不自动跨日。</small>
-                </div> : null}
+                  <small>保存后再按新条件规划；时间均为当天，不自动跨日。</small>
+                </div></div> : null}
                 {section === "who" ? <div className="context-form-grid">
                   <div className="context-count-field"><label htmlFor="context-adults">成人</label>
                     <span className="context-count-control"><button type="button" aria-label="减少成人" onClick={() => setAdults((value) => Math.max(0, value - 1))}>−</button><input id="context-adults" type="number" min="0" step="1" value={adults} onChange={(event) => setAdults(Number(event.target.value))} /><button type="button" aria-label="增加成人" onClick={() => setAdults((value) => value + 1)}>＋</button></span>

@@ -78,7 +78,8 @@ test("real API preserves selection, restores a session, and saves conditions wit
     if (mobile) await page.getByRole("button", { name: "关闭" }).click();
     await page.locator(".plan-card .plan-preview-button").nth(1).click();
     if (mobile) await page.locator(".plan-card").nth(1).getByRole("button", { name: /打开.+详情/ }).click();
-    await expect(page.locator(".inspector-plan-header")).toContainText("当前预览 · 未改变正式选择");
+    await expect(page.getByRole("region", { name: "当前预览方案" })).toContainText("当前预览");
+    await expect(page.getByRole("button", { name: /返回已选方案/ })).toBeVisible();
     expect((await snapshot()).selected_plan_id).toBe(selected.selected_plan_id);
   }
   await page.reload();

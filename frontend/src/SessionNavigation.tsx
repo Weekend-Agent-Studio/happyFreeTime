@@ -32,6 +32,9 @@ export function SessionNavigation({ recentSessions, sessionId, onNew, onOpen, on
   const [actionError, setActionError] = useState("");
   const [managingSessions, setManagingSessions] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const visibleSessions = collapsed
+    ? recentSessions.filter((session) => session.session_id === sessionId)
+    : recentSessions;
 
   function toggleSidebar() {
     setRenamingSessionId(null);
@@ -75,7 +78,7 @@ export function SessionNavigation({ recentSessions, sessionId, onNew, onOpen, on
       <button className="new-session-button" type="button" aria-label="新建规划" title={collapsed ? "新建规划" : undefined} onClick={onNew}><Plus size={18} aria-hidden="true" /><span className={collapsed ? "sr-only" : undefined}>新建规划</span></button>
       {!collapsed ? <div className="sidebar-section-label">最近会话</div> : null}
       <div className="session-history-list" aria-label="最近会话">
-        {recentSessions.map((session) => <div className={`session-row-shell ${managingSessions ? "managing" : ""}`} key={session.session_id} onContextMenu={(event) => { event.preventDefault(); setMenuSessionId(session.session_id); setActionError(""); }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuSessionId(null); }}>
+        {visibleSessions.map((session) => <div className={`session-row-shell ${managingSessions ? "managing" : ""}`} key={session.session_id} onContextMenu={(event) => { event.preventDefault(); setMenuSessionId(session.session_id); setActionError(""); }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuSessionId(null); }}>
           {renamingSessionId === session.session_id ? <form className="session-rename-form" onSubmit={(event) => { event.preventDefault(); void saveTitle(session.session_id); }}>
             <input autoFocus aria-label="规划名称" maxLength={120} value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setRenamingSessionId(null); }} />
             <button type="submit" aria-label="保存名称" disabled={!titleDraft.trim()}><Check size={15} /></button>

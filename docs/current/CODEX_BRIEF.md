@@ -94,9 +94,11 @@ S-UI1F 已把正式已选方案的单站替换接入现有 `/messages` 与 `/mes
 - S-UI1 后续协作与 C 执行任务书：`docs/collaboration/s_ui1_luna_handoff.md`。B 提交 `c3507d9`；连续切片沿用开发分支，默认由侧边会话实现、主会话集中验收，不启动子 agent。
 - C 实现 `f4e1911`，D 实现 `b24548d`，地图→行程滚动定位修复 `718f896`。主会话已完成 C+D 关键 diff/既有断言/代表截图的轻量验收，修复后静态核对收口；主会话未重跑测试。实现会话报告定位 E2E 桌面/移动通过、单测 56/56、构建及 diff 检查通过。
 - E1–E3 实现为 `ecffd3f`、`a36f48a`、`822df99`，验收修复为 `ee43f3e`；主会话已轻量验收收口。允许访问本地测试服务后，条件弹窗桌面短屏/375px 两项通过，E3 真实 API 恢复桌面/手机两项通过；修正测试计数器以同时覆盖普通与流式消息端点。此前网络受限记录保留为历史运行证据，当前详见 `docs/status/s_ui1e_conditions_hitl_20261020.md` 末尾补验。此快照未合并到 main，未重跑全套。
-- S-UI1F 已按 Target 任务书实现并独立提交；连续分支状态、验证结果和剩余边界见 `docs/status/s_ui1f_modification_closeout_20261020.md`。此分支仍未推送、合并或代表 main。
+- S-UI1F 已按 Target 任务书实现并独立提交；连续分支状态、验证结果和剩余边界见 `docs/status/s_ui1f_modification_closeout_20261020.md`。本分支已推送，仍未合并到 main；相关能力在合并前不代表 main 当前状态。
 
 ## 已知问题
+
+本分支的前端体验修整（2026-10-20）：以 prototype-v4 为主要参照，新增 `frontend/src/DateCalendar.tsx` 月历及键盘日期导航；日期时间弹窗桌面双栏/手机单栏，预设和滑块保持本地值一致。POI 使用紧凑固定返回栏，移动详情不重复完整方案头；方案卡片、行程轴和路线概览同步收紧。返回状态和正式选择合同保持。实现与验证见 `docs/status/s_ui1_frontend_refinement_20261020.md`；尚未合并到 main。
 
 1. `tests/test_s_rx3_quality.py::S_RX3QualityTest::test_all_day_top_plan_covers_multiple_periods`：默认 Beam 首方案缺少有意义的下午覆盖，Legacy 可通过。这里同时存在排序质量缺口和旧 fixture 对“全天”要求晚间覆盖的口径差异；应在独立 Planner 质量切片统一语义后修复，不能在 HITL PR 中调权或弱化断言。
 2. Demo World 的类别/候选覆盖有限。用户明确要求不存在的类别时，系统不应静默替代；这是独立的 semantic grounding / catalog coverage 问题。

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import { SessionNavigation } from "./SessionNavigation";
 import type { AgentResponse, Plan, PlanningContextSummary, PlanningRunEvent, RecoveryAction } from "./types";
 
 const api = vi.hoisted(() => ({
@@ -168,6 +169,8 @@ describe("planning workspace", () => {
     render(<App />);
     expect(document.querySelector(".app-header-title")).toHaveTextContent("周末规划");
     expect(document.querySelector(".app-header-title")).not.toHaveTextContent("HappyFreeTime");
+    expect(screen.getByText("YOUR WEEKEND, YOUR WAY")).toBeInTheDocument();
+    expect(document.querySelector(".welcome-sun")).toBeInTheDocument();
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
@@ -335,6 +338,23 @@ describe("planning workspace", () => {
     expect(confirmSpy).toHaveBeenCalled();
     expect(await screen.findByText("完成一次规划后，会话和方案会保留在这里。")).toBeInTheDocument();
     confirmSpy.mockRestore();
+  });
+
+  it("keeps only the active conversation marker in the collapsed sidebar", async () => {
+    const user = userEvent.setup();
+    const onOpenHistory = vi.fn();
+    const sessions = [
+      { session_id: "current", title: "当前规划", status: "completed", created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-02T00:00:00Z", last_message_preview: "已生成方案" },
+      { session_id: "older-1", title: "上周出游", status: "completed", created_at: "2026-09-28T00:00:00Z", updated_at: "2026-09-29T00:00:00Z", last_message_preview: "已生成方案" },
+      { session_id: "older-2", title: "晚餐计划", status: "completed", created_at: "2026-09-20T00:00:00Z", updated_at: "2026-09-21T00:00:00Z", last_message_preview: "已生成方案" },
+    ];
+    render(<SessionNavigation recentSessions={sessions} sessionId="current" onNew={vi.fn()} onOpen={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} collapsed onOpenHistory={onOpenHistory} />);
+
+    expect(screen.getByRole("button", { name: "当前规划" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "上周出游" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "晚餐计划" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "打开历史会话" }));
+    expect(onOpenHistory).toHaveBeenCalledOnce();
   });
 
   it("shows total party place fees without transport and preserves price uncertainty", async () => {
@@ -547,6 +567,7 @@ describe("planning workspace", () => {
     expect(within(card).queryByText("旧活动 → 错版本活动")).not.toBeInTheDocument();
     expect(within(card).queryByText("全程距离：减少 4.2 km")).not.toBeInTheDocument();
   });
+
   it("does not render a return node when route legs contain only inbound legs", async () => {
     const user = userEvent.setup();
     const noReturnPlan = plan("no-return", "无返程方案");
@@ -575,6 +596,11 @@ describe("planning workspace", () => {
 
     expect(await screen.findByText("准时出发")).toBeInTheDocument();
     expect(screen.getAllByText("14:30").length).toBeGreaterThan(0);
+    const supportingContent = document.querySelector(".plan-supporting-content");
+    const planGrid = document.querySelector(".plan-grid");
+    expect(supportingContent).not.toBeNull();
+    expect(supportingContent?.tagName).not.toBe("DETAILS");
+    expect(supportingContent?.compareDocumentPosition(planGrid as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("renders a dinner-only plan with one place, inbound route, and return route", async () => {
@@ -653,6 +679,8 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "查看第 1 站 展览 详情" }));
     expect(await screen.findByText(/测试路 1 号/)).toBeInTheDocument();
     expect(screen.queryByText(/演示评分|演示评论/)).not.toBeInTheDocument();
+    expect(document.querySelector(".plan-grid")).not.toHaveTextContent("POI 商业信息为模拟数据");
+    expect(document.querySelector(".plan-results-notes")).toHaveTextContent("POI 商业信息为模拟数据");
     await user.click(screen.getByText("数据与来源说明"));
     expect(document.querySelector(".poi-data-disclosure p")).toBeVisible();
     expect(document.querySelector(".poi-data-disclosure p")).toHaveTextContent("POI 商业信息为模拟数据");
@@ -778,7 +806,10 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
 
     expect(screen.getByRole("button", { name: "预览方案一" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("正在预览")).toBeInTheDocument();
+    const card = screen.getByRole("heading", { name: "方案一", level: 3 }).closest(".plan-card") as HTMLElement;
+    const cardFooter = card.querySelector(".plan-card-footer");
+    expect(cardFooter?.querySelector(".plan-metrics")).not.toBeNull();
+    expect(within(cardFooter as HTMLElement).getByRole("button", { name: "打开方案一详情" })).toHaveTextContent("正在右侧预览");
     expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument();
   });
 
@@ -795,7 +826,7 @@ describe("planning workspace", () => {
 
     expect(await screen.findByRole("button", { name: "已选择此方案" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "预览方案二" })).toHaveAttribute("aria-pressed", "true");
-    expect(document.querySelector('.plan-card.selected')).toHaveTextContent("当前已选");
+    expect(document.querySelector('.plan-card.selected')).toHaveTextContent("已选");
     expect(api.selectPlan).toHaveBeenCalledWith("session-test", "plan-two");
   });
 
@@ -813,10 +844,10 @@ describe("planning workspace", () => {
 
     await user.click(screen.getByRole("button", { name: "预览方案二" }));
     expect(document.querySelector(".plan-card.selected")).toHaveTextContent("方案一");
-    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("当前预览 · 未改变正式选择");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("当前预览");
     await user.click(screen.getByRole("button", { name: "返回已选方案：方案一" }));
     expect(screen.getByRole("button", { name: "预览方案一" })).toHaveAttribute("aria-pressed", "true");
-    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("当前正式选择");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("已正式选择");
     await user.click(screen.getByRole("button", { name: "预览方案二" }));
     const switchButton = screen.getByRole("button", { name: "选择此方案" });
     await user.click(switchButton);
@@ -959,12 +990,12 @@ describe("planning workspace", () => {
     await user.click(await screen.findByRole("button", { name: "预览旧版本方案" }));
 
     expect(document.querySelector(".plan-card.selected")).toBeNull();
-    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("历史版本 · 只读预览");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("历史预览 · 只读");
     expect(screen.getByRole("button", { name: "选择此方案" })).toBeDisabled();
     expect(screen.getByText("此方案来自历史版本，仅可预览。")).toBeInTheDocument();
     expect(within(document.querySelector(".detail-panel") as HTMLElement).getAllByRole("button", { name: "换这站" })[0]).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "返回已选方案：当前版本方案" }));
-    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("当前正式选择");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("已正式选择");
     expect(document.querySelector(".inspector-plan-header h2")).toHaveTextContent("当前版本方案");
     expect(api.selectPlan).not.toHaveBeenCalled();
   });
@@ -988,7 +1019,7 @@ describe("planning workspace", () => {
     await user.click(await screen.findByRole("button", { name: /缺少版本锚点的历史会话/ }));
     await user.click(await screen.findByRole("button", { name: "预览同名历史方案" }));
 
-    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("历史版本 · 只读预览");
+    expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("历史预览 · 只读");
     expect(screen.getByText("缺少方案版本归属信息；此方案仅可预览。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "选择此方案" })).toBeDisabled();
     expect(api.selectPlan).not.toHaveBeenCalled();
@@ -1273,7 +1304,7 @@ describe("planning workspace", () => {
 
     const detailPanel = document.querySelector(".detail-panel");
     expect(detailPanel).not.toBeNull();
-    expect(within(detailPanel as HTMLElement).queryByText("历史版本 · 只读预览")).not.toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).queryByText("历史预览 · 只读")).not.toBeInTheDocument();
     expect(detailPanel?.querySelector(".inspector-plan-header")).toHaveTextContent("方案二");
   });
 
@@ -1352,7 +1383,9 @@ describe("planning workspace", () => {
 
     const detailPanel = document.querySelector(".detail-panel");
     expect(detailPanel).not.toBeNull();
-    expect(within(detailPanel as HTMLElement).getByText("当前正式选择")).toBeVisible();
+    expect(within(detailPanel as HTMLElement).getByRole("heading", { name: "展览", level: 2 })).toBeVisible();
+    await user.click(within(detailPanel as HTMLElement).getByRole("button", { name: "返回行程" }));
+    expect(within(detailPanel as HTMLElement).getByText("已正式选择")).toBeVisible();
     expect(screen.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
   });
 
