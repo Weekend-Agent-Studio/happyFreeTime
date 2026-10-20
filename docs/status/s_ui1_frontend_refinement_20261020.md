@@ -19,7 +19,7 @@
 - 生产构建通过 TypeScript 检查与 Vite 构建。
 - `git diff --check` 通过。
 - Impeccable detector 已运行一次；报告主要为既有颜色/圆角与旧 DESIGN sidecar 的 advisory，不等于业务测试失败；本轮不扩大到设计配置迁移。
-- `pnpm --dir frontend test:integration` 的此前回归记录：6 passed（1.5 分钟），覆盖桌面/手机真实 FastAPI/临时 SQLite 的选择、条件、刷新、反问/恢复，以及单站替换/PlanDiff/失败恢复；本轮未重跑。外部 Provider 为离线数据，不是 Live 质量指标。
+- 真实 API 集成：`pnpm test:integration` 6/6 passed（1.6 分钟），覆盖桌面/手机真实 FastAPI/临时 SQLite 的选择、条件、刷新、反问/恢复，以及单站替换/PlanDiff/失败恢复。外部 Provider 为离线数据，不是 Live 质量指标。
 
 截图：`.impeccable/review/ui-refinement-{time,trip,poi}-{desktop,mobile}.png`。来自本分支本次完整实现；桌面/手机定向浏览器用例已更新并验证时间、行程、地点详情视图。
 
