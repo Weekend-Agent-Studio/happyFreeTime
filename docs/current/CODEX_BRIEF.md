@@ -74,7 +74,7 @@ S-UI1E1 已把五个条件 Chip 接入统一的 Base UI 编辑弹窗：日期/�
 
 S-UI1E2 已在“更多条件”编辑器开放精确站数（1–4）、`max_distance_km` 与 `total_distance_km`。后端 Summary 投影字段值/来源，封闭类型化 `PlanningContextPatch.advanced` 原子编译成现有用户来源 RequestPatch；普通保存保留旧版本并标 stale，显式重新规划才建立新版本。`max_distance_km` 同时约束候选检索范围与单段路线距离，不能标成纯搜索半径；全程累计距离独立编辑。宠物只作为普通偏好标签“携带宠物”，同行入口与偏好入口同步，旁注明确地点携宠许可未经核实；不作为人数、费用或 Verifier 硬约束。入口仍为 `app/api/schemas.py`、`app/api/planning_context.py`、`app/domain/constraints.py` 与上述前端组件。
 
-S-UI1E3 已把反问与恢复接入可追溯的产品交互：仅当前 clarification 可操作，旧问题只读；按后端 `allow_free_text` 限制输入，并对字段使用用户可理解的标签。`request_field` 只呈现服务端给出的选项。恢复条件变更先展示服务端 patch 的当前值/提议值，确认后才发送；取消零请求，并绑定 session、interaction/action、request revision 与 plan version。重复点击受锁保护，切换会话或交互过期会关闭旧确认且忽略旧异步结果。条件保存、重新规划、流式进度和会话恢复均在请求返回时校验 session epoch，避免旧会话结果改写当前状态。取消本轮、保留现有方案、开始新需求保持不同语义；失败可用同一 request_id 重试。实现入口为 `frontend/src/App.tsx`，以 `frontend/src/App.test.tsx` 和 `frontend/e2e/real-api.integration.spec.ts` 覆盖。当前单测和构建通过；运行环境仍拒绝浏览器访问 localhost，真实浏览器/API 链路与新截图尚未验证，不能将其记为通过。
+S-UI1E3 已把反问与恢复接入可追溯的产品交互：仅当前 clarification 可操作，旧问题只读；按后端 `allow_free_text` 限制输入，并对字段使用用户可理解的标签。`request_field` 只呈现服务端给出的选项。恢复条件变更先展示服务端 patch 的当前值/提议值，确认后才发送；取消零请求，并绑定 session、interaction/action、request revision 与 plan version。重复点击受锁保护，切换会话或交互过期会关闭旧确认且忽略旧异步结果。条件保存、重新规划、流式进度和会话恢复均在请求返回时校验 session epoch，避免旧会话结果改写当前状态。取消本轮、保留现有方案、开始新需求保持不同语义；失败可用同一 request_id 重试。实现入口为 `frontend/src/App.tsx`，以 `frontend/src/App.test.tsx` 和 `frontend/e2e/real-api.integration.spec.ts` 覆盖。实现会话单测和构建通过；主会话随后在允许本地服务访问的环境补验条件弹窗与 E3 真实恢复链路，桌面/手机共四项通过并生成截图，见下方当前可信证据。
 
 距离合同注意：`max_distance_km` 同时限制候选检索范围与单段路线距离；`total_distance_km` 是另一个全程累计距离上限。UI 已分别呈现，不推导两者大小关系或将前者描述成几何半径。宠物仅以未核实的普通偏好保存，不代表目录或 Verifier 已确认地点允许携宠。
 
@@ -89,7 +89,8 @@ S-UI1E3 已把反问与恢复接入可追溯的产品交互：仅当前 clarific
 - S-UI1C 当前分支快照及验证：`docs/status/s_ui1c_comparison_20261019.md`；覆盖候选预览/正式选择确认、历史只读和手机详情抽屉。
 - S-UI1 后续协作与 C 执行任务书：`docs/collaboration/s_ui1_luna_handoff.md`。B 提交 `c3507d9`；连续切片沿用开发分支，默认由侧边会话实现、主会话集中验收，不启动子 agent。
 - C 实现 `f4e1911`，D 实现 `b24548d`，地图→行程滚动定位修复 `718f896`。主会话已完成 C+D 关键 diff/既有断言/代表截图的轻量验收，修复后静态核对收口；主会话未重跑测试。实现会话报告定位 E2E 桌面/移动通过、单测 56/56、构建及 diff 检查通过。
-- E1–E3 的 Target 任务书：`docs/collaboration/s_ui1e_conditions_hitl_task.md`。当前分支提交为 E1 `ecffd3f`、E2 `a36f48a`，E3 状态与实际验证结果见 `docs/status/s_ui1e_conditions_hitl_20261020.md`；此快照不代表已合并到 main。E3 Playwright 在 `page.goto(http://127.0.0.1:4173/)` 遇到 `ERR_NETWORK_ACCESS_DENIED`，真实 API 集成服务也无法访问 `127.0.0.1`，均未产生浏览器行为验证或 E3 截图。
+- E1–E3 实现为 `ecffd3f`、`a36f48a`、`822df99`，验收修复为 `ee43f3e`；主会话已轻量验收收口。允许访问本地测试服务后，条件弹窗桌面短屏/375px 两项通过，E3 真实 API 恢复桌面/手机两项通过；修正测试计数器以同时覆盖普通与流式消息端点。此前网络受限记录保留为历史运行证据，当前详见 `docs/status/s_ui1e_conditions_hitl_20261020.md` 末尾补验。此快照未合并到 main，未重跑全套。
+- 下一片 F 的 Target 任务书：`docs/collaboration/s_ui1f_modification_closeout_task.md`；范围为单站修改、真实 PlanDiff 与最终产品回归，尚未执行，不推送或合并。
 
 ## 已知问题
 

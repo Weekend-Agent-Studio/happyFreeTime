@@ -154,7 +154,7 @@ test("real API preserves selection, restores a session, and saves conditions wit
 test("real API clarification requires confirmation before applying a recovery proposal", async ({ page, request }, testInfo) => {
   let messageWrites = 0;
   page.on("request", (apiRequest) => {
-    if (/\/api\/sessions\/[^/]+\/messages$/.test(new URL(apiRequest.url()).pathname) && apiRequest.method() === "POST") {
+    if (/\/api\/sessions\/[^/]+\/messages(?:\/stream)?$/.test(new URL(apiRequest.url()).pathname) && apiRequest.method() === "POST") {
       messageWrites += 1;
     }
   });

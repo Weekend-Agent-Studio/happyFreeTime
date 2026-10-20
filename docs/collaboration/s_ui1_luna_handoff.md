@@ -1,8 +1,8 @@
 # S-UI1 后续切片与 Luna 执行任务书
 
-状态：协作方式为 Current；C+D 已实现并完成轻量验收；E–F 为 Target / 尚未完成。更新于 2026-10-20。
+状态：协作方式为 Current；C+D+E 已实现并完成轻量验收；F 为 Target / 尚未完成。更新于 2026-10-20。
 
-进度更新：C `f4e1911`、D `b24548d`、定位修复 `718f896` 已完成主会话轻量验收，主会话未重跑测试。下一阶段执行 `docs/collaboration/s_ui1e_conditions_hitl_task.md` 的 E1→E2→E3，分别提交后集中验收。本文 C 原任务书与单独 D 任务书保留作对照，不表示 C/D 尚未实现。
+进度更新：C `f4e1911`、D `b24548d`、定位修复 `718f896` 已完成轻量验收；E1–E3 及 `ee43f3e` 修复已轻量验收，主会话补验条件弹窗与 E3 恢复各桌面/手机两项通过。下一阶段执行 `docs/collaboration/s_ui1f_modification_closeout_task.md`。旧任务书保留作对照，不表示 C/D/E 尚未实现。
 
 ## 协作方式
 

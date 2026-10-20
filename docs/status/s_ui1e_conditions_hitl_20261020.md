@@ -75,3 +75,14 @@
 
 - E1 在其独立提交时未能访问浏览器；E2 的真实桌面/手机 API 浏览器链路已覆盖条件取消、普通保存、stale、刷新和重新规划，但 E1 所有 ESC/键盘/焦点路径仍需更全面抽查。E3 单测与构建通过，但当前 sandbox 禁止 localhost socket，浏览器 E2E、真实 API 集成和 E3 截图仍待环境允许后补验。
 - 高德 JS SDK 在线成功路径仍是既有未验证项，不属于 E。
+
+## 主会话轻量验收与定向补验（2026-10-20）
+
+分类：Current。本节更新此前受环境限制的未验证项，不倒写上面的运行记录。
+
+- 静态核对 `ee43f3e` 的会话恢复、条件保存、重新规划、流式进度防串会话路径，以及独立 Popup 定位；未发现新的阻塞性业务缺口。
+- 允许本地测试服务访问后执行 `pnpm --dir frontend exec playwright test e2e/planning-flow.spec.ts --grep "planning condition dialog fits" --workers=1`：2 passed（桌面、375px），含桌面 1440×540 居中/按钮可见断言和焦点/关闭验证；已查看桌面短屏截图。
+- 首次补跑 E3 已触发并完成恢复，但消息写请求计数只匹配 `/messages`，漏掉实际 `/messages/stream`，两端均在计数断言失败；修正为同时匹配两种端点，取消零请求与确认单次请求断言保留。
+- 修正后执行 `pnpm --dir frontend exec playwright test --config playwright.integration.config.ts e2e/real-api.integration.spec.ts --grep "real API clarification" --workers=1`：2 passed（desktop-api、mobile-api，29.4 秒）。覆盖真实反问、严格预算恢复提案取消零写入、确认一次写入、succeeded 及后端条件持久化。
+- 已生成 `.impeccable/review/s-ui1e-context-dialog-desktop.png`，以及 `s-ui1e-clarification-{desktop-api,mobile-api}.png`、`s-ui1e-recovery-proposal-{desktop-api,mobile-api}.png`、`s-ui1e-recovery-outcome-{desktop-api,mobile-api}.png`。
+- 本次仅补验上述四项，不重复单测、构建或整套 E2E；此前实现会话结果见上文。E 轻量验收收口，完整产品回归留至 F。高德在线成功路径限制继续保留。
