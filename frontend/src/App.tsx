@@ -90,6 +90,27 @@ const ASSUMPTION_LABELS: Record<string, string> = {
   location: "出发地",
 };
 
+const CLARIFICATION_FIELD_LABELS: Record<string, string> = {
+  date: "出行日期",
+  location: "出发区域",
+  planning_area: "出发区域",
+  budget_per_person: "人均预算",
+  strict_budget: "预算约束方式",
+  exact_stop_count: "精确站数",
+  max_distance_km: "检索及单段距离上限",
+  total_distance_km: "全程累计距离上限",
+  start_at: "出发时间",
+  departure_at: "出发时间",
+  end_at: "结束时间",
+  return_by: "最晚到家时间",
+  party: "同行人",
+  preferences: "出行偏好",
+};
+
+function clarificationFieldLabel(field: string | null | undefined): string {
+  return field ? CLARIFICATION_FIELD_LABELS[field] ?? "相关信息" : "相关信息";
+}
+
 const SESSION_QUERY_KEY = "session";
 type InspectorTab = "trip" | "map";
 
@@ -129,6 +150,14 @@ type PlanSelectionTarget = {
   planVersionId: string;
   planId: string;
   planTitle: string;
+};
+
+type PendingRecoveryConfirmation = {
+  sessionId: string;
+  interaction: RecoveryChoice;
+  action: Extract<RecoveryAction, { kind: "apply_request_patch" }>;
+  contextRevision: number | null;
+  context: PlanningContextSummary | null;
 };
 
 type ReplacementPreset = "similar" | "shorter" | "quiet" | "chatty" | "family";
@@ -644,6 +673,24 @@ function recoveryLifecycleFromResponse(response: AgentResponse): Pick<RecoveryLi
   return { status: "finished", summary: "恢复操作已处理。" };
 }
 
+function isCurrentRecoveryAction(
+  response: AgentResponse | null,
+  interaction: RecoveryChoice,
+  action: RecoveryAction,
+): boolean {
+  const current = response?.recovery;
+  return response?.status === "needs_recovery"
+    && current?.interaction_id === interaction.interaction_id
+    && current.request_revision === interaction.request_revision
+    && current.plan_version_id === interaction.plan_version_id
+    && current.actions.some((candidate) => (
+      candidate.action_id === action.action_id
+      && candidate.kind === action.kind
+      && candidate.request_revision === action.request_revision
+      && candidate.plan_version_id === action.plan_version_id
+    ));
+}
+
 function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
@@ -662,6 +709,7 @@ function App() {
   const [selectionConfirmation, setSelectionConfirmation] = useState<PlanSelectionTarget | null>(null);
   const [selectionPendingPlanId, setSelectionPendingPlanId] = useState<string | null>(null);
   const [selectionError, setSelectionError] = useState("");
+  const [pendingRecoveryConfirmation, setPendingRecoveryConfirmation] = useState<PendingRecoveryConfirmation | null>(null);
   const [focusedLegIndex, setFocusedLegIndex] = useState<number | null>(null);
   const [rightTab, setRightTab] = useState<InspectorTab>("trip");
   const [poiNavigation, setPoiNavigation] = useState<PoiNavigation | null>(null);
@@ -684,9 +732,12 @@ function App() {
   const conversationRef = useRef<HTMLElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const sessionEpochRef = useRef(0);
   const activePlanVersionIdRef = useRef<string | null>(null);
   const activePlanSnapshotRef = useRef<AgentResponse | null>(null);
   const selectionInFlightRef = useRef(false);
+  const recoveryActionInFlightRef = useRef(false);
+  const recoveryActionTokenRef = useRef(0);
   const selectionRequestTokenRef = useRef(0);
   const poiNavigationRef = useRef<PoiNavigation | null>(null);
   const timelineRouteScrollRef = useRef<TimelineRouteScrollTarget | null>(null);
@@ -700,6 +751,18 @@ function App() {
   }>({ sessionId: null, response: null, plan: undefined, tab: "trip", legIndex: null, isMobile: false });
   const desktopInspectorScrollRef = useRef<HTMLElement>(null);
   const mobileInspectorScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pendingRecoveryConfirmation) return;
+    const { sessionId: capturedSessionId, interaction, action, contextRevision } = pendingRecoveryConfirmation;
+    if (
+      sessionId !== capturedSessionId
+      || (planningContext?.request_revision ?? null) !== contextRevision
+      || !isCurrentRecoveryAction(response, interaction, action)
+    ) {
+      setPendingRecoveryConfirmation(null);
+    }
+  }, [pendingRecoveryConfirmation, planningContext?.request_revision, response, sessionId]);
 
   function invalidateSelectionFlow() {
     selectionRequestTokenRef.current += 1;
@@ -884,9 +947,14 @@ function App() {
 
   const openSession = useCallback(async (nextSessionId: string, navigate = true) => {
     invalidateSelectionFlow();
+    sessionEpochRef.current += 1;
+    recoveryActionTokenRef.current += 1;
+    recoveryActionInFlightRef.current = false;
     sessionIdRef.current = null;
     activePlanVersionIdRef.current = null;
     activePlanSnapshotRef.current = null;
+    setPendingRecoveryConfirmation(null);
+    setLoading(false);
     setRestoring(true);
     setError("");
     setFailedRequest(null);
@@ -965,9 +1033,14 @@ function App() {
       if (nextSessionId) void openSession(nextSessionId, false);
       else {
         invalidateSelectionFlow();
+        sessionEpochRef.current += 1;
+        recoveryActionTokenRef.current += 1;
+        recoveryActionInFlightRef.current = false;
         sessionIdRef.current = null;
         activePlanVersionIdRef.current = null;
         activePlanSnapshotRef.current = null;
+        setPendingRecoveryConfirmation(null);
+        setLoading(false);
         setSessionId(null);
         setMessages([]);
         setProgressEvents([]);
@@ -1006,6 +1079,7 @@ function App() {
         : ""
     );
     if (!trimmed || loading || restoring) return;
+    const requestEpoch = sessionEpochRef.current;
     invalidateSelectionFlow();
     const effectiveClarificationReply = clarificationReply ?? (
       response?.question?.clarification_id && !conversationCommand && !recoveryAction
@@ -1043,6 +1117,7 @@ function App() {
     try {
       if (!activeSession) {
         activeSession = await createSession();
+        if (requestEpoch !== sessionEpochRef.current) return;
         sessionIdRef.current = activeSession;
         activePlanVersionIdRef.current = null;
         activePlanSnapshotRef.current = null;
@@ -1074,6 +1149,7 @@ function App() {
         effectiveClarificationReply,
         recoveryAction,
       );
+      if (requestEpoch !== sessionEpochRef.current || sessionIdRef.current !== activeSession) return;
       if (nextResponse.status === "failed" && nextResponse.failure?.retryable) {
         setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply, recoveryAction });
       } else {
@@ -1093,7 +1169,16 @@ function App() {
       if (nextResponse.recovery_resolution === "open_constraint_editor") setContextFocus("all");
       setResponse(nextResponse);
       setPlanningContext(nextResponse.planning_context ?? null);
-      if (nextResponse.plans.length) {
+      if (nextResponse.recovery_resolution === "start_new_request") {
+        activePlanVersionIdRef.current = null;
+        activePlanSnapshotRef.current = null;
+        setInspectedResponse(nextResponse);
+        setSelectedPlanId(null);
+        setViewedPlanId(null);
+        setFocusedLegIndex(null);
+        setReplacementDraft(null);
+        setRightTab("trip");
+      } else if (nextResponse.plans.length) {
         activePlanVersionIdRef.current = nextResponse.plan_version_id ?? null;
         activePlanSnapshotRef.current = nextResponse;
         setInspectedResponse(nextResponse);
@@ -1113,6 +1198,7 @@ function App() {
       }
       await refreshRecentSessions();
     } catch (reason) {
+      if (requestEpoch !== sessionEpochRef.current || (activeSession && sessionIdRef.current !== activeSession)) return;
       setError(reason instanceof Error ? reason.message : "请求失败，请稍后重试");
       if (recoveryAction && recoveryInteractionId) {
         setRecoveryLifecycle((current) => ({
@@ -1127,8 +1213,10 @@ function App() {
       }
       if (activeSession) await refreshRecentSessions();
     } finally {
-      setLoading(false);
-      setProgressEvents([]);
+      if (requestEpoch === sessionEpochRef.current) {
+        setLoading(false);
+        setProgressEvents([]);
+      }
     }
   }
 
@@ -1236,7 +1324,21 @@ function App() {
   }
 
   function onClarificationOption(option: ClarificationOption, question: NonNullable<AgentResponse["question"]>, answerValue: string | null = null) {
-    if (!question.clarification_id || loading || restoring) return;
+    const currentQuestion = response?.question;
+    const isDatePickerAnswer = question.field === "date" && option.id === "answer-date" && option.action === "answer" && Boolean(answerValue);
+    const optionIsCurrent = isDatePickerAnswer || currentQuestion?.options?.some((currentOption) => (
+      currentOption.id === option.id && currentOption.action === option.action
+    ));
+    if (
+      !question.clarification_id
+      || loading
+      || restoring
+      || newRequestMode
+      || response?.status !== "needs_input"
+      || currentQuestion?.clarification_id !== question.clarification_id
+      || currentQuestion.request_revision !== question.request_revision
+      || !optionIsCurrent
+    ) return;
     if (option.action === "new_request") {
       setNewRequestMode(true);
       setInput("");
@@ -1259,18 +1361,77 @@ function App() {
     interaction: RecoveryChoice,
     fieldValue?: string,
   ) {
-    if (loading || restoring) return;
+    if (loading || restoring || recoveryActionInFlightRef.current || pendingRecoveryConfirmation) return;
+    if (!isCurrentRecoveryAction(response, interaction, action)) {
+      setError("这项恢复建议已过期，请使用当前状态继续。");
+      return;
+    }
+    if (action.kind === "apply_request_patch") {
+      const activeSessionId = sessionIdRef.current ?? sessionId;
+      const changes = recoveryPatchChanges(action, planningContext);
+      if (!activeSessionId || !changes.length) {
+        setError("服务器返回的恢复提案暂时无法安全展示，尚未提交。");
+        return;
+      }
+      setError("");
+      setPendingRecoveryConfirmation({
+        sessionId: activeSessionId,
+        interaction,
+        action,
+        contextRevision: planningContext?.request_revision ?? null,
+        context: planningContext,
+      });
+      return;
+    }
+    dispatchRecoveryAction(action, interaction, fieldValue);
+  }
+
+  function dispatchRecoveryAction(action: RecoveryAction, interaction: RecoveryChoice, fieldValue?: string) {
+    if (loading || restoring || recoveryActionInFlightRef.current) return;
+    const actionToken = ++recoveryActionTokenRef.current;
+    recoveryActionInFlightRef.current = true;
     void submit(action.label, undefined, undefined, {
       interaction_id: interaction.interaction_id,
       action_id: action.action_id,
       request_revision: action.request_revision,
       plan_version_id: action.plan_version_id,
       ...(fieldValue !== undefined ? { field_value: fieldValue } : {}),
+    }).finally(() => {
+      if (recoveryActionTokenRef.current === actionToken) recoveryActionInFlightRef.current = false;
+    });
+  }
+
+  function confirmRecoveryProposal() {
+    const pending = pendingRecoveryConfirmation;
+    if (!pending || loading || restoring || recoveryActionInFlightRef.current) return;
+    if (
+      sessionIdRef.current !== pending.sessionId
+      || sessionId !== pending.sessionId
+      || (planningContext?.request_revision ?? null) !== pending.contextRevision
+      || !isCurrentRecoveryAction(response, pending.interaction, pending.action)
+    ) {
+      setPendingRecoveryConfirmation(null);
+      setError("当前条件或恢复建议已变化，请重新打开最新的建议。");
+      return;
+    }
+    const actionToken = ++recoveryActionTokenRef.current;
+    recoveryActionInFlightRef.current = true;
+    setPendingRecoveryConfirmation(null);
+    void submit(pending.action.label, undefined, undefined, {
+      interaction_id: pending.interaction.interaction_id,
+      action_id: pending.action.action_id,
+      request_revision: pending.action.request_revision,
+      plan_version_id: pending.action.plan_version_id,
+    }).finally(() => {
+      if (recoveryActionTokenRef.current === actionToken) recoveryActionInFlightRef.current = false;
     });
   }
 
   function resetSession() {
     invalidateSelectionFlow();
+    sessionEpochRef.current += 1;
+    recoveryActionTokenRef.current += 1;
+    recoveryActionInFlightRef.current = false;
     sessionIdRef.current = null;
     activePlanVersionIdRef.current = null;
     activePlanSnapshotRef.current = null;
@@ -1284,8 +1445,10 @@ function App() {
     setSelectedPlanId(null);
     setViewedPlanId(null);
     setReplacementDraft(null);
+    setPendingRecoveryConfirmation(null);
     setRecoveryLifecycle({});
     setFocusedLegIndex(null);
+    setLoading(false);
     setFailedRequest(null);
     setError("");
     setHistoryOpen(false);
@@ -1493,6 +1656,15 @@ function App() {
     void submit(input || `更换第 ${replacementDraft.stopIndex + 1} 站：${REPLACEMENT_PRESET_LABELS[mode]}`, command);
   }, [input, loading, replacementDraft, restoring]);
 
+  const activeClarification = response?.status === "needs_input" && !newRequestMode
+    ? response.question
+    : null;
+  const clarificationBlocksFreeText = Boolean(
+    response?.question
+    && response.question.allow_free_text === false
+    && !newRequestMode,
+  );
+
   return (
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${inspectorCollapsed ? "inspector-collapsed" : ""}`}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
@@ -1524,6 +1696,10 @@ function App() {
                 key={message.id}
                 message={message}
                 loading={loading || restoring}
+                currentPlanningContext={planningContext}
+                activeClarification={Boolean(activeClarification?.clarification_id
+                  && message.response?.question?.clarification_id === activeClarification.clarification_id
+                  && message.response.question.request_revision === activeClarification.request_revision)}
                 activeRecoveryInteractionId={response?.recovery?.interaction_id ?? null}
                 recoveryLifecycle={recoveryLifecycle}
                 selectedPlan={message.response === detailResponse ? inspectorPlan : message.response?.plans[0]}
@@ -1540,7 +1716,20 @@ function App() {
             </div>
           )}
 
-          {error ? <div className="error-banner" role="alert"><CircleAlert size={17} />{error}</div> : null}
+          {error ? (
+            <div className="error-banner" role="alert">
+              <CircleAlert size={17} aria-hidden="true" />
+              <span>{error}</span>
+              {failedRequest && failedRequest.sessionId === sessionId ? (
+                <button type="button" disabled={loading || restoring} onClick={() => void submit(
+                  failedRequest.content,
+                  failedRequest.conversationCommand,
+                  failedRequest.clarificationReply,
+                  failedRequest.recoveryAction,
+                )}>重试本次请求</button>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <div className="composer-dock">
@@ -1561,13 +1750,13 @@ function App() {
               </div>
             </section>
           ) : null}
-          {response?.recovery ? <div className="clarification-status" role="status">请选择上方恢复操作；这些操作会按当前条件重新检查。</div> : response?.question || newRequestMode ? <div className="clarification-status" role="status">{newRequestMode ? "正在输入新的规划需求" : `正在回答：${response?.question?.field ?? "待补充信息"}`}</div> : null}
+          {response?.recovery ? <div className="clarification-status" role="status">请选择上方恢复操作；这些操作会按当前条件重新检查。</div> : response?.question || newRequestMode ? <div className="clarification-status" role="status">{newRequestMode ? "正在输入新的规划需求" : `正在回答：${clarificationFieldLabel(response?.question?.field)}`}</div> : null}
           <form className="composer" onSubmit={onSubmit}>
             <label className="sr-only" htmlFor="planning-input">{response?.recovery ? "请先选择恢复操作" : response?.question ? (newRequestMode ? "输入新的规划需求" : "补充这个信息后继续") : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
             <div className="composer-row">
               <div className="composer-tools" aria-hidden="true"><Compass size={20} /></div>
-              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.recovery ? "请先选择上方的恢复方式" : newRequestMode ? "描述新的规划需求……" : response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring || Boolean(response?.recovery)} />
-              <button type="submit" disabled={loading || restoring || Boolean(response?.recovery) || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
+              <input id="planning-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={response?.recovery ? "请先选择上方的恢复方式" : newRequestMode ? "描述新的规划需求……" : clarificationBlocksFreeText ? "请使用上方选项补充信息" : response?.question?.question ?? (replacementDraft ? "例如：想吃少辣的，环境安静一点（可选）" : "继续描述新的规划需求……")} disabled={loading || restoring || Boolean(response?.recovery) || clarificationBlocksFreeText} />
+              <button type="submit" disabled={loading || restoring || Boolean(response?.recovery) || clarificationBlocksFreeText || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
             </div>
           </form>
         </div>
@@ -1588,6 +1777,42 @@ function App() {
        <MobileSheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen} title="方案工作区" description="查看当前预览方案；只有右侧确认会更新正式选择。" contentRef={mobileInspectorScrollRef}>
           {isMobile && mobileDetailOpen ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} canReplace={canReplaceInspectorPlan} poiNavigation={activePoiNavigation} onOpenPoi={openPoiDetail} onBackFromPoi={closePoiDetail} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onFocusMapRoute={focusRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
       </MobileSheet>
+
+      <Dialog.Root
+        open={Boolean(pendingRecoveryConfirmation)}
+        onOpenChange={(open) => { if (!open && !loading) setPendingRecoveryConfirmation(null); }}
+      >
+        <Dialog.Portal>
+          <Dialog.Backdrop className="recovery-confirm-backdrop" />
+          <Dialog.Popup className="selection-dialog recovery-confirm-dialog">
+            <div className="selection-dialog-heading">
+              <div className="selection-dialog-icon"><Info size={18} aria-hidden="true" /></div>
+              <div>
+                <Dialog.Title>确认调整条件</Dialog.Title>
+                <Dialog.Description>这是服务端提出的条件变更。确认后才会提交并继续处理，结果以实际返回为准。</Dialog.Description>
+              </div>
+            </div>
+            <div className="recovery-confirm-changes" aria-label="提案条件变化">
+              {pendingRecoveryConfirmation && recoveryPatchChanges(pendingRecoveryConfirmation.action, pendingRecoveryConfirmation.context).map((change, index) => (
+                <div className="recovery-confirm-change" key={`${change.field}-${index}`}>
+                  <strong>{change.label}</strong>
+                  <div><span>当前条件</span><span>{change.before}</span></div>
+                  <div><span>确认后</span><span>{change.after}</span></div>
+                </div>
+              ))}
+            </div>
+            <div className="selection-dialog-actions">
+              <Dialog.Close className="selection-dialog-cancel">取消</Dialog.Close>
+              <button
+                type="button"
+                className="selection-dialog-confirm"
+                disabled={!pendingRecoveryConfirmation || loading || restoring}
+                onClick={confirmRecoveryProposal}
+              >确认并继续</button>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <Dialog.Root open={Boolean(selectionConfirmation)} onOpenChange={(open) => { if (!open) setSelectionConfirmation(null); }}>
         <Dialog.Portal>
@@ -1654,41 +1879,123 @@ function ButlerAvatar() {
 }
 
 const RECOVERY_FIELD_LABELS: Record<string, string> = {
-  max_distance_km: "搜索范围",
-  total_distance_km: "全程距离上限",
-  exact_stop_count: "站点数量",
+  max_distance_km: "检索及单段距离上限",
+  total_distance_km: "全程累计距离上限",
+  exact_stop_count: "精确站数",
   required_stop_roles: "站点要求",
   budget_per_person: "人均预算",
+  strict_budget: "预算约束方式",
   return_by: "最晚回家时间",
   start_at: "出发时间",
   end_at: "结束时间",
   "planning_window.end_at": "结束时间",
   "planning_window.start_at": "出发时间",
+  planning_area: "出发区域",
+  location: "出发区域",
   trip_time_scope: "出行时段",
 };
 
-function recoveryDisplayValue(value: unknown): string {
-  if (Array.isArray(value)) return value.join("、");
-  if (value && typeof value === "object") return "已更新";
-  if (value === null || value === undefined) return "已清除";
-  return String(value);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function recoveryPatchPreview(action: RecoveryAction): string | null {
-  if (action.kind !== "apply_request_patch" || !action.patch || typeof action.patch !== "object") return null;
-  const patch = action.patch as { set_fields?: Record<string, unknown>; clear_fields?: string[] };
-  const changes = Object.entries(patch.set_fields ?? {}).map(([field, value]) =>
-    `${RECOVERY_FIELD_LABELS[field] ?? field} → ${recoveryDisplayValue(value)}`,
-  );
-  for (const field of patch.clear_fields ?? []) changes.push(`${RECOVERY_FIELD_LABELS[field] ?? field} → 清除`);
-  return changes.length ? `将调整：${changes.join("；")}` : null;
+function recoveryFieldLabel(field: string): string {
+  return RECOVERY_FIELD_LABELS[field] ?? "其他条件";
 }
 
-function RecoveryCard({ interaction, loading, active, lifecycle, onChoose }: {
+function recoveryDisplayValue(field: string, value: unknown): string {
+  if (isRecord(value)) {
+    if (Object.prototype.hasOwnProperty.call(value, "value")) return recoveryDisplayValue(field, value.value);
+    if (["planning_area", "location"].includes(field) && typeof value.address === "string") return value.address;
+    return "包含复合条件，具体内容由服务端校验";
+  }
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map((item) => recoveryDisplayValue(field, item)).join("、")
+      : "无";
+  }
+  if (value === null || value === undefined) return "未设置";
+  if (typeof value === "boolean") {
+    if (field === "strict_budget") return value ? "严格上限" : "参考条件";
+    return value ? "是" : "否";
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return "未提供有效数值";
+    if (field === "max_distance_km" || field === "total_distance_km") return `${value} km`;
+    if (field === "exact_stop_count") return `${value} 个站点`;
+    if (field === "budget_per_person") return `¥${value}/人`;
+    return String(value);
+  }
+  if (typeof value === "string") return value || "空值";
+  return "包含复合条件，具体内容由服务端校验";
+}
+
+function currentRecoveryFieldValue(field: string, context: PlanningContextSummary | null): { available: boolean; value?: unknown } {
+  if (!context) return { available: false };
+  if (field === "max_distance_km") return { available: true, value: context.max_distance_km.value };
+  if (field === "total_distance_km") return { available: true, value: context.total_distance_km.value };
+  if (field === "exact_stop_count") return { available: true, value: context.exact_stop_count.value };
+  if (field === "budget_per_person") {
+    const budget = context.budget.value;
+    return { available: isRecord(budget), value: isRecord(budget) ? budget.amount : undefined };
+  }
+  if (field === "strict_budget") {
+    const budget = context.budget.value;
+    return { available: isRecord(budget), value: isRecord(budget) ? budget.strict : undefined };
+  }
+  if (["start_at", "planning_window.start_at"].includes(field)) return { available: true, value: context.when.start_at.value };
+  if (["end_at", "planning_window.end_at", "return_by"].includes(field)) return { available: true, value: context.when.end_at.value };
+  if (["planning_area", "location"].includes(field)) return { available: true, value: context.where.value };
+  return { available: false };
+}
+
+type RecoveryProposalChange = { field: string; label: string; before: string; after: string };
+
+function recoveryPatchChanges(
+  action: Extract<RecoveryAction, { kind: "apply_request_patch" }>,
+  context: PlanningContextSummary | null,
+): RecoveryProposalChange[] {
+  if (!isRecord(action.patch)) return [];
+  const patch = action.patch;
+  const changes: RecoveryProposalChange[] = [];
+  const currentValue = (field: string) => {
+    const current = currentRecoveryFieldValue(field, context);
+    return current.available ? recoveryDisplayValue(field, current.value) : "当前值未在摘要中返回";
+  };
+  const setFields = patch.set_fields;
+  if (isRecord(setFields)) {
+    for (const [field, value] of Object.entries(setFields)) {
+      changes.push({ field, label: recoveryFieldLabel(field), before: currentValue(field), after: recoveryDisplayValue(field, value) });
+    }
+  }
+  if (Array.isArray(patch.clear_fields)) {
+    for (const field of patch.clear_fields) {
+      if (typeof field !== "string") continue;
+      changes.push({ field, label: recoveryFieldLabel(field), before: currentValue(field), after: "清除这项条件" });
+    }
+  }
+  for (const [operation, verb] of [["add_to_fields", "增加"], ["remove_from_fields", "移除"]] as const) {
+    const fields = patch[operation];
+    if (!isRecord(fields)) continue;
+    for (const [field, values] of Object.entries(fields)) {
+      const valueList = Array.isArray(values) ? values : [values];
+      changes.push({
+        field,
+        label: recoveryFieldLabel(field),
+        before: currentValue(field),
+        after: `${verb}：${valueList.map((value) => recoveryDisplayValue(field, value)).join("、")}`,
+      });
+    }
+  }
+  return changes;
+}
+
+function RecoveryCard({ interaction, loading, active, lifecycle, planningContext, onChoose }: {
   interaction: RecoveryChoice;
   loading: boolean;
   active: boolean;
   lifecycle?: RecoveryLifecycle;
+  planningContext: PlanningContextSummary | null;
   onChoose: (action: RecoveryAction, interaction: RecoveryChoice, fieldValue?: string) => void;
 }) {
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -1711,7 +2018,7 @@ function RecoveryCard({ interaction, loading, active, lifecycle, onChoose }: {
         <div className="recovery-change-list" aria-label="恢复后的条件变化">
           {lifecycle.fieldChanges.map((change) => (
             <span key={`${change.field}-${change.before}-${change.after}`}>
-              {RECOVERY_FIELD_LABELS[change.field] ?? change.field}：{recoveryDisplayValue(change.before)} → {recoveryDisplayValue(change.after)}
+              {recoveryFieldLabel(change.field)}：{recoveryDisplayValue(change.field, change.before)} → {recoveryDisplayValue(change.field, change.after)}
             </span>
           ))}
         </div>
@@ -1753,7 +2060,9 @@ function RecoveryCard({ interaction, loading, active, lifecycle, onChoose }: {
         ) : (
           <button className="recovery-action-button" type="button" key={action.action_id} disabled={loading || !active} onClick={() => onChoose(action, interaction)}>
             <span>{action.label}</span>
-            {recoveryPatchPreview(action) ? <small className="recovery-preview">{recoveryPatchPreview(action)}</small> : null}
+            {action.kind === "apply_request_patch" && recoveryPatchChanges(action, planningContext).length ? (
+              <small className="recovery-preview">提案：{recoveryPatchChanges(action, planningContext).map(({ label, after }) => `${label} → ${after}`).join("；")}</small>
+            ) : null}
             {action.description ? <small>{action.description}</small> : null}
           </button>
         ))}
@@ -1764,9 +2073,11 @@ function RecoveryCard({ interaction, loading, active, lifecycle, onChoose }: {
   );
 }
 
-function ChatBubble({ message, loading, activeRecoveryInteractionId, recoveryLifecycle, selectedPlan, selectedPlanId, onViewPlan, onOpenPlanDetails, onClarificationOption, onRecoveryAction, onOpenContext, onRetry }: {
+function ChatBubble({ message, loading, currentPlanningContext, activeClarification, activeRecoveryInteractionId, recoveryLifecycle, selectedPlan, selectedPlanId, onViewPlan, onOpenPlanDetails, onClarificationOption, onRecoveryAction, onOpenContext, onRetry }: {
   message: ChatMessage;
   loading: boolean;
+  currentPlanningContext: PlanningContextSummary | null;
+  activeClarification: boolean;
   activeRecoveryInteractionId: string | null;
   recoveryLifecycle: Record<string, RecoveryLifecycle>;
   selectedPlan?: Plan;
@@ -1782,11 +2093,15 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, recoveryLif
     message.response && (
       message.response.plans.length > 0
       || message.response.conflict
-      || message.response.question?.options?.length
-      || message.response.question?.field === "date"
+      || message.response.question
       || message.response.recovery
       || message.response.failure
     ),
+  );
+  const recoveryIsActive = Boolean(
+    message.response?.recovery
+    && activeRecoveryInteractionId === message.response.recovery.interaction_id
+    && message.response.status === "needs_recovery",
   );
   return (
     <article className={`message ${message.role} ${message.response?.plans.length ? "rich-turn" : ""} ${usesStructuredResponse ? "structured-turn" : ""}`}>
@@ -1794,38 +2109,40 @@ function ChatBubble({ message, loading, activeRecoveryInteractionId, recoveryLif
       <div className="message-content">
         <span>{message.role === "user" ? "你" : "周末管家"}</span>
         {message.content && !usesStructuredResponse ? <p>{message.content}</p> : null}
-        {message.response?.question && (message.response.question.options?.length || message.response.question.field === "date") ? (
+        {message.response?.question ? (
           <section
-            className="clarification-card"
+            className={`clarification-card ${activeClarification ? "" : "clarification-card-readonly"}`}
             role="group"
-            aria-label={message.response.question.field === "date" ? "确认出行日期" : "补充信息选项"}
+            aria-label={message.response.question.field === "date" ? "确认出行日期" : message.response.question.options?.length ? "补充信息选项" : "补充信息"}
           >
-            <strong>需要补充：{message.response.question.field === "date" ? "出行日期" : message.response.question.field ?? "相关信息"}</strong>
+            <strong>需要补充：{clarificationFieldLabel(message.response.question.field)}</strong>
             <p>{message.response.question.question}</p>
+            {!activeClarification ? <small className="clarification-readonly-note">这条问题可继续查看，但已过期或属于历史记录，不能重复操作。</small> : null}
             {message.response.question.field === "date" ? (
               <ClarificationDatePicker
                 key={`${message.id}-${message.response.question.clarification_id ?? "date"}`}
-                disabled={loading}
+                disabled={loading || !activeClarification}
                 onSubmit={(value) => onClarificationOption({ id: "answer-date", label: "确认日期", action: "answer" }, value)}
               />
             ) : null}
             {message.response.question.options?.length ? (
               <div className="clarification-options">
                 {message.response.question.options.map((option) => (
-                  <button type="button" key={option.id} disabled={loading} onClick={() => onClarificationOption(option)}>{option.label}</button>
+                  <button type="button" key={option.id} disabled={loading || !activeClarification} onClick={() => onClarificationOption(option)}>{option.label}</button>
                 ))}
               </div>
             ) : null}
-            {clarificationSection(message.response.question.field) ? <button type="button" className="clarification-context-link" disabled={loading} onClick={onOpenContext}>去顶部修改</button> : null}
-            {message.response.question.allow_free_text === false ? <small>请使用上面的选项继续，避免重复询问。</small> : <small>也可以在下方直接输入。</small>}
+            {activeClarification && clarificationSection(message.response.question.field) ? <button type="button" className="clarification-context-link" disabled={loading} onClick={onOpenContext}>去顶部修改</button> : null}
+            {activeClarification && message.response.question.allow_free_text === false ? <small>请使用上面的选项继续，避免重复询问。</small> : activeClarification ? <small>也可以在下方直接输入。</small> : null}
           </section>
         ) : null}
         {message.response?.recovery ? (
           <RecoveryCard
             interaction={message.response.recovery}
             loading={loading}
-            active={activeRecoveryInteractionId === message.response.recovery.interaction_id && message.response.status === "needs_recovery"}
+            active={recoveryIsActive}
             lifecycle={recoveryLifecycle[message.response.recovery.interaction_id]}
+            planningContext={recoveryIsActive ? currentPlanningContext : message.response.planning_context ?? null}
             onChoose={onRecoveryAction}
           />
         ) : null}

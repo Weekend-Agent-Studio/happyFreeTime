@@ -36,9 +36,23 @@
 
 ## E3：Clarification / Recovery 产品交互
 
-待实施。完成后在此记录真实交互链路验证、前端最终门槛、截图路径和 commit。
+实现：只有当前反问卡片可操作；过期问题保留为只读历史。按 `allow_free_text` 限制自由输入，字段名映射为产品用语；`request_field` 只提交服务端提供的选项。恢复 patch 先以服务端提案展示当前值和建议值，用户确认后才提交，取消不会发请求。确认绑定会话、交互/动作、请求 revision 和方案版本；会话切换、上下文变化或交互过期会关闭确认，旧会话异步响应不能覆盖当前会话。恢复动作有重复提交锁；取消本轮、保留当前方案、开始新需求分别消费服务端响应，开始新需求会清除前端旧方案视图但不自行修改后端选择。失败保留可重试操作，沿用原 request_id。
+
+关键文件：`frontend/src/App.tsx`、`frontend/src/App.test.tsx`、`frontend/src/styles.css`、`frontend/e2e/real-api.integration.spec.ts`。
+
+验证：
+
+- `pnpm --dir frontend exec vitest run --pool=forks --maxWorkers=1 --testTimeout=15000`：5 files passed，69 tests passed。显式增大 Vitest 单测超时用于规避本机低速导致的 5 秒超时；没有跳过断言。
+- `pnpm --dir frontend build`：通过 TypeScript 检查及 Vite production build。
+- `git diff --check`：通过。
+- `pnpm --dir frontend test:e2e --workers=1`：未通过；28 项在打开 `http://127.0.0.1:4173/` 时收到 `net::ERR_NETWORK_ACCESS_DENIED`，2 项跳过。失败发生在页面加载之前，不能证明浏览器交互通过或应用断言失败。
+- `pnpm --dir frontend test:integration`：未能启动本地 FastAPI/Vite 浏览器链路。单独检查 `127.0.0.1:8007` 时 PowerShell 报告套接字访问权限不允许；未得到集成用例结果。
+- 已增加真实 API/临时 SQLite 场景，覆盖反问、预算恢复提案取消零写入、确认后服务端条件变化及结果；由于 localhost 限制，本轮未能执行该场景。
+- E3 新截图未生成。E1/E2 截图仍在 `.impeccable/review/`，不能代替 E3 反问/提案/结果截图。
+
+提交：与 E3 实现和当前分支快照更新一并作为本片独立提交。未推送、未合并；准确 commit ID 见交付记录。
 
 ## 未决限制
 
-- E1 在其独立提交时未能访问浏览器；E2 的真实桌面/手机 API 浏览器链路已覆盖条件取消、普通保存、stale、刷新和重新规划，但 E1 所有 ESC/键盘/焦点路径仍需更全面抽查。
+- E1 在其独立提交时未能访问浏览器；E2 的真实桌面/手机 API 浏览器链路已覆盖条件取消、普通保存、stale、刷新和重新规划，但 E1 所有 ESC/键盘/焦点路径仍需更全面抽查。E3 单测与构建通过，但当前 sandbox 禁止 localhost socket，浏览器 E2E、真实 API 集成和 E3 截图仍待环境允许后补验。
 - 高德 JS SDK 在线成功路径仍是既有未验证项，不属于 E。

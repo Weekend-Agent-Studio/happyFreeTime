@@ -105,6 +105,9 @@ h2, h3, p { margin-top: 0; }
 @keyframes planningSpin { to { transform: rotate(360deg); } }
 
 .error-banner { display: flex; align-items: center; gap: 8px; margin: 0 12px; padding: 11px 13px; color: var(--color-danger); background: rgba(255, 241, 238, .9); border-radius: 12px; font-size: var(--text-xs); }
+.error-banner span { flex: 1; min-width: 0; }
+.error-banner button { flex: 0 0 auto; min-height: 34px; padding: 5px 9px; color: var(--color-danger); background: #fff; border: 1px solid rgb(163 68 52 / .24); border-radius: 8px; font: inherit; font-weight: 750; }
+.error-banner button:disabled { opacity: .55; }
 .conflict-panel { margin: 9px 0 0; padding: 14px; color: #5f4b1d; background: rgba(255, 247, 214, .86); border-radius: 13px; }
 .conflict-panel strong { font-size: var(--text-sm); }
 .conflict-panel div { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
@@ -116,6 +119,8 @@ h2, h3, p { margin-top: 0; }
 .clarification-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
 .clarification-options button { min-height: 36px; color: var(--color-muted); background: rgba(255,255,255,.86); border: 1px solid rgb(var(--color-ink-rgb) / 0.3); border-radius: 10px; padding: 7px 11px; font-size: var(--text-xs); font-weight: 700; }
 .clarification-options button:disabled { opacity: .5; }
+.clarification-card-readonly { opacity: .78; }
+.clarification-readonly-note { display: block; margin-top: 8px; color: var(--color-muted); font-size: var(--text-xs); }
 .clarification-date-picker { display: grid; gap: 7px; margin-top: 12px; }
 .clarification-date-picker label { color: var(--color-muted); font-size: var(--text-xs); }
 .clarification-date-picker > div { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -494,6 +499,14 @@ h2, h3, p { margin-top: 0; }
 .selection-dialog-confirm { color: white; background: var(--color-action); border: 1px solid var(--color-action); }
 .selection-dialog-confirm:hover:not(:disabled) { background: var(--color-action-hover); border-color: var(--color-action-hover); }
 .selection-dialog-confirm:disabled { opacity: .55; cursor: not-allowed; }
+.recovery-confirm-backdrop { position: fixed; inset: 0; z-index: 130; background: rgb(25 27 26 / 0.42); backdrop-filter: blur(3px); }
+.recovery-confirm-dialog { z-index: 131; max-height: min(84dvh, 680px); overflow-y: auto; }
+.recovery-confirm-changes { display: grid; gap: 8px; margin-top: 16px; }
+.recovery-confirm-change { display: grid; gap: 6px; padding: 11px 12px; background: var(--color-surface-muted); border-radius: 11px; }
+.recovery-confirm-change > strong { font-size: var(--text-sm); }
+.recovery-confirm-change > div { display: grid; grid-template-columns: minmax(82px, auto) minmax(0, 1fr); gap: 8px; font-size: var(--text-xs); }
+.recovery-confirm-change > div > span:first-child { color: var(--color-muted); }
+.recovery-confirm-change > div > span:last-child { overflow-wrap: anywhere; color: var(--color-text); font-weight: 650; }
 
 /* Keep the stop timeline readable in the narrower desktop inspector. */
 @media (min-width: 901px) and (max-width: 1060px) {
@@ -509,6 +522,7 @@ h2, h3, p { margin-top: 0; }
   body { background-attachment: scroll; }
   .planning-context-dialog { max-height: 88dvh; }
   .planning-context-dialog > form { padding: 0 16px 16px; }
+  .recovery-confirm-dialog { max-height: 88dvh; }
   .message { max-width: 94%; }
   .message.rich-turn { max-width: 100%; }
   .rich-planning-reply { display: block; padding: 0; }

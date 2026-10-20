@@ -150,3 +150,49 @@ test("real API preserves selection, restores a session, and saves conditions wit
   await expect(page.getByRole("checkbox", { name: /携带宠物/ })).not.toBeChecked();
   await page.getByRole("button", { name: "取消", exact: true }).click();
 });
+
+test("real API clarification requires confirmation before applying a recovery proposal", async ({ page, request }, testInfo) => {
+  let messageWrites = 0;
+  page.on("request", (apiRequest) => {
+    if (/\/api\/sessions\/[^/]+\/messages$/.test(new URL(apiRequest.url()).pathname) && apiRequest.method() === "POST") {
+      messageWrites += 1;
+    }
+  });
+  const screenshot = (name: string) => page.screenshot({ path: path.resolve(`../.impeccable/review/${name}.png`) });
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩，别超预算");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  const question = page.getByRole("group", { name: "补充信息选项" });
+  await expect(question).toBeVisible();
+  await screenshot(`s-ui1e-clarification-${testInfo.project.name}`);
+  const sessionId = new URL(page.url()).searchParams.get("session");
+  expect(sessionId).toBeTruthy();
+
+  await page.getByLabel("补充这个信息后继续").fill("人均200");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  const recoveryCard = page.getByRole("group", { name: "规划恢复选项" }).last();
+  await expect(recoveryCard).toBeVisible();
+  const proposal = page.getByRole("button", { name: "把预算改为参考条件并重新规划" });
+  await expect(proposal).toBeVisible();
+  const beforeCancel = messageWrites;
+  await proposal.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("严格上限");
+  await expect(dialog).toContainText("参考条件");
+  await screenshot(`s-ui1e-recovery-proposal-${testInfo.project.name}`);
+  await dialog.getByRole("button", { name: "取消" }).click();
+  expect(messageWrites).toBe(beforeCancel);
+
+  await proposal.click();
+  await page.getByRole("button", { name: "确认并继续" }).click();
+  await expect.poll(() => messageWrites).toBe(beforeCancel + 1);
+  const outcome = page.locator(".recovery-lifecycle").last();
+  await expect(outcome).toBeVisible();
+  await expect(outcome).not.toBeEmpty();
+  const savedSession = await request.get(`/api/sessions/${sessionId}`);
+  expect(savedSession.ok()).toBe(true);
+  const savedData = (await savedSession.json()).data;
+  expect(savedData.active_constraints.strict_budget).toBe(false);
+  expect(savedData.planning_context.budget.value.strict).toBe(false);
+  await screenshot(`s-ui1e-recovery-outcome-${testInfo.project.name}`);
+});

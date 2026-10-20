@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
-import type { AgentResponse, Plan, PlanningContextSummary } from "./types";
+import type { AgentResponse, Plan, PlanningContextSummary, RecoveryAction } from "./types";
 
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -1205,6 +1205,56 @@ describe("planning workspace", () => {
     });
   });
 
+  it("keeps an earlier clarification readable but disables it after a newer question arrives", async () => {
+    const user = userEvent.setup();
+    const firstQuestion: AgentResponse = {
+      ...response,
+      status: "needs_input",
+      reply: "",
+      plans: [],
+      question: {
+        field: "location",
+        question: "請補充出發區域。",
+        severity: "blocking",
+        request_revision: 1,
+        clarification_id: "clarification-location-old",
+        options: [{ id: "use-default", label: "使用默认出发地", action: "use_default" }],
+      },
+    };
+    const secondQuestion: AgentResponse = {
+      ...firstQuestion,
+      question: {
+        ...firstQuestion.question!,
+        question: "请确认预算范围。",
+        field: "budget_per_person",
+        request_revision: 2,
+        clarification_id: "clarification-budget-current",
+        options: [{ id: "confirm-budget", label: "确认预算", action: "answer" }],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(firstQuestion).mockResolvedValueOnce(secondQuestion).mockResolvedValueOnce(response);
+
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排出行");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("group", { name: "补充信息选项" });
+    await user.type(screen.getByLabelText("补充这个信息后继续"), "北京市朝阳区");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    const oldQuestion = screen.getAllByRole("group", { name: "补充信息选项" })[0];
+    const oldOption = within(oldQuestion).getByRole("button", { name: "使用默认出发地" });
+    expect(oldOption).toBeDisabled();
+    expect(oldQuestion).toHaveTextContent("这条问题可继续查看");
+    await user.click(screen.getByRole("button", { name: "确认预算" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(3));
+    expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
+      clarification_id: "clarification-budget-current",
+      request_revision: 2,
+      action: "answer",
+      value: null,
+    });
+  });
+
   it("answers a date clarification with the selected ISO date and scoped resume metadata", async () => {
     const user = userEvent.setup();
     const dateQuestion: AgentResponse = {
@@ -1264,13 +1314,16 @@ describe("planning workspace", () => {
     expect(screen.getByRole("status").closest(".message")).toHaveClass("structured-turn");
   });
 
-  it("executes a backend recovery action as a typed request without adding a fake user message", async () => {
+  it("requires confirmation for a server patch proposal, and cancel sends no request", async () => {
     const user = userEvent.setup();
     const recoveryResponse: AgentResponse = {
       ...response,
       status: "needs_recovery",
       reply: "当前条件下暂未找到可行方案。",
       plans: [],
+      planning_context: planningContext({
+        max_distance_km: { value: 8, display_value: "8 km", source: "user", editable: true, status: "resolved" },
+      }),
       recovery: {
         kind: "recovery_choice",
         interaction_id: "recovery-1",
@@ -1304,10 +1357,22 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排今天出行");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("group", { name: "规划恢复选项" });
-    expect(screen.getByText("将调整：搜索范围 → 12")).toBeInTheDocument();
+    expect(screen.getByText("提案：检索及单段距离上限 → 12 km")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /修改出发区域/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /尝试扩大到 12 公里/ }));
 
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("确认调整条件");
+    expect(dialog).toHaveTextContent("当前条件8 km");
+    expect(dialog).toHaveTextContent("确认后12 km");
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /尝试扩大到 12 公里/ }));
+    const confirm = await screen.findByRole("button", { name: "确认并继续" });
+    await user.dblClick(confirm);
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(api.sendMessage.mock.calls.at(-1)?.[5]).toEqual({
       interaction_id: "recovery-1",
@@ -1318,6 +1383,87 @@ describe("planning workspace", () => {
     expect(document.querySelectorAll(".message.user")).toHaveLength(1);
     expect(screen.getByText("调整已应用，新的方案已生成并重新核验。")).toBeInTheDocument();
     expect(screen.getByText("此恢复选项已结束，不能重复执行。")).toBeInTheDocument();
+  });
+
+  it("retries a failed network request with the same request id", async () => {
+    const user = userEvent.setup();
+    api.sendMessageStream.mockRejectedValueOnce(new Error("网络连接失败"));
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("网络连接失败");
+    await user.click(within(alert).getByRole("button", { name: "重试本次请求" }));
+    await screen.findAllByText("方案一");
+    expect(api.sendMessageStream).toHaveBeenCalledTimes(2);
+    expect(api.sendMessageStream.mock.calls[0]?.[2]).toBe(api.sendMessageStream.mock.calls[1]?.[2]);
+  });
+
+  it("expires an open recovery proposal when the user changes sessions", async () => {
+    const user = userEvent.setup();
+    const recoveryResponse: AgentResponse = {
+      ...response,
+      status: "needs_recovery",
+      plans: [],
+      recovery: {
+        kind: "recovery_choice",
+        interaction_id: "recovery-session-bound",
+        request_revision: 2,
+        plan_version_id: null,
+        reason: {
+          code: "NO_PLAN_WITHIN_DISTANCE",
+          kind: "no_feasible_plan",
+          stage: "retrieve",
+          fields: ["max_distance_km"],
+          request_revision: 2,
+          plan_version_id: null,
+          public_summary: "当前条件下没有找到可行方案。",
+          diagnostics: {},
+        },
+        actions: [{
+          kind: "apply_request_patch",
+          action_id: "expand-distance-r2",
+          label: "扩大单段距离后继续",
+          description: "这是一次尝试。",
+          request_revision: 2,
+          plan_version_id: null,
+          continuation: "plan",
+          patch: { set_fields: { max_distance_km: 12 } },
+        }],
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(recoveryResponse);
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排出行");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("group", { name: "规划恢复选项" });
+    await user.click(screen.getByRole("button", { name: /扩大单段距离后继续/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+
+    window.history.pushState({}, "", "/");
+    fireEvent.popState(window);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an in-flight answer from a previous session replace the new session", async () => {
+    const user = userEvent.setup();
+    let resolveOldResponse: ((value: AgentResponse) => void) | undefined;
+    api.sendMessageStream.mockImplementationOnce(() => new Promise((resolve) => { resolveOldResponse = resolve; }));
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "旧会话请求");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await waitFor(() => expect(api.sendMessageStream).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "新建规划" }));
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "新会话请求");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    resolveOldResponse?.({ ...response, reply: "旧会话响应", plans: [] });
+    await waitFor(() => expect(screen.queryByText("旧会话响应")).not.toBeInTheDocument());
+    expect(screen.getAllByText("方案一").length).toBeGreaterThan(0);
   });
 
   it("shows a completed recovery action separately from a later failed recovery", async () => {
@@ -1365,11 +1511,208 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("group", { name: "规划恢复选项" });
     await user.click(screen.getByRole("button", { name: /尝试扩大到 15 公里/ }));
+    await user.click(await screen.findByRole("button", { name: "确认并继续" }));
 
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(screen.getByText("调整已应用，但当前条件下仍未找到可行方案；请从新的选项继续。")).toBeInTheDocument();
     expect(screen.getAllByRole("group", { name: "规划恢复选项" })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: /尝试扩大到 15 公里/ })).toHaveLength(1);
+  });
+
+  it("uses only server-provided choices for a request-field recovery action", async () => {
+    const user = userEvent.setup();
+    const recoveryResponse: AgentResponse = {
+      ...response,
+      status: "needs_recovery",
+      plans: [],
+      recovery: {
+        kind: "recovery_choice",
+        interaction_id: "recovery-request-field",
+        request_revision: 5,
+        plan_version_id: "v1",
+        reason: {
+          code: "MISSING_RETURN_TIME",
+          kind: "hard_conflict",
+          stage: "constraints",
+          fields: ["end_at"],
+          request_revision: 5,
+          plan_version_id: "v1",
+          public_summary: "还需要确认结束时间。",
+          diagnostics: {},
+        },
+        actions: [{
+          kind: "request_field",
+          action_id: "choose-end-time",
+          label: "选择结束时间",
+          description: "请选择一个可用时间。",
+          field: "end_at",
+          input_type: "choice",
+          choices: ["18:00", "20:00"],
+          request_revision: 5,
+          plan_version_id: "v1",
+          continuation: "clarify_field",
+        }],
+      },
+    };
+    const awaitingResponse: AgentResponse = {
+      ...response,
+      status: "needs_input",
+      plans: [],
+      reply: "请确认结束时间。",
+      question: {
+        field: "end_at",
+        question: "请确认结束时间。",
+        severity: "blocking",
+        request_revision: 5,
+        clarification_id: "clarification-end-time",
+        options: [],
+      },
+      recovery_outcome: {
+        interaction_id: "recovery-request-field",
+        action_id: "choose-end-time",
+        kind: "request_field",
+        label: "选择结束时间",
+        status: "awaiting_input",
+        changed_fields: [],
+        summary: "已收到时间选项，请完成补充。",
+      },
+    };
+    api.sendMessage.mockResolvedValueOnce(recoveryResponse).mockResolvedValueOnce(awaitingResponse);
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排今天出行");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("group", { name: "规划恢复选项" });
+    expect(screen.getByRole("button", { name: "18:00" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "20:00" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "20:00" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls.at(-1)?.[5]).toEqual({
+      interaction_id: "recovery-request-field",
+      action_id: "choose-end-time",
+      request_revision: 5,
+      plan_version_id: "v1",
+      field_value: "20:00",
+    });
+    expect(screen.getByText("已收到时间选项，请完成补充。")).toBeInTheDocument();
+  });
+
+  it("keeps cancel, keep-current-plan, and start-new-request recovery outcomes distinct", async () => {
+    const user = userEvent.setup();
+    const choice = (interactionId: string, revision: number, kind: "cancel_turn" | "keep_current_plan" | "start_new_request", actionId: string, label: string): AgentResponse => ({
+      ...response,
+      status: "needs_recovery",
+      plans: [],
+      recovery: {
+        kind: "recovery_choice",
+        interaction_id: interactionId,
+        request_revision: revision,
+        plan_version_id: "v1",
+        reason: {
+          code: "NO_PLAN_WITHIN_DISTANCE",
+          kind: "no_feasible_plan",
+          stage: "verify",
+          fields: ["max_distance_km"],
+          request_revision: revision,
+          plan_version_id: "v1",
+          public_summary: "当前条件下没有可行方案。",
+          diagnostics: {},
+        },
+        actions: [{
+          kind,
+          action_id: actionId,
+          label,
+          description: "由服务端返回的恢复选项。",
+          request_revision: revision,
+          plan_version_id: "v1",
+          continuation: "finish",
+        } as RecoveryAction],
+      },
+    });
+    const cancelled: AgentResponse = {
+      ...response,
+      reply: "本轮已取消。",
+      plans: [],
+      recovery_resolution: "cancel_turn",
+      recovery_outcome: {
+        interaction_id: "recovery-cancel",
+        action_id: "cancel-turn",
+        kind: "cancel_turn",
+        label: "取消本轮",
+        status: "cancelled",
+        changed_fields: [],
+        summary: "本轮已取消，原方案和已确认条件未修改。",
+      },
+    };
+    const kept: AgentResponse = {
+      ...response,
+      reply: "已保留当前方案。",
+      plans: [],
+      recovery_resolution: "keep_current_plan",
+      recovery_outcome: {
+        interaction_id: "recovery-keep",
+        action_id: "keep-plan",
+        kind: "keep_current_plan",
+        label: "保留当前方案",
+        status: "finished",
+        changed_fields: [],
+        summary: "已保留当前方案，原方案没有被修改。",
+      },
+    };
+    const started: AgentResponse = {
+      ...response,
+      reply: "已开始新的规划需求。",
+      plans: [],
+      recovery_resolution: "start_new_request",
+      recovery_outcome: {
+        interaction_id: "recovery-new-request",
+        action_id: "new-request",
+        kind: "start_new_request",
+        label: "开始新需求",
+        status: "finished",
+        changed_fields: [],
+        summary: "已开始新的规划需求，上一轮条件不会继续继承。",
+      },
+    };
+    api.sendMessage
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(choice("recovery-cancel", 2, "cancel_turn", "cancel-turn", "取消本轮"))
+      .mockResolvedValueOnce(cancelled)
+      .mockResolvedValueOnce(choice("recovery-keep", 3, "keep_current_plan", "keep-plan", "保留当前方案"))
+      .mockResolvedValueOnce(kept)
+      .mockResolvedValueOnce(choice("recovery-new-request", 4, "start_new_request", "new-request", "开始新需求"))
+      .mockResolvedValueOnce(started);
+
+    render(<App />);
+    const sendPrompt = async (content: string) => {
+      await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), content);
+      await user.click(screen.getByRole("button", { name: "发送需求" }));
+    };
+    await sendPrompt("第一轮需求");
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await screen.findByRole("button", { name: "已选择此方案" });
+    await sendPrompt("请求取消本轮");
+    await screen.findAllByRole("group", { name: "规划恢复选项" });
+    await user.click(screen.getByRole("button", { name: /^取消本轮/ }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(3));
+    expect(screen.getByText("本轮已取消，原方案和已确认条件未修改。")).toBeInTheDocument();
+    expect(screen.getAllByText("方案一").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "已选择此方案" })).toBeInTheDocument();
+
+    await sendPrompt("请求保留旧方案");
+    await screen.findAllByRole("group", { name: "规划恢复选项" });
+    await user.click(screen.getByRole("button", { name: /^保留当前方案/ }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(5));
+    expect(screen.getByText("已保留当前方案，原方案没有被修改。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已选择此方案" })).toBeInTheDocument();
+
+    await sendPrompt("开始新一轮需求");
+    await screen.findAllByRole("group", { name: "规划恢复选项" });
+    await user.click(screen.getByRole("button", { name: /^开始新需求/ }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(7));
+    expect(screen.getByText("已开始新的规划需求，上一轮条件不会继续继承。")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("描述新的规划需求……")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument();
   });
 
   it("lets a pending clarification switch into an explicit new request", async () => {
@@ -1385,6 +1728,7 @@ describe("planning workspace", () => {
         severity: "blocking",
         request_revision: 0,
         clarification_id: "clarification-location-2",
+        allow_free_text: false,
         options: [{ id: "new-request", label: "开始新需求", action: "new_request" }],
       },
     };
@@ -1393,7 +1737,9 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "原始需求");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("button", { name: "开始新需求" });
+    expect(screen.getByLabelText("补充这个信息后继续")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "开始新需求" }));
+    expect(screen.getByPlaceholderText("描述新的规划需求……")).toBeEnabled();
     await user.type(screen.getByPlaceholderText("描述新的规划需求……"), "今天下午去看展");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));

@@ -72,7 +72,9 @@ C 不改 Planner 或选择 API 合同；POI 子页面、地图改造/Tab 收敛�
 
 S-UI1E1 已把五个条件 Chip 接入统一的 Base UI 编辑弹窗：日期/时间、出发区域、同行人数、人均预算和分类偏好均从服务端摘要初始化，仅发送相对打开时快照的变更；no-op 不请求，取消不保存。弹窗提供焦点约束/返回、ESC 与遮罩关闭、内部滚动、过期 revision/session 编辑失效；时间可精确输入、选预设/时长并用双滑块调整，保持同日与既有开始/出发、结束/最晚到家语义；预算精确值不受便捷滑块范围裁剪。普通条件保存与显式重新规划仍分离，stale 状态显示在工作区。实现入口：`frontend/src/PlanningContextBar.tsx`、`frontend/src/App.tsx`。
 
-S-UI1E2 已在“更多条件”编辑器开放精确站数（1–4）、`max_distance_km` 与 `total_distance_km`。后端 Summary 投影字段值/来源，封闭类型化 `PlanningContextPatch.advanced` 原子编译成现有用户来源 RequestPatch；普通保存保留旧版本并标 stale，显式重新规划才建立新版本。`max_distance_km` 同时约束候选检索范围与单段路线距离，不能标成纯搜索半径；全程累计距离独立编辑。宠物只作为普通偏好标签“携带宠物”，同行入口与偏好入口同步，旁注明确地点携宠许可未经核实；不作为人数、费用或 Verifier 硬约束。入口仍为 `app/api/schemas.py`、`app/api/planning_context.py`、`app/domain/constraints.py` 与上述前端组件。E3 的反问与恢复产品交互仍未实现；不要把任务书的 Target 写成当前能力。
+S-UI1E2 已在“更多条件”编辑器开放精确站数（1–4）、`max_distance_km` 与 `total_distance_km`。后端 Summary 投影字段值/来源，封闭类型化 `PlanningContextPatch.advanced` 原子编译成现有用户来源 RequestPatch；普通保存保留旧版本并标 stale，显式重新规划才建立新版本。`max_distance_km` 同时约束候选检索范围与单段路线距离，不能标成纯搜索半径；全程累计距离独立编辑。宠物只作为普通偏好标签“携带宠物”，同行入口与偏好入口同步，旁注明确地点携宠许可未经核实；不作为人数、费用或 Verifier 硬约束。入口仍为 `app/api/schemas.py`、`app/api/planning_context.py`、`app/domain/constraints.py` 与上述前端组件。
+
+S-UI1E3 已把反问与恢复接入可追溯的产品交互：仅当前 clarification 可操作，旧问题只读；按后端 `allow_free_text` 限制输入，并对字段使用用户可理解的标签。`request_field` 只呈现服务端给出的选项。恢复条件变更先展示服务端 patch 的当前值/提议值，确认后才发送；取消零请求，并绑定 session、interaction/action、request revision 与 plan version。重复点击受锁保护，切换会话或交互过期会关闭旧确认且忽略旧异步结果。取消本轮、保留现有方案、开始新需求保持不同语义；失败可用同一 request_id 重试。实现入口为 `frontend/src/App.tsx`，以 `frontend/src/App.test.tsx` 和 `frontend/e2e/real-api.integration.spec.ts` 覆盖。当前运行环境拒绝前端测试浏览器访问 localhost，故本片真实浏览器/API 链路与新截图尚未验证；不能将其记为通过。
 
 距离合同注意：`max_distance_km` 同时限制候选检索范围与单段路线距离；`total_distance_km` 是另一个全程累计距离上限。UI 已分别呈现，不推导两者大小关系或将前者描述成几何半径。宠物仅以未核实的普通偏好保存，不代表目录或 Verifier 已确认地点允许携宠。
 
@@ -87,7 +89,7 @@ S-UI1E2 已在“更多条件”编辑器开放精确站数（1–4）、`max_di
 - S-UI1C 当前分支快照及验证：`docs/status/s_ui1c_comparison_20261019.md`；覆盖候选预览/正式选择确认、历史只读和手机详情抽屉。
 - S-UI1 后续协作与 C 执行任务书：`docs/collaboration/s_ui1_luna_handoff.md`。B 提交 `c3507d9`；连续切片沿用开发分支，默认由侧边会话实现、主会话集中验收，不启动子 agent。
 - C 实现 `f4e1911`，D 实现 `b24548d`，地图→行程滚动定位修复 `718f896`。主会话已完成 C+D 关键 diff/既有断言/代表截图的轻量验收，修复后静态核对收口；主会话未重跑测试。实现会话报告定位 E2E 桌面/移动通过、单测 56/56、构建及 diff 检查通过。
-- 下一阶段 E1–E3 的 Target 任务书：`docs/collaboration/s_ui1e_conditions_hitl_task.md`。同一开发分支顺序执行、分别提交、集中验收，尚未实现；无需重读完整旧 handoff。
+- E1–E3 的 Target 任务书：`docs/collaboration/s_ui1e_conditions_hitl_task.md`。当前分支提交为 E1 `ecffd3f`、E2 `a36f48a`，E3 状态与实际验证结果见 `docs/status/s_ui1e_conditions_hitl_20261020.md`；此快照不代表已合并到 main。E3 Playwright 在 `page.goto(http://127.0.0.1:4173/)` 遇到 `ERR_NETWORK_ACCESS_DENIED`，真实 API 集成服务也无法访问 `127.0.0.1`，均未产生浏览器行为验证或 E3 截图。
 
 ## 已知问题
 
