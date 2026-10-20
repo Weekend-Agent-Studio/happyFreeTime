@@ -511,6 +511,42 @@ describe("planning workspace", () => {
     expect(await screen.findByRole("note")).toHaveTextContent("服务端未返回此候选的变更明细");
   });
 
+  it("does not show a PlanDiff whose target version differs from the response", async () => {
+    const user = userEvent.setup();
+    const candidate = plan("candidate-stale-diff", "差异版本不匹配");
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      plan_version_id: "version-2",
+      conversation_command: { operation: "replace", base_plan_id: "plan-one" },
+      plans: [candidate],
+      plan_diffs: [{
+        from_plan_version_id: "version-1",
+        to_plan_version_id: "version-1",
+        base_plan_id: "plan-one",
+        new_plan_id: candidate.plan_id,
+        locked_stops: [],
+        replacements: [{
+          stop_index: 0,
+          role: "activity",
+          before_resource_id: "plan-one-activity",
+          before_name: "旧活动",
+          after_resource_id: "stale-activity",
+          after_name: "错版本活动",
+        }],
+        route_distance_delta_km: -4.2,
+        duration_delta_minutes: -20,
+        price_delta: -10,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "替换一个地点");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    const card = screen.getByRole("heading", { name: "差异版本不匹配", level: 3 }).closest(".plan-card") as HTMLElement;
+    expect(within(card).getByRole("note")).toHaveTextContent("服务端未返回此候选的变更明细");
+    expect(within(card).queryByText("旧活动 → 错版本活动")).not.toBeInTheDocument();
+    expect(within(card).queryByText("全程距离：减少 4.2 km")).not.toBeInTheDocument();
+  });
   it("does not render a return node when route legs contain only inbound legs", async () => {
     const user = userEvent.setup();
     const noReturnPlan = plan("no-return", "无返程方案");

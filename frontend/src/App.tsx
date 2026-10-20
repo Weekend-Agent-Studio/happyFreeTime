@@ -2492,6 +2492,8 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, onViewPlan,
       : null;
     return diffs.find((diff) => (
       diff?.new_plan_id === plan.plan_id
+      && Boolean(response.plan_version_id)
+      && diff.to_plan_version_id === response.plan_version_id
       && (!basePlanId || diff.base_plan_id === basePlanId)
     )) ?? null;
   };
