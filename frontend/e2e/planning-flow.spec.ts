@@ -93,6 +93,207 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/config/map", (route) => route.fulfill({ json: { data: { enabled: false, provider: "none", js_api_key: null, version: null, service_host_path: null } } }));
 });
 
+test("single-stop replacement draft, versioned diff, and failure preserve the selected plan", async ({ page }, testInfo) => {
+  const mobile = testInfo.project.name === "mobile-375";
+  await page.setViewportSize(mobile ? { width: 375, height: 812 } : { width: 1440, height: 900 });
+  let selectedPlanId: string | null = null;
+  const initialResponse = structuredClone(response) as Record<string, any>;
+  const modifiedResponse = structuredClone(response) as Record<string, any>;
+  initialResponse.planning_context.request_view = "committed";
+  modifiedResponse.planning_context.request_view = "committed";
+  const candidate = structuredClone(response.plans[0]) as Record<string, any>;
+  candidate.plan_id = "candidate-v2";
+  candidate.title = "替换候选";
+  candidate.stops[0] = { ...candidate.stops[0], resource_id: "activity-new", name: "安静展览" };
+  modifiedResponse.plan_version_id = "v2";
+  modifiedResponse.plans = [candidate];
+  modifiedResponse.plan_diffs = [{
+    from_plan_version_id: "v1",
+    to_plan_version_id: "v2",
+    base_plan_id: "plan-0",
+    new_plan_id: "candidate-v2",
+    locked_stops: [{ source_plan_id: "plan-0", stop_index: 1, resource_id: "meal-0", role: "meal" }],
+    replacements: [{ stop_index: 0, role: "activity", before_resource_id: "activity-0", before_name: "展览", after_resource_id: "activity-new", after_name: "安静展览" }],
+    route_distance_delta_km: -1.4,
+    duration_delta_minutes: -15,
+    price_delta: 0,
+  }];
+  const failedReplacement = {
+    ...structuredClone(response),
+    status: "needs_recovery",
+    reply: "当前条件下没有可行的替换候选。",
+    plan_version_id: "v2",
+    plans: [],
+    plan_diffs: [],
+    conflict: { code: "NO_PLAN_WITHIN_DISTANCE", message: "当前条件下没有可行的替换候选。" },
+    recovery: {
+      kind: "recovery_choice",
+      interaction_id: "replace-recovery-v2",
+      request_revision: 1,
+      plan_version_id: "v2",
+      reason: {
+        code: "MODIFICATION_NO_FEASIBLE_PLAN",
+        kind: "modification_failed",
+        stage: "verification",
+        fields: [],
+        request_revision: 1,
+        plan_version_id: "v2",
+        public_summary: "当前条件下没有可行的替换候选。",
+        diagnostics: {},
+      },
+      actions: [{
+        kind: "keep_current_plan",
+        action_id: "keep-selected-v2",
+        label: "保留当前已选方案",
+        description: "返回查看已选方案。",
+        request_revision: 1,
+        plan_version_id: "v2",
+        continuation: "finish",
+      }],
+    },
+  } as Record<string, any>;
+  let latestResponse: Record<string, any> = initialResponse;
+  let latestMessages: Array<Record<string, unknown>> = [
+    { id: "user-1", role: "user", content: "今天下午出去玩" },
+    { id: "assistant-1", role: "assistant", content: "已生成方案" },
+  ];
+  const submittedCommands: Array<Record<string, unknown>> = [];
+  const requestPaths: string[] = [];
+  page.on("request", (browserRequest) => {
+    const pathname = new URL(browserRequest.url()).pathname;
+    if (browserRequest.method() === "POST" && /\/api\/sessions\/[^/]+\/messages(?:\/stream)?$/.test(pathname)) {
+      requestPaths.push(pathname);
+    }
+  });
+  await page.route("**/api/sessions/offline-session/plans/*/select", async (route) => {
+    const segments = new URL(route.request().url()).pathname.split("/");
+    selectedPlanId = segments[segments.length - 2];
+    await route.fulfill({ json: { data: { active_plan_version_id: latestResponse.plan_version_id, selected_plan_id: selectedPlanId } } });
+  });
+  await page.route("**/api/sessions/offline-session/messages/stream", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, any>;
+    if (body.conversation_command?.operation === "replace") {
+      submittedCommands.push(body.conversation_command);
+      if (body.conversation_command.replacement_criteria?.some((item: Record<string, unknown>) => item.kind === "semantic" && item.text === "安静")) {
+        latestResponse = failedReplacement;
+        latestMessages = [
+          ...latestMessages,
+          { id: `user-${latestMessages.length}`, role: "user", content: body.content },
+          { id: `assistant-${latestMessages.length}`, role: "assistant", content: failedReplacement.reply },
+        ];
+        await route.fulfill(streamResponse(failedReplacement));
+        return;
+      }
+      const result = { ...modifiedResponse, conversation_command: body.conversation_command };
+      latestResponse = result;
+      selectedPlanId = null;
+      latestMessages = [
+        ...latestMessages,
+        { id: `user-${latestMessages.length}`, role: "user", content: body.content },
+        { id: `assistant-${latestMessages.length}`, role: "assistant", content: result.reply },
+      ];
+      await route.fulfill(streamResponse(result));
+      return;
+    }
+    await route.fulfill(streamResponse(initialResponse));
+  });
+  await page.route("**/api/sessions/offline-session", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: { data: {
+      session_id: "offline-session",
+      title: "单站替换回归",
+      status: latestResponse.status,
+      created_at: "2026-08-20T00:00:00Z",
+      updated_at: "2026-08-20T00:00:00Z",
+      messages: latestMessages,
+      plans: latestResponse.plans,
+      latest_response: latestResponse,
+      response_history: latestResponse === initialResponse ? [initialResponse] : [initialResponse, latestResponse],
+      active_plan_version_id: latestResponse.plan_version_id,
+      selected_plan_id: selectedPlanId,
+      planning_context: latestResponse.planning_context,
+    } } });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
+  if (mobile) await page.getByRole("button", { name: "打开方案一详情" }).click();
+  await page.getByRole("button", { name: "选择此方案" }).click();
+  await expect(page.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
+  const replaceButton = page.getByRole("button", { name: "换这站" }).first();
+  await replaceButton.click();
+  const draft = page.getByRole("region", { name: "单站替换草稿" });
+  await expect(draft).toBeVisible();
+  if (mobile) {
+    await expect(page.getByRole("dialog", { name: "方案工作区" })).toBeHidden();
+    await expect(draft).toBeFocused();
+  }
+  const screenshot = (name: string) => page.screenshot({ path: path.resolve(`../.impeccable/review/${name}.png`) });
+  await screenshot(mobile ? "s-ui1f-mobile-replacement-draft" : "s-ui1f-desktop-replacement-draft");
+
+  if (mobile) await page.keyboard.press("Escape");
+  else await page.getByRole("button", { name: "取消修改" }).click();
+  await expect(draft).toHaveCount(0);
+  if (mobile) {
+    await expect(page.getByRole("dialog", { name: "方案工作区" })).toBeVisible();
+    await expect(page.locator('[data-replacement-stop-index="0"]')).toBeFocused();
+  } else {
+    await expect(replaceButton).toBeFocused();
+  }
+  expect(submittedCommands).toHaveLength(0);
+  expect(requestPaths.filter((pathname) => pathname.endsWith("/messages/stream"))).toHaveLength(1);
+  await page.getByRole("button", { name: "换这站" }).first().click();
+  await page.getByRole("button", { name: "全程更近" }).click();
+
+  const diff = page.getByRole("region", { name: "方案修改明细：替换候选" });
+  await expect(diff).toBeVisible();
+  await expect(diff).toContainText("第 1 站 · 活动");
+  await expect(diff).toContainText("展览 → 安静展览");
+  await expect(diff).toContainText("第 2 站 · 餐饮 · 晚餐");
+  await expect(diff).toContainText("全程距离：减少 1.4 km");
+  await expect(diff).toContainText("总时长：减少 15 分钟");
+  await expect(diff).toContainText("地点费用（不含交通）：不变");
+  expect(selectedPlanId).toBeNull();
+  await screenshot(mobile ? "s-ui1f-mobile-replacement-diff" : "s-ui1f-desktop-replacement-diff");
+
+  if (mobile) await page.getByRole("button", { name: "打开替换候选详情" }).click();
+  await page.getByRole("button", { name: "选择此方案" }).click();
+  await expect(page.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
+  expect(selectedPlanId).toBe("candidate-v2");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "替换候选", level: 3 })).toBeVisible();
+  expect(selectedPlanId).toBe("candidate-v2");
+  if (mobile) await page.getByRole("button", { name: "打开替换候选详情" }).click();
+  await page.getByRole("button", { name: "换这站" }).first().click();
+  await page.getByRole("button", { name: "更安静" }).click();
+  const recoveryCard = page.getByRole("group", { name: "规划恢复选项" }).last();
+  await expect(recoveryCard).toBeVisible();
+  await expect(recoveryCard).toContainText("当前条件下没有可行的替换候选。");
+  await expect(page.locator(".plan-card.selected")).toContainText("替换候选");
+  expect(latestResponse.plan_version_id).toBe("v2");
+  expect(selectedPlanId).toBe("candidate-v2");
+  await screenshot(mobile ? "s-ui1f-mobile-replacement-recovery" : "s-ui1f-desktop-replacement-recovery");
+
+  expect(submittedCommands).toHaveLength(2);
+  expect(submittedCommands[0]).toMatchObject({
+    operation: "replace",
+    base_plan_version_id: "v1",
+    base_plan_id: "plan-0",
+    target: { stop_index: 0, resource_id: "activity-0", role: "activity" },
+    replacement_criteria: [{ kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" }],
+  });
+  expect(submittedCommands[1]).toMatchObject({
+    operation: "replace",
+    base_plan_version_id: "v2",
+    base_plan_id: "candidate-v2",
+    target: { resource_id: "activity-new", role: "activity" },
+  });
+  expect(requestPaths.every((pathname) => pathname.endsWith("/messages/stream"))).toBe(true);
+  expect(requestPaths).toHaveLength(3);
+});
+
 test("offline planning path keeps route and fallback map interactive", async ({ page }, testInfo) => {
   const mobile = testInfo.project.name === "mobile-375";
   await page.goto("/");
@@ -618,6 +819,9 @@ test("recovery card submits a typed action and resumes planning", async ({ page 
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByRole("group", { name: "规划恢复选项" })).toBeVisible();
   await page.getByRole("button", { name: /把预算改为参考条件并重新规划/ }).click();
+  const proposal = page.getByRole("dialog", { name: "确认调整条件" });
+  await expect(proposal).toBeVisible();
+  await proposal.getByRole("button", { name: "确认并继续" }).click();
 
   await expect.poll(() => submitted).not.toBeNull();
   expect(submitted).toMatchObject({
@@ -750,6 +954,9 @@ test("recovery outcome and superseded card state persist after refresh", async (
   await page.getByLabel("描述你的空闲时间和偏好").fill("四站，14点到18点，范围5km");
   await page.getByRole("button", { name: "发送需求" }).click();
   await page.getByRole("button", { name: /将范围扩大到 12km/ }).click();
+  const proposal = page.getByRole("dialog", { name: "确认调整条件" });
+  await expect(proposal).toBeVisible();
+  await proposal.getByRole("button", { name: "确认并继续" }).click();
 
   await expect(page.getByText("最大距离：5 → 12。调整已应用，但仍未找到方案。")).toBeVisible();
   await expect(page.getByText("当前主要限制：时间容量（原限制：距离范围）")).toBeVisible();

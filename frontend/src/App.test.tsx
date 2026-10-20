@@ -415,10 +415,12 @@ describe("planning workspace", () => {
 
   it("shows the locked stop and replacement evidence for a modified plan", async () => {
     const user = userEvent.setup();
+    const modifiedPlan = plan("modified-plan", "修改后方案");
+    modifiedPlan.stops[1] = { ...modifiedPlan.stops[1], resource_id: "restaurant-kept", name: "保留餐厅" };
     api.sendMessage.mockResolvedValue({
       ...response,
       reply: "已保留餐厅并替换活动。",
-      plans: [plan("modified-plan", "修改后方案")],
+      plans: [modifiedPlan],
       plan_version_id: "version-2",
       plan_diff: {
         from_plan_version_id: "version-1",
@@ -437,9 +439,76 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "餐厅保留，只把活动换近一点");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
-    expect(await screen.findByText("方案已定向更新")).toBeInTheDocument();
-    expect(screen.getByText("旧展览 → 新展览")).toBeInTheDocument();
-    expect(screen.getByText("餐厅保持不变 · 通勤缩短 2.4 km")).toBeInTheDocument();
+    expect(await screen.findByText("替换结果")).toBeInTheDocument();
+    const evidence = screen.getByRole("region", { name: "方案修改明细：修改后方案" });
+    expect(evidence).toHaveAttribute("data-plan-id", "modified-plan");
+    expect(evidence).toHaveAttribute("data-plan-version-id", "version-2");
+    expect(within(evidence).getByText("第 1 站 · 活动")).toBeInTheDocument();
+    expect(within(evidence).getByText("旧展览 → 新展览")).toBeInTheDocument();
+    expect(within(evidence).getByText("第 2 站 · 餐饮 · 保留餐厅")).toBeInTheDocument();
+    expect(within(evidence).getByText("全程距离：减少 2.4 km")).toBeInTheDocument();
+    expect(within(evidence).getByText("总时长：减少 15 分钟")).toBeInTheDocument();
+    expect(within(evidence).getByText("地点费用（不含交通）：不变")).toBeInTheDocument();
+    expect(evidence).not.toHaveTextContent("提前 15 分钟");
+    expect(document.querySelector(".legacy-plan-diff")).toBeNull();
+  });
+
+  it("binds multiple replacement diffs to their own candidate and renders all replacement rows safely", async () => {
+    const user = userEvent.setup();
+    const first = plan("replacement-a", "候选方案甲");
+    const second = plan("replacement-b", "候选方案乙");
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      plan_version_id: "version-2",
+      conversation_command: { operation: "replace", base_plan_id: "plan-one", base_plan_version_id: "v1" },
+      plans: [first, second],
+      plan_diffs: [
+        {
+          from_plan_version_id: "v1", to_plan_version_id: "version-2", base_plan_id: "plan-one", new_plan_id: "replacement-a",
+          locked_stops: [], replacements: [], route_distance_delta_km: 0, duration_delta_minutes: 0, price_delta: 0,
+        },
+        {
+          from_plan_version_id: "v1", to_plan_version_id: "version-2", base_plan_id: "plan-one", new_plan_id: "replacement-b",
+          locked_stops: [{ source_plan_id: "plan-one", stop_index: 0, resource_id: "plan-one-activity", role: "activity" }],
+          replacements: [
+            { stop_index: 0, role: "activity", before_resource_id: "plan-one-activity", before_name: "展览", after_resource_id: "new-activity", after_name: "新活动" },
+            { stop_index: 1, role: "meal", before_resource_id: "plan-one-meal", before_name: "晚餐", after_resource_id: "new-meal", after_name: "新餐厅" },
+          ], route_distance_delta_km: 1.2, duration_delta_minutes: 0, price_delta: -12,
+        },
+      ],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "先生成，再替换");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    const firstCard = screen.getByRole("heading", { name: "候选方案甲", level: 3 }).closest(".plan-card") as HTMLElement;
+    const secondCard = screen.getByRole("heading", { name: "候选方案乙", level: 3 }).closest(".plan-card") as HTMLElement;
+    expect(within(firstCard).getByText("未返回站点替换明细")).toBeVisible();
+    expect(within(firstCard).getByText("全程距离：不变")).toBeVisible();
+    expect(within(firstCard).queryByText("展览 → 新活动")).not.toBeInTheDocument();
+    expect(within(secondCard).getByText("第 1 站 · 活动")).toBeVisible();
+    expect(within(secondCard).getByText("第 2 站 · 餐饮")).toBeVisible();
+    expect(within(secondCard).getByText("展览 → 新活动")).toBeVisible();
+    expect(within(secondCard).getByText("晚餐 → 新餐厅")).toBeVisible();
+    expect(within(secondCard).getByText("全程距离：增加 1.2 km")).toBeVisible();
+    expect(within(secondCard).getByText("总时长：不变")).toBeVisible();
+    expect(within(secondCard).getByText("地点费用（不含交通）：减少 ¥12")).toBeVisible();
+  });
+
+  it("shows a clear missing-diff state for a replacement response without diff data", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      plan_version_id: "version-2",
+      conversation_command: { operation: "replace" },
+      plans: [plan("candidate-without-diff", "缺少差异方案")],
+      plan_diffs: [],
+      plan_diff: null,
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "替换一个地点");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    expect(await screen.findByRole("note")).toHaveTextContent("服务端未返回此候选的变更明细");
   });
 
   it("does not render a return node when route legs contain only inbound legs", async () => {
@@ -1034,6 +1103,60 @@ describe("planning workspace", () => {
         { kind: "route_objective", metric: "total_route_distance", direction: "decrease", strength: "required" },
       ],
     });
+  });
+
+  it("cancels a replacement draft without a request or selection change", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, plan_version_id: "v1" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
+    expect(screen.getByRole("region", { name: "单站替换草稿" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "取消修改" }));
+
+    expect(screen.queryByRole("region", { name: "单站替换草稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
+    expect(api.sendMessageStream).toHaveBeenCalledTimes(1);
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates a replacement draft when the inspected candidate changes before submit", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, plan_version_id: "v1" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("原方案或规划条件已变化");
+    expect(screen.queryByRole("region", { name: "单站替换草稿" })).not.toBeInTheDocument();
+    expect(api.sendMessageStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents a rapid double click from submitting a replacement twice", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, plan_version_id: "v1" });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "选择此方案" }));
+    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
+    let resolveReplacement: ((value: AgentResponse) => void) | undefined;
+    api.sendMessageStream.mockImplementationOnce(() => new Promise((resolve) => { resolveReplacement = resolve; }));
+
+    await user.dblClick(screen.getByRole("button", { name: "全程更近" }));
+    await waitFor(() => expect(api.sendMessageStream).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+    resolveReplacement?.({ ...response, plan_version_id: "v2", plans: [plan("candidate", "候选方案")] });
+    await screen.findByRole("heading", { name: "候选方案", level: 3 });
   });
 
   it("does not show a fake selection when the backend rejects it", async () => {

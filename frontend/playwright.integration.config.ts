@@ -19,9 +19,21 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
+      command: `"${python}" e2e/modification_api_server.py`,
+      url: "http://127.0.0.1:8008/api/health",
+      timeout: 60_000,
+      reuseExistingServer: false,
+    },
+    {
       command: "pnpm exec vite --host 127.0.0.1 --port 4174 --strictPort",
       url: "http://127.0.0.1:4174",
       env: { HFT_API_PROXY_TARGET: "http://127.0.0.1:8007" },
+      reuseExistingServer: false,
+    },
+    {
+      command: "pnpm exec vite --host 127.0.0.1 --port 4175 --strictPort",
+      url: "http://127.0.0.1:4175",
+      env: { HFT_API_PROXY_TARGET: "http://127.0.0.1:8008" },
       reuseExistingServer: false,
     },
   ],

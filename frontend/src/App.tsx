@@ -52,6 +52,7 @@ import type {
   PlanningContextPatch,
   PlanningContextSummary,
   PlanAdvice,
+  PlanDiff,
   PlanWarning,
   PoiPresentation,
   ProviderFact,
@@ -136,13 +137,21 @@ type TimelineRouteScrollTarget = {
 };
 
 type ReplacementDraft = {
+  sessionId: string;
   planVersionId: string;
   planId: string;
   stopIndex: number;
   resourceId: string;
   role: Stop["role"];
+  contextRevision: number | null;
   rawText: string;
   criteria: ReplacementCriterion[];
+};
+
+type ReplacementFocusOrigin = {
+  stopIndex: number;
+  wasMobile: boolean;
+  triggerElement: HTMLElement | null;
 };
 
 type PlanSelectionTarget = {
@@ -229,6 +238,77 @@ function replacementCommandFromDraft(
 
 function isSemanticCriterion(criterion: ReplacementCriterion): criterion is Extract<ReplacementCriterion, { kind: "semantic" }> {
   return criterion.kind === "semantic";
+}
+
+function stopRoleLabel(role: Stop["role"] | null | undefined): string {
+  if (role === "activity") return "活动";
+  if (role === "meal" || role === "lunch" || role === "dinner") return "餐饮";
+  if (role === "break") return "休息";
+  return "站点";
+}
+
+function replacementName(name: unknown, resourceId: unknown): string {
+  if (typeof name === "string" && name.trim()) return name;
+  if (typeof resourceId === "string" && resourceId.trim()) return `地点 ${resourceId}`;
+  return "地点信息未返回";
+}
+
+function planDiffDelta(value: unknown, kind: "distance" | "duration" | "price"): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "未返回";
+  if (value === 0) return "不变";
+  const direction = value < 0 ? "减少" : "增加";
+  const amount = Math.abs(value);
+  if (kind === "distance") return `${direction} ${amount.toFixed(1)} km`;
+  if (kind === "duration") return `${direction} ${amount} 分钟`;
+  return `${direction} ¥${amount.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
+}
+
+function PlanDiffEvidence({ diff, plan }: { diff: PlanDiff | null; plan: Plan }) {
+  if (!diff) {
+    return <div className="plan-diff-missing" role="note">服务端未返回此候选的变更明细</div>;
+  }
+  const safeDiff = diff as Partial<PlanDiff>;
+  const replacements = Array.isArray(safeDiff.replacements) ? safeDiff.replacements.filter(Boolean) : null;
+  const lockedStops = Array.isArray(safeDiff.locked_stops) ? safeDiff.locked_stops.filter(Boolean) : null;
+  return (
+    <section
+      className="plan-diff-evidence"
+      aria-label={`方案修改明细：${plan.title}`}
+      data-plan-id={diff.new_plan_id}
+      data-plan-version-id={diff.to_plan_version_id ?? ""}
+      data-base-plan-id={diff.base_plan_id}
+    >
+      <strong className="plan-diff-heading">与原方案比较</strong>
+      <div className="plan-diff-replacements">
+        {replacements?.length ? replacements.map((replacement, index) => (
+          <div className="plan-diff-replacement" key={`${replacement.stop_index}-${replacement.after_resource_id}-${index}`}>
+            <span>{typeof replacement.stop_index === "number" && Number.isInteger(replacement.stop_index) && replacement.stop_index >= 0 ? `第 ${replacement.stop_index + 1} 站` : "站序未返回"} · {stopRoleLabel(replacement.role)}</span>
+            <strong>{replacementName(replacement.before_name, replacement.before_resource_id)} → {replacementName(replacement.after_name, replacement.after_resource_id)}</strong>
+          </div>
+        )) : <span className="plan-diff-unavailable">{replacements ? "未返回站点替换明细" : "未返回站点替换信息"}</span>}
+      </div>
+      <div className="plan-diff-locked">
+        <span>锁定站点</span>
+        {lockedStops?.length ? lockedStops.map((locked, index) => {
+          const candidateStop = typeof locked.stop_index === "number" && Number.isInteger(locked.stop_index) && locked.stop_index >= 0
+            ? plan.stops[locked.stop_index]
+            : undefined;
+          const name = candidateStop?.resource_id === locked.resource_id
+            ? candidateStop.name
+            : replacementName(undefined, locked.resource_id);
+          const stopLabel = typeof locked.stop_index === "number" && Number.isInteger(locked.stop_index) && locked.stop_index >= 0
+            ? `第 ${locked.stop_index + 1} 站`
+            : "站序未返回";
+          return <span key={`${locked.stop_index}-${locked.resource_id}-${index}`}>{stopLabel} · {stopRoleLabel(locked.role)} · {name}</span>;
+        }) : <span>{lockedStops ? "服务端未报告锁定站点" : "未返回锁定站点信息"}</span>}
+      </div>
+      <div className="plan-diff-metrics" aria-label="与原方案的全程变化">
+        <span>全程距离：{planDiffDelta(safeDiff.route_distance_delta_km, "distance")}</span>
+        <span>总时长：{planDiffDelta(safeDiff.duration_delta_minutes, "duration")}</span>
+        <span>地点费用（不含交通）：{planDiffDelta(safeDiff.price_delta, "price")}</span>
+      </div>
+    </section>
+  );
 }
 
 function sessionIdFromUrl(): string | null {
@@ -729,8 +809,13 @@ function App() {
   const [failedRequest, setFailedRequest] = useState<{ sessionId: string; content: string; requestId: string; conversationCommand?: ConversationCommand; clarificationReply?: ClarificationReply; recoveryAction?: RecoveryActionRequest } | null>(null);
   const [recoveryLifecycle, setRecoveryLifecycle] = useState<Record<string, RecoveryLifecycle>>({});
   const [replacementDraft, setReplacementDraft] = useState<ReplacementDraft | null>(null);
+  const [replacementDraftError, setReplacementDraftError] = useState("");
   const conversationRef = useRef<HTMLElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
+  const replacementDraftRef = useRef<HTMLElement>(null);
+  const replacementFocusOriginRef = useRef<ReplacementFocusOrigin | null>(null);
+  const replacementReturnFocusPendingRef = useRef(false);
+  const messageSubmitTokenRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const sessionEpochRef = useRef(0);
   const activePlanVersionIdRef = useRef<string | null>(null);
@@ -877,6 +962,67 @@ function App() {
     && (!planningContext || (planningContext.request_view === "committed" && !planningContext.plan_stale && !planningContext.pending_field)),
   );
 
+  useEffect(() => {
+    if (!replacementDraft || loading || restoring) return;
+    const currentPlan = activePlanSnapshotRef.current?.plans.find((plan) => plan.plan_id === replacementDraft.planId);
+    const currentStop = currentPlan?.stops[replacementDraft.stopIndex];
+    const invalid = replacementDraft.sessionId !== sessionIdRef.current
+      || replacementDraft.planVersionId !== activePlanVersionIdRef.current
+      || replacementDraft.planId !== selectedPlanId
+      || replacementDraft.planId !== viewedPlanId
+      || activeSelectedPlan?.plan_id !== replacementDraft.planId
+      || detailResponse?.plan_version_id !== replacementDraft.planVersionId
+      || currentStop?.resource_id !== replacementDraft.resourceId
+      || currentStop?.role !== replacementDraft.role
+      || replacementDraft.contextRevision !== (planningContext?.request_revision ?? null)
+      || Boolean(planningContext && (planningContext.request_view !== "committed" || planningContext.plan_stale || planningContext.pending_field))
+      || Boolean(response?.question || response?.recovery || pendingRecoveryConfirmation || selectionConfirmation || selectionInFlightRef.current);
+    if (!invalid) return;
+    setReplacementDraft(null);
+    setInput("");
+    setReplacementDraftError("原方案或规划条件已变化，已取消这份替换草稿。请重新打开当前正式方案的站点。");
+  }, [activeSelectedPlan?.plan_id, detailResponse?.plan_version_id, loading, pendingRecoveryConfirmation, planningContext, replacementDraft, response?.question, response?.recovery, restoring, selectedPlanId, selectionConfirmation, viewedPlanId]);
+
+  useLayoutEffect(() => {
+    if (!replacementDraft || !isMobile || mobileDetailOpen) return;
+    const target = replacementDraftRef.current;
+    if (!target) return;
+    target.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    target.focus({ preventScroll: true });
+  }, [isMobile, mobileDetailOpen, replacementDraft]);
+
+  useLayoutEffect(() => {
+    if (!replacementReturnFocusPendingRef.current || replacementDraft) return;
+    const origin = replacementFocusOriginRef.current;
+    if (!origin) {
+      replacementReturnFocusPendingRef.current = false;
+      return;
+    }
+    if (origin.wasMobile) {
+      if (!mobileDetailOpen) {
+        setMobileDetailOpen(true);
+        return;
+      }
+      let firstFrame = 0;
+      let secondFrame = 0;
+      firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(() => {
+          if (!replacementReturnFocusPendingRef.current) return;
+          const target = mobileInspectorScrollRef.current?.querySelector<HTMLElement>(`[data-replacement-stop-index="${origin.stopIndex}"]`);
+          target?.focus({ preventScroll: true });
+          replacementReturnFocusPendingRef.current = false;
+        });
+      });
+      return () => {
+        cancelAnimationFrame(firstFrame);
+        cancelAnimationFrame(secondFrame);
+      };
+    } else {
+      origin.triggerElement?.focus({ preventScroll: true });
+    }
+    replacementReturnFocusPendingRef.current = false;
+  }, [mobileDetailOpen, replacementDraft]);
+
   const openPoiDetail = useCallback((stopIndex: number, triggerElement: HTMLElement | null = null) => {
     const context = inspectorScrollContextRef.current;
     const plan = context.plan;
@@ -948,6 +1094,7 @@ function App() {
   const openSession = useCallback(async (nextSessionId: string, navigate = true) => {
     invalidateSelectionFlow();
     const restoreEpoch = ++sessionEpochRef.current;
+    messageSubmitTokenRef.current = null;
     recoveryActionTokenRef.current += 1;
     recoveryActionInFlightRef.current = false;
     sessionIdRef.current = null;
@@ -989,7 +1136,10 @@ function App() {
       setPlanningContext(view.planning_context ?? restoredResponse?.planning_context ?? null);
       setInspectedResponse(restoredActiveResponse ?? restoredResponse);
       setSelectedPlanId(restoredSelectedId);
-       setReplacementDraft(null);
+      setReplacementDraft(null);
+      setReplacementDraftError("");
+      replacementFocusOriginRef.current = null;
+      replacementReturnFocusPendingRef.current = false;
       setNewRequestMode(false);
       const restoredViewedId = restoredSelectedId && restoredActiveResponse?.plans.some(
         (plan) => plan.plan_id === restoredSelectedId,
@@ -1015,6 +1165,7 @@ function App() {
       setSelectedPlanId(null);
       setViewedPlanId(null);
       setReplacementDraft(null);
+      setReplacementDraftError("");
       setRecoveryLifecycle({});
       setNewRequestMode(false);
       setFocusedLegIndex(null);
@@ -1038,6 +1189,7 @@ function App() {
       else {
         invalidateSelectionFlow();
         sessionEpochRef.current += 1;
+        messageSubmitTokenRef.current = null;
         recoveryActionTokenRef.current += 1;
         recoveryActionInFlightRef.current = false;
         sessionIdRef.current = null;
@@ -1055,6 +1207,7 @@ function App() {
         setSelectedPlanId(null);
         setViewedPlanId(null);
         setReplacementDraft(null);
+        setReplacementDraftError("");
         setRecoveryLifecycle({});
         setNewRequestMode(false);
         setFocusedLegIndex(null);
@@ -1083,9 +1236,8 @@ function App() {
         ? `更换第 ${replacementDraft.stopIndex + 1} 站`
         : ""
     );
-    if (!trimmed || loading || restoring) return;
-    const requestEpoch = sessionEpochRef.current;
-    invalidateSelectionFlow();
+    if (!trimmed || loading || restoring || messageSubmitTokenRef.current) return;
+    const activeSessionAtStart = sessionIdRef.current ?? sessionId;
     const effectiveClarificationReply = clarificationReply ?? (
       response?.question?.clarification_id && !conversationCommand && !recoveryAction
         ? {
@@ -1096,6 +1248,56 @@ function App() {
           } satisfies ClarificationReply
         : undefined
     );
+    const isRetry = Boolean(
+      activeSessionAtStart
+      && failedRequest?.sessionId === activeSessionAtStart
+      && failedRequest.content === trimmed
+      && JSON.stringify(failedRequest.conversationCommand ?? null)
+        === JSON.stringify(conversationCommand ?? null)
+      && JSON.stringify(failedRequest.clarificationReply ?? null)
+        === JSON.stringify(effectiveClarificationReply ?? null)
+      && JSON.stringify(failedRequest.recoveryAction ?? null)
+        === JSON.stringify(recoveryAction ?? null)
+    );
+    if (conversationCommand?.operation === "replace") {
+      const target = conversationCommand.target;
+      const activeSnapshot = activePlanSnapshotRef.current;
+      const activePlan = activeSnapshot?.plans.find((plan) => plan.plan_id === conversationCommand.base_plan_id);
+      const activeStop = activePlan?.stops[target.stop_index];
+      const draftMatches = replacementDraft
+        ? replacementDraft.sessionId === activeSessionAtStart
+          && replacementDraft.planVersionId === conversationCommand.base_plan_version_id
+          && replacementDraft.planId === conversationCommand.base_plan_id
+          && replacementDraft.stopIndex === target.stop_index
+          && replacementDraft.resourceId === target.resource_id
+          && replacementDraft.role === target.role
+          && replacementDraft.contextRevision === (planningContext?.request_revision ?? null)
+        : isRetry;
+      const validTarget = Boolean(
+        activeSessionAtStart
+        && conversationCommand.base_plan_version_id
+        && conversationCommand.base_plan_id
+        && conversationCommand.base_plan_version_id === activePlanVersionIdRef.current
+        && selectedPlanId === conversationCommand.base_plan_id
+        && viewedPlanId === conversationCommand.base_plan_id
+        && activeSnapshot?.plan_version_id === conversationCommand.base_plan_version_id
+        && activeStop?.resource_id === target.resource_id
+        && activeStop.role === target.role
+        && draftMatches
+        && (!planningContext || (planningContext.request_view === "committed" && !planningContext.plan_stale && !planningContext.pending_field))
+        && !response?.question
+        && !response?.recovery
+        && !pendingRecoveryConfirmation
+        && !selectionConfirmation
+        && !selectionInFlightRef.current
+      );
+      if (!validTarget) {
+        setError("替换目标或方案条件已变化，本次未提交。请重新打开当前正式方案中的站点。");
+        return;
+      }
+    }
+    const requestEpoch = sessionEpochRef.current;
+    invalidateSelectionFlow();
     const recoveryInteractionId = recoveryAction
       ? response?.recovery?.interaction_id ?? null
       : null;
@@ -1114,11 +1316,13 @@ function App() {
         },
       }));
     }
+    const submitToken = crypto.randomUUID();
+    messageSubmitTokenRef.current = submitToken;
     setLoading(true);
     setProgressEvents([]);
     setError("");
     setInput("");
-    let activeSession = sessionIdRef.current ?? sessionId;
+    let activeSession = activeSessionAtStart;
     try {
       if (!activeSession) {
         activeSession = await createSession();
@@ -1129,17 +1333,7 @@ function App() {
         setSessionId(activeSession);
         updateSessionUrl(activeSession);
       }
-      const isRetry = (
-        failedRequest?.sessionId === activeSession
-        && failedRequest.content === trimmed
-        && JSON.stringify(failedRequest.conversationCommand ?? null)
-          === JSON.stringify(conversationCommand ?? null)
-        && JSON.stringify(failedRequest.clarificationReply ?? null)
-          === JSON.stringify(effectiveClarificationReply ?? null)
-        && JSON.stringify(failedRequest.recoveryAction ?? null)
-          === JSON.stringify(recoveryAction ?? null)
-      );
-      const requestId = isRetry ? failedRequest.requestId : crypto.randomUUID();
+      const requestId = isRetry && failedRequest ? failedRequest.requestId : crypto.randomUUID();
       if (!isRetry && !recoveryAction) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
       setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply, recoveryAction });
       const nextResponse = await sendMessageStream(
@@ -1178,6 +1372,11 @@ function App() {
       if (nextResponse.recovery_resolution === "open_constraint_editor") setContextFocus("all");
       setResponse(nextResponse);
       setPlanningContext(nextResponse.planning_context ?? null);
+      if (conversationCommand?.operation === "replace") {
+        setReplacementDraft(null);
+        setReplacementDraftError("");
+        replacementFocusOriginRef.current = null;
+      }
       if (nextResponse.recovery_resolution === "start_new_request") {
         activePlanVersionIdRef.current = null;
         activePlanSnapshotRef.current = null;
@@ -1222,6 +1421,7 @@ function App() {
       }
       if (activeSession) await refreshRecentSessions();
     } finally {
+      if (messageSubmitTokenRef.current === submitToken) messageSubmitTokenRef.current = null;
       if (requestEpoch === sessionEpochRef.current) {
         setLoading(false);
         setProgressEvents([]);
@@ -1451,6 +1651,7 @@ function App() {
   function resetSession() {
     invalidateSelectionFlow();
     sessionEpochRef.current += 1;
+    messageSubmitTokenRef.current = null;
     recoveryActionTokenRef.current += 1;
     recoveryActionInFlightRef.current = false;
     sessionIdRef.current = null;
@@ -1466,6 +1667,9 @@ function App() {
     setSelectedPlanId(null);
     setViewedPlanId(null);
     setReplacementDraft(null);
+    setReplacementDraftError("");
+    replacementFocusOriginRef.current = null;
+    replacementReturnFocusPendingRef.current = false;
     setPendingRecoveryConfirmation(null);
     setRecoveryLifecycle({});
     setFocusedLegIndex(null);
@@ -1628,7 +1832,7 @@ function App() {
     void selectConfirmedPlan(target);
   }, [detailResponse, loading, planningContext, replacementDraft, response, restoring, selectConfirmedPlan, selectedPlanId, sessionId]);
 
-  const startReplacement = useCallback((plan: Plan, stopIndex: number) => {
+  const startReplacement = useCallback((plan: Plan, stopIndex: number, triggerElement: HTMLElement | null = null) => {
     const requestSessionId = sessionIdRef.current;
     const requestVersionId = activePlanVersionIdRef.current;
     const stop = plan.stops[stopIndex];
@@ -1655,17 +1859,33 @@ function App() {
       return;
     }
     setError("");
+    setReplacementDraftError("");
+    replacementFocusOriginRef.current = { stopIndex, wasMobile: isMobile, triggerElement };
+    replacementReturnFocusPendingRef.current = false;
     setReplacementDraft({
+      sessionId: requestSessionId,
       planVersionId: requestVersionId,
       planId: plan.plan_id,
       stopIndex,
       resourceId: stop.resource_id,
       role: stop.role,
+      contextRevision: planningContext?.request_revision ?? null,
       rawText: stop.name,
       criteria: [],
     });
     setInput("");
-  }, [activeSelectedPlan?.plan_id, detailResponse?.plan_version_id, failedRequest, loading, planningContext, replacementDraft, response?.question, response?.recovery, restoring, selectedPlanId, selectionConfirmation, selectionPendingPlanId]);
+    if (isMobile) setMobileDetailOpen(false);
+  }, [activeSelectedPlan?.plan_id, detailResponse?.plan_version_id, failedRequest, isMobile, loading, planningContext, replacementDraft, response?.question, response?.recovery, restoring, selectedPlanId, selectionConfirmation, selectionPendingPlanId]);
+
+  const cancelReplacementDraft = useCallback(() => {
+    if (loading || restoring || !replacementDraft) return;
+    if (replacementFocusOriginRef.current?.wasMobile) setMobileDetailOpen(true);
+    replacementReturnFocusPendingRef.current = true;
+    setReplacementDraft(null);
+    setReplacementDraftError("");
+    setInput("");
+    setError("");
+  }, [loading, replacementDraft, restoring]);
 
   const chooseReplacementMode = useCallback((mode: ReplacementPreset) => {
     if (loading || restoring || !replacementDraft) return;
@@ -1753,9 +1973,15 @@ function App() {
           ) : null}
         </section>
 
-        <div className="composer-dock">
+        <div className="composer-dock" onKeyDown={(event) => {
+          if (event.key === "Escape" && replacementDraft) {
+            event.preventDefault();
+            event.stopPropagation();
+            cancelReplacementDraft();
+          }
+        }}>
           {replacementDraft ? (
-            <section className="replacement-draft" aria-label="单站替换草稿">
+            <section ref={replacementDraftRef} className="replacement-draft" aria-label="单站替换草稿" tabIndex={-1}>
               <div className="replacement-draft-copy">
                 <strong>正在更换：第 {replacementDraft.stopIndex + 1} 站 · {replacementDraft.rawText}</strong>
                 <span>其他站点将保持原位置和内容</span>
@@ -1767,10 +1993,11 @@ function App() {
                 <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "安静") ? "active" : ""} onClick={() => chooseReplacementMode("quiet")} disabled={loading || restoring}>更安静</button>
                 <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "轻松聊天") ? "active" : ""} onClick={() => chooseReplacementMode("chatty")} disabled={loading || restoring}>更适合聊天</button>
                 <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "亲子") ? "active" : ""} onClick={() => chooseReplacementMode("family")} disabled={loading || restoring}>亲子友好</button>
-                <button type="button" className="replacement-cancel" onClick={() => setReplacementDraft(null)} disabled={loading || restoring}>取消修改</button>
+                <button type="button" className="replacement-cancel" onClick={cancelReplacementDraft} disabled={loading || restoring}>取消修改</button>
               </div>
             </section>
           ) : null}
+          {replacementDraftError && !replacementDraft ? <div className="replacement-draft-error" role="status">{replacementDraftError}</div> : null}
           {response?.recovery ? <div className="clarification-status" role="status">请选择上方恢复操作；这些操作会按当前条件重新检查。</div> : response?.question || newRequestMode ? <div className="clarification-status" role="status">{newRequestMode ? "正在输入新的规划需求" : `正在回答：${clarificationFieldLabel(response?.question?.field)}`}</div> : null}
           <form className="composer" onSubmit={onSubmit}>
             <label className="sr-only" htmlFor="planning-input">{response?.recovery ? "请先选择恢复操作" : response?.question ? (newRequestMode ? "输入新的规划需求" : "补充这个信息后继续") : replacementDraft ? "描述替换偏好（可选）" : "描述你的空闲时间和偏好"}</label>
@@ -2255,26 +2482,24 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, onViewPlan,
   const returnConstraint = latestReturnConstraint(response);
   const shownConstraints = response.constraint_summary.filter((item) => ["time_scope", "exact_stop_count", "required_stop_roles", "budget_per_person", "max_distance_km", "party"].includes(item.field)).slice(0, 3);
   const headingId = `plan-heading-${response.plans[0]?.plan_id ?? "reply"}`;
-  const diffs = response.plan_diffs ?? (response.plan_diff ? [response.plan_diff] : []);
-  const hasModification = diffs.length > 0;
+  const diffs = Array.isArray(response.plan_diffs)
+    ? response.plan_diffs
+    : response.plan_diff ? [response.plan_diff] : [];
+  const hasModification = response.conversation_command?.operation === "replace" || diffs.length > 0;
+  const diffForPlan = (plan: Plan): PlanDiff | null => {
+    const basePlanId = typeof response.conversation_command?.base_plan_id === "string"
+      ? response.conversation_command.base_plan_id
+      : null;
+    return diffs.find((diff) => (
+      diff?.new_plan_id === plan.plan_id
+      && (!basePlanId || diff.base_plan_id === basePlanId)
+    )) ?? null;
+  };
   return (
     <section className="rich-planning-reply" aria-labelledby={headingId}>
       <div className="rich-reply-body">
-        <div className="plan-intro"><div><h2 id={headingId}>{hasModification ? "方案已定向更新" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{hasModification ? "其他站点保持原位置；每个替换候选都已重新核验。" : "方案按推荐顺序排列；打开详情可查看完整行程、推荐理由和取舍。"}</p></div><span>{response.plans.length} 个候选</span></div>
+        <div className="plan-intro"><div><h2 id={headingId}>{hasModification ? "替换结果" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{hasModification ? "候选与变更说明按服务端返回逐项对应；选择前请核对实际差异。" : "方案按推荐顺序排列；打开详情可查看完整行程、推荐理由和取舍。"}</p></div><span>{response.plans.length} 个候选</span></div>
         <RunProgressDisclosure trace={response.run_trace} />
-        {hasModification ? (
-          <div className="plan-diff-list" role="status">
-            {diffs.map((diff) => {
-              const replacement = diff.replacements[0];
-              const lockedText = diff.locked_stops.length ? `其他 ${diff.locked_stops.length} 站保持不变` : "其他站点保持原位置";
-              const distanceText = diff.route_distance_delta_km < 0 ? `全程缩短 ${Math.abs(diff.route_distance_delta_km).toFixed(1)} km` : diff.route_distance_delta_km > 0 ? `全程增加 ${diff.route_distance_delta_km.toFixed(1)} km` : "全程距离不变";
-              const durationText = diff.duration_delta_minutes < 0 ? `提前 ${Math.abs(diff.duration_delta_minutes)} 分钟` : diff.duration_delta_minutes > 0 ? `增加 ${diff.duration_delta_minutes} 分钟` : "总时长不变";
-              const priceText = diff.price_delta < 0 ? `地点费用减少 ¥${Math.abs(diff.price_delta)}` : diff.price_delta > 0 ? `地点费用增加 ¥${diff.price_delta}` : "地点费用不变";
-              return <div className="plan-diff-summary" key={diff.new_plan_id}><strong>{replacement.before_name} → {replacement.after_name}</strong><span>{lockedText} · {distanceText} · {durationText} · {priceText}</span></div>;
-            })}
-            {response.plan_diff ? <span className="legacy-plan-diff" aria-hidden="true">餐厅保持不变 · 通勤缩短 {Math.abs(response.plan_diff.route_distance_delta_km).toFixed(1)} km</span> : null}
-          </div>
-        ) : null}
         {response.poi_presentations.length ? <p className="demo-data-notice"><Database size={14} />POI 商业信息为模拟数据；路线来源和降级状态见各路线段。</p> : null}
         {(weather || departureAt || returnConstraint || shownConstraints.length) ? (
           <div className="shared-context" aria-label="本次规划的共享信息">
@@ -2287,14 +2512,14 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, onViewPlan,
         {response.warnings?.some((warning) => warning.plan_id === null) ? <div className="shared-warning"><CircleAlert size={16} />{response.warnings.filter((warning) => warning.plan_id === null).map((warning) => warning.message).join("；")}</div> : null}
         <RecommendationAdvicePanel advice={response.recommendation_advice} plans={response.plans} />
         <div className="plan-grid" aria-label="方案比较列表">
-          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} recommended={response.recommendation_advice?.recommended_plan_id === plan.plan_id} index={index} warning={planWarning(response, plan)} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} onView={() => onViewPlan(plan.plan_id)} onOpenDetails={() => onOpenPlanDetails(plan.plan_id)} />)}
+          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} recommended={response.recommendation_advice?.recommended_plan_id === plan.plan_id} index={index} warning={planWarning(response, plan)} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} modificationDiff={hasModification ? diffForPlan(plan) : null} isModification={hasModification} onView={() => onViewPlan(plan.plan_id)} onOpenDetails={() => onOpenPlanDetails(plan.plan_id)} />)}
         </div>
       </div>
     </section>
   );
 }
 
-function PlanCard({ plan, recommended = false, index, warning, viewed, selected, onView, onOpenDetails }: { plan: Plan; recommended?: boolean; index: number; warning: PlanWarning | null; viewed: boolean; selected: boolean; onView: () => void; onOpenDetails: () => void }) {
+function PlanCard({ plan, recommended = false, index, warning, viewed, selected, modificationDiff, isModification, onView, onOpenDetails }: { plan: Plan; recommended?: boolean; index: number; warning: PlanWarning | null; viewed: boolean; selected: boolean; modificationDiff: PlanDiff | null; isModification: boolean; onView: () => void; onOpenDetails: () => void }) {
   const heroStop = plan.stops[0];
   const routeIsDegraded = plan.route_legs.some((leg) => leg.degraded);
   const notice = warning?.message ?? (routeIsDegraded ? "路线包含估算或降级路段；请查看路线来源与核验信息。" : "已通过当前硬约束校验");
@@ -2334,6 +2559,7 @@ function PlanCard({ plan, recommended = false, index, warning, viewed, selected,
           图片来源：{imageSourceHref ? <a href={imageSourceHref} target="_blank" rel="noreferrer noopener">{imageSourceLabel}</a> : imageSourceLabel} · {image.license}
         </div>
       ) : null}
+      {isModification ? <PlanDiffEvidence diff={modificationDiff} plan={plan} /> : null}
       <button className="plan-card-details" type="button" onClick={onOpenDetails} aria-label={`打开${plan.title}详情`}>查看方案详情<ChevronRight size={16} aria-hidden="true" /></button>
     </article>
   );
@@ -2413,7 +2639,7 @@ function PlanInspectorHeader({ plan, selectedPlanId, selectedPlan, isCurrentVers
   );
 }
 
-function Inspector({ response, plan, selectedPlanId, isCurrentVersion, selectionDisabledReason, selectionError, selectionPending, selectedPlan, canReplace, poiNavigation, onOpenPoi, onBackFromPoi, onSelectPlan, onReturnToSelectedPlan, activeTab, activeLegIndex, onTabChange, onMapRoute, onFocusMapRoute, onTimelineRoute, onReplaceStop }: { response: AgentResponse | null; plan?: Plan; selectedPlanId: string | null; isCurrentVersion: boolean; selectionDisabledReason: string | null; selectionError: string; selectionPending: boolean; selectedPlan?: Plan; canReplace: boolean; poiNavigation: PoiNavigation | null; onOpenPoi: (stopIndex: number, triggerElement?: HTMLElement | null) => void; onBackFromPoi: () => void; onSelectPlan: () => void; onReturnToSelectedPlan: () => void; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onFocusMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number) => void }) {
+function Inspector({ response, plan, selectedPlanId, isCurrentVersion, selectionDisabledReason, selectionError, selectionPending, selectedPlan, canReplace, poiNavigation, onOpenPoi, onBackFromPoi, onSelectPlan, onReturnToSelectedPlan, activeTab, activeLegIndex, onTabChange, onMapRoute, onFocusMapRoute, onTimelineRoute, onReplaceStop }: { response: AgentResponse | null; plan?: Plan; selectedPlanId: string | null; isCurrentVersion: boolean; selectionDisabledReason: string | null; selectionError: string; selectionPending: boolean; selectedPlan?: Plan; canReplace: boolean; poiNavigation: PoiNavigation | null; onOpenPoi: (stopIndex: number, triggerElement?: HTMLElement | null) => void; onBackFromPoi: () => void; onSelectPlan: () => void; onReturnToSelectedPlan: () => void; activeTab: InspectorTab; activeLegIndex: number | null; onTabChange: (tab: InspectorTab) => void; onMapRoute: (legIndex: number) => void; onFocusMapRoute: (legIndex: number) => void; onTimelineRoute: (legIndex: number) => void; onReplaceStop: (plan: Plan, stopIndex: number, triggerElement?: HTMLElement | null) => void }) {
   const advice = plan ? planAdviceFor(response?.recommendation_advice, plan.plan_id) : undefined;
   const poiStop = poiNavigation && plan?.plan_id === poiNavigation.planId
     ? plan.stops[poiNavigation.stopIndex]
@@ -2436,7 +2662,7 @@ function Inspector({ response, plan, selectedPlanId, isCurrentVersion, selection
         returnTab={poiNavigation.returnTab}
         canReplace={canReplace}
         onBack={onBackFromPoi}
-        onReplace={() => onReplaceStop(plan, poiNavigation.stopIndex)}
+        onReplace={(triggerElement) => onReplaceStop(plan, poiNavigation.stopIndex, triggerElement)}
       /> : <div className="inspector-tabpanel" role="tabpanel" id={`inspector-panel-${activeTab}`} aria-labelledby={`inspector-tab-${activeTab}`} tabIndex={0}>
         {activeTab === "trip" ? <TripPanel plan={plan} advice={advice} presentations={response?.poi_presentations ?? []} canReplace={canReplace} onReplaceStop={onReplaceStop} activeLegIndex={activeLegIndex} onOpenPoi={onOpenPoi} onMapRoute={onMapRoute} /> : null}
         {activeTab === "map" ? <MapPanel plan={plan} activeLegIndex={activeLegIndex} onOpenPoi={onOpenPoi} onFocusRoute={onFocusMapRoute} onTimelineRoute={onTimelineRoute} /> : null}
@@ -2452,7 +2678,7 @@ function RecommendationSummary({ plan, advice }: { plan: Plan; advice?: PlanAdvi
   return <section className="recommendation-summary"><h3>为什么推荐这条路线</h3>{advice ? <span className="recommendation-explanation-label">当前响应中的方案推荐依据</span> : null}{reasons.length ? <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul> : <p>当前响应没有提供方案级推荐说明。</p>}<details><summary>主要取舍与注意事项</summary>{tradeoffs.length ? <ul>{tradeoffs.slice(0, 3).map((tradeoff) => <li key={tradeoff}>{tradeoff}</li>)}</ul> : <p>当前响应没有提供额外取舍说明；动态核验信息见下方“核验与来源”。</p>}</details></section>;
 }
 
-function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, activeLegIndex, onOpenPoi, onMapRoute }: { plan?: Plan; advice?: PlanAdvice; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number) => void; activeLegIndex: number | null; onOpenPoi: (stopIndex: number, triggerElement?: HTMLElement | null) => void; onMapRoute: (legIndex: number) => void }) {
+function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, activeLegIndex, onOpenPoi, onMapRoute }: { plan?: Plan; advice?: PlanAdvice; presentations: PoiPresentation[]; canReplace: boolean; onReplaceStop: (plan: Plan, stopIndex: number, triggerElement?: HTMLElement | null) => void; activeLegIndex: number | null; onOpenPoi: (stopIndex: number, triggerElement?: HTMLElement | null) => void; onMapRoute: (legIndex: number) => void }) {
   if (!plan) return <DetailEmpty icon={<CalendarDays size={24} />} title="行程将在这里展开" text="生成方案后，可逐站查看 POI、时间、通勤和推荐取舍。" />;
   const returnLegIndex = plan.route_legs.length > plan.stops.length ? plan.route_legs.length - 1 : null;
   const routeDuration = plan.route_legs.reduce((sum, leg) => sum + leg.duration_minutes, 0);
@@ -2461,7 +2687,7 @@ function TripPanel({ plan, advice, presentations, canReplace, onReplaceStop, act
       <RecommendationSummary plan={plan} advice={advice} />
       <div className="detail-section-heading trip-section-title"><div><span>{strategyLabel(plan.strategy)}</span><h3>详细行程</h3></div><span>{plan.stops.length} 站</span></div>
       <ol className="timeline">
-         {plan.stops.map((stop, index) => <li key={stop.resource_id} className="timeline-item">{plan.route_legs[index] ? <TimelineRoute leg={plan.route_legs[index]} index={index} active={activeLegIndex === index} kind={index === 0 ? "start" : "next"} onSelect={onMapRoute} /> : null}<div className="timeline-stop"><div className="timeline-stop-meta"><span className="timeline-marker">{index + 1}</span><span><small>到达</small><time>{stop.start}</time></span><span><small>离开</small><time>{stop.end}</time></span><small className="timeline-stop-duration">停留 {stop.duration_minutes} 分钟</small></div><div className="timeline-stop-content"><button className="timeline-stop-open" type="button" data-inspector-stop-index={index} aria-label={`查看第 ${index + 1} 站 ${stop.name} 详情`} onClick={(event) => onOpenPoi(index, event.currentTarget)}><StopImage stop={stop} galleryImage={presentations.find((item) => item.resource_id === stop.resource_id)?.gallery[0]} variant="thumb" /><span className="timeline-stop-copy"><small>{presentations.find((item) => item.resource_id === stop.resource_id)?.category_label ?? (stop.type === "restaurant" ? "餐饮" : "活动")} · {priceLabel(stop)}</small><strong>{stop.name}<ChevronRight size={16} aria-hidden="true" /></strong><span>查看地点介绍、到访信息与数据说明</span></span></button><button className="poi-action poi-replace" type="button" disabled={!canReplace} onClick={() => onReplaceStop(plan, index)} title={canReplace ? "替换当前站点，其他站点保持不变" : "当前方案不可修改站点"}>换这站</button></div></div></li>)}
+         {plan.stops.map((stop, index) => <li key={stop.resource_id} className="timeline-item">{plan.route_legs[index] ? <TimelineRoute leg={plan.route_legs[index]} index={index} active={activeLegIndex === index} kind={index === 0 ? "start" : "next"} onSelect={onMapRoute} /> : null}<div className="timeline-stop"><div className="timeline-stop-meta"><span className="timeline-marker">{index + 1}</span><span><small>到达</small><time>{stop.start}</time></span><span><small>离开</small><time>{stop.end}</time></span><small className="timeline-stop-duration">停留 {stop.duration_minutes} 分钟</small></div><div className="timeline-stop-content"><button className="timeline-stop-open" type="button" data-inspector-stop-index={index} aria-label={`查看第 ${index + 1} 站 ${stop.name} 详情`} onClick={(event) => onOpenPoi(index, event.currentTarget)}><StopImage stop={stop} galleryImage={presentations.find((item) => item.resource_id === stop.resource_id)?.gallery[0]} variant="thumb" /><span className="timeline-stop-copy"><small>{presentations.find((item) => item.resource_id === stop.resource_id)?.category_label ?? (stop.type === "restaurant" ? "餐饮" : "活动")} · {priceLabel(stop)}</small><strong>{stop.name}<ChevronRight size={16} aria-hidden="true" /></strong><span>查看地点介绍、到访信息与数据说明</span></span></button><button className="poi-action poi-replace" type="button" data-replacement-stop-index={index} disabled={!canReplace} onClick={(event) => onReplaceStop(plan, index, event.currentTarget)} title={canReplace ? "替换当前站点，其他站点保持不变" : "当前方案不可修改站点"}>换这站</button></div></div></li>)}
          {returnLegIndex !== null ? <li className="timeline-item"><TimelineRoute leg={plan.route_legs[returnLegIndex]} index={returnLegIndex} active={activeLegIndex === returnLegIndex} kind="return" onSelect={onMapRoute} /></li> : null}
       </ol>
       <section className="trip-route-overview">
@@ -2489,7 +2715,7 @@ function referencePriceLabel(value: number | null): string | null {
   return `¥${value}（展示参考）`;
 }
 
-function PoiDetailPage({ stop, stopIndex, presentation, returnTab, canReplace, onBack, onReplace }: { stop: Stop; stopIndex: number; presentation?: PoiPresentation; returnTab: InspectorTab; canReplace: boolean; onBack: () => void; onReplace: () => void }) {
+function PoiDetailPage({ stop, stopIndex, presentation, returnTab, canReplace, onBack, onReplace }: { stop: Stop; stopIndex: number; presentation?: PoiPresentation; returnTab: InspectorTab; canReplace: boolean; onBack: () => void; onReplace: (triggerElement: HTMLElement) => void }) {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const galleryImage = presentation?.gallery[0];
   const mapQuery = [stop.name, displayIfKnown(presentation?.address)].filter(Boolean).join(" ");
@@ -2530,7 +2756,7 @@ function PoiDetailPage({ stop, stopIndex, presentation, returnTab, canReplace, o
     {!presentation ? <p className="poi-unavailable-note"><Info size={15} aria-hidden="true" />当前预览响应未附 POI 展示快照；以上仅使用方案站点与目录来源信息。</p> : null}
     <section className="poi-detail-actions" aria-label="地点操作">
       <a className="poi-action" href={mapUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} aria-hidden="true" />在高德地图中搜索</a>
-      <button className="poi-action poi-replace" type="button" disabled={!canReplace} onClick={onReplace} title={canReplace ? "替换当前站点，其他站点保持不变" : "当前方案不可修改站点"}>换这站</button>
+      <button className="poi-action poi-replace" type="button" data-replacement-stop-index={stopIndex} disabled={!canReplace} onClick={(event) => onReplace(event.currentTarget)} title={canReplace ? "替换当前站点，其他站点保持不变" : "当前方案不可修改站点"}>换这站</button>
     </section>
     {!canReplace ? <p className="poi-readonly-note"><Info size={14} aria-hidden="true" />仅当前活动版本的正式已选方案可修改站点。</p> : null}
     <p className="poi-map-link-note">地图链接按地点名称和当前地址构造；打开链接不代表位置已实时核实。</p>
