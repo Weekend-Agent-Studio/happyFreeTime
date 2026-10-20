@@ -74,7 +74,7 @@ S-UI1E1 已把五个条件 Chip 接入统一的 Base UI 编辑弹窗：日期/�
 
 S-UI1E2 已在“更多条件”编辑器开放精确站数（1–4）、`max_distance_km` 与 `total_distance_km`。后端 Summary 投影字段值/来源，封闭类型化 `PlanningContextPatch.advanced` 原子编译成现有用户来源 RequestPatch；普通保存保留旧版本并标 stale，显式重新规划才建立新版本。`max_distance_km` 同时约束候选检索范围与单段路线距离，不能标成纯搜索半径；全程累计距离独立编辑。宠物只作为普通偏好标签“携带宠物”，同行入口与偏好入口同步，旁注明确地点携宠许可未经核实；不作为人数、费用或 Verifier 硬约束。入口仍为 `app/api/schemas.py`、`app/api/planning_context.py`、`app/domain/constraints.py` 与上述前端组件。
 
-S-UI1E3 已把反问与恢复接入可追溯的产品交互：仅当前 clarification 可操作，旧问题只读；按后端 `allow_free_text` 限制输入，并对字段使用用户可理解的标签。`request_field` 只呈现服务端给出的选项。恢复条件变更先展示服务端 patch 的当前值/提议值，确认后才发送；取消零请求，并绑定 session、interaction/action、request revision 与 plan version。重复点击受锁保护，切换会话或交互过期会关闭旧确认且忽略旧异步结果。取消本轮、保留现有方案、开始新需求保持不同语义；失败可用同一 request_id 重试。实现入口为 `frontend/src/App.tsx`，以 `frontend/src/App.test.tsx` 和 `frontend/e2e/real-api.integration.spec.ts` 覆盖。当前运行环境拒绝前端测试浏览器访问 localhost，故本片真实浏览器/API 链路与新截图尚未验证；不能将其记为通过。
+S-UI1E3 已把反问与恢复接入可追溯的产品交互：仅当前 clarification 可操作，旧问题只读；按后端 `allow_free_text` 限制输入，并对字段使用用户可理解的标签。`request_field` 只呈现服务端给出的选项。恢复条件变更先展示服务端 patch 的当前值/提议值，确认后才发送；取消零请求，并绑定 session、interaction/action、request revision 与 plan version。重复点击受锁保护，切换会话或交互过期会关闭旧确认且忽略旧异步结果。条件保存、重新规划、流式进度和会话恢复均在请求返回时校验 session epoch，避免旧会话结果改写当前状态。取消本轮、保留现有方案、开始新需求保持不同语义；失败可用同一 request_id 重试。实现入口为 `frontend/src/App.tsx`，以 `frontend/src/App.test.tsx` 和 `frontend/e2e/real-api.integration.spec.ts` 覆盖。当前单测和构建通过；运行环境仍拒绝浏览器访问 localhost，真实浏览器/API 链路与新截图尚未验证，不能将其记为通过。
 
 距离合同注意：`max_distance_km` 同时限制候选检索范围与单段路线距离；`total_distance_km` 是另一个全程累计距离上限。UI 已分别呈现，不推导两者大小关系或将前者描述成几何半径。宠物仅以未核实的普通偏好保存，不代表目录或 Verifier 已确认地点允许携宠。
 

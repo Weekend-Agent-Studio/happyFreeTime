@@ -52,6 +52,25 @@
 
 提交：与 E3 实现和当前分支快照更新一并作为本片独立提交。未推送、未合并；准确 commit ID 见交付记录。
 
+## E 验收补丁（2026-10-20）
+
+本次修补三处验收问题：
+
+- `openSession` 为恢复结果增加 session epoch 校验；条件保存与显式重新规划在成功、异常和 `finally` 路径均忽略已切换会话的结果，流式进度回调也校验请求 epoch 和 session id。发送请求以 `sessionIdRef` 作为当前会话的优先来源。
+- Base UI 独立 Popup 明确使用视口居中定位；新增 1440×540 短屏检查，断言弹窗中心和“保存条件”按钮处于视口内，并准备输出 `.impeccable/review/s-ui1e-context-dialog-desktop.png`。
+- E3 集成场景将预算回复改为“人均1元，严格控制，不超预算”，确认恢复后等待 lifecycle 成为 `succeeded`，再轮询真实 session 直到严格预算字段持久化为 `false`。
+
+验证结果：
+
+- `pnpm --dir frontend exec vitest run src/App.test.tsx --pool=forks --maxWorkers=1 --testTimeout=15000 --testNamePattern="in-flight answer|in-flight condition save|in-flight replan" --reporter=dot`：3 passed。
+- `pnpm --dir frontend exec vitest run src/App.test.tsx --pool=forks --maxWorkers=1 --testTimeout=15000`：51 passed。
+- `pnpm --dir frontend build`：TypeScript 检查和 Vite production build 通过。
+- 短屏弹窗 Playwright 定向运行：桌面和手机均在 `page.goto(http://127.0.0.1:4173/)` 收到 `net::ERR_NETWORK_ACCESS_DENIED`，未进入应用断言；截图未生成。
+- E3 桌面/手机真实 API 定向运行未得到测试结果：本地链路启动无输出并在等待后中断；单独 API 用例也在约一分钟内无输出，手动中断。未将这些尝试记为通过。
+- `CODEX_BRIEF.md` 已更新当前 session 异步保护覆盖范围与验证状态。
+
+未决：条件弹窗实际视觉位置/短屏可见性，以及 E3 恢复动作真实 API 桌面与手机场景，仍需在允许浏览器访问本地服务的环境验证；未取得本补丁截图。
+
 ## 未决限制
 
 - E1 在其独立提交时未能访问浏览器；E2 的真实桌面/手机 API 浏览器链路已覆盖条件取消、普通保存、stale、刷新和重新规划，但 E1 所有 ESC/键盘/焦点路径仍需更全面抽查。E3 单测与构建通过，但当前 sandbox 禁止 localhost socket，浏览器 E2E、真实 API 集成和 E3 截图仍待环境允许后补验。

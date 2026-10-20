@@ -947,7 +947,7 @@ function App() {
 
   const openSession = useCallback(async (nextSessionId: string, navigate = true) => {
     invalidateSelectionFlow();
-    sessionEpochRef.current += 1;
+    const restoreEpoch = ++sessionEpochRef.current;
     recoveryActionTokenRef.current += 1;
     recoveryActionInFlightRef.current = false;
     sessionIdRef.current = null;
@@ -961,6 +961,7 @@ function App() {
     setRecoveryLifecycle({});
     try {
       const view = await getSession(nextSessionId);
+      if (restoreEpoch !== sessionEpochRef.current) return;
       const restoredResponses = responsesFromSession(view);
       const restoredResponse = restoredResponses[restoredResponses.length - 1] ?? null;
       const restoredActiveResponse = activePlanResponse(view, restoredResponses);
@@ -1001,6 +1002,7 @@ function App() {
       setMobileDetailOpen(false);
       if (navigate && sessionIdFromUrl() !== view.session_id) updateSessionUrl(view.session_id);
     } catch (reason) {
+      if (restoreEpoch !== sessionEpochRef.current) return;
       sessionIdRef.current = null;
       activePlanVersionIdRef.current = null;
       activePlanSnapshotRef.current = null;
@@ -1019,8 +1021,10 @@ function App() {
       if (sessionIdFromUrl() === nextSessionId) updateSessionUrl(null, true);
       setError(reason instanceof Error ? reason.message : "会话恢复失败");
     } finally {
-      setRestoring(false);
-      setHistoryOpen(false);
+      if (restoreEpoch === sessionEpochRef.current) {
+        setRestoring(false);
+        setHistoryOpen(false);
+      }
     }
   }, []);
 
@@ -1041,6 +1045,7 @@ function App() {
         activePlanSnapshotRef.current = null;
         setPendingRecoveryConfirmation(null);
         setLoading(false);
+        setRestoring(false);
         setSessionId(null);
         setMessages([]);
         setProgressEvents([]);
@@ -1113,7 +1118,7 @@ function App() {
     setProgressEvents([]);
     setError("");
     setInput("");
-    let activeSession = sessionId;
+    let activeSession = sessionIdRef.current ?? sessionId;
     try {
       if (!activeSession) {
         activeSession = await createSession();
@@ -1141,10 +1146,14 @@ function App() {
         activeSession,
         trimmed,
         requestId,
-        (event) => setProgressEvents((current) => {
-          const next = current.filter((item) => item.sequence !== event.sequence);
-          return [...next, event].sort((left, right) => left.sequence - right.sequence);
-        }),
+        (event) => {
+          if (requestEpoch !== sessionEpochRef.current || sessionIdRef.current !== activeSession) return;
+          setProgressEvents((current) => {
+            if (requestEpoch !== sessionEpochRef.current || sessionIdRef.current !== activeSession) return current;
+            const next = current.filter((item) => item.sequence !== event.sequence);
+            return [...next, event].sort((left, right) => left.sequence - right.sequence);
+          });
+        },
         conversationCommand,
         effectiveClarificationReply,
         recoveryAction,
@@ -1222,13 +1231,17 @@ function App() {
 
   async function updateContext(patch: PlanningContextPatch) {
     if (loading || restoring) return;
+    const requestEpoch = sessionEpochRef.current;
     invalidateSelectionFlow();
     setLoading(true);
     setError("");
-    let activeSession = sessionId;
+    let activeSession = sessionIdRef.current ?? sessionId;
+    const isCurrentRequest = () => requestEpoch === sessionEpochRef.current
+      && (!activeSession || sessionIdRef.current === activeSession);
     try {
       if (!activeSession) {
         activeSession = await createSession();
+        if (requestEpoch !== sessionEpochRef.current) return;
         sessionIdRef.current = activeSession;
         activePlanVersionIdRef.current = null;
         activePlanSnapshotRef.current = null;
@@ -1236,6 +1249,7 @@ function App() {
         updateSessionUrl(activeSession);
       }
       const nextResponse = await updatePlanningContext(activeSession, patch, crypto.randomUUID());
+      if (!isCurrentRequest()) return;
       setFailedRequest(null);
       setNewRequestMode(false);
       if (nextResponse.status === "context_saved") {
@@ -1265,22 +1279,28 @@ function App() {
       }
       await refreshRecentSessions();
     } catch (reason) {
+      if (!isCurrentRequest()) return;
       const message = reason instanceof Error ? reason.message : "规划条件更新失败";
       setError(message);
       throw new Error(message);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
   }
 
   async function replanContext() {
     if (loading || restoring) return;
-    if (!sessionId) throw new Error("请先保存规划条件");
+    const activeSession = sessionIdRef.current ?? sessionId;
+    if (!activeSession) throw new Error("请先保存规划条件");
+    const requestEpoch = sessionEpochRef.current;
+    const isCurrentRequest = () => requestEpoch === sessionEpochRef.current
+      && sessionIdRef.current === activeSession;
     invalidateSelectionFlow();
     setLoading(true);
     setError("");
     try {
-      const nextResponse = await replanPlanningContext(sessionId, crypto.randomUUID());
+      const nextResponse = await replanPlanningContext(activeSession, crypto.randomUUID());
+      if (!isCurrentRequest()) return;
       setFailedRequest(null);
       setResponse(nextResponse);
       setPlanningContext(nextResponse.planning_context ?? null);
@@ -1302,11 +1322,12 @@ function App() {
       }
       await refreshRecentSessions();
     } catch (reason) {
+      if (!isCurrentRequest()) return;
       const message = reason instanceof Error ? reason.message : "重新规划失败，请稍后重试";
       setError(message);
       throw new Error(message);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
   }
 

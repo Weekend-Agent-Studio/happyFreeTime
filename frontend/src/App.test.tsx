@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
-import type { AgentResponse, Plan, PlanningContextSummary, RecoveryAction } from "./types";
+import type { AgentResponse, Plan, PlanningContextSummary, PlanningRunEvent, RecoveryAction } from "./types";
 
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -11,6 +11,8 @@ const api = vi.hoisted(() => ({
   getSession: vi.fn(),
   listSessions: vi.fn(),
   renameSession: vi.fn(),
+  updatePlanningContext: vi.fn(),
+  replanPlanningContext: vi.fn(),
   sendMessage: vi.fn(),
   sendMessageStream: vi.fn(),
   selectPlan: vi.fn(),
@@ -100,6 +102,32 @@ function planningContext(overrides: Partial<PlanningContextSummary> = {}): Plann
   };
 }
 
+function planningContextForArea(area: string, overrides: Partial<PlanningContextSummary> = {}): PlanningContextSummary {
+  const base = planningContext(overrides);
+  return {
+    ...base,
+    where: { ...base.where, value: { address: area }, display_value: area },
+  };
+}
+
+function restoredSession(sessionId: string, title: string, latestResponse: AgentResponse) {
+  const timestamp = "2026-08-20T02:00:00Z";
+  return {
+    session_id: sessionId,
+    title,
+    status: "completed" as const,
+    created_at: "2026-08-20T00:00:00Z",
+    updated_at: timestamp,
+    messages: [{ id: `${sessionId}-message`, role: "assistant" as const, content: latestResponse.reply ?? "" }],
+    plans: latestResponse.plans,
+    latest_response: latestResponse,
+    response_history: [latestResponse],
+    active_plan_version_id: latestResponse.plan_version_id ?? null,
+    selected_plan_id: null,
+    planning_context: latestResponse.planning_context ?? null,
+  };
+}
+
 function presentation(resourceId: string, name: string) {
   return {
     resource_id: resourceId, name, category_label: "展览", business_area: "朝阳区", address: "测试路 1 号", description: "一段可展开的 POI 详情说明。",
@@ -117,7 +145,10 @@ describe("planning workspace", () => {
     api.listSessions.mockReset();
     api.createSession.mockReset();
     api.deleteSession.mockReset();
+    api.getSession.mockReset();
     api.renameSession.mockReset();
+    api.updatePlanningContext.mockReset();
+    api.replanPlanningContext.mockReset();
     api.sendMessage.mockReset();
     api.sendMessageStream.mockReset();
     api.selectPlan.mockReset();
@@ -125,6 +156,8 @@ describe("planning workspace", () => {
     api.deleteSession.mockResolvedValue(undefined);
     api.renameSession.mockResolvedValue(undefined);
     api.createSession.mockResolvedValue("session-test");
+    api.updatePlanningContext.mockResolvedValue(response);
+    api.replanPlanningContext.mockResolvedValue(response);
     api.sendMessage.mockResolvedValue(response);
     api.sendMessageStream.mockImplementation((sessionId: string, content: string, requestId: string, _onProgress: unknown, conversationCommand: unknown, clarificationReply: unknown, recoveryAction: unknown) => api.sendMessage(sessionId, content, requestId, conversationCommand, clarificationReply, recoveryAction));
     api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
@@ -1451,7 +1484,13 @@ describe("planning workspace", () => {
   it("does not let an in-flight answer from a previous session replace the new session", async () => {
     const user = userEvent.setup();
     let resolveOldResponse: ((value: AgentResponse) => void) | undefined;
-    api.sendMessageStream.mockImplementationOnce(() => new Promise((resolve) => { resolveOldResponse = resolve; }));
+    let publishOldProgress: ((event: PlanningRunEvent) => void) | undefined;
+    let resolveNewResponse: ((value: AgentResponse) => void) | undefined;
+    let publishNewProgress: ((event: PlanningRunEvent) => void) | undefined;
+    api.sendMessageStream.mockImplementationOnce((_sessionId, _content, _requestId, onProgress) => new Promise((resolve) => {
+      resolveOldResponse = resolve;
+      publishOldProgress = onProgress as (event: PlanningRunEvent) => void;
+    }));
     render(<App />);
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "旧会话请求");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
@@ -1459,11 +1498,134 @@ describe("planning workspace", () => {
 
     await user.click(screen.getByRole("button", { name: "新建规划" }));
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "新会话请求");
+    api.sendMessageStream.mockImplementationOnce((_sessionId, _content, _requestId, onProgress) => new Promise((resolve) => {
+      resolveNewResponse = resolve;
+      publishNewProgress = onProgress as (event: PlanningRunEvent) => void;
+    }));
     await user.click(screen.getByRole("button", { name: "发送需求" }));
-    await screen.findAllByText("方案一");
+    await waitFor(() => expect(api.sendMessageStream).toHaveBeenCalledTimes(2));
+    const progressEvent = (public_message: string, sequence: number, stage: PlanningRunEvent["stage"]): PlanningRunEvent => ({
+      schema_version: "planning-run-event.v1",
+      run_id: `run-${sequence}`,
+      sequence,
+      stage,
+      status: "started",
+      message_key: "test.progress",
+      public_message,
+      occurred_at: "2026-08-15T10:00:00+08:00",
+      duration_ms: null,
+      public_details: {},
+    });
+    publishNewProgress?.(progressEvent("新会话正在检索候选", 1, "retrieve"));
+    expect(await screen.findAllByText("新会话正在检索候选")).not.toHaveLength(0);
+    publishOldProgress?.(progressEvent("旧会话迟到进度", 2, "verify"));
+    expect(screen.queryByText("旧会话迟到进度")).not.toBeInTheDocument();
     resolveOldResponse?.({ ...response, reply: "旧会话响应", plans: [] });
     await waitFor(() => expect(screen.queryByText("旧会话响应")).not.toBeInTheDocument());
-    expect(screen.getAllByText("方案一").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("新会话正在检索候选")).not.toHaveLength(0);
+    resolveNewResponse?.(response);
+    await screen.findAllByText("方案一");
+  });
+
+  it("ignores an in-flight condition save after switching sessions and preserves the new session loading state", async () => {
+    const user = userEvent.setup();
+    const sourceContext = planningContextForArea("当前会话区域");
+    const targetContext = planningContextForArea("目标会话区域");
+    const targetResponse = {
+      ...response,
+      reply: "目标会话已恢复",
+      plans: [plan("target-plan", "目标会话方案")],
+      plan_version_id: "target-version",
+      planning_context: targetContext,
+    };
+    api.sendMessage.mockResolvedValueOnce({ ...response, planning_context: sourceContext });
+    api.getSession.mockResolvedValue(restoredSession("target-session", "目标会话", targetResponse));
+    let resolveOldSave: ((value: AgentResponse) => void) | undefined;
+    api.updatePlanningContext.mockImplementationOnce(() => new Promise((resolve) => { resolveOldSave = resolve; }));
+
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "初始需求");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: /修改出发区域/ }));
+    await user.clear(screen.getByLabelText("出发地点"));
+    await user.type(screen.getByLabelText("出发地点"), "旧会话修改区域");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    await waitFor(() => expect(api.updatePlanningContext).toHaveBeenCalledTimes(1));
+
+    window.history.pushState({}, "", "/?session=target-session");
+    fireEvent.popState(window);
+    await screen.findByRole("heading", { name: "目标会话方案", level: 3 });
+    let resolveCurrentMessage: ((value: AgentResponse) => void) | undefined;
+    api.sendMessageStream.mockImplementationOnce(() => new Promise((resolve) => { resolveCurrentMessage = resolve; }));
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "目标会话中的新请求");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await waitFor(() => expect(api.sendMessageStream).toHaveBeenCalledTimes(2));
+    expect(api.sendMessageStream.mock.calls[1]?.[0]).toBe("target-session");
+
+    resolveOldSave?.({
+      ...response,
+      reply: "过期条件保存响应",
+      plans: [plan("old-save-plan", "旧会话保存方案")],
+      plan_version_id: "old-save-version",
+      planning_context: planningContextForArea("旧会话区域"),
+    });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "旧会话保存方案", level: 3 })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "目标会话方案", level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /修改出发区域/ })).toHaveAccessibleName(/目标会话区域/);
+    expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeDisabled();
+
+    await act(async () => resolveCurrentMessage?.({ ...response, reply: "目标会话请求完成", planning_context: targetContext }));
+    await waitFor(() => expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeEnabled());
+  });
+
+  it("ignores an in-flight replan after switching sessions without clearing the new request loading state", async () => {
+    const user = userEvent.setup();
+    const staleContext = planningContextForArea("旧方案区域", { plan_stale: true, planned_request_revision: 0 });
+    const targetContext = planningContextForArea("新会话区域");
+    const targetResponse = {
+      ...response,
+      reply: "新会话已恢复",
+      plans: [plan("replan-target", "新会话原方案")],
+      plan_version_id: "target-version",
+      planning_context: targetContext,
+    };
+    api.sendMessage.mockResolvedValueOnce({ ...response, planning_context: staleContext });
+    api.getSession.mockResolvedValue(restoredSession("replan-target-session", "新会话", targetResponse));
+    let resolveOldReplan: ((value: AgentResponse) => void) | undefined;
+    api.replanPlanningContext.mockImplementationOnce(() => new Promise((resolve) => { resolveOldReplan = resolve; }));
+
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "生成旧条件方案");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("button", { name: "按新条件重新规划" }));
+    await waitFor(() => expect(api.replanPlanningContext).toHaveBeenCalledTimes(1));
+
+    window.history.pushState({}, "", "/?session=replan-target-session");
+    fireEvent.popState(window);
+    await screen.findByRole("heading", { name: "新会话原方案", level: 3 });
+    let resolveCurrentMessage: ((value: AgentResponse) => void) | undefined;
+    api.sendMessageStream.mockImplementationOnce(() => new Promise((resolve) => { resolveCurrentMessage = resolve; }));
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "新会话中的请求");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await waitFor(() => expect(api.sendMessageStream).toHaveBeenCalledTimes(2));
+    expect(api.sendMessageStream.mock.calls[1]?.[0]).toBe("replan-target-session");
+
+    resolveOldReplan?.({
+      ...response,
+      reply: "过期重新规划响应",
+      plans: [plan("old-replan-plan", "旧会话重新规划方案")],
+      plan_version_id: "old-replan-version",
+      planning_context: planningContextForArea("过期重新规划区域"),
+    });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "旧会话重新规划方案", level: 3 })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "新会话原方案", level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /修改出发区域/ })).toHaveAccessibleName(/新会话区域/);
+    expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeDisabled();
+
+    await act(async () => resolveCurrentMessage?.({ ...response, reply: "新会话请求完成", planning_context: targetContext }));
+    await waitFor(() => expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeEnabled());
   });
 
   it("shows a completed recovery action separately from a later failed recovery", async () => {

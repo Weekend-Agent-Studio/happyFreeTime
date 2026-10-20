@@ -307,6 +307,19 @@ test("planning condition dialog fits desktop and 375px layouts and restores focu
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(trigger).toBeFocused();
 
+  if (!mobile) {
+    await page.setViewportSize({ width: 1440, height: 540 });
+    await trigger.click();
+    const shortDialog = page.getByRole("dialog", { name: "日期时间", exact: true });
+    const shortBounds = await shortDialog.boundingBox();
+    expect(shortBounds).not.toBeNull();
+    expect(shortBounds!.x + shortBounds!.width / 2).toBeCloseTo(720, 0);
+    expect(shortBounds!.y + shortBounds!.height / 2).toBeCloseTo(270, 0);
+    await expect(shortDialog.getByRole("button", { name: "保存条件" })).toBeInViewport();
+    await page.screenshot({ path: path.resolve("../.impeccable/review/s-ui1e-context-dialog-desktop.png") });
+    await page.keyboard.press("Escape");
+  }
+
   if (mobile) {
     await page.setViewportSize({ width: 375, height: 560 });
     await page.getByRole("button", { name: /修改出行偏好/ }).click();

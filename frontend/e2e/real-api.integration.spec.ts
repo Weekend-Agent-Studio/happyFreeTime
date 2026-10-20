@@ -164,11 +164,12 @@ test("real API clarification requires confirmation before applying a recovery pr
   await page.getByRole("button", { name: "发送需求" }).click();
   const question = page.getByRole("group", { name: "补充信息选项" });
   await expect(question).toBeVisible();
+  await expect(question).toContainText("预算");
   await screenshot(`s-ui1e-clarification-${testInfo.project.name}`);
   const sessionId = new URL(page.url()).searchParams.get("session");
   expect(sessionId).toBeTruthy();
 
-  await page.getByLabel("补充这个信息后继续").fill("人均200");
+  await page.getByLabel("补充这个信息后继续").fill("人均1元，严格控制，不超预算");
   await page.getByRole("button", { name: "发送需求" }).click();
   const recoveryCard = page.getByRole("group", { name: "规划恢复选项" }).last();
   await expect(recoveryCard).toBeVisible();
@@ -188,7 +189,15 @@ test("real API clarification requires confirmation before applying a recovery pr
   await expect.poll(() => messageWrites).toBe(beforeCancel + 1);
   const outcome = page.locator(".recovery-lifecycle").last();
   await expect(outcome).toBeVisible();
-  await expect(outcome).not.toBeEmpty();
+  await expect(outcome).toHaveClass(/recovery-lifecycle-succeeded/);
+  await expect(outcome).toContainText("新的方案已生成并重新核验");
+  await expect.poll(async () => {
+    const savedSession = await request.get(`/api/sessions/${sessionId}`);
+    if (!savedSession.ok()) return false;
+    const data = (await savedSession.json()).data;
+    return data.active_constraints?.strict_budget === false
+      && data.planning_context?.budget?.value?.strict === false;
+  }).toBe(true);
   const savedSession = await request.get(`/api/sessions/${sessionId}`);
   expect(savedSession.ok()).toBe(true);
   const savedData = (await savedSession.json()).data;
