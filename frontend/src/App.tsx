@@ -2511,11 +2511,14 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, onViewPlan,
   return (
     <section className="rich-planning-reply" aria-labelledby={headingId}>
       <div className="rich-reply-body">
-        <div className="plan-intro"><div><h2 id={headingId}>{hasModification ? "替换结果" : `我整理了 ${response.plans.length} 个都可行的方案`}</h2><p>{hasModification ? "候选与变更说明按服务端返回逐项对应；选择前请核对实际差异。" : "方案按推荐顺序排列；打开详情可查看完整行程、推荐理由和取舍。"}</p></div><span>{response.plans.length} 个候选</span></div>
+        <div className="plan-intro"><div><h2 id={headingId}>{hasModification ? "替换结果" : `根据当前条件，整理了 ${response.plans.length} 个候选方案`}</h2><p>{hasModification ? "候选与变更说明按服务端返回逐项对应；选择前请核对实际差异。" : "方案按推荐顺序排列；打开详情可查看完整行程、推荐理由和取舍。"}</p></div><span>{response.plans.length} 个候选</span></div>
         <RunProgressDisclosure trace={response.run_trace} />
         {response.warnings?.some((warning) => warning.plan_id === null) ? <div className="shared-warning"><CircleAlert size={16} />{response.warnings.filter((warning) => warning.plan_id === null).map((warning) => warning.message).join("；")}</div> : null}
+        <div className="plan-grid" aria-label="方案比较列表">
+          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} recommended={response.recommendation_advice?.recommended_plan_id === plan.plan_id} index={index} warning={planWarning(response, plan)} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} modificationDiff={hasModification ? diffForPlan(plan) : null} isModification={hasModification} onView={() => onViewPlan(plan.plan_id)} onOpenDetails={() => onOpenPlanDetails(plan.plan_id)} />)}
+        </div>
         {(weather || departureAt || returnConstraint || shownConstraints.length || response.recommendation_advice) ? (
-          <div className="plan-supporting-content">
+          <details className="plan-supporting-content"><summary>本轮理解与推荐依据</summary>
             {(weather || departureAt || returnConstraint || shownConstraints.length) ? (
               <div className="shared-context" aria-label="本次规划的共享信息">
                 {weather ? <span><CloudSun size={16} /><strong>预计天气</strong>{weather.condition}{weather.temperature_c !== null ? ` · ${weather.temperature_c}℃` : ""}{weather.is_adverse ? " · 需留意" : ""}</span> : null}
@@ -2525,11 +2528,8 @@ function RichPlanningReply({ response, selectedPlan, selectedPlanId, onViewPlan,
               </div>
             ) : null}
             <RecommendationAdvicePanel advice={response.recommendation_advice} plans={response.plans} />
-          </div>
+          </details>
         ) : null}
-        <div className="plan-grid" aria-label="方案比较列表">
-          {response.plans.map((plan, index) => <PlanCard key={plan.plan_id} plan={plan} recommended={response.recommendation_advice?.recommended_plan_id === plan.plan_id} index={index} warning={planWarning(response, plan)} viewed={(selectedPlan?.plan_id ?? response.plans[0].plan_id) === plan.plan_id} selected={selectedPlanId === plan.plan_id} modificationDiff={hasModification ? diffForPlan(plan) : null} isModification={hasModification} onView={() => onViewPlan(plan.plan_id)} onOpenDetails={() => onOpenPlanDetails(plan.plan_id)} />)}
-        </div>
         {(response.poi_presentations.length || response.plans.some((plan) => plan.stops[0]?.image)) ? (
           <div className="plan-results-notes" aria-label="方案数据与图片来源">
             {response.poi_presentations.length ? <p><Database size={13} aria-hidden="true" />POI 商业信息为模拟数据；路线来源和降级状态见各路线段。</p> : null}
@@ -2961,10 +2961,8 @@ function EvidencePanel({ response, plan }: { response: AgentResponse | null; pla
   );
 }
 
-const SHOW_DEVELOPER_DETAILS = import.meta.env.VITE_SHOW_DEVELOPER_DETAILS !== "false";
-
 function DeveloperDetails({ response }: { response: AgentResponse }) {
-  if (!SHOW_DEVELOPER_DETAILS) return null;
+  if (import.meta.env.VITE_SHOW_DEVELOPER_DETAILS !== "true") return null;
   const decisions = response.runtime_decisions ?? [];
   const hasSearchDetails = response.search_mode || response.search_expansions !== null && response.search_expansions !== undefined;
   if (!decisions.length && !hasSearchDetails) return null;

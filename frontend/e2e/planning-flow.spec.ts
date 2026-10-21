@@ -93,6 +93,24 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/config/map", (route) => route.fulfill({ json: { data: { enabled: false, provider: "none", js_api_key: null, version: null, service_host_path: null } } }));
 });
 
+test("planning polish keeps candidate and itinerary text readable across widths", async ({ page }, testInfo) => {
+  const phase = process.env.HFT_UI_REVIEW_PHASE ?? "after";
+  const widths = testInfo.project.name === "mobile-375" ? [390] : [1440, 1366, 1024];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: width === 1366 ? 768 : 900 });
+    await page.goto("/");
+    await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+    await page.getByRole("button", { name: "发送需求" }).click();
+    await page.getByRole("button", { name: "打开方案一详情" }).click();
+    if (phase === "after") {
+      expect(await page.locator(".plan-metrics").first().evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(13);
+      expect(await page.locator(".timeline-route-copy small:visible").first().evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(12);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+    await page.screenshot({ path: path.resolve(`../.impeccable/review/s-ui2-${phase}-${width}.png`) });
+  }
+});
+
 test("refined calendar and compact POI header preserve navigation", async ({ page }, testInfo) => {
   const device = testInfo.project.name === "mobile-375" ? "mobile" : "desktop";
   await page.setViewportSize(device === "mobile" ? { width: 375, height: 812 } : { width: 1440, height: 900 });
@@ -327,7 +345,7 @@ test("offline planning path keeps route and fallback map interactive", async ({ 
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();
 
-  await page.getByRole("button", { name: "预览方案二" }).click();
+  await page.getByRole("button", { name: "预览方案二", exact: true }).click();
   if (mobile) await page.getByRole("button", { name: "打开方案二详情" }).click();
   await page.getByRole("button", { name: /查看出发路线：出发地 → 展览/ }).click();
   await expect(page.getByText("当前响应没有可绘制的有效路线坐标；可从下方站点列表查看 POI 与文字路线")).toBeVisible();
@@ -659,7 +677,7 @@ test("selection persists across refresh and clears after a new plan", async ({ p
   expect(selectedPlanId).toBe("plan-0");
 
   if (mobile) await page.getByRole("button", { name: "关闭" }).click();
-  await page.getByRole("button", { name: "预览方案二" }).click();
+  await page.getByRole("button", { name: "预览方案二", exact: true }).click();
   if (mobile) await page.getByRole("button", { name: "打开方案二详情" }).click();
   await expect(page.getByRole("region", { name: "当前预览方案" })).toContainText("当前预览");
   await expect(page.getByRole("button", { name: "返回已选方案：方案一" })).toBeVisible();

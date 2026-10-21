@@ -142,6 +142,7 @@ function presentation(resourceId: string, name: string) {
 
 describe("planning workspace", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     window.history.replaceState({}, "", "/");
     api.listSessions.mockReset();
     api.createSession.mockReset();
@@ -209,7 +210,8 @@ describe("planning workspace", () => {
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("separates the completed run trace from evidence and developer details", async () => {
+  it.each([false, true])("keeps public evidence available with developer details enabled=%s", async (enabled) => {
+    if (enabled) vi.stubEnv("VITE_SHOW_DEVELOPER_DETAILS", "true");
     const user = userEvent.setup();
     api.sendMessage.mockResolvedValueOnce({
       ...response,
@@ -240,11 +242,12 @@ describe("planning workspace", () => {
     expect(screen.getByText("规划完成 · 查看本轮处理过程")).toBeInTheDocument();
     await user.click(screen.getByText("规划完成 · 查看本轮处理过程"));
     await user.click(screen.getByText("核验与来源"));
-    await user.click(screen.getByText("开发者详情"));
+    if (enabled) await user.click(screen.getByText("开发者详情"));
 
     expect(screen.queryByText("本轮处理过程")).not.toBeInTheDocument();
     expect(screen.getByText("数据与证据")).toBeInTheDocument();
-    expect(screen.getByText("开发者详情")).toBeInTheDocument();
+    if (enabled) expect(screen.getByText("开发者详情")).toBeInTheDocument();
+    else expect(screen.queryByText("开发者详情")).not.toBeInTheDocument();
     expect(screen.getByText("已完成需求理解")).toBeInTheDocument();
     expect(screen.getByText("路线和硬约束核对完成")).toBeInTheDocument();
   });
@@ -599,8 +602,12 @@ describe("planning workspace", () => {
     const supportingContent = document.querySelector(".plan-supporting-content");
     const planGrid = document.querySelector(".plan-grid");
     expect(supportingContent).not.toBeNull();
-    expect(supportingContent?.tagName).not.toBe("DETAILS");
-    expect(supportingContent?.compareDocumentPosition(planGrid as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(supportingContent?.tagName).toBe("DETAILS");
+    expect(supportingContent).not.toHaveAttribute("open");
+    expect(planGrid?.compareDocumentPosition(supportingContent as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    await user.click(screen.getByText("本轮理解与推荐依据"));
+    expect(supportingContent).toHaveAttribute("open");
+    expect(screen.getByText("准时出发")).toBeVisible();
   });
 
   it("renders a dinner-only plan with one place, inbound route, and return route", async () => {
