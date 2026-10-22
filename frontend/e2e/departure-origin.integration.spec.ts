@@ -42,7 +42,7 @@ test("real API searches, cancels, saves and replans from a verified departure pl
   await searchForGuomao();
   await screenshot("results");
   await page.getByRole("option", { name: /国贸/ }).first().click();
-  await expect(page.getByLabelText("待保存出发地")).toContainText("国贸");
+  await expect(page.getByLabel("待保存出发地")).toContainText("国贸");
   await screenshot("pending");
   await page.getByRole("button", { name: /^取消$/ }).click();
   expect(contextWrites).toBe(0);
@@ -81,5 +81,7 @@ test("real API searches, cancels, saves and replans from a verified departure pl
   expect(replanned.plan_versions).toHaveLength(before.plan_versions.length + 1);
   const firstRouteOrigin = replanned.plans[0].route_legs[0].geometry[0];
   expect(firstRouteOrigin).toMatchObject({ latitude: 39.9087, longitude: 116.4615 });
-  expect(replanned.plans[0].route_legs[0].origin_name).toContain("国贸");
+  // RouteLeg uses the stable role label; the selected identity is in the
+  // saved location above, and its actual coordinates must drive this leg.
+  expect(replanned.plans[0].route_legs[0].origin_name).toBe("出发地");
 });

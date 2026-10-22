@@ -126,6 +126,9 @@ describe("PlanningContextBar typed patches", () => {
     await user.type(input, "国贸");
     expect(onSave).not.toHaveBeenCalled();
     expect(await screen.findByRole("option", { name: /中国国际贸易中心/ })).toBeInTheDocument();
+    const listbox = screen.getByRole("listbox", { name: "出发地候选" });
+    expect(listbox.closest(".context-form-content")).toBeNull();
+    expect(listbox.closest(".departure-search-panel")).toBeInTheDocument();
     expect(api.searchDepartureLocations).toHaveBeenCalledWith("国贸", expect.any(AbortSignal));
     expect(onSave).not.toHaveBeenCalled();
 

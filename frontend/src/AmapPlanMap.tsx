@@ -6,6 +6,7 @@ import type { Plan, WebMapConfig } from "./types";
 type Position = [number, number];
 type Overlay = {
   on?: (eventName: string, listener: () => void) => void;
+  setOptions?: (options: Record<string, unknown>) => void;
 };
 
 type AmapMapInstance = {
@@ -96,7 +97,7 @@ function renderPlan(
   activeLegIndex: number | null,
   onFocusRoute: (legIndex: number) => void,
   onOpenPoi: (stopIndex: number) => void,
-): AmapMapInstance {
+): { map: AmapMapInstance; updateActiveLeg: (index: number | null) => void } {
   const legPaths = legPath(plan);
   if (!legPaths.length) throw new Error("当前方案没有可绘制的路线坐标");
 
@@ -106,6 +107,7 @@ function renderPlan(
     zoom: 12,
   });
   const overlays: Overlay[] = [];
+  const routeOverlays: Array<{ index: number; polyline: Overlay }> = [];
   legPaths.forEach(({ index, path }) => {
     const isActive = activeLegIndex === index;
     const polyline = new AMap.Polyline({
@@ -119,6 +121,7 @@ function renderPlan(
       });
     polyline.on?.("click", () => onFocusRoute(index));
     overlays.push(polyline);
+    routeOverlays.push({ index, polyline });
   });
 
   const originPosition = coordinatesForLeg(plan, 0)[0];
@@ -159,11 +162,26 @@ function renderPlan(
     overlays.push(marker);
   }
   map.setFitView(overlays, false, [42, 32, 42, 32], 15);
-  return map;
+  return {
+    map,
+    updateActiveLeg: (activeIndex) => {
+      routeOverlays.forEach(({ index, polyline }) => polyline.setOptions?.({
+        strokeColor: activeIndex === index ? "#075a9f" : "#3178c6",
+        strokeWeight: activeIndex === index ? 9 : 6,
+      }));
+    },
+  };
 }
 
 export function AmapPlanMap({ plan, activeLegIndex, onFocusRoute, onOpenPoi }: { plan: Plan; activeLegIndex: number | null; onFocusRoute: (legIndex: number) => void; onOpenPoi: (stopIndex: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const interactionRef = useRef({ activeLegIndex, onFocusRoute, onOpenPoi });
+  const updateActiveLegRef = useRef<((index: number | null) => void) | null>(null);
+
+  useEffect(() => {
+    interactionRef.current = { activeLegIndex, onFocusRoute, onOpenPoi };
+    updateActiveLegRef.current?.(activeLegIndex);
+  }, [activeLegIndex, onFocusRoute, onOpenPoi]);
   const [status, setStatus] = useState<"loading" | "ready" | "disabled" | "error">("loading");
   const [message, setMessage] = useState("正在加载高德地图…");
 
@@ -190,7 +208,11 @@ export function AmapPlanMap({ plan, activeLegIndex, onFocusRoute, onOpenPoi }: {
         }
         const AMap = await loadAmap(config);
         if (disposed || !containerRef.current) return;
-        map = renderPlan(containerRef.current, plan, AMap, activeLegIndex, onFocusRoute, onOpenPoi);
+        const rendered = renderPlan(containerRef.current, plan, AMap, interactionRef.current.activeLegIndex,
+          (index) => interactionRef.current.onFocusRoute(index),
+          (index) => interactionRef.current.onOpenPoi(index));
+        map = rendered.map;
+        updateActiveLegRef.current = rendered.updateActiveLeg;
         setStatus("ready");
       })
       .catch((error: unknown) => {
@@ -202,9 +224,10 @@ export function AmapPlanMap({ plan, activeLegIndex, onFocusRoute, onOpenPoi }: {
 
     return () => {
       disposed = true;
+      updateActiveLegRef.current = null;
       map?.destroy();
     };
-  }, [activeLegIndex, onFocusRoute, onOpenPoi, plan]);
+  }, [plan]);
 
   return (
     <div className="map-canvas amap-map-shell" aria-label="高德地图路线图">

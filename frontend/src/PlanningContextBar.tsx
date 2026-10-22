@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
+import { Popover } from "@base-ui/react/popover";
 import { CalendarDays, ChevronRight, CircleDollarSign, Info, MapPin, Pencil, SlidersHorizontal, Users, X } from "lucide-react";
 import { searchDepartureLocations } from "./api";
 import type { DepartureLocationOption, DepartureLocationSearchResponse, FieldEdit, PlanningContextPatch, PlanningContextSummary, PreferenceCategory, PreferenceTag } from "./types";
@@ -212,6 +213,8 @@ export function PlanningContextBar({
   const focusReturnRef = useRef<HTMLElement | null>(null);
   const departureSearchSequence = useRef(0);
   const departureSearchController = useRef<AbortController | null>(null);
+  const departureInputRef = useRef<HTMLInputElement>(null);
+  const departureInputId = useId();
   const departureListId = useId();
   const baseRef = useRef<{ sessionId: string | null; revision: number; view: "committed" | "draft"; values: EditorValues } | null>(null);
 
@@ -657,83 +660,104 @@ export function PlanningContextBar({
                                 : "尚未设置"}
                     </small>
                   </section>
-                  <label htmlFor="context-where">搜索出发地点 <small>北京市</small></label>
-                  <input
-                    id="context-where"
-                    role="combobox"
-                    aria-autocomplete="list"
-                    aria-haspopup="listbox"
-                    aria-expanded={departureSuggestionsOpen}
-                    aria-controls={departureListId}
-                    aria-activedescendant={departureSuggestionsOpen && activeDepartureIndex >= 0 && departureSearch?.results[activeDepartureIndex]
-                      ? `${departureListId}-option-${activeDepartureIndex}`
-                      : undefined}
-                    autoComplete="off"
-                    maxLength={80}
-                    value={whereQuery}
-                    onFocus={() => { if (whereQuery.trim()) setDepartureSuggestionsOpen(true); }}
-                    onChange={(event) => {
-                      if (departureDraft) setDepartureSelectionMessage("搜索内容已更改，请从新结果中重新选择出发地。");
-                      setDepartureDraft(null);
-                      setWhereQuery(event.target.value);
-                      setDepartureSearch(null);
-                      setDepartureSearchStatus(event.target.value.trim().length >= 2 ? "loading" : "idle");
-                      setDepartureSearchError("");
-                      setDepartureSuggestionsOpen(Boolean(event.target.value.trim()));
-                      setActiveDepartureIndex(-1);
-                      setSaveError("");
-                    }}
-                    onKeyDown={(event) => {
-                      const options = departureSearch?.results ?? [];
-                      if (event.key === "ArrowDown" && options.length) {
-                        event.preventDefault();
-                        setDepartureSuggestionsOpen(true);
-                        setActiveDepartureIndex((current) => (current + 1) % options.length);
-                      } else if (event.key === "ArrowUp" && options.length) {
-                        event.preventDefault();
-                        setDepartureSuggestionsOpen(true);
-                        setActiveDepartureIndex((current) => current <= 0 ? options.length - 1 : current - 1);
-                      } else if (event.key === "Enter" && activeDepartureIndex >= 0 && options[activeDepartureIndex]) {
-                        event.preventDefault();
-                        chooseDeparture(options[activeDepartureIndex]);
-                      } else if (event.key === "Enter" && !departureDraft) {
-                        event.preventDefault();
-                        setSaveError("请从搜索结果中选择一个地点，输入文字本身不会保存为出发地。");
-                      } else if (event.key === "Escape" && departureSuggestionsOpen) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setDepartureSuggestionsOpen(false);
-                      }
-                    }}
-                    placeholder="输入地铁站、商场或地标（至少 2 个字）"
-                  />
-                  {departureSuggestionsOpen ? <div className="departure-search-panel">
-                    {whereQuery.trim().length === 1 ? <p className="departure-search-status" role="status">至少输入 2 个字开始搜索。</p> : null}
-                    {departureSearchStatus === "loading" ? <p className="departure-search-status" role="status">正在搜索北京市地点…</p> : null}
-                    {departureSearchStatus === "error" ? <div className="departure-search-error" role="alert">
-                      <span>{departureSearchError || "地点搜索失败，请重试。"}</span>
-                      <button type="button" className="context-secondary" onClick={() => setDepartureSearchAttempt((attempt) => attempt + 1)}>重试搜索</button>
-                    </div> : null}
-                    {departureSearch?.degraded ? <p className="departure-search-notice" role="status">在线搜索暂不可用，以下是有限的演示地点；请确认所选地点和地址。</p>
-                      : departureSearch?.mode === "mock" ? <p className="departure-search-notice" role="status">演示地点：仅列出已配置的北京地点，不代表完整地点目录。</p> : null}
-                    {departureSearchStatus === "idle" && departureSearch && departureSearch.results.length === 0
-                      ? <p className="departure-search-status" role="status">{departureSearch.mode === "mock" || departureSearch.degraded ? "演示地点中没有匹配项，请尝试“国贸”或“海淀黄庄”。" : "没有找到地点，请换个关键词。"}</p>
-                      : null}
-                    <div id={departureListId} className="departure-search-options" role="listbox" aria-label="出发地候选">
-                      {(departureSearch?.results ?? []).map((option, index) => <div
-                        id={`${departureListId}-option-${index}`}
-                        key={option.provider_id}
-                        className={`departure-search-option${activeDepartureIndex === index ? " active" : ""}`}
-                        role="option"
-                        aria-selected={activeDepartureIndex === index}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => chooseDeparture(option)}
+                  <Popover.Root
+                    open={departureSuggestionsOpen}
+                    onOpenChange={(open) => setDepartureSuggestionsOpen(open)}
+                    triggerId={departureInputId}
+                    modal={false}
+                  >
+                    <label htmlFor={departureInputId}>搜索出发地点 <small>北京市</small></label>
+                    <input
+                      id={departureInputId}
+                      ref={departureInputRef}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-haspopup="listbox"
+                      aria-expanded={departureSuggestionsOpen}
+                      aria-controls={departureListId}
+                      aria-activedescendant={departureSuggestionsOpen && activeDepartureIndex >= 0 && departureSearch?.results[activeDepartureIndex]
+                        ? `${departureListId}-option-${activeDepartureIndex}`
+                        : undefined}
+                      autoComplete="off"
+                      maxLength={80}
+                      value={whereQuery}
+                      onFocus={() => { if (whereQuery.trim()) setDepartureSuggestionsOpen(true); }}
+                      onChange={(event) => {
+                        if (departureDraft) setDepartureSelectionMessage("搜索内容已更改，请从新结果中重新选择出发地。");
+                        setDepartureDraft(null);
+                        setWhereQuery(event.target.value);
+                        setDepartureSearch(null);
+                        setDepartureSearchStatus(event.target.value.trim().length >= 2 ? "loading" : "idle");
+                        setDepartureSearchError("");
+                        setDepartureSuggestionsOpen(Boolean(event.target.value.trim()));
+                        setActiveDepartureIndex(-1);
+                        setSaveError("");
+                      }}
+                      onKeyDown={(event) => {
+                        const options = departureSearch?.results ?? [];
+                        if (event.key === "ArrowDown" && options.length) {
+                          event.preventDefault();
+                          setDepartureSuggestionsOpen(true);
+                          setActiveDepartureIndex((current) => (current + 1) % options.length);
+                        } else if (event.key === "ArrowUp" && options.length) {
+                          event.preventDefault();
+                          setDepartureSuggestionsOpen(true);
+                          setActiveDepartureIndex((current) => current <= 0 ? options.length - 1 : current - 1);
+                        } else if (event.key === "Enter" && activeDepartureIndex >= 0 && options[activeDepartureIndex]) {
+                          event.preventDefault();
+                          chooseDeparture(options[activeDepartureIndex]);
+                        } else if (event.key === "Enter" && !departureDraft) {
+                          event.preventDefault();
+                          setSaveError("请从搜索结果中选择一个地点，输入文字本身不会保存为出发地。");
+                        } else if (event.key === "Escape" && departureSuggestionsOpen) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setDepartureSuggestionsOpen(false);
+                        }
+                      }}
+                      placeholder="输入地铁站、商场或地标（至少 2 个字）"
+                    />
+                    {departureSuggestionsOpen ? <Popover.Portal>
+                      <Popover.Positioner
+                        className="departure-search-positioner"
+                        anchor={departureInputRef}
+                        positionMethod="fixed"
+                        side="bottom"
+                        align="start"
+                        sideOffset={4}
+                        collisionPadding={12}
+                        collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
                       >
-                        <MapPin size={16} aria-hidden="true" />
-                        <span><strong>{option.name}</strong><small>{[option.city, option.district, option.address].filter(Boolean).join(" · ")}</small></span>
-                      </div>)}
-                    </div>
-                  </div> : null}
+                        <Popover.Popup className="departure-search-panel" role="presentation" initialFocus={false} finalFocus={false}>
+                          {whereQuery.trim().length === 1 ? <p className="departure-search-status" role="status">至少输入 2 个字开始搜索。</p> : null}
+                          {departureSearchStatus === "loading" ? <p className="departure-search-status" role="status">正在搜索北京市地点…</p> : null}
+                          {departureSearchStatus === "error" ? <div className="departure-search-error" role="alert">
+                            <span>{departureSearchError || "地点搜索失败，请重试。"}</span>
+                            <button type="button" className="context-secondary" onClick={() => setDepartureSearchAttempt((attempt) => attempt + 1)}>重试搜索</button>
+                          </div> : null}
+                          {departureSearch?.degraded ? <p className="departure-search-notice" role="status">在线搜索暂不可用，以下是有限的演示地点；请确认所选地点和地址。</p>
+                            : departureSearch?.mode === "mock" ? <p className="departure-search-notice" role="status">演示地点：仅列出已配置的北京地点，不代表完整地点目录。</p> : null}
+                          {departureSearchStatus === "idle" && departureSearch && departureSearch.results.length === 0
+                            ? <p className="departure-search-status" role="status">{departureSearch.mode === "mock" || departureSearch.degraded ? "演示地点中没有匹配项，请尝试“国贸”或“海淀黄庄”。" : "没有找到地点，请换个关键词。"}</p>
+                            : null}
+                          <div id={departureListId} className="departure-search-options" role="listbox" aria-label="出发地候选">
+                            {(departureSearch?.results ?? []).map((option, index) => <div
+                              id={`${departureListId}-option-${index}`}
+                              key={option.provider_id}
+                              className={`departure-search-option${activeDepartureIndex === index ? " active" : ""}`}
+                              role="option"
+                              aria-selected={activeDepartureIndex === index}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => chooseDeparture(option)}
+                            >
+                              <MapPin size={16} aria-hidden="true" />
+                              <span><strong>{option.name}</strong><small>{[option.city, option.district, option.address].filter(Boolean).join(" · ")}</small></span>
+                            </div>)}
+                          </div>
+                        </Popover.Popup>
+                      </Popover.Positioner>
+                    </Popover.Portal> : null}
+                  </Popover.Root>
                   {departureSelectionMessage ? <small className="departure-selection-message" role="status">{departureSelectionMessage}</small> : null}
                   {departureDraft ? <section className="departure-pending-selection" aria-label="待保存出发地">
                     <small>待保存出发地</small>

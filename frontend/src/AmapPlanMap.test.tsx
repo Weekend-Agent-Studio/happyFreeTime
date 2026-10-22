@@ -70,6 +70,7 @@ describe("AmapPlanMap", () => {
       instance = makeOverlay({});
       constructor(options: Record<string, unknown>) { this.instance.options = options; polylines.push(this.instance); }
       on(event: string, listener: () => void) { this.instance.on(event, listener); }
+      setOptions(options: Record<string, unknown>) { Object.assign(this.instance.options, options); }
     }
     class FakeMarker {
       instance: FakeOverlay;
@@ -98,6 +99,21 @@ describe("AmapPlanMap", () => {
     expect(poiCallbacks).toHaveBeenCalledWith(1);
     markers.find((marker) => marker.options.title === "出发地")?.click();
     markers.find((marker) => marker.options.title === "返程终点：出发地")?.click();
+    expect(poiCallbacks).toHaveBeenCalledTimes(1);
+
+    const latestRouteCallback = vi.fn();
+    const latestPoiCallback = vi.fn();
+    view.rerender(<AmapPlanMap plan={plan} activeLegIndex={0} onFocusRoute={latestRouteCallback} onOpenPoi={latestPoiCallback} />);
+    await waitFor(() => expect(polylines[0].options.strokeWeight).toBe(9));
+    expect(polylines[1].options.strokeWeight).toBe(6);
+    expect(maps).toHaveLength(1);
+    expect(maps[0].destroy).not.toHaveBeenCalled();
+    expect(maps[0].setFitView).toHaveBeenCalledTimes(1);
+    polylines[1].click();
+    markers.find((marker) => marker.options.title === "第二站")?.click();
+    expect(latestRouteCallback).toHaveBeenCalledWith(2);
+    expect(latestPoiCallback).toHaveBeenCalledWith(1);
+    expect(routeCallbacks).toHaveBeenCalledTimes(1);
     expect(poiCallbacks).toHaveBeenCalledTimes(1);
 
     view.unmount();

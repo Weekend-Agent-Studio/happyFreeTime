@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     启动 HappyFreeTime 后端，并显式选择本轮要启用的模型/召回模式。
 
@@ -32,6 +32,7 @@
     -FullLlm
         快捷设置为 Router=llm、PlanningIntent=llm、Retriever=hybrid、Advisor=llm。
         这里的“FullLlm”表示完整智能链路；Retriever 使用的是本地 BGE，而不是远程 LLM。
+        若配置了 AMAP_WEB_SERVICE_KEY，也会启用高德地点搜索/地理编码；不会因此启用高德路线或天气。
 
     重要：真实模式仍受 .env 中的 HFT_PROVIDER_MODE、HFT_ROUTE_PROVIDER_MODE 等
     Provider 配置控制。若只想验证 LLM，不需要打开真实高德路线/天气，保留 mock 即可。
@@ -67,6 +68,20 @@ if (-not (Test-Path -LiteralPath $Python)) {
     throw "Python environment not found: $Python`nUse -Python `"$PWD\.venv\Scripts\python.exe`" or pass another existing interpreter."
 }
 
+# 与应用使用同一 dotenv 加载规则，环境变量优先；只返回布尔标志，不输出密钥。
+$amapWebServiceKeyConfigured = $false
+if ($FullLlm) {
+    $keyProbeScript = @'
+from dotenv import load_dotenv
+import os
+load_dotenv(".env")
+print("configured" if os.getenv("AMAP_WEB_SERVICE_KEY", "").strip() else "missing")
+'@
+    $keyProbe = $keyProbeScript | & $Python -
+    if ($LASTEXITCODE -ne 0) { throw "Unable to check Amap configuration with the application Python environment." }
+    $amapWebServiceKeyConfigured = ($keyProbe -eq "configured")
+}
+
 # 逐个保存和设置环境变量。这里故意不用多行数组、Hashtable 或动态下标，
 # 兼容 Windows PowerShell 5.1 和 PowerShell 7，也避免 NullArray 问题。
 # 脚本可能在当前 PowerShell 进程中执行，因此退出时还会恢复这些值。
@@ -74,6 +89,7 @@ $previousHftDemoMode = [Environment]::GetEnvironmentVariable("HFT_DEMO_MODE", "P
 $previousPlanningIntentMode = [Environment]::GetEnvironmentVariable("HFT_PLANNING_INTENT_MODE", "Process")
 $previousRetrieverMode = [Environment]::GetEnvironmentVariable("HFT_CANDIDATE_RETRIEVER_MODE", "Process")
 $previousAdvisorMode = [Environment]::GetEnvironmentVariable("HFT_RECOMMENDATION_ADVISOR_MODE", "Process")
+$previousGeocodingProviderMode = [Environment]::GetEnvironmentVariable("HFT_GEOCODING_PROVIDER_MODE", "Process")
 $previousLangGraphStrict = [Environment]::GetEnvironmentVariable("LANGGRAPH_STRICT_MSGPACK", "Process")
 
 # HFT_DEMO_MODE 是历史兼容变量：1 表示 Demo Router，0 表示真实 Router。
@@ -90,6 +106,9 @@ if ($FullLlm) {
     $env:HFT_PLANNING_INTENT_MODE = "llm"
     $env:HFT_CANDIDATE_RETRIEVER_MODE = "hybrid"
     $env:HFT_RECOMMENDATION_ADVISOR_MODE = "llm"
+    if ($amapWebServiceKeyConfigured) {
+        $env:HFT_GEOCODING_PROVIDER_MODE = "live"
+    }
 }
 $env:LANGGRAPH_STRICT_MSGPACK = "true"
 
@@ -101,6 +120,11 @@ try {
         Write-Host "  PlanningIntent:  llm"
         Write-Host "  Retriever:       hybrid"
         Write-Host "  Advisor:         llm"
+        if ($amapWebServiceKeyConfigured) {
+            Write-Host "  Geocoding:       live (Amap Web Service)"
+        } else {
+            Write-Host "  Geocoding:       mock (no Amap Web Service key; limited demo places)"
+        }
     }
     if (-not $FullLlm) {
         Write-Host "  Router:          $RouterMode"
@@ -111,7 +135,10 @@ try {
     Write-Host "  Port:            $Port"
     Write-Host ""
     Write-Host "LLM_API / MODEL_NAME / BASE_URL are loaded from .env by the application."
-    Write-Host "Provider modes remain controlled by .env (mock/replay/live)."
+    Write-Host "Route/weather and other Provider modes remain controlled by .env."
+    if ($FullLlm -and $amapWebServiceKeyConfigured) {
+        Write-Host "-FullLlm enabled live Amap geocoding; route/weather modes are unchanged."
+    }
     Write-Host "Press Ctrl+C to stop."
 
     & $Python -m uvicorn app.api.server:app --host 127.0.0.1 --port $Port
@@ -122,6 +149,7 @@ finally {
     if ($null -eq $previousPlanningIntentMode) { Remove-Item Env:HFT_PLANNING_INTENT_MODE -ErrorAction SilentlyContinue } else { $env:HFT_PLANNING_INTENT_MODE = $previousPlanningIntentMode }
     if ($null -eq $previousRetrieverMode) { Remove-Item Env:HFT_CANDIDATE_RETRIEVER_MODE -ErrorAction SilentlyContinue } else { $env:HFT_CANDIDATE_RETRIEVER_MODE = $previousRetrieverMode }
     if ($null -eq $previousAdvisorMode) { Remove-Item Env:HFT_RECOMMENDATION_ADVISOR_MODE -ErrorAction SilentlyContinue } else { $env:HFT_RECOMMENDATION_ADVISOR_MODE = $previousAdvisorMode }
+    if ($null -eq $previousGeocodingProviderMode) { Remove-Item Env:HFT_GEOCODING_PROVIDER_MODE -ErrorAction SilentlyContinue } else { $env:HFT_GEOCODING_PROVIDER_MODE = $previousGeocodingProviderMode }
     if ($null -eq $previousLangGraphStrict) { Remove-Item Env:LANGGRAPH_STRICT_MSGPACK -ErrorAction SilentlyContinue } else { $env:LANGGRAPH_STRICT_MSGPACK = $previousLangGraphStrict }
 }
 
