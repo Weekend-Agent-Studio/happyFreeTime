@@ -1,4 +1,4 @@
-import type { AgentResponse, ClarificationReply, ConversationCommand, PlanningContextPatch, PlanningRunEvent, RecoveryActionRequest, SessionSummary, SessionView, WebMapConfig } from "./types";
+import type { AgentResponse, ClarificationReply, ConversationCommand, DepartureLocationSearchResponse, PlanningContextPatch, PlanningRunEvent, RecoveryActionRequest, SessionSummary, SessionView, WebMapConfig } from "./types";
 
 // M1 使用固定 Demo 用户，但后端所有数据仍按 user_id 隔离。接入匿名身份或
 // 登录后，只需在这一层替换身份获取方式，业务组件不需要散落认证逻辑。
@@ -153,6 +153,18 @@ export async function updatePlanningContext(
     body: JSON.stringify({ request_id: requestId, patch }),
   });
   const body = await readJson<{ data: AgentResponse }>(response);
+  return body.data;
+}
+
+export async function searchDepartureLocations(
+  query: string,
+  signal?: AbortSignal,
+): Promise<DepartureLocationSearchResponse> {
+  const response = await fetch(`/api/departure-locations/search?q=${encodeURIComponent(query)}`, {
+    headers: USER_HEADER,
+    signal,
+  });
+  const body = await readJson<{ data: DepartureLocationSearchResponse }>(response);
   return body.data;
 }
 

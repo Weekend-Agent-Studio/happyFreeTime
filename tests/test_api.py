@@ -1397,7 +1397,7 @@ class ApiTest(unittest.TestCase):
                 "content": "改一下地点",
                 "planning_context_patch": {
                     "base_revision": recovery["recovery"]["request_revision"],
-                    "where": {"operation": "set", "value": "朝阳区"},
+                    "where": {"operation": "set", "value": {"kind": "default"}},
                 },
             },
         )
@@ -1933,9 +1933,10 @@ class ApiTest(unittest.TestCase):
         )
 
     def test_planning_context_patch_updates_all_five_typed_sections(self) -> None:
+        router = RuleRouter()
         app = create_app(
             database_path=Path(self.temp_dir.name) / "planning-context-all-fields.db",
-            router=RuleRouter(),
+            router=router,
             environment_provider=lambda _: self.environment,
             weather_provider=ReplayWeatherProvider(
                 store=self.replay_store,
@@ -1948,6 +1949,11 @@ class ApiTest(unittest.TestCase):
         )
         with TestClient(app) as client:
             session_id = client.post("/api/sessions", headers=self.headers).json()["data"]["session_id"]
+            def snapshot():
+                response = client.get(f"/api/sessions/{session_id}", headers=self.headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                return response.json()["data"]
+
             first = client.post(
                 f"/api/sessions/{session_id}/messages",
                 headers=self.headers,
@@ -1955,6 +1961,49 @@ class ApiTest(unittest.TestCase):
             )
             self.assertEqual(first.status_code, 200, first.text)
             context = first.json()["data"]["planning_context"]
+            before_search = snapshot()
+            router_calls_before_search = router.calls
+            search = client.get("/api/departure-locations/search", params={"q": "国贸"}, headers=self.headers)
+            self.assertEqual(search.status_code, 200, search.text)
+            search_body = search.json()["data"]
+            self.assertEqual(search_body["city"], "北京市")
+            self.assertEqual(search_body["mode"], "mock")
+            self.assertEqual(search_body["results"][0]["name"], "国贸")
+            self.assertNotIn("latitude", search_body["results"][0])
+            self.assertNotIn("longitude", search_body["results"][0])
+            self.assertEqual(router.calls, router_calls_before_search)
+            after_search = snapshot()
+            self.assertEqual(after_search["planning_context"]["request_revision"], before_search["planning_context"]["request_revision"])
+            self.assertEqual(after_search["active_plan_version_id"], before_search["active_plan_version_id"])
+            self.assertEqual(len(after_search["plan_versions"]), len(before_search["plan_versions"]))
+            place_id = search_body["results"][0]["provider_id"]
+
+            forged_coordinates = client.patch(
+                f"/api/sessions/{session_id}/planning-context",
+                headers=self.headers,
+                json={"request_id": uuid.uuid4().hex, "patch": {
+                    "base_revision": context["request_revision"],
+                    "where": {"operation": "set", "value": {
+                        "kind": "provider_place", "provider_id": place_id,
+                        "latitude": 0, "longitude": 0,
+                    }},
+                }},
+            )
+            self.assertEqual(forged_coordinates.status_code, 422, forged_coordinates.text)
+
+            unknown_id = client.patch(
+                f"/api/sessions/{session_id}/planning-context",
+                headers=self.headers,
+                json={"request_id": uuid.uuid4().hex, "patch": {
+                    "base_revision": context["request_revision"],
+                    "where": {"operation": "set", "value": {"kind": "provider_place", "provider_id": "mock:forged"}},
+                }},
+            )
+            self.assertEqual(unknown_id.status_code, 200, unknown_id.text)
+            self.assertNotEqual(unknown_id.json()["data"]["status"], "context_saved")
+            unchanged = snapshot()
+            self.assertEqual(unchanged["planning_context"]["request_revision"], context["request_revision"])
+            self.assertEqual(unchanged["active_plan_version_id"], before_search["active_plan_version_id"])
 
             updated = client.patch(
                 f"/api/sessions/{session_id}/planning-context",
@@ -1963,7 +2012,7 @@ class ApiTest(unittest.TestCase):
                     "request_id": uuid.uuid4().hex,
                     "patch": {
                         "base_revision": context["request_revision"],
-                        "where": {"operation": "set", "value": "国贸"},
+                        "where": {"operation": "set", "value": {"kind": "provider_place", "provider_id": place_id}},
                         "when": {
                             "date": {"operation": "set", "value": "2026-08-16"},
                             "start_at": {"operation": "set", "value": "09:30"},
@@ -1988,6 +2037,14 @@ class ApiTest(unittest.TestCase):
             next_context = saved_body["planning_context"]
             self.assertEqual(next_context["request_revision"], context["request_revision"] + 1)
             self.assertEqual(next_context["where"]["value"]["address"], "北京市朝阳区国贸")
+            self.assertEqual(next_context["where"]["value"]["provider_place_id"], place_id)
+            self.assertEqual(next_context["where"]["value"]["latitude"], 39.9087)
+            self.assertEqual(next_context["where"]["value"]["longitude"], 116.4615)
+            self.assertEqual(saved_body["plan_version_id"], None)
+            persisted_after_save = snapshot()
+            self.assertEqual(persisted_after_save["active_plan_version_id"], before_search["active_plan_version_id"])
+            self.assertEqual(len(persisted_after_save["plan_versions"]), len(before_search["plan_versions"]))
+            self.assertTrue(persisted_after_save["planning_context"]["plan_stale"])
             self.assertEqual(next_context["when"]["date"]["value"], "2026-08-16")
             self.assertEqual(next_context["when"]["start_at"]["value"], "09:30")
             self.assertEqual(next_context["when"]["end_at"]["value"], "17:00")
@@ -1998,6 +2055,22 @@ class ApiTest(unittest.TestCase):
                 "mode": "per_person", "amount": 9999, "strict": False,
             })
             self.assertEqual(next_context["preferences"]["value"]["diet_tags"], ["清淡"])
+
+            reset = client.patch(
+                f"/api/sessions/{session_id}/planning-context",
+                headers=self.headers,
+                json={"request_id": uuid.uuid4().hex, "patch": {
+                    "base_revision": next_context["request_revision"],
+                    "where": {"operation": "set", "value": {"kind": "default"}},
+                }},
+            )
+            self.assertEqual(reset.status_code, 200, reset.text)
+            default_location = reset.json()["data"]["planning_context"]["where"]
+            self.assertEqual(default_location["source"], "default")
+            self.assertEqual(default_location["value"]["latitude"], self.environment.default_location.latitude)
+            self.assertEqual(default_location["value"]["longitude"], self.environment.default_location.longitude)
+            self.assertEqual(default_location["value"]["address"], self.environment.default_location.address)
+            self.assertIsNone(default_location["value"]["provider_place_id"])
 
     def test_advanced_planning_conditions_are_typed_persisted_and_replanned_explicitly(self) -> None:
         session_id = self._create_session()

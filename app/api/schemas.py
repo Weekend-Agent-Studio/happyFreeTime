@@ -2,7 +2,7 @@
 
 from datetime import date as DateValue, datetime
 from math import isfinite
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
@@ -35,6 +35,46 @@ class FieldEdit(BaseModel, Generic[T]):
         if self.operation == "clear" and self.value is not None:
             raise ValueError("clear operations must not include a value")
         return self
+
+
+class DefaultDepartureLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["default"]
+
+
+class ProviderDepartureLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["provider_place"]
+    provider_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9:_-]+$")
+
+
+DepartureLocationSelection = Annotated[
+    DefaultDepartureLocation | ProviderDepartureLocation,
+    Field(discriminator="kind"),
+]
+
+
+class DepartureLocationOption(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["provider_place"] = "provider_place"
+    provider_id: str
+    name: str
+    city: Literal["北京市"]
+    district: str
+    address: str | None = None
+
+
+class DepartureLocationSearchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    city: Literal["北京市"] = "北京市"
+    source: Literal["amap_live", "mock", "replay", "cache"]
+    mode: Literal["live", "record", "replay", "mock"]
+    degraded: bool = False
+    results: list[DepartureLocationOption] = Field(default_factory=list)
 
 
 class WhenEdit(BaseModel):
@@ -169,7 +209,7 @@ class PlanningContextPatch(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     base_revision: int = Field(ge=0)
-    where: FieldEdit[str] | None = None
+    where: FieldEdit[DepartureLocationSelection] | None = None
     when: WhenEdit | None = None
     who: WhoEdit | None = None
     budget: BudgetEdit | None = None

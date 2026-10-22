@@ -16,6 +16,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from app.api.schemas import (
     AgentResponse,
     CurrentRequestReplanRequest,
+    DepartureLocationSearchResponse,
     MessageRequest,
     PlanningContextUpdateRequest,
     PlanVersionSummary,
@@ -35,7 +36,10 @@ from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
 from app.services.candidate_retriever import CandidateRetriever
-from app.api.planning_context import PlanningContextApplication
+from app.api.planning_context import (
+    DepartureLocationSearchUnavailable,
+    PlanningContextApplication,
+)
 from app.api.planning_turn import PlanningApplicationError, PlanningTurnApplication
 from app.domain.run_trace import PlanningRunEvent
 from app.services.planning_intent import PlanningIntentProvider
@@ -179,6 +183,18 @@ def create_app(
     @app.get("/api/config/map")
     def map_config() -> ResponseEnvelope[dict]:
         return ResponseEnvelope(data=browser_map.public_config().model_dump(mode="json"))
+
+    @app.get("/api/departure-locations/search")
+    def search_departure_locations(
+        q: str = Query(min_length=2, max_length=80),
+    ) -> ResponseEnvelope[DepartureLocationSearchResponse]:
+        try:
+            results = planning_context_application.search_departure_locations(q)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except DepartureLocationSearchUnavailable as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return ResponseEnvelope(data=results)
 
     @app.get("/_AMapService/{path:path}", include_in_schema=False)
     def proxy_amap_browser_request(path: str, request: Request) -> Response:

@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   getSession: vi.fn(),
   listSessions: vi.fn(),
   renameSession: vi.fn(),
+  searchDepartureLocations: vi.fn(),
   updatePlanningContext: vi.fn(),
   replanPlanningContext: vi.fn(),
   sendMessage: vi.fn(),
@@ -149,6 +150,7 @@ describe("planning workspace", () => {
     api.deleteSession.mockReset();
     api.getSession.mockReset();
     api.renameSession.mockReset();
+    api.searchDepartureLocations.mockReset().mockResolvedValue({ city: "北京市", source: "mock", mode: "mock", degraded: false, results: [] });
     api.updatePlanningContext.mockReset();
     api.replanPlanningContext.mockReset();
     api.sendMessage.mockReset();
@@ -2036,6 +2038,10 @@ describe("planning workspace", () => {
       planning_context: targetContext,
     };
     api.sendMessage.mockResolvedValueOnce({ ...response, planning_context: sourceContext });
+    api.searchDepartureLocations.mockResolvedValue({
+      city: "北京市", source: "mock", mode: "mock", degraded: false,
+      results: [{ kind: "provider_place", provider_id: "mock:old-session", name: "旧会话修改区域", city: "北京市", district: "朝阳区", address: "朝阳区旧会话路" }],
+    });
     api.getSession.mockResolvedValue(restoredSession("target-session", "目标会话", targetResponse));
     let resolveOldSave: ((value: AgentResponse) => void) | undefined;
     api.updatePlanningContext.mockImplementationOnce(() => new Promise((resolve) => { resolveOldSave = resolve; }));
@@ -2045,8 +2051,8 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: /修改出发地/ }));
-    await user.clear(screen.getByLabelText("出发地名称或地址"));
-    await user.type(screen.getByLabelText("出发地名称或地址"), "旧会话修改区域");
+    await user.type(screen.getByRole("combobox", { name: /搜索出发地点/ }), "旧会话");
+    await user.click(await screen.findByRole("option", { name: /旧会话修改区域/ }));
     await user.click(screen.getByRole("button", { name: "保存条件" }));
     await waitFor(() => expect(api.updatePlanningContext).toHaveBeenCalledTimes(1));
 

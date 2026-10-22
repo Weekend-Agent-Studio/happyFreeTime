@@ -371,14 +371,16 @@ class ActorContext(BaseModel):
 
 
 class GeoLocation(BaseModel):
-    """已经解析完成、可供路线服务使用的地理位置。"""
+    """已经解析完成、可供路线服务使用的地点；坐标沿用内部 GCJ-02 路线约定。"""
     model_config = ConfigDict(extra="forbid")
 
+    name: str | None = Field(default=None, min_length=1, max_length=200)
     city: str
     district: str = ""
     address: str
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+    provider_place_id: str | None = Field(default=None, min_length=1, max_length=128)
     # 行政区编码来自地理编码事实。默认出发地也可以由系统上下文给出；Planner
     # 不再维护地点文本或行政区到天气编码的私有映射。
     adcode: str | None = Field(default=None, pattern=r"^\d{6}$")

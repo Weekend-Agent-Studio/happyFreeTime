@@ -1,8 +1,26 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clarificationSection, PlanningContextBar, PlanningContextNotice } from "./PlanningContextBar";
 import type { PlanningContextSummary } from "./types";
+
+const api = vi.hoisted(() => ({ searchDepartureLocations: vi.fn() }));
+vi.mock("./api", () => api);
+
+const departureSearch = {
+  city: "北京市" as const,
+  source: "mock" as const,
+  mode: "mock" as const,
+  degraded: false,
+  results: [
+    { kind: "provider_place" as const, provider_id: "mock:guomao-1", name: "国贸地铁站", city: "北京市" as const, district: "朝阳区", address: "北京市朝阳区建国门外大街" },
+    { kind: "provider_place" as const, provider_id: "mock:guomao-2", name: "中国国际贸易中心", city: "北京市" as const, district: "朝阳区", address: "北京市朝阳区建国门外大街 1 号" },
+  ],
+};
+
+beforeEach(() => {
+  api.searchDepartureLocations.mockReset().mockResolvedValue(departureSearch);
+});
 
 const context: PlanningContextSummary = {
   request_revision: 4,
@@ -54,7 +72,7 @@ describe("PlanningContextBar typed patches", () => {
     expect(summary).toHaveTextContent("演示默认出发点");
     expect(summary).toHaveTextContent("北京市朝阳区");
     expect(summary).toHaveTextContent("固定位置，并非你的实时位置");
-    expect(screen.getByText("用于计算前往首站的交通。未指定其他活动范围时，也会影响附近候选。")).toBeInTheDocument();
+    expect(screen.getByText("仅支持北京市。出发地用于计算前往首站的交通；未指定其他活动范围时，也会影响附近候选。出发地搜索与规划 POI 候选目录相互独立。")).toBeInTheDocument();
   });
 
   it("labels a clarification-required origin as pending", async () => {
@@ -91,11 +109,130 @@ describe("PlanningContextBar typed patches", () => {
     expect(summary).toHaveTextContent("北京市朝阳区建国门外大街 1 号");
     expect(summary).toHaveTextContent("用户已选择");
 
-    await user.clear(screen.getByLabelText("出发地名称或地址"));
-    await user.type(screen.getByLabelText("出发地名称或地址"), "同名站点");
+    await user.type(screen.getByLabelText("搜索出发地点 北京市"), "国贸");
+    await user.click(await screen.findByRole("option", { name: /国贸地铁站/ }));
     await user.click(screen.getByRole("button", { name: "保存条件" }));
     expect(await screen.findByText("修改失败 · 当前出发地未变")).toBeInTheDocument();
     expect(summary).toHaveTextContent("国贸地铁站");
+  });
+
+  it("searches without saving, then lets the keyboard choose an identified place", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    const input = screen.getByRole("combobox", { name: /搜索出发地点/ });
+    await user.type(input, "国贸");
+    expect(onSave).not.toHaveBeenCalled();
+    expect(await screen.findByRole("option", { name: /中国国际贸易中心/ })).toBeInTheDocument();
+    expect(api.searchDepartureLocations).toHaveBeenCalledWith("国贸", expect.any(AbortSignal));
+    expect(onSave).not.toHaveBeenCalled();
+
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(screen.getByLabelText("待保存出发地")).toHaveTextContent("中国国际贸易中心");
+    expect(onSave).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(onSave).toHaveBeenCalledWith({
+      base_revision: 4,
+      where: { operation: "set", value: { kind: "provider_place", provider_id: "mock:guomao-2" } },
+    });
+  });
+
+  it("does not save an unselected query and clearly asks for a search result", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    await user.type(screen.getByRole("combobox", { name: /搜索出发地点/ }), "国贸");
+    await screen.findByRole("option", { name: /国贸地铁站/ });
+    expect(screen.getByRole("button", { name: "保存条件" })).toBeDisabled();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent("输入文字本身不会保存为出发地");
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("clears a pending result when the query changes and lets Escape close suggestions before the dialog", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    const input = screen.getByRole("combobox", { name: /搜索出发地点/ });
+    await user.type(input, "国贸");
+    await user.click(await screen.findByRole("option", { name: /国贸地铁站/ }));
+    expect(screen.getByLabelText("待保存出发地")).toHaveTextContent("国贸地铁站");
+    await user.type(input, "站");
+    expect(screen.queryByLabelText("待保存出发地")).not.toBeInTheDocument();
+    expect(screen.getByText("搜索内容已更改，请从新结果中重新选择出发地。")).toBeInTheDocument();
+
+    await screen.findByRole("option", { name: /国贸地铁站/ });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("restores the exact server default through a typed selection", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const selectedContext = {
+      ...context,
+      where: {
+        value: { name: "国贸地铁站", address: "北京市朝阳区建国门外大街", provider_place_id: "amap:current" },
+        display_value: "国贸地铁站", source: "user" as const, editable: true, status: "resolved" as const,
+      },
+    };
+    render(<PlanningContextBar context={selectedContext} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    await user.click(screen.getByRole("button", { name: "使用演示默认出发点" }));
+    expect(screen.getByLabelText("待保存出发地")).toHaveTextContent("演示默认出发点");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(onSave).toHaveBeenCalledWith({
+      base_revision: 4,
+      where: { operation: "set", value: { kind: "default" } },
+    });
+  });
+
+  it("cancels stale searches when the query changes and ignores their late results", async () => {
+    const user = userEvent.setup();
+    let resolveFirst: ((value: typeof departureSearch) => void) | undefined;
+    let firstSignal: AbortSignal | undefined;
+    api.searchDepartureLocations.mockImplementation((query: string, signal: AbortSignal) => {
+      if (query === "国贸") {
+        firstSignal = signal;
+        return new Promise((resolve) => { resolveFirst = resolve; });
+      }
+      return Promise.resolve({ ...departureSearch, results: [
+        { kind: "provider_place", provider_id: "mock:huangzhuang", name: "海淀黄庄", city: "北京市", district: "海淀区", address: "北京市海淀区中关村大街" },
+      ] });
+    });
+    render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={vi.fn().mockResolvedValue(undefined)} />);
+
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    const input = screen.getByRole("combobox", { name: /搜索出发地点/ });
+    await user.type(input, "国贸");
+    await waitFor(() => expect(api.searchDepartureLocations).toHaveBeenCalledWith("国贸", expect.any(AbortSignal)));
+    await user.clear(input);
+    await user.type(input, "海淀");
+    expect(await screen.findByRole("option", { name: /海淀黄庄/ })).toBeInTheDocument();
+    expect(firstSignal?.aborted).toBe(true);
+    resolveFirst?.(departureSearch);
+    await waitFor(() => expect(screen.queryByRole("option", { name: /国贸地铁站/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("option", { name: /海淀黄庄/ })).toBeInTheDocument();
+  });
+
+  it("shows a clear limited-demo notice when offline search returns demo places", async () => {
+    const user = userEvent.setup();
+    api.searchDepartureLocations.mockResolvedValue({ ...departureSearch, degraded: true });
+    render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={vi.fn().mockResolvedValue(undefined)} />);
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    await user.type(screen.getByRole("combobox", { name: /搜索出发地点/ }), "国贸");
+    expect(await screen.findByText(/在线搜索暂不可用，以下是有限的演示地点/)).toBeInTheDocument();
   });
 
   it("uses an icon and a quiet status dot for additional conditions", () => {
@@ -143,8 +280,8 @@ describe("PlanningContextBar typed patches", () => {
     expect(container.querySelectorAll(".planning-context-trigger .context-edit-icon")).toHaveLength(5);
 
     await user.click(screen.getByRole("button", { name: /修改出发地/ }));
-    await user.clear(screen.getByLabelText("出发地名称或地址"));
-    await user.type(screen.getByLabelText("出发地名称或地址"), "国贸地铁站");
+    await user.type(screen.getByLabelText("搜索出发地点 北京市"), "国贸");
+    await user.click(await screen.findByRole("option", { name: /国贸地铁站/ }));
     await user.click(screen.getByRole("button", { name: "保存条件" }));
 
     await user.click(screen.getByRole("button", { name: /修改日期时间/ }));
@@ -175,7 +312,7 @@ describe("PlanningContextBar typed patches", () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(5));
     expect(onSave.mock.calls.map(([patch]) => patch)).toEqual([
-      { base_revision: 4, where: { operation: "set", value: "国贸地铁站" } },
+      { base_revision: 4, where: { operation: "set", value: { kind: "provider_place", provider_id: "mock:guomao-1" } } },
       { base_revision: 4, when: { start_at: { operation: "set", value: "09:30" } } },
       { base_revision: 4, who: { adults: 2, children: 1, child_age: { operation: "set", value: 6 } } },
       { base_revision: 4, budget: { mode: "per_person", amount: 300, strict: true } },
@@ -236,10 +373,13 @@ describe("PlanningContextBar typed patches", () => {
       />,
     );
 
-    // Saving an untouched section must not bump the request revision. A budget
+    // A text query without a chosen result is never a departure change. A budget
     // save used to be submitted unconditionally, which marked a still-valid
     // plan as stale and pushed the user into a pointless re-plan.
-    for (const trigger of [/修改出发地/, /修改日期时间/, /修改同行人数/, /修改人均预算/, /修改出行偏好/]) {
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    expect(screen.getByRole("button", { name: "保存条件" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /^取消$/ }));
+    for (const trigger of [/修改日期时间/, /修改同行人数/, /修改人均预算/, /修改出行偏好/]) {
       await user.click(screen.getByRole("button", { name: trigger }));
       await user.click(screen.getByRole("button", { name: "保存条件" }));
     }
@@ -394,11 +534,11 @@ describe("PlanningContextBar typed patches", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /修改出发地/ }));
-    await user.clear(screen.getByLabelText("出发地名称或地址"));
-    await user.type(screen.getByLabelText("出发地名称或地址"), "国贸站");
+    await user.type(screen.getByLabelText("搜索出发地点 北京市"), "国贸");
+    await user.click(await screen.findByRole("option", { name: /国贸地铁站/ }));
     await user.click(screen.getByRole("button", { name: "保存条件" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("revision conflict");
-    expect(screen.getByLabelText("出发地名称或地址")).toHaveValue("国贸站");
+    expect(screen.getByLabelText("搜索出发地点 北京市")).toHaveValue("国贸");
   });
 
   it("saves all advanced conditions together and routes their clarifications to the advanced editor", async () => {
