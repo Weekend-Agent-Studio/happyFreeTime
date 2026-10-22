@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
-import { CalendarDays, CircleDollarSign, MapPin, Pencil, SlidersHorizontal, Users, X } from "lucide-react";
+import { CalendarDays, ChevronRight, CircleDollarSign, Info, MapPin, Pencil, SlidersHorizontal, Users, X } from "lucide-react";
 import type { FieldEdit, PlanningContextPatch, PlanningContextSummary, PreferenceCategory, PreferenceTag } from "./types";
 import { DateCalendar } from "./DateCalendar";
 
@@ -445,6 +445,12 @@ export function PlanningContextBar({
     setSaveError("");
   }
 
+  const advancedConditionsSet = Boolean(
+    context?.exact_stop_count.value != null
+    || context?.max_distance_km.value != null
+    || context?.total_distance_km.value != null
+  );
+
   return (
     <div className="planning-context-wrap">
       <nav className="planning-context-bar" aria-label="规划条件">
@@ -476,10 +482,18 @@ export function PlanningContextBar({
           </button>;
         })}
       </nav>
-      <button type="button" className="planning-context-more" aria-haspopup="dialog" onClick={() => open("advanced")} disabled={busy}>
-        更多条件
-        {(context?.exact_stop_count.value != null || context?.max_distance_km.value != null || context?.total_distance_km.value != null) ? <small>已设置</small> : null}
-        <Pencil className="context-edit-icon" size={12} aria-hidden="true" />
+      <button
+        type="button"
+        className="planning-context-more"
+        aria-label={advancedConditionsSet ? "更多条件，已设置" : "更多条件"}
+        aria-haspopup="dialog"
+        title={advancedConditionsSet ? "更多条件 · 已设置" : "更多条件"}
+        onClick={() => open("advanced")}
+        disabled={busy}
+      >
+        <SlidersHorizontal size={15} aria-hidden="true" />
+        <span>更多条件</span>
+        {advancedConditionsSet ? <span className="planning-context-more-indicator" aria-hidden="true" /> : null}
       </button>
 
       <Dialog.Root open={sectionChooserOpen} onOpenChange={(open) => { if (!open) { setSectionChooserOpen(false); restoreFocus(); } }}>
@@ -661,15 +675,19 @@ export function PlanningContextNotice({ context, busy, onReplan }: {
 
   if (!context) return null;
   return (context.request_view === "draft" || context.plan_stale || (context.ready_for_planning && !context.has_active_plan)) ? (
-    <div className="planning-context-notice" role="status">
-      <span>{context.request_view === "draft"
-        ? `当前显示的是未提交草稿；原方案仍基于第 ${context.committed_request_revision ?? ""} 版条件。`
-        : context.plan_stale
-          ? "条件已更新，当前方案基于旧条件。"
-          : "规划条件已就绪。"}</span>
-      {context.ready_for_planning ? <button type="button" onClick={() => void replan()} disabled={busy || replanning}>
-        {replanning ? "正在规划…" : context.has_active_plan ? "按新条件重新规划" : "开始规划"}
-      </button> : <small>请先补齐待确认条件</small>}
+    <div className={`planning-context-notice ${context.request_view === "draft" ? "draft" : context.plan_stale ? "stale" : "ready"}`} role="status">
+      <div className="planning-context-notice-content">
+        <Info size={16} aria-hidden="true" />
+        <span>{context.request_view === "draft"
+          ? `有未提交的条件更改；方案仍基于第 ${context.committed_request_revision ?? "—"} 版条件。`
+          : context.plan_stale
+            ? "规划条件已更新，旧方案尚未重新验证。"
+            : "规划条件已就绪。"}</span>
+        {context.ready_for_planning ? <button type="button" onClick={() => void replan()} disabled={busy || replanning}>
+          {replanning ? "正在规划…" : context.has_active_plan ? "按新条件重新规划" : "开始规划"}
+          <ChevronRight size={15} aria-hidden="true" />
+        </button> : <small>请先补齐待确认条件</small>}
+      </div>
       {replanError ? <small role="alert">{replanError}</small> : null}
     </div>
   ) : null;

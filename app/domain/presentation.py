@@ -17,9 +17,12 @@ class PoiGalleryItem(BaseModel):
 
     url: str = Field(min_length=1)
     alt: str = Field(min_length=1)
-    kind: Literal["source", "illustrative"]
+    kind: Literal["source", "reference", "illustrative"]
     attribution: str | None = None
     license: str | None = None
+    source_uri: str | None = None
+    author: str | None = None
+    license_uri: str | None = None
 
 
 class PoiPresentation(BaseModel):

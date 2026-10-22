@@ -68,7 +68,10 @@
           "alt": "北京警察博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%8E%9F%E5%8C%97%E4%BA%AC%E8%8A%B1%E6%97%97%E9%93%B6%E8%A1%8C.JPG",
+          "author": "ScareCriterion12",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -131,7 +134,10 @@
           "alt": "中国人民革命军事博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Military_Museum_of_the_Chinese_People%27s_Revolution_201709.jpg",
+          "author": "Tyg728",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -194,7 +200,10 @@
           "alt": "中国地质博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Before_the_Geological_Museum_of_China.jpg",
+          "author": "Dquai",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -257,7 +266,10 @@
           "alt": "首都博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Capital_Museum_in_Beijing.jpg",
+          "author": "PENG Yanan (Neo-Jay/鸟甲)",
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -320,7 +332,10 @@
           "alt": "日坛公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Sonnenaltar.jpg",
+          "author": "Naplee12",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -383,7 +398,10 @@
           "alt": "圆明园遗址公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Yuanmingyuan_Haiyantang_20130126.JPG",
+          "author": "颐园新居",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -446,7 +464,10 @@
           "alt": "中国古动物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY 3.0"
+          "license": "CC BY 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Paleozoological_Museum_of_China.jpg",
+          "author": "Shizhao",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0"
         }
       ]
     },
@@ -509,7 +530,10 @@
           "alt": "颐和园的来源图片",
           "kind": "source",
           "attribution": "https://www.flickr.com/photos/xiquinho/54440250623/",
-          "license": "CC BY 2.0"
+          "license": "CC BY 2.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Longevity_Hill_of_the_Summer_Palace.jpg",
+          "author": "xiquinhosilva",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0"
         }
       ]
     },
@@ -572,7 +596,10 @@
           "alt": "国家自然博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beijing_Museum_of_Natural_History_2.jpg",
+          "author": "钉钉",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -635,7 +662,10 @@
           "alt": "故宫博物院的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Forbidden_City_Beijing_Shenwumen_Gate.JPG",
+          "author": "user:kallgan",
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -698,7 +728,10 @@
           "alt": "今日美术馆的来源图片",
           "kind": "source",
           "attribution": "https://www.flickr.com/photos/ministeriodacultura/9764115603/sizes/o/in/photostream/",
-          "license": "CC BY 2.0"
+          "license": "CC BY 2.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:SZ_Art_Center.jpg",
+          "author": "https://www.flickr.com/photos/ministeriodacultura",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0"
         }
       ]
     },
@@ -757,11 +790,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -824,7 +860,10 @@
           "alt": "中国国家博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC0"
+          "license": "CC0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Front_of_National_Museum_of_China.jpg",
+          "author": "Shujianyang",
+          "license_uri": "http://creativecommons.org/publicdomain/zero/1.0/deed.en"
         }
       ]
     },
@@ -887,7 +926,10 @@
           "alt": "毛主席纪念堂的来源图片",
           "kind": "source",
           "attribution": "Self-photographed",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Mausol%C3%A9e_de_Mao.jpg",
+          "author": "Georgio",
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -950,7 +992,10 @@
           "alt": "凯迪拉克中心的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cadillac_Arena_(20211011164821).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1013,7 +1058,10 @@
           "alt": "全国农业展览馆;中国农业博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:China_Agricultural_Museum,_Beijing.jpg",
+          "author": "Max12Max",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1076,7 +1124,10 @@
           "alt": "中国科学技术馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:China_Science_and_Technology_Museum_(20210403155720).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1139,7 +1190,10 @@
           "alt": "恭王府的来源图片",
           "kind": "source",
           "attribution": "Originally from zh.wikipedia; description page is (was) here 12:02 2005?3?7? ??? 443x336 (38,756??) (????? ?? {{GFDL}})",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Gongwangfu.JPG",
+          "author": "User zh:User:用心阁 on zh.wikipedia",
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -1202,7 +1256,10 @@
           "alt": "龙潭公园的来源图片",
           "kind": "source",
           "attribution": "Summer in Beijing",
-          "license": "CC BY 2.0"
+          "license": "CC BY 2.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Longtan_Park_pic_6.jpg",
+          "author": "Ivan Walsh",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0"
         }
       ]
     },
@@ -1265,7 +1322,10 @@
           "alt": "北京国际雕塑公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161021131439/http://www.panoramio.com/photo/61606798",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%9F%8E%E5%B8%82%E9%9B%95%E5%A1%91%E5%85%AC%E5%9B%AD_-_panoramio.jpg",
+          "author": "mayanming",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -1328,7 +1388,10 @@
           "alt": "中国电影博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:China_National_Film_Museum_(20240808162205).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1391,7 +1454,10 @@
           "alt": "翠湖国家城市湿地公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161014142846/http://www.panoramio.com/photo/35164622",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Haidian,_Beijing,_China_-_panoramio_(146).jpg",
+          "author": "柳少阳",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -1450,11 +1516,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -1513,11 +1582,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Chinese_tea_house%2C_Beijing.jpg/960px-Chinese_tea_house%2C_Beijing.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chinese_tea_house,_Beijing.jpg",
+          "author": "Luo Shaoyang",
+          "license": "CC BY 2.0",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0/",
+          "alt": "茶馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Luo Shaoyang"
         }
       ]
     },
@@ -1580,7 +1652,10 @@
           "alt": "北京明城墙遗址公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beijing_Southeast_Corner_Tower_(20210917085427).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1643,7 +1718,10 @@
           "alt": "北京丰台体育中心的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Fengtai_South_Side.jpg",
+          "author": "Max12Max",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1706,7 +1784,10 @@
           "alt": "元大都城垣遗址公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161025005629/http://www.panoramio.com/photo/74083313",
-          "license": "CC BY 3.0"
+          "license": "CC BY 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%85%83%E5%A4%A7%E9%83%BD%E5%9F%8E%E5%9E%A3%E9%81%97%E5%9D%80%E5%85%AC%E5%9B%AD%E6%9C%9D%E9%98%B3%E6%AE%B5_-_Yuan_Dynasty_City_Wall_Relics_Park_in_Chaoyang_District_-_2012.05_-_panoramio.jpg",
+          "author": "rheins",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0"
         }
       ]
     },
@@ -1769,7 +1850,10 @@
           "alt": "中国人民抗日战争纪念馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:AntijapaneseWarMemorialMuseum.jpg",
+          "author": "Taken by Fanghong",
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -1832,7 +1916,10 @@
           "alt": "奥林匹克公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beijing_Olympic_Green.jpg",
+          "author": "Picrazy2",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1895,7 +1982,10 @@
           "alt": "园博园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Kunming_Garden_in_Beijing_Garden_Expo_park.jpg",
+          "author": "HappyNikita",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -1958,7 +2048,10 @@
           "alt": "中山公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%8C%97%E4%BA%AC%E7%A4%BE%E7%A8%B7%E5%9D%9B%E4%B8%AD%E5%B1%B1%E5%A0%822018.jpg",
+          "author": "ScareCriterion12",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -2021,7 +2114,10 @@
           "alt": "菖蒲河公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:East_Gate_for_Changpu_River_Park.jpg",
+          "author": "PQ77wd",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -2080,11 +2176,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -2147,7 +2246,10 @@
           "alt": "世界公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E4%B8%96%E7%95%8C%E5%85%AC%E5%9B%AD31.JPG",
+          "author": "Techyan",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -2206,11 +2308,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -2273,7 +2378,10 @@
           "alt": "故宫博物院北院区的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Model_of_Palace_Museum_North_Branch_at_BIAD_stall,_CIFTIS_Hall_13_(20240914161300).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -2336,7 +2444,10 @@
           "alt": "地铁文化公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:G124_train_in_Beijing_Subway_Culture_Park_1.jpg",
+          "author": "Siyuwj",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -2395,11 +2506,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -2458,11 +2572,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -2525,7 +2642,10 @@
           "alt": "北京汽车博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beijing_Automobile_Museum_(from_north)_2016_April.jpg",
+          "author": "Morio",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -2588,7 +2708,10 @@
           "alt": "海淀公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Haidian_Park.jpg",
+          "author": "钉钉",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -2651,7 +2774,10 @@
           "alt": "工人体育馆的来源图片",
           "kind": "source",
           "attribution": "CC BY-SA 3.0",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beijing_Workers_Arena.jpg",
+          "author": null,
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -2714,7 +2840,10 @@
           "alt": "北京市规划展览馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Model_of_Beijing.JPG",
+          "author": "Jan Spacir",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -2777,7 +2906,10 @@
           "alt": "袁崇焕墓和祠的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Yuan_chonghuan-2.jpg",
+          "author": "Walter Grassroot",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -2840,7 +2972,10 @@
           "alt": "元大都城垣遗址公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161025005629/http://www.panoramio.com/photo/74083313",
-          "license": "CC BY 3.0"
+          "license": "CC BY 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%85%83%E5%A4%A7%E9%83%BD%E5%9F%8E%E5%9E%A3%E9%81%97%E5%9D%80%E5%85%AC%E5%9B%AD%E6%9C%9D%E9%98%B3%E6%AE%B5_-_Yuan_Dynasty_City_Wall_Relics_Park_in_Chaoyang_District_-_2012.05_-_panoramio.jpg",
+          "author": "rheins",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0"
         }
       ]
     },
@@ -2903,7 +3038,10 @@
           "alt": "朝阳公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:South_gate_of_Chaoyang_Park_20240818154413.jpg",
+          "author": "TurnOnTheNight",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -2966,7 +3104,10 @@
           "alt": "天坛公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Temple_of_Heaven_20160323_01.jpg",
+          "author": "Shujianyang",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3029,7 +3170,10 @@
           "alt": "地坛公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%9C%B0%E5%9D%9B%E5%85%AC%E5%9B%AD_1231.jpg",
+          "author": "David290",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3092,7 +3236,10 @@
           "alt": "北京大观园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Yihongyuan,_Daguanyuan.jpg",
+          "author": "刻意",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -3155,7 +3302,10 @@
           "alt": "中国铁道博物馆（东郊展馆）的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Entrance_of_China_Railway_Museum_(20250213152553).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3218,7 +3368,10 @@
           "alt": "北京科技大学体育館的来源图片",
           "kind": "source",
           "attribution": "Own work (Original text: I created this work entirely by myself.)",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:USTB_Gymnasium.jpg",
+          "author": "Ccyber5 (talk)",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0"
         }
       ]
     },
@@ -3281,7 +3434,10 @@
           "alt": "后海公园的来源图片",
           "kind": "source",
           "attribution": "2008-10-10 8-25-27_0028副本",
-          "license": "CC BY-SA 2.0"
+          "license": "CC BY-SA 2.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beijing_Shichahai_1.jpg",
+          "author": "FANG Chen",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/2.0"
         }
       ]
     },
@@ -3344,7 +3500,10 @@
           "alt": "北京欢乐谷的来源图片",
           "kind": "source",
           "attribution": "https://www.flickr.com/photos/rollercoasterphilosophy/29372010596/",
-          "license": "CC BY 2.0"
+          "license": "CC BY 2.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Happy_Valley_Beijing_-_29372010596.jpg",
+          "author": "Jeremy Thompson",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0"
         }
       ]
     },
@@ -3407,7 +3566,10 @@
           "alt": "景山公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Jingshan_from_the_southwest_(20211107141052).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3470,7 +3632,10 @@
           "alt": "玉渊潭公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Yuyuantan_Park_2010.jpg",
+          "author": "Wpcpey",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3533,7 +3698,10 @@
           "alt": "北京动物园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Gate_of_Beijing_Zoo_(20210219172711).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3596,7 +3764,10 @@
           "alt": "紫竹院公园的来源图片",
           "kind": "source",
           "attribution": "Bamboo Park 3",
-          "license": "CC BY 2.0"
+          "license": "CC BY 2.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Bamboopic1.jpg",
+          "author": "PhotoBobil",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0"
         }
       ]
     },
@@ -3659,7 +3830,10 @@
           "alt": "陶然亭公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Taoranting_Park_1.jpg",
+          "author": "Yeti-Hunter",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3722,7 +3896,10 @@
           "alt": "宋庆龄故居的来源图片",
           "kind": "source",
           "attribution": "Transferred from zh.wikipedia to Commons.",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Sqlgj_men.JPG",
+          "author": "The original uploader was 用心阁 at Chinese Wikipedia.",
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -3785,7 +3962,10 @@
           "alt": "奥林匹克森林公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Olmypic_Forest_Park_in_Summer,_riverbank,_Beijing,_Jun_2016.jpg",
+          "author": "颜邯",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3848,7 +4028,10 @@
           "alt": "莲花池公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Lianhuachi_from_Huabao_Mansion_(20170917165742).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3911,7 +4094,10 @@
           "alt": "北海公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Park_2.jpg",
+          "author": "EditQ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -3974,7 +4160,10 @@
           "alt": "青年湖公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161019220223/http://www.panoramio.com/photo/53931982",
-          "license": "CC BY 3.0"
+          "license": "CC BY 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E9%9D%92%E5%B9%B4%E6%B9%96%E5%8D%97%E5%B2%B8_-_South_Bank_of_Qingnianhu_Lake_-_2011.06_-_panoramio.jpg",
+          "author": "rheins",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0"
         }
       ]
     },
@@ -4037,7 +4226,10 @@
           "alt": "北京古代建筑博物馆的来源图片",
           "kind": "source",
           "attribution": "https://www.flickr.com/photos/peiyuliu/3351246817/",
-          "license": "CC BY-SA 2.0"
+          "license": "CC BY-SA 2.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Xiannongtan_pic_1.jpg",
+          "author": "Peiyu Liu",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/2.0"
         }
       ]
     },
@@ -4100,7 +4292,10 @@
           "alt": "北京工业大学体育馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beijing_University_of_Technology_Gymnasium_(20251224141508).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4163,7 +4358,10 @@
           "alt": "鲁迅博物馆的来源图片",
           "kind": "source",
           "attribution": "Originally from zh.wikipedia; description page is/was here.",
-          "license": "CC BY-SA 3.0"
+          "license": "CC BY-SA 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Luxunguju.JPG",
+          "author": "Original uploader was 用心阁 at zh.wikipedia",
+          "license_uri": "http://creativecommons.org/licenses/by-sa/3.0/"
         }
       ]
     },
@@ -4222,11 +4420,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -4289,7 +4490,10 @@
           "alt": "国家网球中心的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Diamond_Court,_National_Tennis_Center_(20240821134822).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4352,7 +4556,10 @@
           "alt": "北坞公园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%8C%97%E5%9D%9E%E5%85%AC%E5%9B%AD.jpg",
+          "author": "Antigng",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4415,7 +4622,10 @@
           "alt": "北京石景山游乐园的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:South_gate_of_Shijingshan_Amusement_Park_(20210503174148).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4478,7 +4688,10 @@
           "alt": "中国海关博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E4%B8%AD%E5%9B%BD%E6%B5%B7%E5%85%B3%E5%8D%9A%E7%89%A9%E9%A6%861.jpg",
+          "author": "Jared-li",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4541,7 +4754,10 @@
           "alt": "中国华侨历史博物馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Overseas_Chinese_History_Museum_of_China_(20201012123114).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4604,7 +4820,10 @@
           "alt": "北平图书馆旧址的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%8C%97%E5%B9%B3%E5%9B%BE%E4%B9%A6%E9%A6%86%E6%97%A7%E5%9D%802019.jpg",
+          "author": "ScareCriterion12",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4667,7 +4886,10 @@
           "alt": "中国铁道博物馆（正阳门展馆）的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:China_Railway_Museum,_Zhengyangmen_(20220415175928).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4730,7 +4952,10 @@
           "alt": "中国共产党历史展览馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Museum_of_the_Communist_Party_of_China_(20211123140738).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -4793,7 +5018,10 @@
           "alt": "元大都城垣遗址公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161025005629/http://www.panoramio.com/photo/74083313",
-          "license": "CC BY 3.0"
+          "license": "CC BY 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%85%83%E5%A4%A7%E9%83%BD%E5%9F%8E%E5%9E%A3%E9%81%97%E5%9D%80%E5%85%AC%E5%9B%AD%E6%9C%9D%E9%98%B3%E6%AE%B5_-_Yuan_Dynasty_City_Wall_Relics_Park_in_Chaoyang_District_-_2012.05_-_panoramio.jpg",
+          "author": "rheins",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0"
         }
       ]
     },
@@ -4856,7 +5084,10 @@
           "alt": "元大都城垣遗址公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161025005629/http://www.panoramio.com/photo/74083313",
-          "license": "CC BY 3.0"
+          "license": "CC BY 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%85%83%E5%A4%A7%E9%83%BD%E5%9F%8E%E5%9E%A3%E9%81%97%E5%9D%80%E5%85%AC%E5%9B%AD%E6%9C%9D%E9%98%B3%E6%AE%B5_-_Yuan_Dynasty_City_Wall_Relics_Park_in_Chaoyang_District_-_2012.05_-_panoramio.jpg",
+          "author": "rheins",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0"
         }
       ]
     },
@@ -4919,7 +5150,10 @@
           "alt": "元大都城垣遗址公园的来源图片",
           "kind": "source",
           "attribution": "https://web.archive.org/web/20161025005629/http://www.panoramio.com/photo/74083313",
-          "license": "CC BY 3.0"
+          "license": "CC BY 3.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:%E5%85%83%E5%A4%A7%E9%83%BD%E5%9F%8E%E5%9E%A3%E9%81%97%E5%9D%80%E5%85%AC%E5%9B%AD%E6%9C%9D%E9%98%B3%E6%AE%B5_-_Yuan_Dynasty_City_Wall_Relics_Park_in_Chaoyang_District_-_2012.05_-_panoramio.jpg",
+          "author": "rheins",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0"
         }
       ]
     },
@@ -4978,11 +5212,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5041,11 +5278,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5104,11 +5344,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5167,11 +5410,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5230,11 +5476,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "美术馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5293,11 +5542,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5356,11 +5608,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "美术馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5419,11 +5674,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5482,11 +5740,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -5545,11 +5806,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -5608,11 +5872,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -5671,11 +5938,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -5734,11 +6004,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5797,11 +6070,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -5860,11 +6136,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -5923,11 +6202,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -5986,11 +6268,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "博物馆场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          "author": "Bjoertvedt",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "博物馆与展览同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Bjoertvedt"
         }
       ]
     },
@@ -6049,11 +6334,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "运动场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Olympic_swimming_pool%2C_Beijing_%2818_April_2008%29.jpg/960px-Olympic_swimming_pool%2C_Beijing_%2818_April_2008%29.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Olympic_swimming_pool,_Beijing_(18_April_2008).jpg",
+          "author": "Carsten Ullrich",
+          "license": "CC BY-SA 2.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/2.0/",
+          "alt": "游泳馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Carsten Ullrich"
         }
       ]
     },
@@ -6112,11 +6400,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -6175,11 +6466,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -6238,11 +6532,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -6301,11 +6598,14 @@
       "booking_mode": "现场入场",
       "gallery": [
         {
-          "url": "/demo-illustrations/outing.svg",
-          "alt": "公园场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+          "author": "Clyde Charles Brown",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "公园同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Clyde Charles Brown"
         }
       ]
     },
@@ -6369,7 +6669,10 @@
           "alt": "姚记炒肝店的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Yaoji_Chaogan_Restaurant_(20201105155735).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -6433,7 +6736,10 @@
           "alt": "胡大饭馆的来源图片",
           "kind": "source",
           "attribution": "Own work",
-          "license": "CC BY-SA 4.0"
+          "license": "CC BY-SA 4.0",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Huda_Restaurant_at_Guijie_(20201009164414).jpg",
+          "author": "N509FZ",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0"
         }
       ]
     },
@@ -6493,11 +6799,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -6557,11 +6866,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -6621,11 +6933,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -6685,11 +7000,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "fast_food场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -6749,11 +7067,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -6813,11 +7134,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -6877,11 +7201,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "sandwich场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -6941,11 +7268,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "fast_food场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -7005,11 +7335,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Chongqing_Hot_Pot.jpg/960px-Chongqing_Hot_Pot.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chongqing_Hot_Pot.jpg",
+          "author": "Zhou Guanhuai",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "火锅餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Zhou Guanhuai"
         }
       ]
     },
@@ -7069,11 +7402,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "american场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -7133,11 +7469,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -7197,11 +7536,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -7261,11 +7603,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "international场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -7325,11 +7670,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "western场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -7389,11 +7737,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -7453,11 +7804,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "ramen场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -7517,11 +7871,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -7581,11 +7938,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg/960px-2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg",
+          "author": "Anagoria",
+          "license": "CC BY 3.0",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0/",
+          "alt": "烤鸭餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Anagoria"
         }
       ]
     },
@@ -7645,11 +8005,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -7709,11 +8072,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "dumplings场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Dumplings_at_New_Dumpling.jpg/960px-Dumplings_at_New_Dumpling.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Dumplings_at_New_Dumpling.jpg",
+          "author": "Mx. Granger",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "饺子餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Mx. Granger"
         }
       ]
     },
@@ -7773,11 +8139,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Chongqing_Hot_Pot.jpg/960px-Chongqing_Hot_Pot.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chongqing_Hot_Pot.jpg",
+          "author": "Zhou Guanhuai",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "火锅餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Zhou Guanhuai"
         }
       ]
     },
@@ -7837,11 +8206,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Dumplings_at_New_Dumpling.jpg/960px-Dumplings_at_New_Dumpling.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Dumplings_at_New_Dumpling.jpg",
+          "author": "Mx. Granger",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "饺子餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Mx. Granger"
         }
       ]
     },
@@ -7901,11 +8273,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "pizza场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Pizza_in_a_restaurant.jpg/960px-Pizza_in_a_restaurant.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Pizza_in_a_restaurant.jpg",
+          "author": "Ra Boe / Wikipedia",
+          "license": "CC BY-SA 3.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0/",
+          "alt": "披萨餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Ra Boe / Wikipedia"
         }
       ]
     },
@@ -7965,11 +8340,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "beef_bowl场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8029,11 +8407,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8093,11 +8474,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Chinese_tea_house%2C_Beijing.jpg/960px-Chinese_tea_house%2C_Beijing.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chinese_tea_house,_Beijing.jpg",
+          "author": "Luo Shaoyang",
+          "license": "CC BY 2.0",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0/",
+          "alt": "茶馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Luo Shaoyang"
         }
       ]
     },
@@ -8157,11 +8541,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg/960px-2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg",
+          "author": "Anagoria",
+          "license": "CC BY 3.0",
+          "license_uri": "https://creativecommons.org/licenses/by/3.0/",
+          "alt": "烤鸭餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Anagoria"
         }
       ]
     },
@@ -8221,11 +8608,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -8285,11 +8675,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8349,11 +8742,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Dumplings_at_New_Dumpling.jpg/960px-Dumplings_at_New_Dumpling.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Dumplings_at_New_Dumpling.jpg",
+          "author": "Mx. Granger",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "饺子餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Mx. Granger"
         }
       ]
     },
@@ -8413,11 +8809,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8477,11 +8876,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8541,11 +8943,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -8605,11 +9010,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chicken场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -8669,11 +9077,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "french场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -8733,11 +9144,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8797,11 +9211,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8861,11 +9278,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -8925,11 +9345,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Dumplings_at_New_Dumpling.jpg/960px-Dumplings_at_New_Dumpling.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Dumplings_at_New_Dumpling.jpg",
+          "author": "Mx. Granger",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "饺子餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Mx. Granger"
         }
       ]
     },
@@ -8989,11 +9412,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "steak_house场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Chinese_tea_house%2C_Beijing.jpg/960px-Chinese_tea_house%2C_Beijing.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chinese_tea_house,_Beijing.jpg",
+          "author": "Luo Shaoyang",
+          "license": "CC BY 2.0",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0/",
+          "alt": "茶馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Luo Shaoyang"
         }
       ]
     },
@@ -9053,11 +9479,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "asian场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9117,11 +9546,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "international场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -9181,11 +9613,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -9245,11 +9680,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9309,11 +9747,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -9373,11 +9814,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -9437,11 +9881,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "cafe场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -9501,11 +9948,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "donut场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9565,11 +10015,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "donut场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9629,11 +10082,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "donut场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9693,11 +10149,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "donut场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9757,11 +10216,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "donut场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9821,11 +10283,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "donut场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9885,11 +10350,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -9949,11 +10417,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "turkish场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10013,11 +10484,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "cafe场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -10077,11 +10551,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10141,11 +10618,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10205,11 +10685,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10269,11 +10752,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10333,11 +10819,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -10397,11 +10886,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "ice_cream场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Chinese_tea_house%2C_Beijing.jpg/960px-Chinese_tea_house%2C_Beijing.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chinese_tea_house,_Beijing.jpg",
+          "author": "Luo Shaoyang",
+          "license": "CC BY 2.0",
+          "license_uri": "https://creativecommons.org/licenses/by/2.0/",
+          "alt": "茶馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Luo Shaoyang"
         }
       ]
     },
@@ -10461,11 +10953,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10525,11 +11020,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -10589,11 +11087,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10653,11 +11154,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "buffet场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -10717,11 +11221,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "pizza场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Pizza_in_a_restaurant.jpg/960px-Pizza_in_a_restaurant.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Pizza_in_a_restaurant.jpg",
+          "author": "Ra Boe / Wikipedia",
+          "license": "CC BY-SA 3.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/3.0/",
+          "alt": "披萨餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Ra Boe / Wikipedia"
         }
       ]
     },
@@ -10781,11 +11288,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -10845,11 +11355,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -10909,11 +11422,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chicken场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -10973,11 +11489,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -11037,11 +11556,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11101,11 +11623,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11165,11 +11690,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -11229,11 +11757,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11293,11 +11824,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11357,11 +11891,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "noodle场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11421,11 +11958,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Chongqing_Hot_Pot.jpg/960px-Chongqing_Hot_Pot.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chongqing_Hot_Pot.jpg",
+          "author": "Zhou Guanhuai",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "火锅餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Zhou Guanhuai"
         }
       ]
     },
@@ -11485,11 +12025,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -11549,11 +12092,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "burger场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+          "author": "Arcling",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "汉堡餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Arcling"
         }
       ]
     },
@@ -11613,11 +12159,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Chongqing_Hot_Pot.jpg/960px-Chongqing_Hot_Pot.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Chongqing_Hot_Pot.jpg",
+          "author": "Zhou Guanhuai",
+          "license": "CC BY-SA 4.0",
+          "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+          "alt": "火锅餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Zhou Guanhuai"
         }
       ]
     },
@@ -11677,11 +12226,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -11741,11 +12293,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11805,11 +12360,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11869,11 +12427,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11933,11 +12494,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -11997,11 +12561,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -12061,11 +12628,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "restaurant场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -12125,11 +12695,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Dumplings_at_New_Dumpling.jpg/960px-Dumplings_at_New_Dumpling.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Dumplings_at_New_Dumpling.jpg",
+          "author": "Mx. Granger",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "饺子餐饮同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Mx. Granger"
         }
       ]
     },
@@ -12189,11 +12762,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -12253,11 +12829,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -12317,11 +12896,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -12381,11 +12963,14 @@
       "booking_mode": "到店排队",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "cafe场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -12445,11 +13030,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -12509,11 +13097,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "chinese场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -12573,11 +13164,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "cafe场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     },
@@ -12637,11 +13231,14 @@
       "booking_mode": "电话确认（演示中未提供联系方式）",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "korean场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+          "author": "Scott Meltzer",
+          "license": "Public domain",
+          "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+          "alt": "餐厅同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Scott Meltzer"
         }
       ]
     },
@@ -12701,11 +13298,14 @@
       "booking_mode": "到店",
       "gallery": [
         {
-          "url": "/demo-illustrations/dining.svg",
-          "alt": "coffee_shop场景示意图（非门店实拍）",
-          "kind": "illustrative",
-          "attribution": "HappyFreeTime local illustrative asset",
-          "license": "CC0-style project illustration"
+          "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+          "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+          "author": "Daderot",
+          "license": "CC0 1.0",
+          "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+          "alt": "咖啡馆同类场景参考图，非该地点实拍",
+          "kind": "reference",
+          "attribution": "Daderot"
         }
       ]
     }

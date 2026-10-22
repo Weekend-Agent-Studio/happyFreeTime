@@ -41,6 +41,19 @@ const context: PlanningContextSummary = {
 };
 
 describe("PlanningContextBar typed patches", () => {
+  it("uses an icon and a quiet status dot for additional conditions", () => {
+    const configuredContext = {
+      ...context,
+      max_distance_km: { value: 8, display_value: "8 km", source: "user" as const, editable: true, status: "resolved" as const },
+    };
+    const { container } = render(<PlanningContextBar context={configuredContext} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={vi.fn().mockResolvedValue(undefined)} />);
+    const button = screen.getByRole("button", { name: "更多条件，已设置" });
+    expect(button.querySelector("svg")).toBeInTheDocument();
+    expect(button.querySelector(".planning-context-more-indicator")).toBeInTheDocument();
+    expect(button.querySelector(".context-edit-icon")).toBeNull();
+    expect(container.querySelector(".planning-context-more")).toBe(button);
+  });
+
   it("navigates the calendar without saving and submits the selected local date", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
@@ -143,6 +156,7 @@ describe("PlanningContextBar typed patches", () => {
     );
 
     expect(screen.getByText("2026-08-15 · 出发 14:00 · 18:00 前到家")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("规划条件已更新，旧方案尚未重新验证。");
     await user.click(screen.getByRole("button", { name: /按新条件重新规划/ }));
     await waitFor(() => expect(onReplan).toHaveBeenCalledTimes(1));
 

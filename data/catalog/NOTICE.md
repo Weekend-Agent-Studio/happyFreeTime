@@ -10,6 +10,9 @@ object URL; the manifest keeps the OSM source snapshot time.
 - Verification: records are marked `unverified`. Missing values remain unknown
   and are not filled with random or fixture data.
 
-Optional images are remote Wikimedia Commons references resolved through OSM
-Wikidata/Commons tags. The repository stores URLs and license metadata, not
+Optional exact-place images are remote Wikimedia Commons references resolved
+through OSM Wikidata/Commons tags. When an exact image is unavailable, the Demo
+World may use a licensed Wikimedia Commons photo as a clearly labeled
+same-category scene reference; it must not be presented as a photo of the named
+POI. The repository stores URLs, author, source-page and license metadata, not
 the image files. Remote image failure must not affect planning.

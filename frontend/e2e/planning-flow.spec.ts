@@ -126,15 +126,48 @@ test("refined calendar and compact POI header preserve navigation", async ({ pag
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
   await page.getByRole("button", { name: "打开方案一详情" }).click();
+  const inspectorScrollHost = page.locator(device === "mobile" ? ".sheet-content:visible" : ".detail-panel");
+  await expect(page.locator(".inspector-plan-header")).toHaveCSS("position", "static");
+  await expect(page.locator(".inspector-view-switcher")).toHaveCSS("position", "sticky");
+  await inspectorScrollHost.evaluate((element) => { element.scrollTop = 500; });
+  const returnToTop = page.getByRole("button", { name: "返回详情顶部" });
+  await expect(returnToTop).toBeVisible();
+  await returnToTop.click();
+  await expect.poll(() => inspectorScrollHost.evaluate((element) => element.scrollTop)).toBe(0);
   await page.screenshot({ path: path.resolve(`../.impeccable/review/ui-refinement-trip-${device}.png`) });
   await page.getByRole("button", { name: "查看第 1 站 展览 详情" }).click();
-  const header = page.locator(".inspector-sticky-header:visible");
-  await expect(header.locator(".inspector-plan-header")).toHaveCount(0);
+  const header = page.locator(".inspector-poi-context:visible");
+  await expect(page.locator(".inspector-plan-header")).toHaveCount(0);
   await expect(header.getByRole("button", { name: "返回行程" })).toBeVisible();
   expect((await header.boundingBox())!.height).toBeLessThan(90);
   await page.screenshot({ path: path.resolve(`../.impeccable/review/ui-refinement-poi-${device}.png`) });
   await header.getByRole("button", { name: "返回行程" }).click();
   await expect(page.getByRole("tab", { name: "行程", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+test("inspector return-to-top button stays clear of the final itinerary action", async ({ page }, testInfo) => {
+  const mobile = testInfo.project.name === "mobile-375";
+  await page.setViewportSize(mobile ? { width: 375, height: 812 } : { width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await page.getByRole("button", { name: "打开方案一详情" }).click();
+
+  const inspectorScrollHost = page.locator(mobile ? ".sheet-content:visible" : ".detail-panel");
+  await inspectorScrollHost.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  const returnToTop = page.getByRole("button", { name: "返回详情顶部" });
+  const routeAction = page.getByRole("button", { name: "查看地图" });
+  await expect(returnToTop).toBeVisible();
+  await expect(routeAction).toBeVisible();
+  const overlaps = await page.evaluate(() => {
+    const floating = document.querySelector<HTMLElement>(".inspector-scroll-to-top");
+    const action = [...document.querySelectorAll<HTMLElement>("button")].find((button) => button.textContent?.includes("查看地图"));
+    if (!floating || !action) return false;
+    const a = floating.getBoundingClientRect();
+    const b = action.getBoundingClientRect();
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  });
+  expect(overlaps).toBe(false);
 });
 
 test("single-stop replacement draft, versioned diff, and failure preserve the selected plan", async ({ page }, testInfo) => {
@@ -266,7 +299,7 @@ test("single-stop replacement draft, versioned diff, and failure preserve the se
   if (mobile) await page.getByRole("button", { name: "打开方案一详情" }).click();
   await page.getByRole("button", { name: "选择此方案" }).click();
   await expect(page.getByRole("button", { name: "已选择此方案" })).toBeDisabled();
-  const replaceButton = page.getByRole("button", { name: "换这站" }).first();
+  const replaceButton = page.getByRole("button", { name: "替换此站" }).first();
   await replaceButton.click();
   const draft = page.getByRole("region", { name: "单站替换草稿" });
   await expect(draft).toBeVisible();
@@ -288,17 +321,18 @@ test("single-stop replacement draft, versioned diff, and failure preserve the se
   }
   expect(submittedCommands).toHaveLength(0);
   expect(requestPaths.filter((pathname) => pathname.endsWith("/messages/stream"))).toHaveLength(1);
-  await page.getByRole("button", { name: "换这站" }).first().click();
+  await page.getByRole("button", { name: "替换此站" }).first().click();
   await page.getByRole("button", { name: "全程更近" }).click();
 
   const diff = page.getByRole("region", { name: "方案修改明细：替换候选" });
   await expect(diff).toBeVisible();
+  await expect(diff).toContainText("替换 2 站");
   await expect(diff).toContainText("第 1 站 · 活动");
   await expect(diff).toContainText("展览 → 安静展览");
   await expect(diff).toContainText("第 2 站 · 餐饮 · 晚餐");
-  await expect(diff).toContainText("全程距离：减少 1.4 km");
-  await expect(diff).toContainText("总时长：减少 15 分钟");
-  await expect(diff).toContainText("地点费用（不含交通）：不变");
+  await expect(diff).toContainText("−1.4 km");
+  await expect(diff).toContainText("−15 分钟");
+  await expect(diff).toContainText("地点费用不变");
   expect(selectedPlanId).toBeNull();
   await screenshot(mobile ? "s-ui1f-mobile-replacement-diff" : "s-ui1f-desktop-replacement-diff");
 
@@ -310,7 +344,7 @@ test("single-stop replacement draft, versioned diff, and failure preserve the se
   await expect(page.getByRole("heading", { name: "替换候选", level: 3 })).toBeVisible();
   expect(selectedPlanId).toBe("candidate-v2");
   if (mobile) await page.getByRole("button", { name: "打开替换候选详情" }).click();
-  await page.getByRole("button", { name: "换这站" }).first().click();
+  await page.getByRole("button", { name: "替换此站" }).first().click();
   await page.getByRole("button", { name: "更安静" }).click();
   const recoveryCard = page.getByRole("group", { name: "规划恢复选项" }).last();
   await expect(recoveryCard).toBeVisible();
@@ -364,7 +398,7 @@ test("offline planning path keeps route and fallback map interactive", async ({ 
     if (!host) return false;
     const hostRect = host.getBoundingClientRect();
     const targetRect = element.getBoundingClientRect();
-    const stickyBottom = host.querySelector<HTMLElement>(".inspector-sticky-header")?.getBoundingClientRect().bottom ?? hostRect.top;
+    const stickyBottom = host.querySelector<HTMLElement>(".inspector-view-switcher, .inspector-poi-context")?.getBoundingClientRect().bottom ?? hostRect.top;
     return targetRect.top >= Math.max(hostRect.top + host.clientTop, stickyBottom) && targetRect.bottom <= hostRect.bottom - host.clientTop;
   })).toBe(true);
   await expect.poll(() => scrollHost.evaluate((element) => element.scrollTop)).not.toBe(mapScrollBefore);
@@ -470,7 +504,7 @@ test("desktop keeps the workspace chrome fixed while the conversation scrolls", 
   expect(after.heading!.y).toBeGreaterThanOrEqual(after.conditions!.y + after.conditions!.height);
 });
 
-test("shell keeps equal desktop panes and a keyboard-accessible persistent navigation rail", async ({ page }, testInfo) => {
+test("desktop shell bounds conversation content and supports a bounded resizable split", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "desktop navigation contract");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
@@ -480,6 +514,7 @@ test("shell keeps equal desktop panes and a keyboard-accessible persistent navig
   const nav = page.locator(".session-sidebar");
   const workspace = page.locator(".workspace");
   const inspector = page.locator(".detail-panel");
+  const resizer = page.getByRole("separator", { name: "调整聊天和详情宽度" });
   const conditions = page.getByRole("navigation", { name: "规划条件" }).getByRole("button");
   await expect(conditions).toHaveCount(5);
   expect(await conditions.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")?.split("，")[0]))).toEqual([
@@ -488,6 +523,30 @@ test("shell keeps equal desktop panes and a keyboard-accessible persistent navig
   expect((await nav.boundingBox())!.width).toBeGreaterThan(220);
   expect((await nav.boundingBox())!.width).toBeLessThan(260);
   expect((await workspace.boundingBox())!.width).toBeCloseTo((await inspector.boundingBox())!.width, 0);
+  await expect(resizer).toBeVisible();
+  const initialChatWidth = (await workspace.boundingBox())!.width;
+  await resizer.focus();
+  await page.keyboard.press("ArrowRight");
+  expect((await workspace.boundingBox())!.width).toBeGreaterThan(initialChatWidth + 10);
+  await page.keyboard.press("Home");
+  expect(Number(await resizer.getAttribute("aria-valuenow"))).toBe(Number(await resizer.getAttribute("aria-valuemin")));
+  await page.keyboard.press("End");
+  expect(Number(await resizer.getAttribute("aria-valuenow"))).toBe(Number(await resizer.getAttribute("aria-valuemax")));
+
+  const resizerBounds = (await resizer.boundingBox())!;
+  const chatBeforeDrag = (await workspace.boundingBox())!.width;
+  await page.mouse.move(resizerBounds.x + resizerBounds.width / 2, resizerBounds.y + resizerBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resizerBounds.x + resizerBounds.width / 2 - 80, resizerBounds.y + resizerBounds.height / 2, { steps: 4 });
+  await page.mouse.up();
+  expect((await workspace.boundingBox())!.width).toBeLessThan(chatBeforeDrag - 40);
+
+  await page.setViewportSize({ width: 3000, height: 900 });
+  await expect.poll(async () => (await workspace.boundingBox())!.width).toBeGreaterThan(1080);
+  expect((await page.locator(".composer").boundingBox())!.width).toBeLessThanOrEqual(1081);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect.poll(async () => (await workspace.boundingBox())!.width).toBeLessThan(1080);
+
   await page.screenshot({ path: path.resolve("../.impeccable/review/s-ui1b-welcome-desktop.png") });
   const collapse = page.getByRole("button", { name: "收起侧边栏" });
   await collapse.focus();
@@ -756,7 +815,15 @@ test("When edits save without replanning until the user confirms", async ({ page
     when: { date: { operation: "set", value: "2026-08-16" } },
   });
   await expect(page.getByRole("button", { name: /日期时间.*2026-08-16/ })).toBeVisible();
+  const savedToast = page.locator(".app-toast");
+  await expect(savedToast).toContainText("条件已保存。当前预览仍是旧版本，建议重新规划。");
+  const savedToastBounds = await savedToast.boundingBox();
+  expect(savedToastBounds!.x).toBeLessThan(page.viewportSize()!.width / 2);
+  expect(savedToastBounds!.y).toBeGreaterThan(page.viewportSize()!.height / 2);
   const notice = await page.locator(".planning-context-notice").boundingBox();
+  const appHeader = await page.locator(".app-header").boundingBox();
+  expect(notice!.x).toBeCloseTo(appHeader!.x, 0);
+  expect(notice!.width).toBeCloseTo(appHeader!.width, 0);
   const heading = await page.locator(".conversation-heading.compact").boundingBox();
   expect(notice!.y).toBeGreaterThanOrEqual(heading!.y + heading!.height);
   await expect(page.getByRole("heading", { name: "方案一", level: 3 })).toBeVisible();

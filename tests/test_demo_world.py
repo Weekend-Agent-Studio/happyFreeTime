@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
-from app.api.application import create_app
+from app.api.application import _refresh_response_poi_galleries, create_app
 from app.domain.constraints import (
     ConstraintSource,
     ConstraintValue,
@@ -69,6 +69,39 @@ class DemoWorldTest(unittest.TestCase):
             self.assertTrue(record["gallery"])
             self.assertTrue(record["open_hours"])
             self.assertIsNotNone(record["reference_avg_price"])
+
+    def test_missing_poi_images_use_licensed_and_truthfully_labeled_category_photos(self) -> None:
+        records = build()["records"]
+        references = [record for record in records if record["gallery"][0]["kind"] == "reference"]
+
+        self.assertTrue(references)
+        self.assertTrue(any(record["resource_type"] == "restaurant" for record in references))
+        self.assertFalse(any(record["gallery"][0]["kind"] == "illustrative" for record in records))
+        for record in references:
+            image = record["gallery"][0]
+            self.assertTrue(image["url"].startswith("https://upload.wikimedia.org/wikipedia/commons/thumb/"))
+            self.assertTrue(image["source_uri"].startswith("https://commons.wikimedia.org/wiki/File:"))
+            self.assertTrue(image["license_uri"].startswith("https://creativecommons.org/"))
+            self.assertTrue(image["author"])
+            self.assertEqual(image["attribution"], image["author"])
+            self.assertIn("非该地点实拍", image["alt"])
+
+    def test_session_gallery_refresh_updates_only_the_display_photo(self) -> None:
+        current = DemoWorld().present_many(["osm-node-1248471844"])[0].model_dump(mode="json")
+        old_gallery = [{"url": "/demo-illustrations/outing.svg", "kind": "illustrative"}]
+        saved_presentation = {**current, "description": "saved planning snapshot", "gallery": old_gallery}
+        saved_response = {
+            "plans": [{"stops": [{"resource_id": current["resource_id"]}]}],
+            "poi_presentations": [saved_presentation],
+        }
+
+        refreshed = _refresh_response_poi_galleries(
+            saved_response, {current["resource_id"]: current}
+        )
+
+        self.assertEqual(saved_response["poi_presentations"][0]["gallery"], old_gallery)
+        self.assertEqual(refreshed["poi_presentations"][0]["gallery"], current["gallery"])
+        self.assertEqual(refreshed["poi_presentations"][0]["description"], "saved planning snapshot")
 
     def test_catalog_preserves_anchor_id_name_and_coordinate_but_uses_demo_pruning_fields(self) -> None:
         catalog = DemoCatalog()

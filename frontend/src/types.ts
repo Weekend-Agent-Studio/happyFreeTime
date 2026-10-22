@@ -62,9 +62,12 @@ export type Stop = {
 export type PoiGalleryItem = {
   url: string;
   alt: string;
-  kind: "source" | "illustrative";
+  kind: "source" | "reference" | "illustrative";
   attribution: string | null;
   license: string | null;
+  source_uri?: string | null;
+  author?: string | null;
+  license_uri?: string | null;
 };
 
 /** Rich display data is deliberately separate from a planning Stop. */

@@ -21,6 +21,78 @@ VERSION = "v1"
 SEED = "happyfreetime-demo-world-v1"
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
+# Commons thumbnails and their file-page/license metadata are stored with the
+# same URL-based contract as exact OSM/Wikidata images. These are honest
+# category references, never presented as photos of the named POI.
+REFERENCE_IMAGES = {
+    "restaurant": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Typical_restaurant_in_China.JPG/960px-Typical_restaurant_in_China.JPG",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Typical_restaurant_in_China.JPG",
+        "author": "Scott Meltzer", "license": "Public domain",
+        "license_uri": "https://creativecommons.org/publicdomain/mark/1.0/",
+    },
+    "hotpot": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Chongqing_Hot_Pot.jpg/960px-Chongqing_Hot_Pot.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Chongqing_Hot_Pot.jpg",
+        "author": "Zhou Guanhuai", "license": "CC BY-SA 4.0",
+        "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+    },
+    "dumplings": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Dumplings_at_New_Dumpling.jpg/960px-Dumplings_at_New_Dumpling.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Dumplings_at_New_Dumpling.jpg",
+        "author": "Mx. Granger", "license": "CC0 1.0",
+        "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+    },
+    "duck": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg/960px-2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:2016-08-27_Peking_Duck_at_Great_Wall_Restaurant_Beijing_anagoria.jpg",
+        "author": "Anagoria", "license": "CC BY 3.0",
+        "license_uri": "https://creativecommons.org/licenses/by/3.0/",
+    },
+    "burger": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/HamburgerHamburger.jpg/960px-HamburgerHamburger.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:HamburgerHamburger.jpg",
+        "author": "Arcling", "license": "CC BY-SA 4.0",
+        "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+    },
+    "pizza": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Pizza_in_a_restaurant.jpg/960px-Pizza_in_a_restaurant.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Pizza_in_a_restaurant.jpg",
+        "author": "Ra Boe / Wikipedia", "license": "CC BY-SA 3.0",
+        "license_uri": "https://creativecommons.org/licenses/by-sa/3.0/",
+    },
+    "cafe": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Cafe_interior_-_San_Francisco%2C_CA.jpg/960px-Cafe_interior_-_San_Francisco%2C_CA.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Cafe_interior_-_San_Francisco,_CA.jpg",
+        "author": "Daderot", "license": "CC0 1.0",
+        "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+    },
+    "teahouse": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Chinese_tea_house%2C_Beijing.jpg/960px-Chinese_tea_house%2C_Beijing.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Chinese_tea_house,_Beijing.jpg",
+        "author": "Luo Shaoyang", "license": "CC BY 2.0",
+        "license_uri": "https://creativecommons.org/licenses/by/2.0/",
+    },
+    "museum": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+        "author": "Bjoertvedt", "license": "CC BY-SA 4.0",
+        "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+    },
+    "park": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg/960px-Beihai_Lake_seen_from_Beihai_Park%2C_Beijing%2C_Beijing%2C_CN.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Beihai_Lake_seen_from_Beihai_Park,_Beijing,_Beijing,_CN.jpg",
+        "author": "Clyde Charles Brown", "license": "CC BY-SA 4.0",
+        "license_uri": "https://creativecommons.org/licenses/by-sa/4.0/",
+    },
+    "swimming": {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Olympic_swimming_pool%2C_Beijing_%2818_April_2008%29.jpg/960px-Olympic_swimming_pool%2C_Beijing_%2818_April_2008%29.jpg",
+        "source_uri": "https://commons.wikimedia.org/wiki/File:Olympic_swimming_pool,_Beijing_(18_April_2008).jpg",
+        "author": "Carsten Ullrich", "license": "CC BY-SA 2.0",
+        "license_uri": "https://creativecommons.org/licenses/by-sa/2.0/",
+    },
+}
+
 
 def choose(resource_id: str, values: list, salt: str = ""):
     digest = hashlib.sha256(f"{SEED}|{VERSION}|{resource_id}|{salt}".encode()).digest()
@@ -34,6 +106,37 @@ def number(resource_id: str, lower: int, upper: int, salt: str) -> int:
 
 def hours(start: str, end: str) -> dict[str, str]:
     return {day: f"{start}-{end}" for day in DAYS}
+
+
+def reference_image_key(record: dict) -> str | None:
+    resource_type = record["resource_type"]
+    tags = {str(tag).casefold() for tag in record.get("category_tags", [])}
+    name = record.get("name", "").casefold()
+    if "茶" in name or any("茶" in tag or "tea" in tag for tag in tags):
+        return "teahouse"
+    if resource_type in {"cafe", "dessert"}:
+        return "cafe"
+    if resource_type == "restaurant":
+        if "hotpot" in tags or "hot_pot" in tags or "火锅" in name or "涮肉" in name:
+            return "hotpot"
+        if "dumplings" in tags or any(token in name for token in ("饺", "锅贴")):
+            return "dumplings"
+        if "pizza" in tags or "披萨" in name:
+            return "pizza"
+        if "burger" in tags or any(token in name for token in ("汉堡", "麦当劳", "肯德基", "德克士")):
+            return "burger"
+        if "烤鸭" in name:
+            return "duck"
+        return "restaurant"
+    if resource_type == "activity":
+        if any(token in name for token in ("游泳", "泳池")) or "swimming_pool" in tags:
+            return "swimming"
+        if any(token in name for token in ("公园", "花园")) or "park" in tags:
+            return "park"
+        culture_tags = {"博物馆", "美术馆", "文化馆", "纪念馆", "展览馆", "museum", "gallery", "art"}
+        if any(token in name for token in ("博物馆", "美术馆", "文化馆", "纪念馆", "展览馆", "gallery")) or tags & culture_tags:
+            return "museum"
+    return None
 
 
 def profile(record: dict) -> dict:
@@ -77,13 +180,32 @@ def profile(record: dict) -> dict:
         gallery.append({
             "url": image["url"], "alt": f"{record['name']}的来源图片", "kind": "source",
             "attribution": image.get("attribution") or image.get("author"), "license": image.get("license"),
+            "source_uri": image.get("source_uri"), "author": image.get("author"),
+            "license_uri": image.get("license_uri"),
         })
     else:
-        gallery.append({
-            "url": f"/demo-illustrations/{'dining' if is_food else 'outing'}.svg",
-            "alt": f"{category}场景示意图（非门店实拍）", "kind": "illustrative",
-            "attribution": "HappyFreeTime local illustrative asset", "license": "CC0-style project illustration",
-        })
+        reference_key = reference_image_key(record)
+        if reference_key:
+            reference = REFERENCE_IMAGES[reference_key]
+            reference_label = {
+                "restaurant": "餐厅", "hotpot": "火锅餐饮", "dumplings": "饺子餐饮",
+                "duck": "烤鸭餐饮", "burger": "汉堡餐饮", "pizza": "披萨餐饮",
+                "cafe": "咖啡馆", "teahouse": "茶馆", "museum": "博物馆与展览",
+                "park": "公园", "swimming": "游泳馆",
+            }[reference_key]
+            gallery.append({
+                **reference,
+                "alt": f"{reference_label}同类场景参考图，非该地点实拍",
+                "kind": "reference",
+                "attribution": reference["author"],
+            })
+        else:
+            gallery.append({
+                "url": f"/demo-illustrations/{'dining' if is_food else 'outing'}.svg",
+                "alt": f"{category}场景示意图（非门店实拍）", "kind": "illustrative",
+                "attribution": "HappyFreeTime local illustrative asset", "license": "CC0-style project illustration",
+                "source_uri": None, "author": None, "license_uri": None,
+            })
     return {
         "resource_id": resource_id,
         "name": record["name"],
@@ -147,7 +269,11 @@ def completeness(payload: dict) -> dict:
         "version": VERSION,
         "record_count": len(records),
         "coverage": {field: {"count": sum(populated(item, field) for item in records), "percent": round(100 * sum(populated(item, field) for item in records) / len(records), 1)} for field in fields},
-        "gallery": {"source_image": sum(item["gallery"][0]["kind"] == "source" for item in records), "illustrative": sum(item["gallery"][0]["kind"] == "illustrative" for item in records)},
+        "gallery": {
+            "source_image": sum(item["gallery"][0]["kind"] == "source" for item in records),
+            "reference_photo": sum(item["gallery"][0]["kind"] == "reference" for item in records),
+            "illustrative": sum(item["gallery"][0]["kind"] == "illustrative" for item in records),
+        },
     }
 
 
