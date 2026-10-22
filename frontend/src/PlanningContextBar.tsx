@@ -1,7 +1,9 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
-import { CalendarDays, CircleDollarSign, MapPin, Pencil, SlidersHorizontal, Users, X } from "lucide-react";
-import type { FieldEdit, PlanningContextPatch, PlanningContextSummary, PreferenceCategory, PreferenceTag } from "./types";
+import { Popover } from "@base-ui/react/popover";
+import { CalendarDays, ChevronRight, CircleDollarSign, Info, MapPin, Pencil, SlidersHorizontal, Users, X } from "lucide-react";
+import { searchDepartureLocations } from "./api";
+import type { DepartureLocationOption, DepartureLocationSearchResponse, FieldEdit, PlanningContextPatch, PlanningContextSummary, PreferenceCategory, PreferenceTag } from "./types";
 import { DateCalendar } from "./DateCalendar";
 
 export type ContextSection = "where" | "when" | "who" | "budget" | "preferences";
@@ -10,7 +12,7 @@ export type ContextOpenTarget = ContextEditorSection | "all";
 
 const SECTIONS: Array<{ id: ContextSection; label: string; icon: typeof MapPin }> = [
   { id: "when", label: "日期时间", icon: CalendarDays },
-  { id: "where", label: "出发区域", icon: MapPin },
+  { id: "where", label: "出发地", icon: MapPin },
   { id: "who", label: "同行人数", icon: Users },
   { id: "budget", label: "人均预算", icon: CircleDollarSign },
   { id: "preferences", label: "出行偏好", icon: SlidersHorizontal },
@@ -22,7 +24,6 @@ const BUDGET_SLIDER_MIN = 50;
 const BUDGET_SLIDER_MAX = 1000;
 
 type EditorValues = {
-  where: string;
   date: string;
   startAt: string;
   endAt: string;
@@ -39,6 +40,8 @@ type EditorValues = {
   totalDistanceKm: string;
 };
 
+type DepartureDraft = { kind: "default" } | { kind: "provider_place"; provider_id: string; option: DepartureLocationOption };
+
 const PET_PREFERENCE: PreferenceTag = { category: "preferences", value: "携带宠物" };
 
 function currentValue(field: PlanningContextSummary["where"] | undefined): unknown {
@@ -47,6 +50,18 @@ function currentValue(field: PlanningContextSummary["where"] | undefined): unkno
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function departureDisplayValue(field: PlanningContextSummary["where"] | undefined): string {
+  if (!field) return "未设置";
+  if (field.source === "default") return "演示默认出发点";
+  const value = asRecord(field.value);
+  return String(value.name ?? value.address ?? field.display_value ?? "未设置");
+}
+
+function departureAddress(field: PlanningContextSummary["where"] | undefined): string {
+  const value = asRecord(field?.value);
+  return String(value.address ?? field?.display_value ?? "未设置");
 }
 
 function sourceLabel(source?: string) {
@@ -121,9 +136,6 @@ function getValues(context: PlanningContextSummary | null): EditorValues {
       : [],
   );
   return {
-    where: typeof currentValue(context?.where) === "string"
-      ? String(currentValue(context?.where))
-      : String(asRecord(currentValue(context?.where)).address ?? ""),
     date: String(currentValue(context?.when.date) ?? ""),
     startAt: String(currentValue(context?.when.start_at) ?? ""),
     endAt: String(currentValue(context?.when.end_at) ?? ""),
@@ -170,8 +182,15 @@ export function PlanningContextBar({
 }) {
   const [section, setSection] = useState<ContextEditorSection | null>(null);
   const [sectionChooserOpen, setSectionChooserOpen] = useState(false);
-  const [where, setWhere] = useState("");
-  const [whereClear, setWhereClear] = useState(false);
+  const [whereQuery, setWhereQuery] = useState("");
+  const [departureDraft, setDepartureDraft] = useState<DepartureDraft | null>(null);
+  const [departureSearch, setDepartureSearch] = useState<DepartureLocationSearchResponse | null>(null);
+  const [departureSearchStatus, setDepartureSearchStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [departureSearchError, setDepartureSearchError] = useState("");
+  const [departureSelectionMessage, setDepartureSelectionMessage] = useState("");
+  const [departureSuggestionsOpen, setDepartureSuggestionsOpen] = useState(false);
+  const [activeDepartureIndex, setActiveDepartureIndex] = useState(-1);
+  const [departureSearchAttempt, setDepartureSearchAttempt] = useState(0);
   const [date, setDate] = useState("");
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
@@ -192,6 +211,11 @@ export function PlanningContextBar({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const focusReturnRef = useRef<HTMLElement | null>(null);
+  const departureSearchSequence = useRef(0);
+  const departureSearchController = useRef<AbortController | null>(null);
+  const departureInputRef = useRef<HTMLInputElement>(null);
+  const departureInputId = useId();
+  const departureListId = useId();
   const baseRef = useRef<{ sessionId: string | null; revision: number; view: "committed" | "draft"; values: EditorValues } | null>(null);
 
   const values = useMemo(() => getValues(context), [context]);
@@ -223,8 +247,14 @@ export function PlanningContextBar({
     setSection(next);
     setSectionChooserOpen(false);
     setSaveError("");
-    setWhere(baseValues.where);
-    setWhereClear(false);
+    setWhereQuery("");
+    setDepartureDraft(null);
+    setDepartureSearch(null);
+    setDepartureSearchStatus("idle");
+    setDepartureSearchError("");
+    setDepartureSelectionMessage("");
+    setDepartureSuggestionsOpen(false);
+    setActiveDepartureIndex(-1);
     setDate(baseValues.date);
     setStartAt(baseValues.startAt);
     setEndAt(baseValues.endAt);
@@ -269,8 +299,49 @@ export function PlanningContextBar({
     }
   }, [context?.request_revision, context?.request_view, section, sessionId]);
 
+  useEffect(() => {
+    const sequence = ++departureSearchSequence.current;
+    departureSearchController.current?.abort();
+    departureSearchController.current = null;
+    const query = whereQuery.trim();
+    if (section !== "where" || query.length < 2) {
+      setDepartureSearch(null);
+      setDepartureSearchStatus("idle");
+      setDepartureSearchError("");
+      setActiveDepartureIndex(-1);
+      return;
+    }
+
+    const controller = new AbortController();
+    departureSearchController.current = controller;
+    setDepartureSearch(null);
+    setDepartureSearchStatus("loading");
+    setDepartureSearchError("");
+    setActiveDepartureIndex(-1);
+    const timer = window.setTimeout(() => {
+      void searchDepartureLocations(query, controller.signal).then((result) => {
+        const base = baseRef.current;
+        if (controller.signal.aborted || sequence !== departureSearchSequence.current
+          || !base || base.sessionId !== sessionId
+          || base.revision !== (context?.request_revision ?? 0)
+          || base.view !== (context?.request_view ?? "committed")) return;
+        setDepartureSearch(result);
+        setDepartureSearchStatus("idle");
+      }).catch((error: unknown) => {
+        if (controller.signal.aborted || sequence !== departureSearchSequence.current) return;
+        setDepartureSearchError(error instanceof Error ? error.message : "地点搜索失败，请重试。");
+        setDepartureSearchStatus("error");
+      });
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [context?.request_revision, context?.request_view, departureSearchAttempt, section, sessionId, whereQuery]);
+
   function close() {
     if (savingRef.current) return;
+    departureSearchController.current?.abort();
     setSection(null);
     setSectionChooserOpen(false);
     baseRef.current = null;
@@ -292,11 +363,20 @@ export function PlanningContextBar({
       setSaveError("规划条件已更新，请关闭后重新打开编辑器。");
       return;
     }
+    if (section === "where" && !departureDraft) {
+      setSaveError("请从搜索结果中选择一个地点，输入文字本身不会保存为出发地。");
+      setDepartureSuggestionsOpen(true);
+      return;
+    }
     const original = base.values;
     const patch: PlanningContextPatch = { base_revision: base.revision };
     if (section === "where") {
-      if (whereClear) patch.where = { operation: "clear" };
-      else if (where.trim() !== original.where) patch.where = { operation: "set", value: where.trim() };
+      if (departureDraft?.kind === "default" && context?.where.source !== "default") {
+        patch.where = { operation: "set", value: { kind: "default" } };
+      } else if (departureDraft?.kind === "provider_place"
+        && asRecord(context?.where.value).provider_place_id !== departureDraft.provider_id) {
+        patch.where = { operation: "set", value: { kind: "provider_place", provider_id: departureDraft.provider_id } };
+      }
     } else if (section === "when") {
       const when: NonNullable<PlanningContextPatch["when"]> = {};
       const dateEdit = fieldEdit<string>(date, original.date);
@@ -445,6 +525,36 @@ export function PlanningContextBar({
     setSaveError("");
   }
 
+  function chooseDeparture(option: DepartureLocationOption) {
+    setDepartureDraft({ kind: "provider_place", provider_id: option.provider_id, option });
+    setDepartureSelectionMessage("");
+    setDepartureSuggestionsOpen(false);
+    setActiveDepartureIndex(-1);
+    setSaveError("");
+  }
+
+  function chooseDefaultDeparture() {
+    setDepartureDraft({ kind: "default" });
+    setWhereQuery("");
+    setDepartureSearch(null);
+    setDepartureSelectionMessage("");
+    setDepartureSuggestionsOpen(false);
+    setActiveDepartureIndex(-1);
+    setSaveError("");
+  }
+
+  const departureDraftIsCurrent = departureDraft?.kind === "default"
+    ? context?.where.source === "default"
+    : departureDraft?.kind === "provider_place"
+      ? asRecord(context?.where.value).provider_place_id === departureDraft.provider_id
+      : false;
+
+  const advancedConditionsSet = Boolean(
+    context?.exact_stop_count.value != null
+    || context?.max_distance_km.value != null
+    || context?.total_distance_km.value != null
+  );
+
   return (
     <div className="planning-context-wrap">
       <nav className="planning-context-bar" aria-label="规划条件">
@@ -458,7 +568,8 @@ export function PlanningContextBar({
             : field?.source === "default";
           const displayValue = !context ? label : id === "when"
             ? whenSummary(context)
-            : field?.display_value ?? "设置";
+            : id === "where" ? departureDisplayValue(field)
+              : field?.display_value ?? "设置";
           const pending = clarificationSection(context?.pending_field) === id;
           return <button
             type="button"
@@ -476,10 +587,18 @@ export function PlanningContextBar({
           </button>;
         })}
       </nav>
-      <button type="button" className="planning-context-more" aria-haspopup="dialog" onClick={() => open("advanced")} disabled={busy}>
-        更多条件
-        {(context?.exact_stop_count.value != null || context?.max_distance_km.value != null || context?.total_distance_km.value != null) ? <small>已设置</small> : null}
-        <Pencil className="context-edit-icon" size={12} aria-hidden="true" />
+      <button
+        type="button"
+        className="planning-context-more"
+        aria-label={advancedConditionsSet ? "更多条件，已设置" : "更多条件"}
+        aria-haspopup="dialog"
+        title={advancedConditionsSet ? "更多条件 · 已设置" : "更多条件"}
+        onClick={() => open("advanced")}
+        disabled={busy}
+      >
+        <SlidersHorizontal size={15} aria-hidden="true" />
+        <span>更多条件</span>
+        {advancedConditionsSet ? <span className="planning-context-more-indicator" aria-hidden="true" /> : null}
       </button>
 
       <Dialog.Root open={sectionChooserOpen} onOpenChange={(open) => { if (!open) { setSectionChooserOpen(false); restoreFocus(); } }}>
@@ -496,7 +615,7 @@ export function PlanningContextBar({
                 <button type="button" key={id} onClick={() => open(id)}>
                   <Icon size={17} aria-hidden="true" />
                   <span>{label}</span>
-                  <small>{id === "when" ? whenSummary(context) : context?.[id]?.display_value ?? "设置"}</small>
+                  <small>{id === "when" ? whenSummary(context) : id === "where" ? departureDisplayValue(context?.where) : context?.[id]?.display_value ?? "设置"}</small>
                 </button>
               ))}
               <button type="button" onClick={() => open("advanced")}>
@@ -515,18 +634,141 @@ export function PlanningContextBar({
           <Dialog.Popup className={`planning-context-dialog ${section === "when" ? "context-date-dialog" : ""}`} aria-label="规划条件编辑器">
             <header>
               <div>
-                <small>规划条件{section && section !== "when" && section !== "advanced" ? ` · ${sourceLabel(context?.[section]?.source)}` : ""}</small>
-                <Dialog.Title>{section === "advanced" ? "更多条件" : SECTIONS.find((item) => item.id === section)?.label ?? "规划条件"}</Dialog.Title>
+                <small>规划条件{section && section !== "when" && section !== "where" && section !== "advanced" ? ` · ${sourceLabel(context?.[section]?.source)}` : ""}</small>
+                <Dialog.Title>{section === "where" ? "从哪出发" : section === "advanced" ? "更多条件" : SECTIONS.find((item) => item.id === section)?.label ?? "规划条件"}</Dialog.Title>
               </div>
               <button type="button" aria-label="关闭" onClick={close} disabled={saving}><X size={18} /></button>
             </header>
             <form onSubmit={(event) => void save(event)}>
               <div className="context-form-content">
                 {section === "where" ? <div className="context-form-field">
-                  <label htmlFor="context-where">出发地点</label>
-                  <input id="context-where" value={where} onChange={(event) => { setWhere(event.target.value); setWhereClear(false); setSaveError(""); }} placeholder="小区、地铁站或附近地标" />
-                  <small>这是出发点和检索依据；由系统解析出发位置，不在此处模拟定位或地点建议。</small>
-                  <button type="button" className="context-secondary" onClick={() => { setWhere(""); setWhereClear(true); }}>清除地点</button>
+                  <section className="departure-current-summary" aria-label="当前出发地">
+                    <span className="departure-current-label">当前出发地</span>
+                    <strong>{departureDisplayValue(context?.where)}</strong>
+                    <span className="departure-current-address">{departureAddress(context?.where)}</span>
+                    <small className={saveError ? "departure-current-status failed" : "departure-current-status"}>
+                      {saveError
+                        ? "修改失败 · 当前出发地未变"
+                        : context?.where.status === "pending"
+                          ? "待确认 · 请核对当前出发地"
+                          : context?.where.source === "default"
+                            ? "演示默认 · 固定位置，并非你的实时位置"
+                            : context?.where.source === "user"
+                              ? "用户已选择"
+                              : context?.where.source === "derived"
+                                ? "已解析"
+                                : "尚未设置"}
+                    </small>
+                  </section>
+                  <Popover.Root
+                    open={departureSuggestionsOpen}
+                    onOpenChange={(open) => setDepartureSuggestionsOpen(open)}
+                    triggerId={departureInputId}
+                    modal={false}
+                  >
+                    <label htmlFor={departureInputId}>搜索出发地点 <small>北京市</small></label>
+                    <input
+                      id={departureInputId}
+                      ref={departureInputRef}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-haspopup="listbox"
+                      aria-expanded={departureSuggestionsOpen}
+                      aria-controls={departureListId}
+                      aria-activedescendant={departureSuggestionsOpen && activeDepartureIndex >= 0 && departureSearch?.results[activeDepartureIndex]
+                        ? `${departureListId}-option-${activeDepartureIndex}`
+                        : undefined}
+                      autoComplete="off"
+                      maxLength={80}
+                      value={whereQuery}
+                      onFocus={() => { if (whereQuery.trim()) setDepartureSuggestionsOpen(true); }}
+                      onChange={(event) => {
+                        if (departureDraft) setDepartureSelectionMessage("搜索内容已更改，请从新结果中重新选择出发地。");
+                        setDepartureDraft(null);
+                        setWhereQuery(event.target.value);
+                        setDepartureSearch(null);
+                        setDepartureSearchStatus(event.target.value.trim().length >= 2 ? "loading" : "idle");
+                        setDepartureSearchError("");
+                        setDepartureSuggestionsOpen(Boolean(event.target.value.trim()));
+                        setActiveDepartureIndex(-1);
+                        setSaveError("");
+                      }}
+                      onKeyDown={(event) => {
+                        const options = departureSearch?.results ?? [];
+                        if (event.key === "ArrowDown" && options.length) {
+                          event.preventDefault();
+                          setDepartureSuggestionsOpen(true);
+                          setActiveDepartureIndex((current) => (current + 1) % options.length);
+                        } else if (event.key === "ArrowUp" && options.length) {
+                          event.preventDefault();
+                          setDepartureSuggestionsOpen(true);
+                          setActiveDepartureIndex((current) => current <= 0 ? options.length - 1 : current - 1);
+                        } else if (event.key === "Enter" && activeDepartureIndex >= 0 && options[activeDepartureIndex]) {
+                          event.preventDefault();
+                          chooseDeparture(options[activeDepartureIndex]);
+                        } else if (event.key === "Enter" && !departureDraft) {
+                          event.preventDefault();
+                          setSaveError("请从搜索结果中选择一个地点，输入文字本身不会保存为出发地。");
+                        } else if (event.key === "Escape" && departureSuggestionsOpen) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setDepartureSuggestionsOpen(false);
+                        }
+                      }}
+                      placeholder="输入地铁站、商场或地标（至少 2 个字）"
+                    />
+                    {departureSuggestionsOpen ? <Popover.Portal>
+                      <Popover.Positioner
+                        className="departure-search-positioner"
+                        anchor={departureInputRef}
+                        positionMethod="fixed"
+                        side="bottom"
+                        align="start"
+                        sideOffset={4}
+                        collisionPadding={12}
+                        collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
+                      >
+                        <Popover.Popup className="departure-search-panel" role="presentation" initialFocus={false} finalFocus={false}>
+                          {whereQuery.trim().length === 1 ? <p className="departure-search-status" role="status">至少输入 2 个字开始搜索。</p> : null}
+                          {departureSearchStatus === "loading" ? <p className="departure-search-status" role="status">正在搜索北京市地点…</p> : null}
+                          {departureSearchStatus === "error" ? <div className="departure-search-error" role="alert">
+                            <span>{departureSearchError || "地点搜索失败，请重试。"}</span>
+                            <button type="button" className="context-secondary" onClick={() => setDepartureSearchAttempt((attempt) => attempt + 1)}>重试搜索</button>
+                          </div> : null}
+                          {departureSearch?.degraded ? <p className="departure-search-notice" role="status">在线搜索暂不可用，以下是有限的演示地点；请确认所选地点和地址。</p>
+                            : departureSearch?.mode === "mock" ? <p className="departure-search-notice" role="status">演示地点：仅列出已配置的北京地点，不代表完整地点目录。</p> : null}
+                          {departureSearchStatus === "idle" && departureSearch && departureSearch.results.length === 0
+                            ? <p className="departure-search-status" role="status">{departureSearch.mode === "mock" || departureSearch.degraded ? "演示地点中没有匹配项，请尝试“国贸”或“海淀黄庄”。" : "没有找到地点，请换个关键词。"}</p>
+                            : null}
+                          <div id={departureListId} className="departure-search-options" role="listbox" aria-label="出发地候选">
+                            {(departureSearch?.results ?? []).map((option, index) => <div
+                              id={`${departureListId}-option-${index}`}
+                              key={option.provider_id}
+                              className={`departure-search-option${activeDepartureIndex === index ? " active" : ""}`}
+                              role="option"
+                              aria-selected={activeDepartureIndex === index}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => chooseDeparture(option)}
+                            >
+                              <MapPin size={16} aria-hidden="true" />
+                              <span><strong>{option.name}</strong><small>{[option.city, option.district, option.address].filter(Boolean).join(" · ")}</small></span>
+                            </div>)}
+                          </div>
+                        </Popover.Popup>
+                      </Popover.Positioner>
+                    </Popover.Portal> : null}
+                  </Popover.Root>
+                  {departureSelectionMessage ? <small className="departure-selection-message" role="status">{departureSelectionMessage}</small> : null}
+                  {departureDraft ? <section className="departure-pending-selection" aria-label="待保存出发地">
+                    <small>待保存出发地</small>
+                    <strong>{departureDraft.kind === "default" ? "演示默认出发点" : departureDraft.option.name}</strong>
+                    <span>{departureDraft.kind === "default"
+                      ? departureAddress(context?.where)
+                      : [departureDraft.option.city, departureDraft.option.district, departureDraft.option.address].filter(Boolean).join(" · ")}</span>
+                    <small>{departureDraftIsCurrent ? "这就是当前出发地，无需再次保存。" : departureDraft.kind === "default" ? "固定演示位置，并非实时定位。" : "地点 ID 将由服务端复核；保存后旧方案需要重新规划。"}</small>
+                  </section> : null}
+                  <small>仅支持北京市。出发地用于计算前往首站的交通；未指定其他活动范围时，也会影响附近候选。出发地搜索与规划 POI 候选目录相互独立。</small>
+                  {context?.where.source !== "default" ? <button type="button" className="context-secondary departure-default-button" onClick={chooseDefaultDeparture}>使用演示默认出发点</button> : null}
                 </div> : null}
                 {section === "when" ? <div className="context-date-layout">
                   <DateCalendar key={date.slice(0, 7)} value={date} onChange={(value) => { setDate(value); setSaveError(""); }} />
@@ -628,7 +870,7 @@ export function PlanningContextBar({
               {saveError ? <p className="context-error" role="alert">{saveError}</p> : null}
               <footer>
                 <button type="button" className="context-secondary" onClick={close} disabled={saving}>取消</button>
-                <button type="submit" className="context-primary" disabled={busy || saving}>{saving ? "正在保存…" : context?.pending_field && clarificationSection(context.pending_field) === section ? "确认并继续" : "保存条件"}</button>
+                <button type="submit" className="context-primary" disabled={busy || saving || (section === "where" && (!departureDraft || departureDraftIsCurrent))}>{saving ? "正在保存…" : context?.pending_field && clarificationSection(context.pending_field) === section ? "确认并继续" : "保存条件"}</button>
               </footer>
             </form>
           </Dialog.Popup>
@@ -661,15 +903,19 @@ export function PlanningContextNotice({ context, busy, onReplan }: {
 
   if (!context) return null;
   return (context.request_view === "draft" || context.plan_stale || (context.ready_for_planning && !context.has_active_plan)) ? (
-    <div className="planning-context-notice" role="status">
-      <span>{context.request_view === "draft"
-        ? `当前显示的是未提交草稿；原方案仍基于第 ${context.committed_request_revision ?? ""} 版条件。`
-        : context.plan_stale
-          ? "条件已更新，当前方案基于旧条件。"
-          : "规划条件已就绪。"}</span>
-      {context.ready_for_planning ? <button type="button" onClick={() => void replan()} disabled={busy || replanning}>
-        {replanning ? "正在规划…" : context.has_active_plan ? "按新条件重新规划" : "开始规划"}
-      </button> : <small>请先补齐待确认条件</small>}
+    <div className={`planning-context-notice ${context.request_view === "draft" ? "draft" : context.plan_stale ? "stale" : "ready"}`} role="status">
+      <div className="planning-context-notice-content">
+        <Info size={16} aria-hidden="true" />
+        <span>{context.request_view === "draft"
+          ? `有未提交的条件更改；方案仍基于第 ${context.committed_request_revision ?? "—"} 版条件。`
+          : context.plan_stale
+            ? "规划条件已更新，旧方案尚未重新验证。"
+            : "规划条件已就绪。"}</span>
+        {context.ready_for_planning ? <button type="button" onClick={() => void replan()} disabled={busy || replanning}>
+          {replanning ? "正在规划…" : context.has_active_plan ? "按新条件重新规划" : "开始规划"}
+          <ChevronRight size={15} aria-hidden="true" />
+        </button> : <small>请先补齐待确认条件</small>}
+      </div>
       {replanError ? <small role="alert">{replanError}</small> : null}
     </div>
   ) : null;

@@ -62,9 +62,12 @@ export type Stop = {
 export type PoiGalleryItem = {
   url: string;
   alt: string;
-  kind: "source" | "illustrative";
+  kind: "source" | "reference" | "illustrative";
   attribution: string | null;
   license: string | null;
+  source_uri?: string | null;
+  author?: string | null;
+  license_uri?: string | null;
 };
 
 /** Rich display data is deliberately separate from a planning Stop. */
@@ -380,11 +383,29 @@ export type PlanningContextSummary = {
 };
 
 export type FieldEdit<T> = { operation: "set"; value: T } | { operation: "clear" };
+export type DepartureLocationSelection =
+  | { kind: "default" }
+  | { kind: "provider_place"; provider_id: string };
+export type DepartureLocationOption = {
+  kind: "provider_place";
+  provider_id: string;
+  name: string;
+  city: "北京市";
+  district: string;
+  address: string | null;
+};
+export type DepartureLocationSearchResponse = {
+  city: "北京市";
+  source: "amap_live" | "mock" | "replay" | "cache";
+  mode: "live" | "record" | "replay" | "mock";
+  degraded: boolean;
+  results: DepartureLocationOption[];
+};
 export type PreferenceCategory = "preferences" | "diet_tags" | "scene_tags" | "avoid";
 export type PreferenceTag = { category: PreferenceCategory; value: string };
 export type PlanningContextPatch = {
   base_revision: number;
-  where?: FieldEdit<string>;
+  where?: FieldEdit<DepartureLocationSelection>;
   when?: {
     date?: FieldEdit<string>;
     start_at?: FieldEdit<string>;

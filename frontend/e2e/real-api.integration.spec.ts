@@ -92,14 +92,14 @@ test("real API preserves selection, restores a session, and saves conditions wit
   await page.getByRole("button", { name: /修改日期时间/ }).click();
   await page.getByLabel("日期", { exact: true }).fill("2026-08-17");
   await page.getByRole("button", { name: "保存条件" }).click();
-  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toBeVisible();
+  await expect(page.getByText("规划条件已更新，旧方案尚未重新验证。")).toBeVisible();
   const edited = await snapshot();
   expect(edited.planning_context.plan_stale).toBe(true);
   expect(edited.planning_context.request_revision).toBeGreaterThan(selected.planning_context.request_revision);
   expect(edited.active_plan_version_id).toBe(selected.active_plan_version_id);
   expect(edited.selected_plan_id).toBe(selected.selected_plan_id);
   await page.reload();
-  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toBeVisible();
+  await expect(page.getByText("规划条件已更新，旧方案尚未重新验证。")).toBeVisible();
   await expect(page.getByRole("button", { name: "按新条件重新规划" })).toBeVisible();
 
   const staleVersion = edited.active_plan_version_id;
@@ -110,7 +110,7 @@ test("real API preserves selection, restores a session, and saves conditions wit
   await page.getByLabel("全程累计距离上限（km）").fill("250");
   await screenshot(`s-ui1e-advanced-${testInfo.project.name}`);
   await page.getByRole("button", { name: "保存条件" }).click();
-  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toBeVisible();
+  await expect(page.getByText("规划条件已更新，旧方案尚未重新验证。")).toBeVisible();
   const advancedSaved = await snapshot();
   expect(advancedSaved.planning_context.exact_stop_count.value).toBe(2);
   expect(advancedSaved.planning_context.max_distance_km.value).toBe(100);
@@ -119,7 +119,7 @@ test("real API preserves selection, restores a session, and saves conditions wit
   expect(advancedSaved.active_plan_version_id).toBe(staleVersion);
 
   await page.reload();
-  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toBeVisible();
+  await expect(page.getByText("规划条件已更新，旧方案尚未重新验证。")).toBeVisible();
   await page.getByRole("button", { name: /^更多条件/ }).click();
   await expect(page.getByLabel("精确站数")).toHaveValue("2");
   await expect(page.getByLabel("检索及单段距离上限（km）")).toHaveValue("100");
@@ -127,7 +127,7 @@ test("real API preserves selection, restores a session, and saves conditions wit
   await page.getByRole("button", { name: "取消", exact: true }).click();
 
   await page.getByRole("button", { name: "按新条件重新规划" }).click();
-  await expect(page.getByText("条件已更新，当前方案基于旧条件。")).toHaveCount(0);
+  await expect(page.getByText("规划条件已更新，旧方案尚未重新验证。")).toHaveCount(0);
   const advancedReplanned = await snapshot();
   expect(advancedReplanned.planning_context.plan_stale).toBe(false);
   expect(advancedReplanned.active_plan_version_id).not.toBe(staleVersion);
@@ -242,7 +242,7 @@ test("real deterministic replacement persists PlanDiff, selection, and failure r
   await oldPlanCard.getByRole("button", { name: /打开.+详情/ }).click();
   await page.getByRole("button", { name: "选择此方案" }).click();
   await expect.poll(async () => (await snapshot()).selected_plan_id).toBe(oldPlan.plan_id);
-  const replaceButton = page.locator(".timeline-stop-content").nth(targetIndex).getByRole("button", { name: "换这站" });
+  const replaceButton = page.locator(".timeline-stop-content").nth(targetIndex).getByRole("button", { name: "替换此站" });
   await replaceButton.click();
   const draft = page.getByRole("region", { name: "单站替换草稿" });
   await expect(draft).toBeVisible();
@@ -299,7 +299,7 @@ test("real deterministic replacement persists PlanDiff, selection, and failure r
 
   const selectedPlan = restored.plans.find((plan: any) => plan.plan_id === selectedCandidate.plan_id);
   const secondTargetIndex = selectedPlan.stops.findIndex((stop: any) => stop.role === "activity");
-  await page.locator(".timeline-stop-content").nth(secondTargetIndex).getByRole("button", { name: "换这站" }).click();
+  await page.locator(".timeline-stop-content").nth(secondTargetIndex).getByRole("button", { name: "替换此站" }).click();
   await page.getByRole("button", { name: "全程更近" }).click();
   const recoveryCard = page.getByRole("group", { name: "规划恢复选项" }).last();
   await expect(recoveryCard).toBeVisible();

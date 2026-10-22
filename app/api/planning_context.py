@@ -16,10 +16,14 @@ from dataclasses import dataclass
 
 from app.api.schemas import (
     AdvancedConditionsEdit,
+    DefaultDepartureLocation,
+    DepartureLocationOption,
+    DepartureLocationSearchResponse,
     PlanningContextField,
     PlanningContextPatch,
     PlanningContextSummary,
     PlanningContextWhen,
+    ProviderDepartureLocation,
 )
 from app.domain.constraints import (
     ClarificationIssue,
@@ -30,7 +34,7 @@ from app.domain.constraints import (
     PlanRequest,
     RequestPatch,
 )
-from app.domain.providers import GeocodeRequest, GeocodeResolution
+from app.domain.providers import PlaceSearchRequest
 from app.providers.geocoding import GeocodingProvider
 from app.services.enrichment import EnvironmentContext
 from app.services.request_readiness import RequestReadinessPolicy
@@ -42,6 +46,10 @@ class PlanningContextEditResult:
 
     patch: RequestPatch
     issues: tuple[ClarificationIssue, ...] = ()
+
+
+class DepartureLocationSearchUnavailable(RuntimeError):
+    """Raised with a public-safe message when no closed place search is available."""
 
 
 class PlanningContextApplication:
@@ -57,6 +65,37 @@ class PlanningContextApplication:
     def __init__(self, *, geocoding_provider: GeocodingProvider | None = None) -> None:
         self._geocoding_provider = geocoding_provider
         self._readiness = RequestReadinessPolicy()
+
+    def search_departure_locations(self, query: str) -> DepartureLocationSearchResponse:
+        normalized_query = query.strip()
+        if len(normalized_query) < 2:
+            raise ValueError("请输入至少两个字的地点名称。")
+        if self._geocoding_provider is None:
+            raise DepartureLocationSearchUnavailable("当前地点搜索暂不可用，请稍后重试。")
+        try:
+            result = self._geocoding_provider.search_places(
+                PlaceSearchRequest(query=normalized_query, city="北京市")
+            )
+        except Exception as error:
+            raise DepartureLocationSearchUnavailable("地点搜索失败，请重试。") from error
+        return DepartureLocationSearchResponse(
+            source=result.source.value,
+            mode=result.mode.value,
+            degraded=result.degraded,
+            results=[
+                DepartureLocationOption(
+                    provider_id=place.provider_id,
+                    name=place.name,
+                    city="北京市",
+                    district=place.district,
+                    address=place.address,
+                )
+                for place in result.places
+                if place.city == "北京市"
+                and place.name.strip()
+                and (place.address or place.district).strip()
+            ],
+        )
 
     def project(
         self,
@@ -111,7 +150,7 @@ class PlanningContextApplication:
             where=self._context_field(
                 location.value.model_dump(mode="json") if location else None,
                 source=location.source if location else None,
-                display=location.value.address if location else None,
+                display=(location.value.name or location.value.address) if location else None,
                 pending=pending_where,
             ),
             when=PlanningContextWhen(
@@ -339,16 +378,19 @@ class PlanningContextApplication:
         if edit.operation == "clear":
             clear_fields.append("location")
             return
-        location_text = (edit.value or "").strip()
-        if not location_text:
-            issues.append(
-                self._issue(
-                    "location",
-                    code="LOCATION_TEXT_REQUIRED",
-                    reason="location_text_is_empty",
-                    expected_value_type="location",
-                    revision=patch.base_revision,
-                )
+        selection = edit.value
+        assert selection is not None
+        if isinstance(selection, DefaultDepartureLocation):
+            if (
+                request.location is not None
+                and request.location.source == ConstraintSource.SYSTEM_CONTEXT
+                and request.location.rule_id == "location.session_default.v1"
+            ):
+                return
+            set_fields["location"] = ConstraintValue(
+                value=environment.default_location,
+                source=ConstraintSource.SYSTEM_CONTEXT,
+                rule_id="location.session_default.v1",
             )
             return
         if self._geocoding_provider is None:
@@ -356,30 +398,36 @@ class PlanningContextApplication:
                 self._issue(
                     "location",
                     code="LOCATION_GEOCODER_UNAVAILABLE",
-                    reason="location_provider_unavailable",
+                    reason="location_place_provider_unavailable",
                     expected_value_type="location",
                     revision=patch.base_revision,
                 )
             )
             return
-        city = (
-            request.location.value.city
-            if request.location is not None
-            else environment.default_location.city
-        )
+        assert isinstance(selection, ProviderDepartureLocation)
+        provider_id = selection.provider_id
+        current_location = request.location.value if request.location is not None else None
+        if current_location is not None and current_location.provider_place_id == provider_id:
+            return
         try:
-            fact = self._geocoding_provider.geocode(
-                GeocodeRequest(location_text=location_text, city=city)
-            )
+            place = self._geocoding_provider.resolve_place(provider_id)
         except Exception:
-            fact = None
-        if fact is None or fact.resolution != GeocodeResolution.RESOLVED or fact.point is None:
-            resolution = fact.resolution.value if fact is not None else "provider_error"
+            place = None
+            resolution = "unavailable"
+        else:
+            resolution = "not_found"
+        if (
+            place is None
+            or place.city != "北京市"
+            or not place.name.strip()
+            or place.point is None
+            or not (place.address or place.district).strip()
+        ):
             issues.append(
                 self._issue(
                     "location",
-                    code=f"LOCATION_{resolution.upper()}",
-                    reason="location_must_resolve_to_one_place",
+                    code=f"LOCATION_PLACE_{resolution.upper()}",
+                    reason="location_place_id_must_resolve_to_one_beijing_place",
                     expected_value_type="location",
                     revision=patch.base_revision,
                 )
@@ -387,16 +435,18 @@ class PlanningContextApplication:
             return
         set_fields["location"] = ConstraintValue(
             value=GeoLocation(
-                city=fact.city or city or "",
-                district=fact.district or "",
-                address=fact.address or location_text,
-                latitude=fact.point.latitude,
-                longitude=fact.point.longitude,
-                adcode=fact.adcode,
+                name=place.name,
+                city=place.city,
+                district=place.district,
+                address=place.address or place.district,
+                latitude=place.point.latitude,
+                longitude=place.point.longitude,
+                provider_place_id=place.provider_id,
+                adcode=place.adcode,
             ),
             source=ConstraintSource.USER_EXPLICIT,
-            raw_text=location_text,
-            rule_id="planning_context.where.v1",
+            raw_text=place.name,
+            rule_id="planning_context.where.selected_place.v1",
         )
 
     @staticmethod

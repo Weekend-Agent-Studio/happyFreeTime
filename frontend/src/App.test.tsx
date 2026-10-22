@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   getSession: vi.fn(),
   listSessions: vi.fn(),
   renameSession: vi.fn(),
+  searchDepartureLocations: vi.fn(),
   updatePlanningContext: vi.fn(),
   replanPlanningContext: vi.fn(),
   sendMessage: vi.fn(),
@@ -107,7 +108,7 @@ function planningContextForArea(area: string, overrides: Partial<PlanningContext
   const base = planningContext(overrides);
   return {
     ...base,
-    where: { ...base.where, value: { address: area }, display_value: area },
+    where: { ...base.where, value: { address: area }, display_value: area, source: "user" },
   };
 }
 
@@ -142,12 +143,14 @@ function presentation(resourceId: string, name: string) {
 
 describe("planning workspace", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     window.history.replaceState({}, "", "/");
     api.listSessions.mockReset();
     api.createSession.mockReset();
     api.deleteSession.mockReset();
     api.getSession.mockReset();
     api.renameSession.mockReset();
+    api.searchDepartureLocations.mockReset().mockResolvedValue({ city: "北京市", source: "mock", mode: "mock", degraded: false, results: [] });
     api.updatePlanningContext.mockReset();
     api.replanPlanningContext.mockReset();
     api.sendMessage.mockReset();
@@ -167,13 +170,14 @@ describe("planning workspace", () => {
   it("switches plans and keeps timeline, map rows, and RouteLeg indices aligned", async () => {
     const user = userEvent.setup();
     render(<App />);
-    expect(document.querySelector(".app-header-title")).toHaveTextContent("周末规划");
+    expect(document.querySelector(".app-header-tagline")).toHaveTextContent("周末，轻松出发");
     expect(document.querySelector(".app-header-title")).not.toHaveTextContent("HappyFreeTime");
     expect(screen.getByText("YOUR WEEKEND, YOUR WAY")).toBeInTheDocument();
     expect(document.querySelector(".welcome-sun")).toBeInTheDocument();
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
+    expect(screen.queryByText("周末管家", { exact: true })).not.toBeInTheDocument();
 
     const tripTab = screen.getByRole("tab", { name: "行程" });
     tripTab.focus();
@@ -183,6 +187,9 @@ describe("planning workspace", () => {
     await user.keyboard("{Home}");
     expect(tripTab).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{End}");
+    const evidenceTab = screen.getByRole("tab", { name: "核验与来源" });
+    expect(evidenceTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowLeft}");
     expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowLeft}");
     expect(tripTab).toHaveAttribute("aria-selected", "true");
@@ -204,12 +211,18 @@ describe("planning workspace", () => {
     expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
     await user.click(screen.getByRole("button", { name: "聚焦第 2 段路线：展览 到 晚餐" }));
     expect(screen.getByRole("tab", { name: "地图" })).toHaveAttribute("aria-selected", "true");
+    const routeSection = document.querySelector(".map-route-list");
+    const stopSection = document.querySelector(".map-stop-list");
+    expect(routeSection).toBeInTheDocument();
+    expect(stopSection).toBeInTheDocument();
+    expect(routeSection!.compareDocumentPosition(stopSection!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await user.click(screen.getAllByRole("button", { name: "在行程中定位" })[1]);
     expect(screen.getByRole("tab", { name: "行程" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("separates the completed run trace from evidence and developer details", async () => {
+  it.each([false, true])("gates developer traces while keeping public evidence available enabled=%s", async (enabled) => {
+    if (enabled) vi.stubEnv("VITE_SHOW_DEVELOPER_DETAILS", "true");
     const user = userEvent.setup();
     api.sendMessage.mockResolvedValueOnce({
       ...response,
@@ -223,7 +236,22 @@ describe("planning workspace", () => {
         latency_ms: 12,
         input_tokens: null,
         output_tokens: null,
+      }, {
+        stage: "recommendation_advisor",
+        adapter: "llm",
+        model_invoked: true,
+        model_name: "test-model",
+        attempts: 1,
+        fallback_reason: null,
+        latency_ms: 20,
+        input_tokens: 12,
+        output_tokens: 7,
       }],
+      retrieval_mode: "向量检索",
+      retrieval_index_version: "test-index",
+      search_mode: "hybrid",
+      search_expansions: 1,
+      search_finalist_count: 3,
       run_trace: {
         schema_version: "planning-run-trace.v1",
         run_id: "run-ui-1",
@@ -239,14 +267,38 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
     expect(screen.getByText("规划完成 · 查看本轮处理过程")).toBeInTheDocument();
     await user.click(screen.getByText("规划完成 · 查看本轮处理过程"));
-    await user.click(screen.getByText("核验与来源"));
-    await user.click(screen.getByText("开发者详情"));
+    await user.click(screen.getByRole("tab", { name: "核验与来源" }));
+    expect(screen.getByRole("tab", { name: "核验与来源" })).toHaveAttribute("aria-selected", "true");
+    expect(document.querySelector(".inspector-evidence-disclosure")).toBeNull();
 
     expect(screen.queryByText("本轮处理过程")).not.toBeInTheDocument();
     expect(screen.getByText("数据与证据")).toBeInTheDocument();
-    expect(screen.getByText("开发者详情")).toBeInTheDocument();
+    const evidencePanel = document.querySelector(".evidence-panel") as HTMLElement;
+    const riskGroup = evidencePanel.querySelector(".risk-group");
+    expect(riskGroup).toBeInTheDocument();
     expect(screen.getByText("已完成需求理解")).toBeInTheDocument();
     expect(screen.getByText("路线和硬约束核对完成")).toBeInTheDocument();
+    if (!enabled) {
+      expect(screen.queryByText("模型调用")).not.toBeInTheDocument();
+      expect(screen.queryByText("开发者详情")).not.toBeInTheDocument();
+      return;
+    }
+    expect(screen.getByText("模型调用")).toBeInTheDocument();
+    const runtimeGroup = evidencePanel.querySelector(".runtime-call-group") as HTMLDetailsElement;
+    expect(riskGroup!.compareDocumentPosition(runtimeGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(runtimeGroup.open).toBe(false);
+    expect(screen.getByText("未调用模型 · 规则基线")).not.toBeVisible();
+    await user.click(within(runtimeGroup).getByText("模型调用"));
+    expect(runtimeGroup.open).toBe(true);
+    expect(screen.getByText("未调用模型 · 规则基线")).toBeInTheDocument();
+    expect(screen.getByText("调用模型 · test-model")).toBeInTheDocument();
+    expect(screen.getByText(/20 ms · 尝试 1 次 · tokens 12\/7/)).toBeInTheDocument();
+    expect([...document.querySelectorAll("details > summary")].every((summary) => summary.querySelector(".disclosure-chevron"))).toBe(true);
+    await user.click(screen.getByText("开发者详情"));
+    expect(screen.getByText("检索和搜索诊断")).toBeInTheDocument();
+    const developerDetails = document.querySelector(".developer-details") as HTMLElement;
+    expect(developerDetails.querySelectorAll(".evidence-row")).toHaveLength(0);
+    expect(within(developerDetails).getByText(/向量检索 · test-index/)).toBeInTheDocument();
   });
 
   it("scopes verification evidence to the viewed plan and deduplicates risks", async () => {
@@ -283,7 +335,7 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByText("核验与来源"));
+    await user.click(screen.getByRole("tab", { name: "核验与来源" }));
 
     expect(screen.getByText("方案一安静")).not.toBeVisible();
     await user.click(screen.getByText("数据与证据"));
@@ -371,9 +423,9 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
-    expect(await screen.findByLabelText("地点费用，不含交通：全员合计 ¥300")).toBeInTheDocument();
-    expect(screen.getByLabelText("地点费用，不含交通：全员约 ¥260")).toBeInTheDocument();
-    expect(screen.getByLabelText("地点费用，不含交通：全员已知费用 ¥180 + 未知价格")).toBeInTheDocument();
+    expect(await screen.findByLabelText("全程费用合计（不含交通）：¥300")).toBeInTheDocument();
+    expect(screen.getByLabelText("全程费用合计（不含交通）：约 ¥260")).toBeInTheDocument();
+    expect(screen.getByLabelText("全程费用合计（不含交通）：已知 ¥180，其余待确认")).toBeInTheDocument();
     expect(screen.queryByText(/\/ 人/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("快速调整方案")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/餐厅保留|换近一点/)).not.toBeInTheDocument();
@@ -393,9 +445,55 @@ describe("planning workspace", () => {
     expect(await screen.findByRole("heading", { name: longTitle, level: 3 })).toHaveAttribute("title", longTitle);
     expect(document.querySelectorAll(".plan-card")).toHaveLength(1);
     expect(screen.getByText("暂无可靠图片")).toBeInTheDocument();
-    expect(screen.getByLabelText("地点费用，不含交通：全员已知费用 ¥180 + 未知价格")).toBeInTheDocument();
+    expect(screen.getByLabelText("全程费用合计（不含交通）：已知 ¥180，其余待确认")).toBeInTheDocument();
     expect(screen.getByLabelText("累计路线距离 5 公里")).toBeInTheDocument();
     expect(api.selectPlan).not.toHaveBeenCalled();
+  });
+
+  it("uses a labeled category photo and shows the complete time range and party place-fee total", async () => {
+    const user = userEvent.setup();
+    const photoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg/960px-Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg";
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      plans: [plan("photo-plan", "展览 + 晚餐")],
+      poi_presentations: [{
+        ...presentation("photo-plan-activity", "展览"),
+        gallery: [{
+          url: photoUrl, alt: "博物馆同类场景参考图，非该地点实拍", kind: "reference",
+          attribution: "Bjoertvedt", license: "CC BY-SA 4.0",
+          source_uri: "https://commons.wikimedia.org/wiki/File:Exterior_IMG_5130_Beijing_Museum_of_Natural_History.jpg",
+          author: "Bjoertvedt", license_uri: "https://creativecommons.org/licenses/by-sa/4.0/",
+        }],
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    const card = (await screen.findByRole("heading", { name: "展览 + 晚餐", level: 3 })).closest(".plan-card") as HTMLElement;
+    expect(card.querySelector(".plan-card-cover img")).toHaveAttribute("src", photoUrl);
+    expect(card.querySelector(".stop-image-reference-badge")).toHaveTextContent("同类参考");
+    expect(card).toHaveTextContent("14:00–16:35");
+    expect(card).toHaveTextContent("全程费用合计 ¥88");
+  });
+
+  it("uses a short header tagline and hides a route already named in the plan title", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValue({
+      ...response,
+      plans: [plan("named-route", "展览 + 晚餐"), plan("unnamed-route", "轻松的一日安排")],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排一个周末行程");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    expect(screen.getByText("周末，轻松出发")).toBeInTheDocument();
+    expect(document.querySelector(".app-header")?.textContent).not.toContain("展览 + 晚餐");
+    const namedRouteCard = screen.getByRole("heading", { name: "展览 + 晚餐", level: 3 }).closest(".plan-card");
+    const unnamedRouteCard = screen.getByRole("heading", { name: "轻松的一日安排", level: 3 }).closest(".plan-card");
+    expect(namedRouteCard?.querySelector(".plan-card-stops")).toBeNull();
+    expect(within(unnamedRouteCard as HTMLElement).getByLabelText("行程站点")).toHaveTextContent("展览 → 晚餐");
+    expect(screen.queryByText("本次条件")).not.toBeInTheDocument();
   });
 
   it("renders grounded recommendation advice and marks the recommended plan", async () => {
@@ -404,7 +502,10 @@ describe("planning workspace", () => {
       ...response,
       recommendation_advice: {
         recommended_plan_id: "plan-two",
-        understood_needs: [{ need_id: "need.user.preferences.1", text: "轻松约会", user_evidence_ids: ["user.preferences.1"] }],
+        understood_needs: [
+          { need_id: "constraint.budget_per_person", text: "人均120元", user_evidence_ids: ["user.budget.1"] },
+          { need_id: "need.user.preferences.1", text: "轻松约会", user_evidence_ids: ["user.preferences.1"] },
+        ],
         overall_reason: "方案二更直接回应了轻松约会需求。",
         plans: [
           { plan_id: "plan-one", reason: "方案一回应了你的需求。", matched_need_ids: ["need.user.preferences.1"], supporting_evidence_ids: ["user.preferences.1"], tradeoffs: ["路线更长"] },
@@ -418,19 +519,107 @@ describe("planning workspace", () => {
         attempts: 0,
         latency_ms: 0,
       },
+      constraint_summary: [
+        { field: "departure_at", value: "12:00", source: "user_explicit", evidence: "中午出发", confidence: 1, rule_id: "departure_at.clock.zh_cn.v1", user_editable: true },
+        { field: "party", value: { adults: 2, children: 0 }, source: "user_explicit", evidence: "两位成人", confidence: 1, rule_id: "party.count.v1", user_editable: true },
+        { field: "budget_per_person", value: 120, source: "user_explicit", evidence: "人均120元", confidence: 1, rule_id: "budget.per_person.v1", user_editable: true },
+      ],
     });
     render(<App />);
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排一个轻松的约会");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
     expect(screen.queryByText("已生成方案")).not.toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("本轮理解");
-    expect(screen.getByRole("region", { name: "本轮推荐解释" })).toHaveTextContent("最推荐：方案二");
+    expect(await screen.findByRole("heading", { name: "管家首选：方案二", level: 2 })).toBeInTheDocument();
+    expect(screen.getByText("轻松约会", { selector: ".recommendation-tags span" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "为您整理了 2 个可选方案", level: 2 })).toBeInTheDocument();
+    expect(screen.getByText("先比较方案摘要；点击卡片可预览，详情区可查看逐站安排、地图与核验信息。预览不会改变正式选择。", { selector: ".plan-results-intro p" })).toBeInTheDocument();
+    expect(screen.queryByText("人均120元", { selector: ".recommendation-tags span" })).not.toBeInTheDocument();
+    const constraintGroup = screen.getByRole("group", { name: "本轮规划参考的硬约束" });
+    expect(constraintGroup).toHaveTextContent("出发 12:00");
+    expect(constraintGroup).toHaveTextContent("同行人 2 人");
+    expect(constraintGroup).toHaveTextContent("预算 人均 120 元");
+    expect(screen.getByText("方案二更直接回应了轻松约会需求。", { selector: ".recommendation-summary p" })).toBeInTheDocument();
+    const recommendationSummary = document.querySelector(".recommendation-summary");
+    const resultsIntro = document.querySelector(".plan-results-intro");
+    const planGrid = document.querySelector(".plan-grid");
+    expect(recommendationSummary!.compareDocumentPosition(planGrid!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(resultsIntro!.compareDocumentPosition(planGrid!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector(".rich-reply-body")?.firstElementChild).toBe(resultsIntro);
+    expect(screen.queryByText("找到喜欢的节奏")).not.toBeInTheDocument();
     expect(screen.queryByText("方案二更适合轻松约会。")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "预览方案二" }));
     expect(await screen.findByText("方案二更适合轻松约会。")).toBeInTheDocument();
     expect(screen.getAllByText(/主要取舍与注意事项/).length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "方案二", level: 3 }).closest(".plan-card")).toHaveClass("recommended");
+  });
+
+  it("keeps replacement recommendation copy brief and leaves exact changes to the diff card", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      conversation_command: { operation: "replace" },
+      recommendation_advice: {
+        recommended_plan_id: "plan-two",
+        understood_needs: [{ need_id: "need.user.preferences.1", text: "更安静", user_evidence_ids: ["user.preferences.1"] }],
+        overall_reason: "更推荐方案二，因为它更符合安静的偏好。其他站点保持不变，全程增加 1.2 km。修改结果：本候选将“旧地点”替换为“新地点”；其他 2 站保持不变；全程增加 1.2 km。",
+        plans: [
+          { plan_id: "plan-one", reason: "路线更长。", matched_need_ids: [], supporting_evidence_ids: [], tradeoffs: [] },
+          { plan_id: "plan-two", reason: "更安静。", matched_need_ids: [], supporting_evidence_ids: [], tradeoffs: [] },
+        ],
+        adapter: "rule_based",
+        fallback_reason: null,
+        prompt_version: "test",
+        model_name: null,
+        model_invoked: false,
+        attempts: 0,
+        latency_ms: 0,
+      },
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "换一个安静的地点");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+
+    const summary = await screen.findByRole("heading", { name: "管家首选：方案二", level: 2 });
+    const recommendation = summary.closest(".recommendation-summary");
+    expect(within(recommendation as HTMLElement).getByText("更推荐方案二，因为它更符合安静的偏好。")).toBeInTheDocument();
+    expect(recommendation).not.toHaveTextContent("其他站点保持不变");
+    expect(recommendation).not.toHaveTextContent("全程增加 1.2 km");
+  });
+
+  it("shows a return-to-top control after scrolling the desktop inspector", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "方案一", level: 3 });
+
+    const detailPanel = document.querySelector(".detail-panel") as HTMLElement;
+    detailPanel.scrollTop = 180;
+    fireEvent.scroll(detailPanel);
+    const returnToTop = await screen.findByRole("button", { name: "返回详情顶部" });
+    expect(returnToTop).toBeInTheDocument();
+
+    await user.click(returnToTop);
+    expect(detailPanel.scrollTop).toBe(0);
+    expect(screen.queryByRole("button", { name: "返回详情顶部" })).not.toBeInTheDocument();
+  });
+
+  it("resets inspector scroll when previewing a different plan", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "方案一", level: 3 });
+
+    const detailPanel = document.querySelector(".detail-panel") as HTMLElement;
+    detailPanel.scrollTop = 180;
+    fireEvent.scroll(detailPanel);
+    expect(await screen.findByRole("button", { name: "返回详情顶部" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "预览方案二" }));
+    await waitFor(() => expect(detailPanel.scrollTop).toBe(0));
+    expect(screen.queryByRole("button", { name: "返回详情顶部" })).not.toBeInTheDocument();
   });
 
   it("shows the locked stop and replacement evidence for a modified plan", async () => {
@@ -465,10 +654,12 @@ describe("planning workspace", () => {
     expect(evidence).toHaveAttribute("data-plan-version-id", "version-2");
     expect(within(evidence).getByText("第 1 站 · 活动")).toBeInTheDocument();
     expect(within(evidence).getByText("旧展览 → 新展览")).toBeInTheDocument();
-    expect(within(evidence).getByText("第 2 站 · 餐饮 · 保留餐厅")).toBeInTheDocument();
-    expect(within(evidence).getByText("全程距离：减少 2.4 km")).toBeInTheDocument();
-    expect(within(evidence).getByText("总时长：减少 15 分钟")).toBeInTheDocument();
-    expect(within(evidence).getByText("地点费用（不含交通）：不变")).toBeInTheDocument();
+    expect(within(evidence).getByText("替换 1 站")).toBeVisible();
+    expect(within(evidence).queryByText("锁定站点")).not.toBeInTheDocument();
+    expect(within(evidence).queryByText("第 2 站 · 餐饮 · 保留餐厅")).not.toBeInTheDocument();
+    expect(evidence.querySelector(".plan-diff-metrics")).toHaveTextContent("全程距离−2.4 km");
+    expect(evidence.querySelector(".plan-diff-metrics")).toHaveTextContent("总时长−15 分钟");
+    expect(evidence.querySelector(".plan-diff-metrics")).toHaveTextContent("地点费用不变");
     expect(evidence).not.toHaveTextContent("提前 15 分钟");
     expect(document.querySelector(".legacy-plan-diff")).toBeNull();
   });
@@ -504,15 +695,16 @@ describe("planning workspace", () => {
     const firstCard = screen.getByRole("heading", { name: "候选方案甲", level: 3 }).closest(".plan-card") as HTMLElement;
     const secondCard = screen.getByRole("heading", { name: "候选方案乙", level: 3 }).closest(".plan-card") as HTMLElement;
     expect(within(firstCard).getByText("未返回站点替换明细")).toBeVisible();
-    expect(within(firstCard).getByText("全程距离：不变")).toBeVisible();
+    expect(firstCard.querySelector(".plan-diff-metrics")).toHaveTextContent("全程距离不变");
     expect(within(firstCard).queryByText("展览 → 新活动")).not.toBeInTheDocument();
+    expect(within(secondCard).getByText("替换 2 站")).toBeVisible();
     expect(within(secondCard).getByText("第 1 站 · 活动")).toBeVisible();
     expect(within(secondCard).getByText("第 2 站 · 餐饮")).toBeVisible();
     expect(within(secondCard).getByText("展览 → 新活动")).toBeVisible();
     expect(within(secondCard).getByText("晚餐 → 新餐厅")).toBeVisible();
-    expect(within(secondCard).getByText("全程距离：增加 1.2 km")).toBeVisible();
-    expect(within(secondCard).getByText("总时长：不变")).toBeVisible();
-    expect(within(secondCard).getByText("地点费用（不含交通）：减少 ¥12")).toBeVisible();
+    expect(secondCard.querySelector(".plan-diff-metrics")).toHaveTextContent("全程距离+1.2 km");
+    expect(secondCard.querySelector(".plan-diff-metrics")).toHaveTextContent("总时长不变");
+    expect(secondCard.querySelector(".plan-diff-metrics")).toHaveTextContent("地点费用−¥12");
   });
 
   it("shows a clear missing-diff state for a replacement response without diff data", async () => {
@@ -565,7 +757,7 @@ describe("planning workspace", () => {
     const card = screen.getByRole("heading", { name: "差异版本不匹配", level: 3 }).closest(".plan-card") as HTMLElement;
     expect(within(card).getByRole("note")).toHaveTextContent("服务端未返回此候选的变更明细");
     expect(within(card).queryByText("旧活动 → 错版本活动")).not.toBeInTheDocument();
-    expect(within(card).queryByText("全程距离：减少 4.2 km")).not.toBeInTheDocument();
+    expect(within(card).queryByText("−4.2 km")).not.toBeInTheDocument();
   });
 
   it("does not render a return node when route legs contain only inbound legs", async () => {
@@ -582,25 +774,70 @@ describe("planning workspace", () => {
     expect(screen.queryByRole("button", { name: /查看返程/ })).not.toBeInTheDocument();
   });
 
-  it("shows an exact departure constraint in the shared plan context", async () => {
+  it("shows hard planning constraints separately from recommendation preferences", async () => {
     const user = userEvent.setup();
     api.sendMessage.mockResolvedValue({
       ...response,
+      provider_facts: [{
+        kind: "weather", source: "mock", mode: "mock", observed_at: "2026-10-20T10:00:00Z", verified_at: "2026-10-20T10:00:00Z", degraded: false, degraded_reason: null,
+        city: "北京市", district: "朝阳区", date: "2026-10-21", condition: "阴转小雨", temperature_c: 19, precipitation_mm: 1, is_adverse: true, cache_age_seconds: null,
+      }],
       constraint_summary: [{
         field: "departure_at", value: "14:30", source: "user_explicit", evidence: "下午两点半准时出发", confidence: 1, rule_id: "departure_at.clock.zh_cn.v1", user_editable: true,
+      }, {
+        field: "party", value: { adults: 1, children: 0 }, source: "user_explicit", evidence: "一位成人", confidence: 1, rule_id: "party.count.v1", user_editable: true,
+      }, {
+        field: "budget_per_person", value: 120, source: "user_explicit", evidence: "人均120元", confidence: 1, rule_id: "budget.amount.v1", user_editable: true,
+      }, {
+        field: "max_distance_km", value: 8, source: "user_explicit", evidence: "8公里内", confidence: 1, rule_id: "distance.radius.v1", user_editable: true,
       }],
     });
     render(<App />);
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "明天下午两点半准时出发");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
-    expect(await screen.findByText("准时出发")).toBeInTheDocument();
-    expect(screen.getAllByText("14:30").length).toBeGreaterThan(0);
-    const supportingContent = document.querySelector(".plan-supporting-content");
-    const planGrid = document.querySelector(".plan-grid");
-    expect(supportingContent).not.toBeNull();
-    expect(supportingContent?.tagName).not.toBe("DETAILS");
-    expect(supportingContent?.compareDocumentPosition(planGrid as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const planningReply = document.querySelector(".rich-planning-reply");
+    expect(planningReply).toBeInTheDocument();
+    expect(planningReply).not.toHaveTextContent("找到喜欢的节奏");
+    const constraints = within(planningReply as HTMLElement).getByRole("group", { name: "本轮规划参考的硬约束" });
+    expect(within(constraints).getByText("准时出发")).toBeInTheDocument();
+    expect(within(constraints).getByText("14:30")).toBeInTheDocument();
+    expect(within(constraints).getByText("同行人")).toBeInTheDocument();
+    expect(within(constraints).getByText("人均 120 元")).toBeInTheDocument();
+    expect(within(constraints).getByText("距离")).toBeInTheDocument();
+    expect(constraints.querySelector(".planning-constraint-tag.weather")).toHaveTextContent("天气 阴转小雨 · 19°C · 需留意");
+    expect(planningReply).not.toHaveTextContent("下午两点半准时出发");
+    expect(planningReply?.querySelector(".plan-grid")).toBeInTheDocument();
+  });
+
+  it("confirms a saved stale context with a dismissible toast", async () => {
+    const user = userEvent.setup();
+    const initialContext = planningContext();
+    const staleContext = planningContext({
+      request_revision: 2,
+      committed_request_revision: 2,
+      plan_stale: true,
+      planned_request_revision: 1,
+    });
+    api.sendMessage.mockResolvedValueOnce({ ...response, planning_context: initialContext });
+    api.updatePlanningContext.mockResolvedValueOnce({
+      ...response,
+      status: "context_saved",
+      plans: [],
+      planning_context: staleContext,
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "方案一", level: 3 });
+    await user.click(screen.getByRole("button", { name: /修改日期时间/ }));
+    fireEvent.change(screen.getByLabelText("日期", { exact: true }), { target: { value: "2026-10-20" } });
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+
+    const toastMessage = await screen.findByText("条件已保存。当前预览仍是旧版本，建议重新规划。");
+    expect(toastMessage.closest(".app-toast")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "关闭通知" }));
+    expect(screen.queryByText("条件已保存。当前预览仍是旧版本，建议重新规划。")).not.toBeInTheDocument();
   });
 
   it("renders a dinner-only plan with one place, inbound route, and return route", async () => {
@@ -627,8 +864,9 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
 
     expect(await screen.findByRole("heading", { name: "晚餐 A", level: 3 })).toBeInTheDocument();
-    expect(screen.getByText("只安排 1 站")).toBeInTheDocument();
-    expect(screen.getByText("晚餐")).toBeInTheDocument();
+    const constraintGroup = screen.getByRole("group", { name: "本轮规划参考的硬约束" });
+    expect(within(constraintGroup).getByText("站点数")).toBeInTheDocument();
+    expect(within(constraintGroup).getByText("1 站")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /查看返程/ })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /查看下一程/ })).not.toBeInTheDocument();
     expect(screen.queryByText("展览")).not.toBeInTheDocument();
@@ -716,13 +954,20 @@ describe("planning workspace", () => {
     expect(assistantTurns).toHaveLength(2);
     expect(assistantTurns[0]).toHaveTextContent("第一轮方案");
     expect(assistantTurns[0].querySelector(".message-content > p")).toBeNull();
+    expect(assistantTurns[0].closest(".message-entry")?.previousElementSibling).toHaveClass("message-entry");
+    expect(assistantTurns[0].closest(".message-entry")?.querySelector(".message-divider")).toBeInTheDocument();
+    expect(assistantTurns[0].querySelector(".assistant-speaker")).toHaveTextContent("管家");
     expect(assistantTurns[0]).not.toHaveTextContent("第二轮方案");
     expect(assistantTurns[0].querySelector(".rich-planning-reply")).not.toBeNull();
     expect(assistantTurns[1]).toHaveTextContent("第二轮方案");
     expect(assistantTurns[1].querySelector(".message-content > p")).toBeNull();
+    expect(assistantTurns[1].closest(".message-entry")?.previousElementSibling).toHaveClass("message-entry");
+    expect(assistantTurns[1].closest(".message-entry")?.querySelector(".message-divider")).toBeInTheDocument();
+    expect(assistantTurns[1].querySelector(".assistant-speaker")).toHaveTextContent("管家");
     expect(assistantTurns[1]).not.toHaveTextContent("第一轮方案");
     expect(assistantTurns[1].querySelector(".rich-planning-reply")).not.toBeNull();
-    expect(container.querySelectorAll(".message.assistant > .butler-avatar")).toHaveLength(2);
+    expect(container.querySelectorAll(".message-divider")).toHaveLength(3);
+    expect(container.querySelectorAll(".message.assistant > .butler-avatar")).toHaveLength(0);
   });
 
   it("restores all persisted rich replies instead of only the latest one", async () => {
@@ -809,8 +1054,67 @@ describe("planning workspace", () => {
     const card = screen.getByRole("heading", { name: "方案一", level: 3 }).closest(".plan-card") as HTMLElement;
     const cardFooter = card.querySelector(".plan-card-footer");
     expect(cardFooter?.querySelector(".plan-metrics")).not.toBeNull();
-    expect(within(cardFooter as HTMLElement).getByRole("button", { name: "打开方案一详情" })).toHaveTextContent("正在右侧预览");
+    expect(within(cardFooter as HTMLElement).getByRole("button", { name: "打开方案一详情" })).toHaveTextContent("查看行程详情");
     expect(screen.queryByRole("button", { name: "已选择此方案" })).not.toBeInTheDocument();
+    expect(document.querySelector(".inspector .recommendation-summary")).toBeNull();
+    expect(document.querySelector(".trip-section-title > div > span")).toBeNull();
+  });
+
+  it("uses the adviser recommendation separately from each plan's strategy", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      plans: [
+        { ...plan("plan-one", "方案一"), strategy: "experience", total_score: 100 },
+        { ...plan("plan-two", "方案二"), strategy: "low_cost", total_score: 1 },
+      ],
+      recommendation_advice: {
+        recommended_plan_id: "plan-two",
+        understood_needs: [],
+        overall_reason: "方案二更符合你的预算。",
+        plans: [
+          { plan_id: "plan-one", reason: "体验更丰富。", matched_need_ids: [], supporting_evidence_ids: [], tradeoffs: [] },
+          { plan_id: "plan-two", reason: "费用更符合预算。", matched_need_ids: [], supporting_evidence_ids: [], tradeoffs: [] },
+        ],
+      },
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "安排一个周末行程");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByRole("heading", { name: "管家首选：方案二" });
+
+    expect(screen.getByText("方案 01 · 体验优先")).toBeInTheDocument();
+    expect(screen.getByText("方案 02 · 预算友好")).toBeInTheDocument();
+    expect(document.querySelectorAll(".recommended-badge")).toHaveLength(1);
+    expect(document.querySelector(".recommended-badge")).toHaveTextContent("管家首选");
+    expect(screen.getByText("方案特点与取舍")).toBeInTheDocument();
+  });
+
+  it("does not jump to the newest response when the user has scrolled up", async () => {
+    let resolveResponse!: (value: AgentResponse) => void;
+    api.sendMessageStream.mockImplementationOnce(() => new Promise<AgentResponse>((resolve) => {
+      resolveResponse = resolve;
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findByText("今天下午出去玩");
+
+    const conversation = document.querySelector(".conversation") as HTMLElement;
+    Object.defineProperties(conversation, {
+      scrollHeight: { configurable: true, value: 1600 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    conversation.scrollTop = 0;
+    fireEvent.scroll(conversation);
+    const endAnchor = conversation.querySelector(".message-list > div[aria-hidden='true']") as HTMLDivElement;
+    const scrollToEnd = vi.fn();
+    Object.defineProperty(endAnchor, "scrollIntoView", { configurable: true, value: scrollToEnd });
+
+    await act(async () => { resolveResponse(response); });
+    await screen.findByRole("heading", { name: "方案一", level: 3 });
+    expect(scrollToEnd).not.toHaveBeenCalled();
   });
 
   it("marks a plan selected only after the backend confirms", async () => {
@@ -993,7 +1297,9 @@ describe("planning workspace", () => {
     expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("历史预览 · 只读");
     expect(screen.getByRole("button", { name: "选择此方案" })).toBeDisabled();
     expect(screen.getByText("此方案来自历史版本，仅可预览。")).toBeInTheDocument();
-    expect(within(document.querySelector(".detail-panel") as HTMLElement).getAllByRole("button", { name: "换这站" })[0]).toBeDisabled();
+    const disabledReplaceButton = within(document.querySelector(".detail-panel") as HTMLElement).getAllByRole("button", { name: "替换此站" })[0];
+    expect(disabledReplaceButton).toBeDisabled();
+    expect(disabledReplaceButton.parentElement).toHaveAttribute("title", "先正式选择当前方案，才能修改单站");
     await user.click(screen.getByRole("button", { name: "返回已选方案：当前版本方案" }));
     expect(document.querySelector(".inspector-plan-header")).toHaveTextContent("已正式选择");
     expect(document.querySelector(".inspector-plan-header h2")).toHaveTextContent("当前版本方案");
@@ -1044,7 +1350,7 @@ describe("planning workspace", () => {
     const mapLink = screen.getByRole("link", { name: "在高德地图中搜索" });
     expect(mapLink).toHaveAttribute("href", expect.stringContaining(encodeURIComponent("展览 测试路 1 号")));
     expect(mapLink).toHaveAttribute("rel", "noopener noreferrer");
-    expect(screen.getByRole("button", { name: "换这站" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "替换此站" })).toBeDisabled();
     await user.click(screen.getByText("数据与来源说明"));
     expect(document.querySelector(".poi-data-disclosure p")).toBeVisible();
     expect(document.querySelector(".poi-data-disclosure p")).toHaveTextContent("POI 商业信息为模拟数据");
@@ -1108,7 +1414,7 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
-    const replaceButton = screen.getAllByRole("button", { name: "换这站" })[0];
+    const replaceButton = screen.getAllByRole("button", { name: "替换此站" })[0];
     expect(replaceButton).not.toBeDisabled();
     await user.click(replaceButton);
     expect(screen.getByRole("region", { name: "单站替换草稿" })).toHaveTextContent("第 1 站");
@@ -1155,7 +1461,7 @@ describe("planning workspace", () => {
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
 
-    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "替换此站" })[0]);
 
     await user.click(screen.getByRole("button", { name: "全程更近" }));
 
@@ -1180,7 +1486,7 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
-    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "替换此站" })[0]);
     expect(screen.getByRole("region", { name: "单站替换草稿" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "取消修改" }));
@@ -1199,7 +1505,7 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
-    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "替换此站" })[0]);
     await user.click(screen.getByRole("button", { name: "预览方案二" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("原方案或规划条件已变化");
@@ -1215,7 +1521,7 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
     await user.click(screen.getByRole("button", { name: "选择此方案" }));
-    await user.click(screen.getAllByRole("button", { name: "换这站" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "替换此站" })[0]);
     let resolveReplacement: ((value: AgentResponse) => void) | undefined;
     api.sendMessageStream.mockImplementationOnce(() => new Promise((resolve) => { resolveReplacement = resolve; }));
 
@@ -1420,6 +1726,7 @@ describe("planning workspace", () => {
     const clarificationCard = await screen.findByRole("group", { name: "补充信息选项" });
     expect(screen.getAllByText("我还不能确定这个位置，能提供更具体的地点或地标吗？")).toHaveLength(1);
     expect(clarificationCard.closest(".message")).toHaveClass("structured-turn");
+    expect(clarificationCard.closest(".message-entry")?.querySelector(".message-divider")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "使用默认出发地" }));
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
     expect(api.sendMessage.mock.calls.at(-1)?.[4]).toEqual({
@@ -1583,7 +1890,7 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("group", { name: "规划恢复选项" });
     expect(screen.getByText("提案：检索及单段距离上限 → 12 km")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /修改出发区域/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /修改出发地/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /尝试扩大到 12 公里/ }));
 
     const dialog = screen.getByRole("dialog");
@@ -1731,6 +2038,10 @@ describe("planning workspace", () => {
       planning_context: targetContext,
     };
     api.sendMessage.mockResolvedValueOnce({ ...response, planning_context: sourceContext });
+    api.searchDepartureLocations.mockResolvedValue({
+      city: "北京市", source: "mock", mode: "mock", degraded: false,
+      results: [{ kind: "provider_place", provider_id: "mock:old-session", name: "旧会话修改区域", city: "北京市", district: "朝阳区", address: "朝阳区旧会话路" }],
+    });
     api.getSession.mockResolvedValue(restoredSession("target-session", "目标会话", targetResponse));
     let resolveOldSave: ((value: AgentResponse) => void) | undefined;
     api.updatePlanningContext.mockImplementationOnce(() => new Promise((resolve) => { resolveOldSave = resolve; }));
@@ -1739,9 +2050,9 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "初始需求");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: /修改出发区域/ }));
-    await user.clear(screen.getByLabelText("出发地点"));
-    await user.type(screen.getByLabelText("出发地点"), "旧会话修改区域");
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    await user.type(screen.getByRole("combobox", { name: /搜索出发地点/ }), "旧会话");
+    await user.click(await screen.findByRole("option", { name: /旧会话修改区域/ }));
     await user.click(screen.getByRole("button", { name: "保存条件" }));
     await waitFor(() => expect(api.updatePlanningContext).toHaveBeenCalledTimes(1));
 
@@ -1764,7 +2075,7 @@ describe("planning workspace", () => {
     });
     await waitFor(() => expect(screen.queryByRole("heading", { name: "旧会话保存方案", level: 3 })).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "目标会话方案", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /修改出发区域/ })).toHaveAccessibleName(/目标会话区域/);
+    expect(screen.getByRole("button", { name: /修改出发地/ })).toHaveAccessibleName(/目标会话区域/);
     expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeDisabled();
 
     await act(async () => resolveCurrentMessage?.({ ...response, reply: "目标会话请求完成", planning_context: targetContext }));
@@ -1813,7 +2124,7 @@ describe("planning workspace", () => {
     });
     await waitFor(() => expect(screen.queryByRole("heading", { name: "旧会话重新规划方案", level: 3 })).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "新会话原方案", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /修改出发区域/ })).toHaveAccessibleName(/新会话区域/);
+    expect(screen.getByRole("button", { name: /修改出发地/ })).toHaveAccessibleName(/新会话区域/);
     expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeDisabled();
 
     await act(async () => resolveCurrentMessage?.({ ...response, reply: "新会话请求完成", planning_context: targetContext }));

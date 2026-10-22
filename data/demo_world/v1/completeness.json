@@ -61,6 +61,7 @@
   },
   "gallery": {
     "source_image": 72,
-    "illustrative": 128
+    "reference_photo": 128,
+    "illustrative": 0
   }
 }

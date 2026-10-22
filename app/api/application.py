@@ -16,6 +16,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from app.api.schemas import (
     AgentResponse,
     CurrentRequestReplanRequest,
+    DepartureLocationSearchResponse,
     MessageRequest,
     PlanningContextUpdateRequest,
     PlanVersionSummary,
@@ -35,7 +36,10 @@ from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
 from app.services.candidate_retriever import CandidateRetriever
-from app.api.planning_context import PlanningContextApplication
+from app.api.planning_context import (
+    DepartureLocationSearchUnavailable,
+    PlanningContextApplication,
+)
 from app.api.planning_turn import PlanningApplicationError, PlanningTurnApplication
 from app.domain.run_trace import PlanningRunEvent
 from app.services.planning_intent import PlanningIntentProvider
@@ -53,6 +57,47 @@ from app.orchestration.entry_graph import (
 )
 from app.persistence.database import Database
 from app.persistence.repositories import SessionRepository
+
+
+def _refresh_response_poi_galleries(
+    response: dict | None,
+    current_presentations: dict[str, dict],
+) -> dict | None:
+    """Refresh display-only galleries while preserving the saved planning facts."""
+    if not isinstance(response, dict):
+        return response
+    plans = response.get("plans")
+    if not isinstance(plans, list):
+        return response
+
+    resource_ids = list(dict.fromkeys(
+        stop.get("resource_id")
+        for plan in plans if isinstance(plan, dict)
+        for stop in plan.get("stops", []) if isinstance(stop, dict)
+        if isinstance(stop.get("resource_id"), str)
+    ))
+    if not resource_ids:
+        return response
+
+    saved = response.get("poi_presentations", [])
+    saved_by_resource_id = {
+        item.get("resource_id"): item
+        for item in saved if isinstance(item, dict)
+        if isinstance(item.get("resource_id"), str)
+    }
+    refreshed: list[dict] = []
+    for resource_id in resource_ids:
+        previous = saved_by_resource_id.get(resource_id)
+        current = current_presentations.get(resource_id)
+        if current is not None:
+            refreshed.append(
+                {**previous, "gallery": current.get("gallery", [])}
+                if previous is not None
+                else current
+            )
+        elif previous is not None:
+            refreshed.append(previous)
+    return {**response, "poi_presentations": refreshed}
 
 
 def create_app(
@@ -138,6 +183,18 @@ def create_app(
     @app.get("/api/config/map")
     def map_config() -> ResponseEnvelope[dict]:
         return ResponseEnvelope(data=browser_map.public_config().model_dump(mode="json"))
+
+    @app.get("/api/departure-locations/search")
+    def search_departure_locations(
+        q: str = Query(min_length=2, max_length=80),
+    ) -> ResponseEnvelope[DepartureLocationSearchResponse]:
+        try:
+            results = planning_context_application.search_departure_locations(q)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except DepartureLocationSearchUnavailable as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return ResponseEnvelope(data=results)
 
     @app.get("/_AMapService/{path:path}", include_in_schema=False)
     def proxy_amap_browser_request(path: str, request: Request) -> Response:
@@ -257,6 +314,27 @@ def create_app(
             pending_value.get("field") if isinstance(pending_value, dict)
             else getattr(pending_value, "field", None)
         )
+        latest_response = repository.latest_response(x_user_id, session_id)
+        response_history = repository.response_history(x_user_id, session_id)
+        saved_responses = [*response_history, latest_response]
+        resource_ids = list(dict.fromkeys(
+            stop.get("resource_id")
+            for saved_response in saved_responses if isinstance(saved_response, dict)
+            for plan in saved_response.get("plans", []) if isinstance(plan, dict)
+            for stop in plan.get("stops", []) if isinstance(stop, dict)
+            if isinstance(stop.get("resource_id"), str)
+        ))
+        current_presentations = {
+            item.resource_id: item.model_dump(mode="json")
+            for item in presentation_provider.present_many(resource_ids)
+        }
+        latest_response = _refresh_response_poi_galleries(
+            latest_response, current_presentations
+        )
+        response_history = [
+            _refresh_response_poi_galleries(item, current_presentations)
+            for item in response_history
+        ]
         return ResponseEnvelope(
             data={
                 "session_id": session.id,
@@ -269,8 +347,8 @@ def create_app(
                     for message in repository.list_messages(x_user_id, session_id)
                 ],
                 "plans": repository.list_plans(x_user_id, session_id),
-                "latest_response": repository.latest_response(x_user_id, session_id),
-                "response_history": repository.response_history(x_user_id, session_id),
+                "latest_response": latest_response,
+                "response_history": response_history,
                 "active_plan_version_id": (
                     snapshot.active_plan_version_id if snapshot else None
                 ),

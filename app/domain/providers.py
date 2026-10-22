@@ -72,6 +72,50 @@ class GeocodeRequest(BaseModel):
         return f"{(self.city or '').strip()}|{self.location_text.strip()}"
 
 
+class PlaceSearchRequest(BaseModel):
+    """A bounded, explicitly Beijing-scoped search for selectable origins."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    query: str = Field(min_length=2, max_length=80)
+    city: Literal["北京市"] = "北京市"
+
+
+class GeocodingPlace(BaseModel):
+    """A provider identity with a concrete coordinate in the planner's route frame."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=200)
+    city: str = Field(min_length=1, max_length=80)
+    district: str = Field(default="", max_length=80)
+    address: str | None = Field(default=None, max_length=300)
+    point: GeoPoint
+    adcode: str | None = Field(default=None, pattern=r"^\d{6}$")
+
+
+class PlaceSearchResult(BaseModel):
+    """Normalized search response; degraded mock results remain explicit."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    city: Literal["北京市"] = "北京市"
+    source: ProviderSource
+    mode: ProviderMode
+    degraded: bool = False
+    degraded_reason: str | None = None
+    places: tuple[GeocodingPlace, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_degradation(self) -> "PlaceSearchResult":
+        if self.degraded and not self.degraded_reason:
+            raise ValueError("degraded place searches require a reason")
+        if not self.degraded and self.degraded_reason is not None:
+            raise ValueError("non-degraded place searches cannot include a degradation reason")
+        return self
+
+
 class GeocodingFact(BaseModel):
     """Normalized geocoding fact; no provider response payload crosses this seam."""
 
