@@ -518,7 +518,7 @@ test("desktop shell bounds conversation content and supports a bounded resizable
   const conditions = page.getByRole("navigation", { name: "规划条件" }).getByRole("button");
   await expect(conditions).toHaveCount(5);
   expect(await conditions.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")?.split("，")[0]))).toEqual([
-    "修改日期时间", "修改出发区域", "修改同行人数", "修改人均预算", "修改出行偏好",
+    "修改日期时间", "修改出发地", "修改同行人数", "修改人均预算", "修改出行偏好",
   ]);
   expect((await nav.boundingBox())!.width).toBeGreaterThan(220);
   expect((await nav.boundingBox())!.width).toBeLessThan(260);
@@ -685,7 +685,7 @@ test("recovery editor destinations retain visible section names", async ({ page 
   const dialog = page.getByRole("dialog", { name: "手动调整条件" });
   await expect(dialog).toBeVisible();
   const labels = dialog.locator(".recovery-editor-sections button > span");
-  await expect(labels).toHaveText(["日期时间", "出发区域", "同行人数", "人均预算", "出行偏好", "更多条件"]);
+  await expect(labels).toHaveText(["日期时间", "出发地", "同行人数", "人均预算", "出行偏好", "更多条件"]);
   for (const label of await labels.all()) expect((await label.boundingBox())!.width).toBeGreaterThan(20);
   await page.screenshot({ path: path.resolve(`../.impeccable/review/s-ui1b-recovery-editor-${testInfo.project.name}.png`) });
   await dialog.getByRole("button", { name: /日期时间/ }).click();

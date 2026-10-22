@@ -10,7 +10,7 @@ export type ContextOpenTarget = ContextEditorSection | "all";
 
 const SECTIONS: Array<{ id: ContextSection; label: string; icon: typeof MapPin }> = [
   { id: "when", label: "日期时间", icon: CalendarDays },
-  { id: "where", label: "出发区域", icon: MapPin },
+  { id: "where", label: "出发地", icon: MapPin },
   { id: "who", label: "同行人数", icon: Users },
   { id: "budget", label: "人均预算", icon: CircleDollarSign },
   { id: "preferences", label: "出行偏好", icon: SlidersHorizontal },
@@ -47,6 +47,18 @@ function currentValue(field: PlanningContextSummary["where"] | undefined): unkno
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function departureDisplayValue(field: PlanningContextSummary["where"] | undefined): string {
+  if (!field) return "未设置";
+  if (field.source === "default") return "演示默认出发点";
+  const value = asRecord(field.value);
+  return String(value.name ?? value.address ?? field.display_value ?? "未设置");
+}
+
+function departureAddress(field: PlanningContextSummary["where"] | undefined): string {
+  const value = asRecord(field?.value);
+  return String(value.address ?? field?.display_value ?? "未设置");
 }
 
 function sourceLabel(source?: string) {
@@ -464,7 +476,8 @@ export function PlanningContextBar({
             : field?.source === "default";
           const displayValue = !context ? label : id === "when"
             ? whenSummary(context)
-            : field?.display_value ?? "设置";
+            : id === "where" ? departureDisplayValue(field)
+              : field?.display_value ?? "设置";
           const pending = clarificationSection(context?.pending_field) === id;
           return <button
             type="button"
@@ -510,7 +523,7 @@ export function PlanningContextBar({
                 <button type="button" key={id} onClick={() => open(id)}>
                   <Icon size={17} aria-hidden="true" />
                   <span>{label}</span>
-                  <small>{id === "when" ? whenSummary(context) : context?.[id]?.display_value ?? "设置"}</small>
+                  <small>{id === "when" ? whenSummary(context) : id === "where" ? departureDisplayValue(context?.where) : context?.[id]?.display_value ?? "设置"}</small>
                 </button>
               ))}
               <button type="button" onClick={() => open("advanced")}>
@@ -529,17 +542,35 @@ export function PlanningContextBar({
           <Dialog.Popup className={`planning-context-dialog ${section === "when" ? "context-date-dialog" : ""}`} aria-label="规划条件编辑器">
             <header>
               <div>
-                <small>规划条件{section && section !== "when" && section !== "advanced" ? ` · ${sourceLabel(context?.[section]?.source)}` : ""}</small>
-                <Dialog.Title>{section === "advanced" ? "更多条件" : SECTIONS.find((item) => item.id === section)?.label ?? "规划条件"}</Dialog.Title>
+                <small>规划条件{section && section !== "when" && section !== "where" && section !== "advanced" ? ` · ${sourceLabel(context?.[section]?.source)}` : ""}</small>
+                <Dialog.Title>{section === "where" ? "从哪出发" : section === "advanced" ? "更多条件" : SECTIONS.find((item) => item.id === section)?.label ?? "规划条件"}</Dialog.Title>
               </div>
               <button type="button" aria-label="关闭" onClick={close} disabled={saving}><X size={18} /></button>
             </header>
             <form onSubmit={(event) => void save(event)}>
               <div className="context-form-content">
                 {section === "where" ? <div className="context-form-field">
-                  <label htmlFor="context-where">出发地点</label>
+                  <section className="departure-current-summary" aria-label="当前出发地">
+                    <span className="departure-current-label">当前出发地</span>
+                    <strong>{departureDisplayValue(context?.where)}</strong>
+                    <span className="departure-current-address">{departureAddress(context?.where)}</span>
+                    <small className={saveError ? "departure-current-status failed" : "departure-current-status"}>
+                      {saveError
+                        ? "修改失败 · 当前出发地未变"
+                        : context?.where.status === "pending"
+                          ? "待确认 · 请核对当前出发地"
+                          : context?.where.source === "default"
+                            ? "演示默认 · 固定位置，并非你的实时位置"
+                            : context?.where.source === "user"
+                              ? "用户已选择"
+                              : context?.where.source === "derived"
+                                ? "已解析"
+                                : "尚未设置"}
+                    </small>
+                  </section>
+                  <label htmlFor="context-where">出发地名称或地址</label>
                   <input id="context-where" value={where} onChange={(event) => { setWhere(event.target.value); setWhereClear(false); setSaveError(""); }} placeholder="小区、地铁站或附近地标" />
-                  <small>这是出发点和检索依据；由系统解析出发位置，不在此处模拟定位或地点建议。</small>
+                  <small>用于计算前往首站的交通。未指定其他活动范围时，也会影响附近候选。</small>
                   <button type="button" className="context-secondary" onClick={() => { setWhere(""); setWhereClear(true); }}>清除地点</button>
                 </div> : null}
                 {section === "when" ? <div className="context-date-layout">

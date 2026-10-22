@@ -107,7 +107,7 @@ function planningContextForArea(area: string, overrides: Partial<PlanningContext
   const base = planningContext(overrides);
   return {
     ...base,
-    where: { ...base.where, value: { address: area }, display_value: area },
+    where: { ...base.where, value: { address: area }, display_value: area, source: "user" },
   };
 }
 
@@ -1888,7 +1888,7 @@ describe("planning workspace", () => {
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findByRole("group", { name: "规划恢复选项" });
     expect(screen.getByText("提案：检索及单段距离上限 → 12 km")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /修改出发区域/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /修改出发地/ })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /尝试扩大到 12 公里/ }));
 
     const dialog = screen.getByRole("dialog");
@@ -2044,9 +2044,9 @@ describe("planning workspace", () => {
     await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "初始需求");
     await user.click(screen.getByRole("button", { name: "发送需求" }));
     await screen.findAllByText("方案一");
-    await user.click(screen.getByRole("button", { name: /修改出发区域/ }));
-    await user.clear(screen.getByLabelText("出发地点"));
-    await user.type(screen.getByLabelText("出发地点"), "旧会话修改区域");
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    await user.clear(screen.getByLabelText("出发地名称或地址"));
+    await user.type(screen.getByLabelText("出发地名称或地址"), "旧会话修改区域");
     await user.click(screen.getByRole("button", { name: "保存条件" }));
     await waitFor(() => expect(api.updatePlanningContext).toHaveBeenCalledTimes(1));
 
@@ -2069,7 +2069,7 @@ describe("planning workspace", () => {
     });
     await waitFor(() => expect(screen.queryByRole("heading", { name: "旧会话保存方案", level: 3 })).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "目标会话方案", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /修改出发区域/ })).toHaveAccessibleName(/目标会话区域/);
+    expect(screen.getByRole("button", { name: /修改出发地/ })).toHaveAccessibleName(/目标会话区域/);
     expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeDisabled();
 
     await act(async () => resolveCurrentMessage?.({ ...response, reply: "目标会话请求完成", planning_context: targetContext }));
@@ -2118,7 +2118,7 @@ describe("planning workspace", () => {
     });
     await waitFor(() => expect(screen.queryByRole("heading", { name: "旧会话重新规划方案", level: 3 })).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "新会话原方案", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /修改出发区域/ })).toHaveAccessibleName(/新会话区域/);
+    expect(screen.getByRole("button", { name: /修改出发地/ })).toHaveAccessibleName(/新会话区域/);
     expect(screen.getByLabelText("描述你的空闲时间和偏好")).toBeDisabled();
 
     await act(async () => resolveCurrentMessage?.({ ...response, reply: "新会话请求完成", planning_context: targetContext }));

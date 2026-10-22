@@ -88,7 +88,7 @@ const MAX_CHAT_PANE_SHARE = 0.65;
 
 const CLARIFICATION_FIELD_LABELS: Record<string, string> = {
   date: "出行日期",
-  location: "出发区域",
+  location: "出发地",
   planning_area: "出发区域",
   budget_per_person: "人均预算",
   strict_budget: "预算约束方式",
@@ -2351,7 +2351,7 @@ const RECOVERY_FIELD_LABELS: Record<string, string> = {
   "planning_window.end_at": "结束时间",
   "planning_window.start_at": "出发时间",
   planning_area: "出发区域",
-  location: "出发区域",
+  location: "出发地",
   trip_time_scope: "出行时段",
 };
 

@@ -41,6 +41,63 @@ const context: PlanningContextSummary = {
 };
 
 describe("PlanningContextBar typed patches", () => {
+  it("names the current origin and explains the fixed demo default in the editor", async () => {
+    const user = userEvent.setup();
+    render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={vi.fn().mockResolvedValue(undefined)} />);
+
+    const trigger = screen.getByRole("button", { name: "修改出发地，当前演示默认出发点" });
+    expect(trigger).toBeInTheDocument();
+    await user.click(trigger);
+
+    expect(screen.getByRole("heading", { name: "从哪出发" })).toBeInTheDocument();
+    const summary = screen.getByLabelText("当前出发地");
+    expect(summary).toHaveTextContent("演示默认出发点");
+    expect(summary).toHaveTextContent("北京市朝阳区");
+    expect(summary).toHaveTextContent("固定位置，并非你的实时位置");
+    expect(screen.getByText("用于计算前往首站的交通。未指定其他活动范围时，也会影响附近候选。")).toBeInTheDocument();
+  });
+
+  it("labels a clarification-required origin as pending", async () => {
+    const user = userEvent.setup();
+    const pendingContext = {
+      ...context,
+      where: { ...context.where, status: "pending" as const },
+      pending_field: "location",
+    };
+    render(<PlanningContextBar context={pendingContext} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={vi.fn().mockResolvedValue(undefined)} />);
+
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    expect(screen.getByLabelText("当前出发地")).toHaveTextContent("待确认 · 请核对当前出发地");
+  });
+
+  it("shows the selected origin and preserves it after save failure", async () => {
+    const user = userEvent.setup();
+    const selectedContext = {
+      ...context,
+      where: {
+        value: { name: "国贸地铁站", address: "北京市朝阳区建国门外大街 1 号" },
+        display_value: "北京市朝阳区建国门外大街 1 号",
+        source: "user" as const,
+        editable: true,
+        status: "resolved" as const,
+      },
+    };
+    const onSave = vi.fn().mockRejectedValue(new Error("地点无法确认，请重新选择。"));
+    render(<PlanningContextBar context={selectedContext} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: "修改出发地，当前国贸地铁站" }));
+    const summary = screen.getByLabelText("当前出发地");
+    expect(summary).toHaveTextContent("国贸地铁站");
+    expect(summary).toHaveTextContent("北京市朝阳区建国门外大街 1 号");
+    expect(summary).toHaveTextContent("用户已选择");
+
+    await user.clear(screen.getByLabelText("出发地名称或地址"));
+    await user.type(screen.getByLabelText("出发地名称或地址"), "同名站点");
+    await user.click(screen.getByRole("button", { name: "保存条件" }));
+    expect(await screen.findByText("修改失败 · 当前出发地未变")).toBeInTheDocument();
+    expect(summary).toHaveTextContent("国贸地铁站");
+  });
+
   it("uses an icon and a quiet status dot for additional conditions", () => {
     const configuredContext = {
       ...context,
@@ -85,9 +142,9 @@ describe("PlanningContextBar typed patches", () => {
     );
     expect(container.querySelectorAll(".planning-context-trigger .context-edit-icon")).toHaveLength(5);
 
-    await user.click(screen.getByRole("button", { name: /修改出发区域/ }));
-    await user.clear(screen.getByLabelText("出发地点"));
-    await user.type(screen.getByLabelText("出发地点"), "国贸地铁站");
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    await user.clear(screen.getByLabelText("出发地名称或地址"));
+    await user.type(screen.getByLabelText("出发地名称或地址"), "国贸地铁站");
     await user.click(screen.getByRole("button", { name: "保存条件" }));
 
     await user.click(screen.getByRole("button", { name: /修改日期时间/ }));
@@ -182,7 +239,7 @@ describe("PlanningContextBar typed patches", () => {
     // Saving an untouched section must not bump the request revision. A budget
     // save used to be submitted unconditionally, which marked a still-valid
     // plan as stale and pushed the user into a pointless re-plan.
-    for (const trigger of [/修改出发区域/, /修改日期时间/, /修改同行人数/, /修改人均预算/, /修改出行偏好/]) {
+    for (const trigger of [/修改出发地/, /修改日期时间/, /修改同行人数/, /修改人均预算/, /修改出行偏好/]) {
       await user.click(screen.getByRole("button", { name: trigger }));
       await user.click(screen.getByRole("button", { name: "保存条件" }));
     }
@@ -275,7 +332,7 @@ describe("PlanningContextBar typed patches", () => {
         onSave={onSave}
       />,
     );
-    const trigger = screen.getByRole("button", { name: /修改出发区域/ });
+    const trigger = screen.getByRole("button", { name: /修改出发地/ });
     await user.click(trigger);
     const dialog = screen.getByRole("dialog");
     await user.keyboard("{Tab}");
@@ -336,12 +393,12 @@ describe("PlanningContextBar typed patches", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /修改出发区域/ }));
-    await user.clear(screen.getByLabelText("出发地点"));
-    await user.type(screen.getByLabelText("出发地点"), "国贸站");
+    await user.click(screen.getByRole("button", { name: /修改出发地/ }));
+    await user.clear(screen.getByLabelText("出发地名称或地址"));
+    await user.type(screen.getByLabelText("出发地名称或地址"), "国贸站");
     await user.click(screen.getByRole("button", { name: "保存条件" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("revision conflict");
-    expect(screen.getByLabelText("出发地点")).toHaveValue("国贸站");
+    expect(screen.getByLabelText("出发地名称或地址")).toHaveValue("国贸站");
   });
 
   it("saves all advanced conditions together and routes their clarifications to the advanced editor", async () => {
