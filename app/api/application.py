@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import queue
 import sqlite3
 from contextlib import asynccontextmanager, nullcontext
@@ -225,7 +226,7 @@ def create_app(
 
     @app.get("/api/config/runtime")
     def runtime_config():
-        return {"data": {"public_demo": public_demo is not None, "provider": "deepseek", "model": "deepseek-flash"}}
+        return {"data": {"public_demo": public_demo is not None, "provider": "deepseek", "model": "deepseek-flash", "release": os.getenv("HFT_RELEASE", "development")}}
 
     @app.get("/api/demo/showcases")
     def demo_showcases():

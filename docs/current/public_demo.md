@@ -41,6 +41,8 @@ Current，2026-10-23，`codex/public-demo-foundation` 分支实现；尚未完�
 
 ## 如何与服务器环境衔接
 
+仓库现在提供 Docker/Compose、Nginx 和 HTTPS 模板，逐步操作见[单机部署指南](deployment.md)。默认仅服务器本机访问，待镜像构建与容器验证；不能将文件存在等同于已上线。
+
 后端运行时：`HFT_PUBLIC_DEMO=true`。前端构建时：`VITE_PUBLIC_DEMO=true`。两者是不同开关；前端配置不一致会在启动时停下，不能静默退到共享 demo-user。
 
 Linux 本机验证命令示例（不是完整的公网发布命令）：

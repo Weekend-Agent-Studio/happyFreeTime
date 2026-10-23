@@ -4,6 +4,8 @@ _最后核对：2026-10-23。本文是低成本接手地图，不替代代码、
 
 ## 版本边界
 
+- 2026-10-23 部署补充：同一公网基础分支增加 `compose.yaml`、`compose.https.yaml`、`deploy/` 和 [单机部署指南](deployment.md)。web=Nginx+React，api=单 worker FastAPI，固定独立数据卷；默认仅监听服务器 loopback、无部署者 LLM Key、模拟站点 Provider。前后端共享 release 标识，提供 HTTP/SSE 冒烟及可选停机快照。部署定向测试与公网隔离合计 18 项通过；当前电脑无 Docker，镜像构建、Nginx 容器运行和腾讯云/HTTPS 尚未实测。见 `docs/status/public_demo_deployment_20261023.md`。
+
 - 2026-10-23：PR #24 已合并，`main@ba0f7fb` 包含 S-UI2 与出发地 O1/O2。新的 `codex/public-demo-foundation` 从该 main 建立，新增显式公网模式：页面级临时 capability、访客模型内存配置（仅 DeepSeek 官方 `deepseek-flash`）、期限清理、单进程资源预算及只读录制案例。本分支不代表已完成腾讯云上线或真实 Key 联调。能力、启动开关和边界见 `docs/current/public_demo.md`，验收记录见 `docs/status/public_demo_foundation_20261023.md`。
 
 - 2026-10-21 当前事实：S-UI1 已经由 PR #23 合并到 `main@7a67e22`；下文 S-UI1 开发分支条目保留为对应阶段快照。新的第一批 UI 精修从该 main 建立 `codex/s-ui2-planning-polish`，状态与剩余清单见 `docs/status/s_ui2_planning_polish_20261021.md`，尚未推送/合并。
