@@ -58,6 +58,10 @@ def test_image_context_excludes_private_files_and_images_do_not_copy_the_reposit
         assert "USER " in text
     web = (ROOT / "deploy/web.Dockerfile").read_text()
     assert "VITE_PUBLIC_DEMO=true" in web and "pnpm install --frozen-lockfile" in web
+    assert "!frontend/pnpm-workspace.yaml" in patterns
+    assert "COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./" in web
+    policy = yaml.safe_load((ROOT / "frontend/pnpm-workspace.yaml").read_text())
+    assert policy["allowBuilds"] == {"esbuild": True}
 
 
 def test_stopped_volume_snapshot_preserves_sqlite_and_sidecars(tmp_path):

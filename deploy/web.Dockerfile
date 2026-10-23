@@ -6,7 +6,7 @@ ENV VITE_PUBLIC_DEMO=true \
     NODE_OPTIONS=--max-old-space-size=1024
 WORKDIR /build/frontend
 RUN npm install --global pnpm@${PNPM_VERSION}
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY frontend/index.html frontend/tsconfig*.json frontend/vite.config.ts ./
 COPY frontend/src/ ./src/

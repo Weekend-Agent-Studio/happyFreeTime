@@ -16,6 +16,7 @@
 !frontend/
 !frontend/package.json
 !frontend/pnpm-lock.yaml
+!frontend/pnpm-workspace.yaml
 !frontend/index.html
 !frontend/tsconfig*.json
 !frontend/vite.config.ts
