@@ -4,6 +4,8 @@ _最后核对：2026-10-23。本文是低成本接手地图，不替代代码、
 
 ## 版本边界
 
+- 2026-10-23：PR #24 已合并，`main@ba0f7fb` 包含 S-UI2 与出发地 O1/O2。新的 `codex/public-demo-foundation` 从该 main 建立，新增显式公网模式：页面级临时 capability、访客模型内存配置（仅 DeepSeek 官方 `deepseek-flash`）、期限清理、单进程资源预算及只读录制案例。本分支不代表已完成腾讯云上线或真实 Key 联调。能力、启动开关和边界见 `docs/current/public_demo.md`，验收记录见 `docs/status/public_demo_foundation_20261023.md`。
+
 - 2026-10-21 当前事实：S-UI1 已经由 PR #23 合并到 `main@7a67e22`；下文 S-UI1 开发分支条目保留为对应阶段快照。新的第一批 UI 精修从该 main 建立 `codex/s-ui2-planning-polish`，状态与剩余清单见 `docs/status/s_ui2_planning_polish_20261021.md`，尚未推送/合并。
 - 本批展示变化：本次条件与需求重点移到候选卡片之前常显，结构化条件与需求理解分组展示，需求标签去重；全局风险保持可见。卡片标题两行，修正窄列指标断字，时间轴文字提升至可读层级；每站时间、地点内容与较大图片收于同卡，地点类别/费用/标签用小卡片呈现，详情与营业/替换提示为暖金色；替换入口移至卡片底部并标为“替换此站”。换站草稿按说明在上、快捷操作在下排列，避免窄列挤压。开发诊断改为仅 `VITE_SHOW_DEVELOPER_DETAILS=true` 时显示，公开核验与过程入口保留。单站替换差异用简洁站点数和分列指标呈现，不逐条列出锁定站点。不改变选择/版本/API 合同。
 - 本轮精修补充：顶部栏使用“周末，轻松出发”品牌标语；左侧候选区不重复顶部硬约束，方案卡片上方展示“管家首选”、至多三项偏好取向和推荐解释。首选严格跟随 Advisor 返回的推荐方案 ID，不根据评分自行推断；“综合平衡、预算友好、少奔波、体验优先、亲子稳妥、天气稳妥”表示优化取向，不代表质量评级。行程标题不再重复显示“管家首选”。助手头像改为“管家”文字，方案回复贴齐正文左侧，并与上一条用户提问用浅线分隔。条件变更使用横跨聊天与详情区的居中提示条，保存确认 Toast 固定在聊天区左下方。详情标题可随行程滚动，行程/地图/核验标签保持吸顶；“返回已选”收进方案状态行，滚动后可用浮动箭头回顶。聊天消息列与输入框居中且最大宽度为 1080px；桌面聊天区和详情区可用键盘或拖动分隔条调整，右侧详情不再折叠，分隔比例会在窗口变化时保持并限制两侧最小宽度。候选标题已列出全部站点时隐藏重复路线副标题。地图 SDK 限制在地图自身层叠上下文；行程、地图与核验来源分别使用标签；POI 到访信息卡片化，风险和一般提示分色。展示仍按当前响应事实，不增加新的业务保证。
@@ -58,6 +60,7 @@ User message
 | 最终校验与事实 | `app/services/plan_verifier.py`、`app/providers/` |
 | 持久化 | `app/persistence/database.py`、`app/persistence/models.py`、`app/persistence/repositories.py` |
 | HTTP 与前端 | `app/api/application.py`、`app/api/planning_context.py`、`frontend/src/App.tsx`、`frontend/src/PlanningContextBar.tsx` |
+| 公网体验边界 | `app/api/public_demo.py`、`frontend/src/demoRuntime.ts`、`frontend/src/DemoSettings.tsx`、`frontend/src/DemoShowcases.tsx`；`data/demo_showcases/v1.json` |
 | 前端外壳与视觉 | `frontend/src/SessionNavigation.tsx`、`frontend/src/ConversationHeading.tsx`、`frontend/src/tokens.css`、`frontend/src/shell.css`；保留功能样式在 `styles.css` |
 | Trace | `app/domain/run_trace.py`、`frontend/src/runProgress.ts` |
 | 评测 | `evals/run_resume_release_eval.py`、`evals/run_s_rx_multiturn.py`、`evals/run_retrieval_eval.py` |

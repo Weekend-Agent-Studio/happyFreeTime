@@ -239,6 +239,11 @@ class LlmRecommendationAdvisor:
 
 def build_default_recommendation_advisor(
     mode: str | None = None,
+    *,
+    api_key: str | None = None,
+    model_name: str | None = None,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> RecommendationAdvisor:
     """Build the safe Rule adapter or explicitly configured LLM adapter."""
 
@@ -249,16 +254,16 @@ def build_default_recommendation_advisor(
         return RuleBasedRecommendationAdvisor()
     if selected_mode != "llm":
         raise RuntimeError("HFT_RECOMMENDATION_ADVISOR_MODE must be one of: rule, llm")
-    api_key = os.getenv("LLM_API")
+    api_key = api_key or os.getenv("LLM_API")
     if not api_key:
         raise RuntimeError("HFT_RECOMMENDATION_ADVISOR_MODE=llm requires LLM_API")
-    model_name = os.getenv("MODEL_NAME", "deepseek-v4-flash")
+    model_name = model_name or os.getenv("MODEL_NAME", "deepseek-v4-flash")
     llm = ChatOpenAI(
         model=model_name,
         api_key=api_key,
-        base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
+        base_url=base_url or os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
-        timeout=_model_timeout_seconds(),
+        timeout=timeout_seconds if timeout_seconds is not None else _model_timeout_seconds(),
         max_retries=0,
         # Function Calling 把推荐 Schema 传给兼容 OpenAI 的 provider；本地
         # Pydantic 继续负责严格校验。

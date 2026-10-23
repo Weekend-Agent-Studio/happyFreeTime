@@ -705,3 +705,32 @@ details[open] > summary .disclosure-chevron { transform: rotate(180deg); }
   .sheet-content .stop-image.thumb, .sheet-content .stop-image-frame.thumb { width: 68px; height: 68px; }
   .sheet-content .timeline-stop-copy > strong { font-size: var(--text-md); }
 }
+
+/* Public demo settings share the established sidebar and form controls. */
+.demo-settings-trigger > span { display: grid; gap: 3px; text-align: left; }
+.demo-settings-trigger small { color: var(--color-muted); font-size: var(--text-xs); }
+.demo-settings-dialog { position: fixed; z-index: 101; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; box-sizing: border-box; padding: 24px; background: var(--color-surface); color: var(--color-text); border-radius: 16px; box-shadow: var(--shadow-soft); }
+.demo-settings-dialog header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.demo-settings-dialog h2 { margin: 0; font-size: 20px; }
+.demo-settings-dialog p { font-size: var(--text-sm); line-height: 1.7; }
+.demo-settings-dialog form { display: grid; gap: 12px; }
+.demo-settings-dialog label { font-weight: 600; font-size: var(--text-sm); }
+.demo-settings-dialog input { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid var(--color-line-strong); border-radius: 8px; padding: 10px 12px; color: var(--color-text); background: var(--color-surface); }
+.demo-settings-dialog .demo-privacy { margin: 0; color: var(--color-muted); }
+.demo-settings-dialog .demo-settings-error { margin: 0; color: var(--color-danger); }
+.demo-mode-state { margin: 0; }
+.demo-settings-dialog footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.demo-settings-dialog footer button { min-height: 44px; }
+.demo-connect { min-height: 100dvh; display: grid; align-content: center; justify-items: center; gap: 16px; padding: 24px; text-align: center; background: var(--color-canvas); }
+@media (max-width: 540px) { .demo-settings-dialog { padding: 20px; } .demo-settings-dialog footer { flex-direction: column-reverse; } }
+
+.demo-showcases-dialog { width: min(760px, calc(100vw - 24px)); }
+.demo-example-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.demo-example-nav button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-line); background: var(--color-surface); color: var(--color-text); border-radius: 8px; }
+.demo-example-nav button[aria-pressed="true"] { background: var(--color-action); color: white; border-color: var(--color-action); }
+.demo-example-steps { padding-left: 24px; }
+.demo-example-steps > li { padding: 12px 0; border-bottom: 1px solid var(--color-line); }
+.demo-example-steps summary { cursor: pointer; font-weight: 600; padding-block: 6px; }
+.demo-example-plan { margin-top: 16px; }
+.demo-example-plan p { margin-block: 4px; }
+.demo-example-plan ul { padding-left: 20px; font-size: var(--text-sm); line-height: 1.7; }

@@ -6,11 +6,14 @@ import asyncio
 import json
 import queue
 import sqlite3
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from app.api.public_demo import PublicDemo, PublicDemoGate, DemoAccessError, VisitorRouter, VisitorIntent, VisitorAdvisor
+from app.api.schemas import PublicModelConfiguration
+from pydantic import ValidationError
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.api.schemas import (
@@ -115,6 +118,7 @@ def create_app(
     recommendation_advisor: RecommendationAdvisor | None = None,
     poi_presentation_provider: PoiPresentationProvider | None = None,
     web_map_provider: WebMapProvider | None = None,
+    public_demo: PublicDemo | None = None,
 ) -> FastAPI:
     """创建可注入依赖的应用实例。
 
@@ -132,20 +136,20 @@ def create_app(
         serde=checkpoint_serializer(),
     )
     graph = build_entry_graph(
-        router=router,
+        router=VisitorRouter() if public_demo else router,
         environment_provider=environment_provider,
         weather_provider=weather_provider,
         route_provider=route_provider,
         geocoding_provider=geocoding_provider,
         availability_provider=availability_provider,
         catalog=catalog,
-        planning_intent_provider=planning_intent_provider,
+        planning_intent_provider=VisitorIntent() if public_demo else planning_intent_provider,
         candidate_retriever=candidate_retriever,
         checkpointer=checkpointer,
     )
     browser_map = web_map_provider or DisabledWebMapProvider()
     presentation_provider = poi_presentation_provider or EmptyPoiPresentationProvider()
-    advisor = recommendation_advisor or build_default_recommendation_advisor()
+    advisor = VisitorAdvisor() if public_demo else (recommendation_advisor or build_default_recommendation_advisor())
     planning_context_application = PlanningContextApplication(
         geocoding_provider=geocoding_provider,
     )
@@ -159,11 +163,50 @@ def create_app(
         poi_presentation_provider=presentation_provider,
     )
 
+    def purge_guest(user_id: str):
+        for session_id in repository.session_ids_for_user(user_id):
+            checkpointer.delete_thread(checkpoint_config(session_id)["configurable"]["thread_id"])
+            repository.delete_session(user_id=user_id, session_id=session_id)
+        repository.delete_empty_guest(user_id)
+
+    app_cleanup_pending: set[str] = set()
+
+    def collect_expired_guests():
+        app_cleanup_pending.update(public_demo.expired_users())
+        for user_id in tuple(app_cleanup_pending):
+            try:
+                purge_guest(user_id)
+            except Exception:
+                # Retry transient SQLite contention; never log a request or credential.
+                continue
+            app_cleanup_pending.discard(user_id)
+
+    async def sweep_guests():
+        while True:
+            await asyncio.sleep(60)
+            await asyncio.to_thread(collect_expired_guests)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        yield
-        checkpoint_connection.close()
-        database.close()
+        cleaner = None
+        if public_demo:
+            checkpointer.setup()
+            # Capabilities are process-local; old guest data cannot be resumed after restart.
+            for user_id in repository.guest_user_ids():
+                purge_guest(user_id)
+            cleaner = asyncio.create_task(sweep_guests())
+        try:
+            yield
+        finally:
+            if cleaner:
+                cleaner.cancel()
+                try:
+                    await cleaner
+                except asyncio.CancelledError:
+                    pass
+                public_demo.clear()
+            checkpoint_connection.close()
+            database.close()
 
     app = FastAPI(title="HappyFreeTime V2", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -175,6 +218,51 @@ def create_app(
     )
     app.state.planning_turn_application = planning_turn_application
     app.state.session_repository = repository
+    app.state.collect_expired_guests = collect_expired_guests
+
+    if public_demo:
+        app.add_middleware(PublicDemoGate, demo=public_demo)
+
+    @app.get("/api/config/runtime")
+    def runtime_config():
+        return {"data": {"public_demo": public_demo is not None, "provider": "deepseek", "model": "deepseek-flash"}}
+
+    @app.get("/api/demo/showcases")
+    def demo_showcases():
+        if public_demo is None:
+            raise HTTPException(404, "public demo is disabled")
+        path = Path(__file__).resolve().parents[2] / "data/demo_showcases/v1.json"
+        return {"data": json.loads(path.read_text(encoding="utf-8"))}
+
+    @app.post("/api/demo/visitors", status_code=201)
+    def create_demo_visitor(request: Request, response: Response):
+        if public_demo is None:
+            raise HTTPException(404, "public demo is disabled")
+        data = public_demo.issue(request.client.host if request.client else "unknown")
+        # The SDK's proxy requests cannot set our custom header. This cookie is
+        # map-only; session/model APIs always require the page's explicit token.
+        response.set_cookie("hft_map_access", data["token"], max_age=data["expires_in_seconds"],
+                            secure=True, httponly=True, samesite="strict", path="/_AMapService/")
+        return {"data": data}
+
+    @app.put("/api/demo/model")
+    async def configure_demo_model(request: Request):
+        if public_demo is None:
+            raise HTTPException(404, "public demo is disabled")
+        if request.url.scheme != "https" and request.url.hostname not in ("localhost", "127.0.0.1", "::1"):
+            raise HTTPException(400, "请通过 HTTPS 配置 Key。")
+        try:
+            config = PublicModelConfiguration.model_validate(await request.json())
+        except (ValidationError, ValueError):
+            # Never echo validation input, because it may contain a credential.
+            raise HTTPException(422, "请提供有效的 DeepSeek Key；不支持自定义接口或模型。") from None
+        try:
+            public_demo.configure(request.state.demo_visitor, config.api_key.get_secret_value() if config.api_key else None)
+        except DemoAccessError:
+            raise
+        except Exception:
+            raise HTTPException(422, "模型配置未生效，请检查 Key 格式后重试。") from None
+        return {"data": {"mode": "llm" if config.api_key else "demo", "model": "deepseek-flash", "validated": False}}
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -403,16 +491,21 @@ def create_app(
         user_id: str,
     ) -> ResponseEnvelope[AgentResponse]:
         try:
-            response = planning_turn_application.handle(
-                session_id=session_id,
-                request=request,
-                user_id=user_id,
-            )
+            with public_demo.turn(user_id) if public_demo else nullcontext():
+                response = planning_turn_application.handle(
+                    session_id=session_id, request=request, user_id=user_id,
+                )
         except PlanningApplicationError as error:
             raise HTTPException(
                 status_code=error.status_code,
                 detail=error.detail,
             ) from error
+        except DemoAccessError:
+            raise
+        except Exception:
+            if not public_demo:
+                raise
+            raise HTTPException(500, "规划执行失败，请稍后重试。") from None
         return ResponseEnvelope(data=response)
 
     @app.post("/api/sessions/{session_id}/messages")
@@ -438,13 +531,14 @@ def create_app(
 
         def execute() -> None:
             try:
-                response = planning_turn_application.handle(
-                    session_id=session_id,
-                    request=request,
-                    user_id=x_user_id,
-                    event_sink=emit_progress,
-                )
+                with public_demo.turn(x_user_id) if public_demo else nullcontext():
+                    response = planning_turn_application.handle(
+                        session_id=session_id, request=request, user_id=x_user_id,
+                        event_sink=emit_progress,
+                    )
                 events.put(("result", response))
+            except DemoAccessError as error:
+                events.put(("error", {"detail": error.message, "status_code": error.status}))
             except PlanningApplicationError as error:
                 events.put(("error", {"detail": error.detail, "status_code": error.status_code}))
             except Exception:

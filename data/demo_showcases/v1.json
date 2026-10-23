@@ -1,0 +1,474 @@
+{
+  "recorded_date": "2026-08-15",
+  "data_mode": "offline_demo",
+  "examples": [
+    {
+      "id": "plan",
+      "title": "从需求到正式选择",
+      "description": "生成候选，查看逐站安排，再明确选定方案。",
+      "prompt": "今天下午出去玩",
+      "steps": [
+        {
+          "label": "描述需求",
+          "user": "今天下午出去玩",
+          "reply": "已筛出 3 个可行方案：方案 1「日坛公园 + 崖 Under Clouds 云南餐厅」，190 分钟、1.8 km；方案 2「中国海关博物馆 + 德克士」，170 分钟、2.5 km；方案 3「保利艺术博物馆 + 大董烤鸭店」，130 分钟、1.7 km。",
+          "status": "completed",
+          "stale": false,
+          "plans": [
+            {
+              "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
+              "stops": [
+                {
+                  "name": "日坛公园",
+                  "start": "14:05",
+                  "end": "16:05"
+                },
+                {
+                  "name": "崖 Under Clouds 云南餐厅",
+                  "start": "16:10",
+                  "end": "17:10"
+                }
+              ],
+              "price": 68,
+              "minutes": 190
+            },
+            {
+              "title": "中国海关博物馆 + 德克士",
+              "stops": [
+                {
+                  "name": "中国海关博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "德克士",
+                  "start": "15:10",
+                  "end": "16:50"
+                }
+              ],
+              "price": 158,
+              "minutes": 170
+            },
+            {
+              "title": "保利艺术博物馆 + 大董烤鸭店",
+              "stops": [
+                {
+                  "name": "保利艺术博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "大董烤鸭店",
+                  "start": "15:10",
+                  "end": "16:10"
+                }
+              ],
+              "price": 128,
+              "minutes": 130
+            }
+          ],
+          "question": null,
+          "recovery": [],
+          "diffs": []
+        },
+        {
+          "label": "正式选择",
+          "user": "选择第一个方案",
+          "reply": "服务端已保存正式选择。",
+          "plans": [],
+          "status": "selected"
+        }
+      ]
+    },
+    {
+      "id": "origin",
+      "title": "换个出发地再规划",
+      "description": "保存地点只更新条件，旧方案过期后再明确重新规划。",
+      "prompt": "今天下午出去玩",
+      "steps": [
+        {
+          "label": "描述需求",
+          "user": "今天下午出去玩",
+          "reply": "已筛出 3 个可行方案：方案 1「日坛公园 + 崖 Under Clouds 云南餐厅」，190 分钟、1.8 km；方案 2「中国海关博物馆 + 德克士」，170 分钟、2.5 km；方案 3「保利艺术博物馆 + 大董烤鸭店」，130 分钟、1.7 km。",
+          "status": "completed",
+          "stale": false,
+          "plans": [
+            {
+              "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
+              "stops": [
+                {
+                  "name": "日坛公园",
+                  "start": "14:05",
+                  "end": "16:05"
+                },
+                {
+                  "name": "崖 Under Clouds 云南餐厅",
+                  "start": "16:10",
+                  "end": "17:10"
+                }
+              ],
+              "price": 68,
+              "minutes": 190
+            },
+            {
+              "title": "中国海关博物馆 + 德克士",
+              "stops": [
+                {
+                  "name": "中国海关博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "德克士",
+                  "start": "15:10",
+                  "end": "16:50"
+                }
+              ],
+              "price": 158,
+              "minutes": 170
+            },
+            {
+              "title": "保利艺术博物馆 + 大董烤鸭店",
+              "stops": [
+                {
+                  "name": "保利艺术博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "大董烤鸭店",
+                  "start": "15:10",
+                  "end": "16:10"
+                }
+              ],
+              "price": 128,
+              "minutes": 130
+            }
+          ],
+          "question": null,
+          "recovery": [],
+          "diffs": []
+        },
+        {
+          "label": "正式选择",
+          "user": "选择第一个方案",
+          "reply": "服务端已保存正式选择。",
+          "plans": [],
+          "status": "selected"
+        },
+        {
+          "label": "保存出发地：国贸",
+          "user": null,
+          "reply": "",
+          "status": "context_saved",
+          "stale": true,
+          "plans": [],
+          "question": null,
+          "recovery": [],
+          "diffs": []
+        },
+        {
+          "label": "明确重新规划",
+          "user": null,
+          "reply": "已筛出 3 个可行方案：方案 1「日坛公园 + 崖 Under Clouds 云南餐厅」，190 分钟、2.8 km；方案 2「中国海关博物馆 + 李先生」，161 分钟、4.0 km；方案 3「今日美术馆 + 四季民福」，236 分钟、3.5 km。",
+          "status": "completed",
+          "stale": false,
+          "plans": [
+            {
+              "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
+              "stops": [
+                {
+                  "name": "日坛公园",
+                  "start": "14:05",
+                  "end": "16:05"
+                },
+                {
+                  "name": "崖 Under Clouds 云南餐厅",
+                  "start": "16:10",
+                  "end": "17:10"
+                }
+              ],
+              "price": 68,
+              "minutes": 190
+            },
+            {
+              "title": "中国海关博物馆 + 李先生",
+              "stops": [
+                {
+                  "name": "中国海关博物馆",
+                  "start": "14:06",
+                  "end": "15:06"
+                },
+                {
+                  "name": "李先生",
+                  "start": "15:11",
+                  "end": "16:41"
+                }
+              ],
+              "price": 218,
+              "minutes": 161
+            },
+            {
+              "title": "今日美术馆 + 四季民福",
+              "stops": [
+                {
+                  "name": "今日美术馆",
+                  "start": "14:05",
+                  "end": "16:35"
+                },
+                {
+                  "name": "四季民福",
+                  "start": "16:41",
+                  "end": "17:56"
+                }
+              ],
+              "price": 98,
+              "minutes": 236
+            }
+          ],
+          "question": null,
+          "recovery": [],
+          "diffs": []
+        }
+      ]
+    },
+    {
+      "id": "replace",
+      "title": "只替换其中一站",
+      "description": "保留其他站点，查看服务端产生的替换结果。",
+      "prompt": "今天下午出去玩",
+      "steps": [
+        {
+          "label": "描述需求",
+          "user": "今天下午出去玩",
+          "reply": "已筛出 3 个可行方案：方案 1「日坛公园 + 崖 Under Clouds 云南餐厅」，190 分钟、1.8 km；方案 2「中国海关博物馆 + 德克士」，170 分钟、2.5 km；方案 3「保利艺术博物馆 + 大董烤鸭店」，130 分钟、1.7 km。",
+          "status": "completed",
+          "stale": false,
+          "plans": [
+            {
+              "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
+              "stops": [
+                {
+                  "name": "日坛公园",
+                  "start": "14:05",
+                  "end": "16:05"
+                },
+                {
+                  "name": "崖 Under Clouds 云南餐厅",
+                  "start": "16:10",
+                  "end": "17:10"
+                }
+              ],
+              "price": 68,
+              "minutes": 190
+            },
+            {
+              "title": "中国海关博物馆 + 德克士",
+              "stops": [
+                {
+                  "name": "中国海关博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "德克士",
+                  "start": "15:10",
+                  "end": "16:50"
+                }
+              ],
+              "price": 158,
+              "minutes": 170
+            },
+            {
+              "title": "保利艺术博物馆 + 大董烤鸭店",
+              "stops": [
+                {
+                  "name": "保利艺术博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "大董烤鸭店",
+                  "start": "15:10",
+                  "end": "16:10"
+                }
+              ],
+              "price": 128,
+              "minutes": 130
+            }
+          ],
+          "question": null,
+          "recovery": [],
+          "diffs": []
+        },
+        {
+          "label": "正式选择",
+          "user": "选择第一个方案",
+          "reply": "服务端已保存正式选择。",
+          "plans": [],
+          "status": "selected"
+        },
+        {
+          "label": "提交单站替换",
+          "user": "替换第1站，其他站保持不变",
+          "reply": "找到 2 个单站替换方案；其他 1 站保持不变，每个候选都已重新核验。",
+          "status": "completed",
+          "stale": false,
+          "plans": [
+            {
+              "title": "天福茗茶 + 崖 Under Clouds 云南餐厅",
+              "stops": [
+                {
+                  "name": "天福茗茶",
+                  "start": "14:06",
+                  "end": "16:06"
+                },
+                {
+                  "name": "崖 Under Clouds 云南餐厅",
+                  "start": "16:11",
+                  "end": "17:11"
+                }
+              ],
+              "price": 98,
+              "minutes": 191
+            },
+            {
+              "title": "北京明城墙遗址公园 + 崖 Under Clouds 云南餐厅",
+              "stops": [
+                {
+                  "name": "北京明城墙遗址公园",
+                  "start": "14:06",
+                  "end": "16:36"
+                },
+                {
+                  "name": "崖 Under Clouds 云南餐厅",
+                  "start": "16:41",
+                  "end": "17:41"
+                }
+              ],
+              "price": 128,
+              "minutes": 221
+            }
+          ],
+          "question": null,
+          "recovery": [],
+          "diffs": [
+            {
+              "replacements": [
+                {
+                  "stop_index": 0,
+                  "role": "activity",
+                  "before_resource_id": "osm-way-24476204",
+                  "before_name": "日坛公园",
+                  "after_resource_id": "osm-node-4284096489",
+                  "after_name": "天福茗茶"
+                }
+              ],
+              "distance_delta": 2.4
+            },
+            {
+              "replacements": [
+                {
+                  "stop_index": 0,
+                  "role": "activity",
+                  "before_resource_id": "osm-way-24476204",
+                  "before_name": "日坛公园",
+                  "after_resource_id": "osm-node-5963885701",
+                  "after_name": "北京明城墙遗址公园"
+                }
+              ],
+              "distance_delta": 2.6
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recovery",
+      "title": "预算冲突与恢复",
+      "description": "查看不可行原因，由用户确认下一步调整。",
+      "prompt": "今天下午出去玩，人均1元，严格控制，不超预算",
+      "steps": [
+        {
+          "label": "描述需求",
+          "user": "今天下午出去玩，人均1元，严格控制，不超预算",
+          "reply": "当前目录中没有满足人均 1 元严格预算的可行行程方案。",
+          "status": "needs_recovery",
+          "stale": false,
+          "plans": [],
+          "question": null,
+          "recovery": [
+            "把预算改为参考条件并重新规划",
+            "手动调整条件",
+            "取消本轮",
+            "开始新需求"
+          ],
+          "diffs": []
+        },
+        {
+          "label": "确认服务端建议：把预算改为参考条件并重新规划",
+          "user": null,
+          "reply": "已筛出 3 个可行方案：方案 1「日坛公园 + 崖 Under Clouds 云南餐厅」，190 分钟、1.8 km；方案 2「中国海关博物馆 + 德克士」，170 分钟、2.5 km；方案 3「保利艺术博物馆 + 大董烤鸭店」，130 分钟、1.7 km。",
+          "status": "completed",
+          "stale": false,
+          "plans": [
+            {
+              "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
+              "stops": [
+                {
+                  "name": "日坛公园",
+                  "start": "14:05",
+                  "end": "16:05"
+                },
+                {
+                  "name": "崖 Under Clouds 云南餐厅",
+                  "start": "16:10",
+                  "end": "17:10"
+                }
+              ],
+              "price": 68,
+              "minutes": 190
+            },
+            {
+              "title": "中国海关博物馆 + 德克士",
+              "stops": [
+                {
+                  "name": "中国海关博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "德克士",
+                  "start": "15:10",
+                  "end": "16:50"
+                }
+              ],
+              "price": 158,
+              "minutes": 170
+            },
+            {
+              "title": "保利艺术博物馆 + 大董烤鸭店",
+              "stops": [
+                {
+                  "name": "保利艺术博物馆",
+                  "start": "14:05",
+                  "end": "15:05"
+                },
+                {
+                  "name": "大董烤鸭店",
+                  "start": "15:10",
+                  "end": "16:10"
+                }
+              ],
+              "price": 128,
+              "minutes": 130
+            }
+          ],
+          "question": null,
+          "recovery": [],
+          "diffs": []
+        }
+      ]
+    }
+  ]
+}

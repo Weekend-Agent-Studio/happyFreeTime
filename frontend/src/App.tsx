@@ -2083,7 +2083,7 @@ function App() {
       <a className="skip-link" href="#main-content">跳到主要内容</a>
 
       <aside className="session-sidebar" id="desktop-session-navigation" aria-label="会话导航">
-        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((current) => !current)} onOpenHistory={() => setHistoryOpen(true)} />
+        <SessionNavigation busy={loading || restoring} onStartExample={(prompt) => { resetSession(); setInput(prompt); setHistoryOpen(false); requestAnimationFrame(() => document.getElementById("planning-input")?.focus()); }} recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((current) => !current)} onOpenHistory={() => setHistoryOpen(true)} />
       </aside>
 
       <AppHeader
@@ -2223,7 +2223,7 @@ function App() {
       </button> : null}
 
       <MobileSheet open={historyOpen} onOpenChange={setHistoryOpen} title="历史会话" description="查看或继续之前的完整规划对话。">
-        <SessionNavigation recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} compact />
+        <SessionNavigation busy={loading || restoring} onStartExample={(prompt) => { resetSession(); setInput(prompt); setHistoryOpen(false); requestAnimationFrame(() => document.getElementById("planning-input")?.focus()); }} recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} compact />
       </MobileSheet>
 
       <MobileSheet
