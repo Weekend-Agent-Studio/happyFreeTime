@@ -81,6 +81,24 @@ button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visibl
 .session-rename-form button { display: grid; place-items: center; min-height: 40px; padding: 0; color: var(--color-text); background: transparent; border: 0; }
 .session-action-error { margin: 6px; color: var(--color-danger); font-size: var(--text-xs); }
 
+.demo-example-list { flex: 0 1 auto; min-height: 0; max-height: 35dvh; overflow-y: auto; }
+.demo-example-list .sidebar-section-label { display: flex; align-items: center; justify-content: space-between; }
+.demo-example-list .sidebar-section-label span { font-size: var(--text-xs); }
+.example-glyph { flex: 0 0 auto; color: var(--color-muted); }
+.demo-example-list .session-row:disabled { opacity: .55; }
+.collapsed .demo-example-list { margin-top: var(--space-4); }
+.example-notice { width: min(100%, var(--conversation-content-max)); margin: 0 auto var(--space-6); padding-bottom: var(--space-4); border-bottom: 1px solid var(--color-line); }
+.example-notice strong { font-size: var(--text-lg); }
+.example-notice p, .example-composer p { margin: var(--space-2) 0 0; color: var(--color-muted); font-size: var(--text-sm); line-height: 1.6; }
+.example-composer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.example-composer p { flex: 1 1 240px; margin: 0; }
+.example-composer button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 44px; }
+.next-plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 var(--space-5); }
+.next-plan-actions > span { flex-basis: 100%; color: var(--color-muted); font-size: var(--text-xs); }
+.next-plan-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 7px 12px; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+.next-plan-actions button:hover:not(:disabled) { background: var(--color-surface-muted); border-color: var(--color-line-strong); }
+.next-plan-actions button:disabled { opacity: .5; }
+
 .app-header { position: relative; z-index: 50; grid-column: 2 / 5; grid-row: 1; display: flex; align-items: center; min-width: 0; padding: 0 var(--space-5); background: var(--color-surface); border-bottom: 1px solid var(--color-line); }
 .app-header-title { flex: 0 0 auto; min-width: 0; margin-right: var(--space-3); line-height: 1.25; }
 .app-header-tagline { display: inline-flex; align-items: center; gap: 7px; color: var(--color-quiet); font-size: var(--text-sm); font-weight: 700; letter-spacing: .01em; white-space: nowrap; }

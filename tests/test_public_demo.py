@@ -177,13 +177,20 @@ def test_samples_are_read_only_and_report_actual_recorded_transitions(tmp_path):
         headers = visitor(client)
         assert client.get("/api/demo/showcases").status_code == 401
         examples = client.get("/api/demo/showcases", headers=headers).json()["data"]["examples"]
-        assert len(examples) == 4
+        assert len(examples) == 3
         by_id = {example["id"]: example for example in examples}
-        assert by_id["origin"]["steps"][-2]["stale"]
-        assert by_id["origin"]["steps"][-1]["status"] == "completed"
-        assert by_id["replace"]["steps"][-1]["diffs"]
-        assert by_id["recovery"]["steps"][0]["status"] == "needs_recovery"
-        assert by_id["recovery"]["steps"][-1]["status"] == "completed"
+        assert by_id["plan"]["steps"][1]["response"]["planning_context"]["plan_stale"]
+        assert by_id["plan"]["steps"][-2]["response"]["status"] == "completed"
+        assert by_id["plan"]["steps"][-1]["selected_plan_id"]
+        from app.api.schemas import AgentResponse
+        for example in examples:
+            assert len(example["steps"]) >= 2
+            for step in example["steps"]:
+                if step.get("response"):
+                    AgentResponse.model_validate(step["response"])
+        assert by_id["replace"]["steps"][-1]["response"]["plan_diffs"]
+        assert by_id["recovery"]["steps"][0]["response"]["status"] == "needs_recovery"
+        assert by_id["recovery"]["steps"][-1]["response"]["status"] == "completed"
         assert client.get("/api/sessions", headers=headers).json()["data"]["sessions"] == []
 
 

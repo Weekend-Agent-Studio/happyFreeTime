@@ -24,16 +24,9 @@ from app.providers.geocoding import build_geocoding_provider
 from app.domain.providers import ProviderMode
 
 
-def summarize(label, data, user=None):
-    return {
-        "label": label, "user": user, "reply": data.get("reply"), "status": data.get("status"),
-        "stale": data.get("planning_context", {}).get("plan_stale", False),
-        "plans": [{"title": plan["title"], "stops": [{"name": stop["name"], "start": stop["start"], "end": stop["end"]} for stop in plan["stops"]],
-                   "price": plan["total_price"], "minutes": plan["total_duration_minutes"]} for plan in data.get("plans", [])],
-        "question": (data.get("question") or {}).get("question"),
-        "recovery": [action["label"] for action in (data.get("recovery") or {}).get("actions", [])],
-        "diffs": [{"replacements": diff.get("replacements", []), "distance_delta": diff.get("route_distance_delta_km")} for diff in data.get("plan_diffs", [])],
-    }
+def record_step(label, data, user=None):
+    # Keep the canonical API response; no second plan/constraint projection.
+    return {"label": label, "user": user, "response": data}
 
 
 def main():
@@ -52,8 +45,7 @@ def main():
                 response.raise_for_status()
                 return response.json()["data"]
             for kind, title, description in [
-                ("plan", "从需求到正式选择", "生成候选，查看逐站安排，再明确选定方案。"),
-                ("origin", "换个出发地再规划", "保存地点只更新条件，旧方案过期后再明确重新规划。"),
+                ("plan", "补充条件，再选方案", "生成方案后补充人数与预算，重新核验并正式选择。"),
                 ("replace", "只替换其中一站", "保留其他站点，查看服务端产生的替换结果。"),
                 ("recovery", "预算冲突与恢复", "查看不可行原因，由用户确认下一步调整。"),
             ]:
@@ -61,29 +53,31 @@ def main():
                 prefix = f"/api/sessions/{session}"
                 content = "今天下午出去玩" if kind != "recovery" else "今天下午出去玩，人均1元，严格控制，不超预算"
                 initial = call("POST", prefix + "/messages", {"request_id": kind + "-initial", "content": content})
-                steps = [summarize("描述需求", initial, content)]
-                if kind in ("plan", "replace", "origin"):
+                steps = [record_step("描述需求", initial, content)]
+                if kind in ("plan", "replace"):
                     assert initial["plans"], f"{kind}: expected real plans"
                     plan = initial["plans"][0]
-                    call("POST", prefix + f"/plans/{plan['plan_id']}/select")
-                    steps.append({"label": "正式选择", "user": "选择第一个方案", "reply": "服务端已保存正式选择。", "plans": [], "status": "selected"})
-                if kind == "origin":
-                    results = call("GET", "/api/departure-locations/search?q=国贸")
-                    point = results["results"][0]
-                    saved = call("PATCH", prefix + "/planning-context", {"request_id": "origin-save", "patch": {"base_revision": initial["planning_context"]["request_revision"], "where": {"operation": "set", "value": {"kind": "provider_place", "provider_id": point["provider_id"]}}}})
+                if kind == "plan":
+                    saved = call("PATCH", prefix + "/planning-context", {"request_id": "plan-save", "patch": {"base_revision": initial["planning_context"]["request_revision"], "who": {"adults": 2, "children": 0}, "budget": {"mode": "per_person", "amount": 150, "strict": True}}})
                     assert saved["planning_context"]["plan_stale"]
-                    steps.append(summarize("保存出发地：国贸", saved))
-                    planned = call("POST", prefix + "/planning-context/replan", {"request_id": "origin-replan"})
-                    steps.append(summarize("明确重新规划", planned))
+                    steps.append(record_step("补充人数与预算", saved, "改成两个人，人均150元，严格控制预算"))
+                    planned = call("POST", prefix + "/planning-context/replan", {"request_id": "plan-replan"})
+                    assert planned["plans"]
+                    steps.append(record_step("明确重新规划", planned, "按新的条件重新规划"))
+                    chosen = planned["plans"][0]
+                    call("POST", prefix + f"/plans/{chosen['plan_id']}/select")
+                    steps.append({"label": "正式选择", "user": "就选第一条方案", "reply": "服务端已保存正式选择。", "selected_plan_id": chosen["plan_id"]})
                 elif kind == "replace":
+                    call("POST", prefix + f"/plans/{plan['plan_id']}/select")
+                    steps.append({"label": "正式选择", "user": "选择第一个方案", "reply": "服务端已保存正式选择。", "selected_plan_id": plan["plan_id"]})
                     stop = plan["stops"][0]
                     replacement = call("POST", prefix + "/messages", {"request_id": "replace-submit", "content": "替换第1站，其他站保持不变", "conversation_command": {"operation": "replace", "base_plan_id": plan["plan_id"], "base_plan_version_id": initial["plan_version_id"], "target": {"stop_index": 0, "resource_id": stop["resource_id"], "role": stop["role"], "raw_text": stop["name"]}, "replacement_criteria": []}})
-                    steps.append(summarize("提交单站替换", replacement, "替换第1站，其他站保持不变"))
+                    steps.append(record_step("提交单站替换", replacement, "替换第1站，其他站保持不变"))
                 elif kind == "recovery":
                     assert initial.get("recovery"), "expected a real recovery interaction"
                     action = initial["recovery"]["actions"][0]
                     recovered = call("POST", prefix + "/messages", {"request_id": "recovery-confirm", "content": "确认调整", "recovery_action": {"action_id": action["action_id"], "interaction_id": initial["recovery"]["interaction_id"], "request_revision": initial["recovery"]["request_revision"], "plan_version_id": initial["recovery"].get("plan_version_id")}})
-                    steps.append(summarize("确认服务端建议：" + action["label"], recovered))
+                    steps.append(record_step("确认服务端建议：" + action["label"], recovered, "确认调整：" + action["label"]))
                 examples.append({"id": kind, "title": title, "description": description, "prompt": content, "steps": steps})
         output = ROOT / "data/demo_showcases/v1.json"
         output.parent.mkdir(parents=True, exist_ok=True)

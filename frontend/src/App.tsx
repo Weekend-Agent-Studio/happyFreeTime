@@ -41,6 +41,8 @@ import {
 
 import { createSession, deleteSession, getSession, listSessions, renameSession, replanPlanningContext, selectPlan, sendMessageStream, updatePlanningContext } from "./api";
 import { SessionNavigation } from "./SessionNavigation";
+import { type DemoExample, type DemoExampleNavigation } from "./DemoShowcases";
+import { publicDemoEnabled, requestIdentity } from "./demoRuntime";
 import { ConversationHeading } from "./ConversationHeading";
 import { AmapPlanMap } from "./AmapPlanMap";
 import { clarificationSection, PlanningContextBar, PlanningContextNotice, type ContextOpenTarget } from "./PlanningContextBar";
@@ -824,6 +826,24 @@ function isCurrentRecoveryAction(
 }
 
 function App() {
+  const [examples, setExamples] = useState<DemoExample[]>([]);
+  const [activeExample, setActiveExample] = useState<DemoExample | null>(null);
+  const [examplesLoading, setExamplesLoading] = useState(publicDemoEnabled);
+  const [examplesError, setExamplesError] = useState("");
+  const [examplesAttempt, setExamplesAttempt] = useState(0);
+  useEffect(() => {
+    if (!publicDemoEnabled) return;
+    const controller = new AbortController();
+    setExamplesLoading(true); setExamplesError("");
+    void fetch("/api/demo/showcases", { headers: requestIdentity(), cache: "no-store", signal: controller.signal })
+      .then(async (result) => {
+        if (!result.ok) throw new Error("示例暂时无法加载，请重试。");
+        const payload = (await result.json()).data.examples as DemoExample[];
+        if (!controller.signal.aborted) setExamples(payload);
+      }).catch(() => { if (!controller.signal.aborted) setExamplesError("示例暂时无法加载，请重试；体验到期时请刷新页面。"); })
+      .finally(() => { if (!controller.signal.aborted) setExamplesLoading(false); });
+    return () => controller.abort();
+  }, [examplesAttempt]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1258,6 +1278,7 @@ function App() {
   }, []);
 
   const openSession = useCallback(async (nextSessionId: string, navigate = true) => {
+    setActiveExample(null);
     invalidateSelectionFlow();
     setContextToast(null);
     setShowInspectorScrollTop(false);
@@ -1355,6 +1376,7 @@ function App() {
       const nextSessionId = sessionIdFromUrl();
       if (nextSessionId) void openSession(nextSessionId, false);
       else {
+        setActiveExample(null);
         invalidateSelectionFlow();
         setContextToast(null);
         setShowInspectorScrollTop(false);
@@ -1395,6 +1417,7 @@ function App() {
   }, [loading, messages, restoring]);
 
   async function submit(content: string, conversationCommand?: ConversationCommand, clarificationReply?: ClarificationReply, recoveryAction?: RecoveryActionRequest) {
+    if (activeExample) return;
     const trimmed = content.trim() || (recoveryAction ? "选择恢复操作" :
       replacementDraft
         ? `更换第 ${replacementDraft.stopIndex + 1} 站`
@@ -1595,6 +1618,7 @@ function App() {
   }
 
   async function updateContext(patch: PlanningContextPatch) {
+    if (activeExample) return;
     if (loading || restoring) return;
     const requestEpoch = sessionEpochRef.current;
     invalidateSelectionFlow();
@@ -1658,6 +1682,7 @@ function App() {
   }
 
   async function replanContext() {
+    if (activeExample) return;
     if (loading || restoring) return;
     const activeSession = sessionIdRef.current ?? sessionId;
     if (!activeSession) throw new Error("请先保存规划条件");
@@ -1818,6 +1843,8 @@ function App() {
   }
 
   function resetSession() {
+    setActiveExample(null);
+    shouldFollowConversationRef.current = true;
     invalidateSelectionFlow();
     setContextToast(null);
     setShowInspectorScrollTop(false);
@@ -2077,6 +2104,45 @@ function App() {
     && !newRequestMode,
   );
 
+  function startExampleExperience() {
+    if (!activeExample) return;
+    const prompt = activeExample.prompt;
+    resetSession();
+    setInput(prompt);
+    requestAnimationFrame(() => document.getElementById("planning-input")?.focus());
+  }
+
+  const exampleNavigation: DemoExampleNavigation | undefined = publicDemoEnabled ? {
+    examples, activeId: activeExample?.id ?? null, loading: examplesLoading, error: examplesError,
+    onRetry: () => setExamplesAttempt((attempt) => attempt + 1),
+    onOpen: (example) => {
+      if (loading || restoring) return;
+      resetSession();
+      setActiveExample(example);
+      const recordedMessages: ChatMessage[] = [];
+      for (const [index, step] of example.steps.entries()) {
+        if (step.user) recordedMessages.push({ id: `${example.id}-${index}-user`, role: "user", content: step.user });
+        recordedMessages.push({ id: `${example.id}-${index}-assistant`, role: "assistant", content: step.response?.reply ?? step.reply ?? step.label, response: step.response });
+      }
+      const recordedResponses = example.steps.flatMap((step) => step.response ? [step.response] : []);
+      const latest = recordedResponses.at(-1) ?? null;
+      const preview = [...recordedResponses].reverse().find((item) => item.plans.length) ?? latest;
+      setMessages(recordedMessages);
+      setResponse(latest);
+      setPlanningContext(latest?.planning_context ?? null);
+      setInspectedResponse(preview);
+      setViewedPlanId(preview?.plans[0]?.plan_id ?? null);
+      setSelectedPlanId(example.steps[example.steps.length - 1]?.selected_plan_id ?? null);
+      setRightTab("trip");
+      setNewRequestMode(false);
+      shouldFollowConversationRef.current = false;
+      requestAnimationFrame(() => {
+        const conversation = document.querySelector(".conversation");
+        if (conversation) conversation.scrollTop = 0;
+      });
+    },
+  } : undefined;
+
   return (
     <div
       ref={appShellRef}
@@ -2086,13 +2152,13 @@ function App() {
       <a className="skip-link" href="#main-content">跳到主要内容</a>
 
       <aside className="session-sidebar" id="desktop-session-navigation" aria-label="会话导航">
-        <SessionNavigation busy={loading || restoring} onStartExample={(prompt) => { resetSession(); setInput(prompt); setHistoryOpen(false); requestAnimationFrame(() => document.getElementById("planning-input")?.focus()); }} recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((current) => !current)} onOpenHistory={() => setHistoryOpen(true)} />
+        <SessionNavigation busy={loading || restoring} exampleNavigation={exampleNavigation} recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((current) => !current)} onOpenHistory={() => setHistoryOpen(true)} />
       </aside>
 
       <AppHeader
         context={planningContext}
         sessionId={sessionId}
-        busy={loading || restoring || Boolean(response?.recovery)}
+        busy={Boolean(activeExample) || loading || restoring || Boolean(response?.recovery)}
         externalOpen={contextFocus}
         onExternalOpenHandled={() => setContextFocus(null)}
         onSave={updateContext}
@@ -2101,13 +2167,18 @@ function App() {
         onOpenInspector={() => setMobileDetailOpen(true)}
       />
 
-      <PlanningContextNotice context={planningContext} busy={loading || restoring || Boolean(response?.recovery)} onReplan={replanContext} />
+      <PlanningContextNotice context={planningContext} busy={Boolean(activeExample) || loading || restoring || Boolean(response?.recovery)} onReplan={replanContext} />
 
       <main className="workspace" id="main-content">
         <section className="conversation" aria-live="polite" onScroll={(event) => {
           const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
           shouldFollowConversationRef.current = scrollHeight - scrollTop - clientHeight <= 120;
         }}>
+          {activeExample ? <section className="example-notice" aria-label="预置示例说明">
+            <strong>{activeExample.title}</strong>
+            <p>预置多轮示例 · 仅供回看。模拟出行日期为 2026-08-15，使用离线演示数据；不是实时结果。</p>
+            <p>{activeExample.description} 点击方案可查看行程和核验依据。</p>
+          </section> : null}
           {messages.length === 0 ? <EmptyConversation onSelect={(suggestion) => void submit(suggestion)} /> : (
             <div className="message-list">
               {messages.map((message, index) => <div className="message-entry" key={message.id}>
@@ -2116,13 +2187,13 @@ function App() {
                   message={message}
                   loading={loading || restoring}
                   currentPlanningContext={planningContext}
-                  activeClarification={Boolean(activeClarification?.clarification_id
+                  activeClarification={Boolean(!activeExample && activeClarification?.clarification_id
                     && message.response?.question?.clarification_id === activeClarification.clarification_id
                     && message.response.question.request_revision === activeClarification.request_revision)}
-                  activeRecoveryInteractionId={response?.recovery?.interaction_id ?? null}
+                  activeRecoveryInteractionId={activeExample ? null : response?.recovery?.interaction_id ?? null}
                   recoveryLifecycle={recoveryLifecycle}
                   selectedPlan={message.response === detailResponse ? inspectorPlan : message.response?.plans[0]}
-                  selectedPlanId={message.response?.plan_version_id === activePlanVersionIdRef.current ? selectedPlanId : null}
+                  selectedPlanId={activeExample || message.response?.plan_version_id === activePlanVersionIdRef.current ? selectedPlanId : null}
                   onViewPlan={(planId) => message.response && viewPlan(message.response, planId)}
                   onOpenPlanDetails={(planId) => message.response && openPlanDetails(message.response, planId)}
                   onClarificationOption={(option, answerValue) => message.response?.question && onClarificationOption(option, message.response.question, answerValue)}
@@ -2130,6 +2201,13 @@ function App() {
                   onOpenContext={() => openContextForClarification(message.response?.question?.field)}
                   onRetry={message.response?.failure?.retryable && failedRequest?.requestId === message.response.failure.request_id ? () => void submit(failedRequest.content, failedRequest.conversationCommand, failedRequest.clarificationReply, failedRequest.recoveryAction) : undefined}
                 />
+                {!activeExample && message.response === response && Boolean(response?.plans.length) && detailResponse === response ? <NextPlanActions
+                  disabled={loading || restoring || Boolean(replacementDraft) || Boolean(failedRequest) || Boolean(response.question) || Boolean(response.recovery) || Boolean(planningContext?.plan_stale) || planningContext?.request_view === "draft"}
+                  plan={inspectorPlan} canReplace={canReplaceInspectorPlan}
+                  onEvidence={() => { setRightTab("evidence"); if (isMobile) setMobileDetailOpen(true); }}
+                  onBudget={() => setContextFocus("budget")}
+                  onReplace={(index, quiet) => { if (inspectorPlan) { startReplacement(inspectorPlan, index); if (quiet) setInput("安静一点"); } }}
+                /> : null}
               </div>)}
               {loading ? <ThinkingRow events={progressEvents} /> : null}
               <div ref={conversationEndRef} aria-hidden="true" />
@@ -2159,6 +2237,10 @@ function App() {
             cancelReplacementDraft();
           }
         }}>
+          {activeExample ? <div className="example-composer">
+            <p>这是预置示例。新建体验后可修改需求；刷新会清除个人会话，示例始终保留。</p>
+            <button type="button" className="context-primary" onClick={startExampleExperience}>用此需求新建体验<ArrowUpRight size={16} aria-hidden="true" /></button>
+          </div> : <>
           {replacementDraft ? (
             <section ref={replacementDraftRef} className="replacement-draft" aria-label="单站替换草稿" tabIndex={-1}>
               <div className="replacement-draft-copy">
@@ -2186,6 +2268,7 @@ function App() {
               <button type="submit" disabled={loading || restoring || Boolean(response?.recovery) || clarificationBlocksFreeText || (!input.trim() && !replacementDraft)} aria-label={replacementDraft ? "发送替换偏好" : "发送需求"}><Send size={19} aria-hidden="true" /></button>
             </div>
           </form>
+          </>}
         </div>
       </main>
 
@@ -2213,7 +2296,7 @@ function App() {
           aria-label="方案详情"
           onScroll={(event) => setShowInspectorScrollTop(event.currentTarget.scrollTop > 120)}
         >
-          {!isMobile ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} canReplace={canReplaceInspectorPlan} poiNavigation={activePoiNavigation} onOpenPoi={openPoiDetail} onBackFromPoi={closePoiDetail} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onFocusMapRoute={focusRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
+          {!isMobile ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={activeExample ? "预置示例仅供回看，请用此需求新建体验。" : inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} canReplace={canReplaceInspectorPlan} poiNavigation={activePoiNavigation} onOpenPoi={openPoiDetail} onBackFromPoi={closePoiDetail} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onFocusMapRoute={focusRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
       </aside>
 
       {contextToast ? <div className="app-toast" role="status">
@@ -2226,7 +2309,7 @@ function App() {
       </button> : null}
 
       <MobileSheet open={historyOpen} onOpenChange={setHistoryOpen} title="历史会话" description="查看或继续之前的完整规划对话。">
-        <SessionNavigation busy={loading || restoring} onStartExample={(prompt) => { resetSession(); setInput(prompt); setHistoryOpen(false); requestAnimationFrame(() => document.getElementById("planning-input")?.focus()); }} recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} compact />
+        <SessionNavigation busy={loading || restoring} exampleNavigation={exampleNavigation} recentSessions={recentSessions} sessionId={sessionId} onNew={resetSession} onOpen={(id) => void openSession(id)} onRename={renameHistorySession} onDelete={deleteHistorySession} compact />
       </MobileSheet>
 
       <MobileSheet
@@ -2241,7 +2324,7 @@ function App() {
         showScrollToTop={showInspectorScrollTop}
         onScrollToTop={scrollInspectorToTop}
       >
-          {isMobile && mobileDetailOpen ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} canReplace={canReplaceInspectorPlan} poiNavigation={activePoiNavigation} onOpenPoi={openPoiDetail} onBackFromPoi={closePoiDetail} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onFocusMapRoute={focusRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
+          {isMobile && mobileDetailOpen ? <Inspector response={detailResponse} plan={inspectorPlan} selectedPlanId={selectedPlanId} isCurrentVersion={Boolean(detailResponse?.plan_version_id && detailResponse.plan_version_id === activePlanVersionIdRef.current)} selectionDisabledReason={activeExample ? "预置示例仅供回看，请用此需求新建体验。" : inspectorSelectionBlockReason} selectionError={selectionError} selectionPending={selectionPendingPlanId === inspectorPlan?.plan_id} selectedPlan={activeSelectedPlan} canReplace={canReplaceInspectorPlan} poiNavigation={activePoiNavigation} onOpenPoi={openPoiDetail} onBackFromPoi={closePoiDetail} onSelectPlan={() => inspectorPlan && requestPlanSelection(inspectorPlan.plan_id)} onReturnToSelectedPlan={() => activeSelectedResponse && activeSelectedPlan && viewPlan(activeSelectedResponse, activeSelectedPlan.plan_id)} activeTab={rightTab} activeLegIndex={focusedLegIndex} onTabChange={setRightTab} onMapRoute={openRouteOnMap} onFocusMapRoute={focusRouteOnMap} onTimelineRoute={showRouteInTimeline} onReplaceStop={startReplacement} /> : null}
       </MobileSheet>
 
       <Dialog.Root
@@ -2330,6 +2413,21 @@ function AppHeader({ context, sessionId, busy, externalOpen, onExternalOpenHandl
       <button type="button" onClick={onOpenInspector} aria-label="打开方案详情" disabled={!inspectorAvailable}><PanelRight size={19} /></button>
     </div>
   </header>;
+}
+
+function NextPlanActions({ plan, canReplace, disabled, onEvidence, onBudget, onReplace }: {
+  plan?: Plan; canReplace: boolean; disabled: boolean;
+  onEvidence: () => void; onBudget: () => void; onReplace: (index: number, quiet: boolean) => void;
+}) {
+  const dinner = plan?.stops.findIndex((stop) => stop.role === "dinner") ?? -1;
+  const meal = plan?.stops.findIndex((stop) => stop.type === "restaurant") ?? -1;
+  const replacementIndex = dinner >= 0 ? dinner : meal >= 0 ? meal : 0;
+  return <nav className="next-plan-actions" aria-label="接下来可以做">
+    <span>接下来可以做</span>
+    <button type="button" disabled={disabled || !plan} onClick={onEvidence}><ShieldCheck size={15} aria-hidden="true" />查看核验依据</button>
+    <button type="button" disabled={disabled} onClick={onBudget}><CircleDollarSign size={15} aria-hidden="true" />调整预算</button>
+    {canReplace && plan ? <button type="button" disabled={disabled} onClick={() => onReplace(replacementIndex, dinner >= 0)}><ArrowLeftRight size={15} aria-hidden="true" />{dinner >= 0 ? "晚饭换安静一点" : meal >= 0 ? "换一家餐厅" : "更换其中一站"}</button> : null}
+  </nav>;
 }
 
 function EmptyConversation({ onSelect }: { onSelect: (suggestion: string) => void }) {

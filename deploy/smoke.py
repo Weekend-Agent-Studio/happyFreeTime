@@ -64,7 +64,7 @@ def run(base_url: str, *, expected_release: str | None = None, plan: bool = Fals
         with fetch(f"/api/sessions/{session}", token=tokens[1], expected=404):
             pass
         examples = read_json("/api/demo/showcases", token=tokens[0])["data"]["examples"]
-        if len(examples) != 4:
+        if {example.get("id") for example in examples} != {"plan", "replace", "recovery"}:
             raise SmokeFailure("Read-only showcase package is missing.")
         if plan:
             payload = {"request_id": "deploy-smoke-" + uuid.uuid4().hex, "content": "明天下午出去玩"}

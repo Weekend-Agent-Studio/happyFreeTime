@@ -59,7 +59,7 @@ docker compose --env-file deploy/compose.env exec -T web nginx -t
 docker compose --env-file deploy/compose.env exec -T api python deploy/smoke.py --base-url http://web:8080 --plan
 ```
 
-脚本检查页面、前后端版本一致、公网开关、无凭证拒绝、两个访客隔离、四个录制案例和一次 SSE 规划，并删除自己创建的会话。它不接收 API Key。默认 Provider 全为模拟，不产生模型费用；若日后修改 Provider 配置，此检查会使用修改后的站点服务。它不代替桌面/手机浏览器与真实 LLM 联调。
+脚本检查页面、前后端版本一致、公网开关、无凭证拒绝、两个访客隔离、三条录制示例和一次 SSE 规划，并删除自己创建的会话。它不接收 API Key。默认 Provider 全为模拟，不产生模型费用；若日后修改 Provider 配置，此检查会使用修改后的站点服务。它不代替桌面/手机浏览器与真实 LLM 联调。
 
 ## 3. 从自己的电脑看页面
 
