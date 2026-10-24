@@ -18,6 +18,23 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 - 演示视频：待补充
 - 产品定位与数据真实性原则：见 [PRODUCT.md](PRODUCT.md)
 
+公网体验基础（当前开发分支，已私有试运行，尚未公开上线）：无需登录的临时访客隔离、左侧栏 DeepSeek 临时配置、无 Key 的规则规划，以及固定在侧栏的三条多轮示例。示例由真实离线链路录制，展示补充条件、单站替换和无方案恢复，复用正常方案卡片与核验详情；可以用示例需求新建个人体验。规划回复提供按状态显示的核验、预算和换站入口。刷新不恢复个人历史或模型配置，预置示例保留；Key 不写入数据库或浏览器持久存储。公网模式需显式启用、HTTPS 和单 worker；详见[公网 Demo 边界与启动说明](docs/current/public_demo.md)。这不是对实时商户数据或真实 DeepSeek 联调通过的声明。
+
+## Docker 单机部署（待服务器验证）
+
+仓库提供前后端 Dockerfile、Compose、Nginx 反向代理和 HTTPS 配置模板。Nginx 随 web 容器运行，无需在宿主机重复安装；api 不映射公网端口，SQLite 使用独立数据卷。默认只在服务器本机监听，不配置部署者共享模型 Key，使用离线模拟 Provider。
+
+```bash
+cp deploy/compose.env.example deploy/compose.env
+cp deploy/runtime.env.example deploy/runtime.env
+# 将 deploy/compose.env 中 HFT_RELEASE 改为当前 Git SHA
+docker compose --env-file deploy/compose.env config --quiet
+docker compose --env-file deploy/compose.env build
+docker compose --env-file deploy/compose.env up -d
+```
+
+从私有试运行、SSH 隧道查看页面，到域名 HTTPS、冒烟检查、更新和回退，按[部署操作指南](docs/current/deployment.md)执行。镜像构建和腾讯云运行尚待验证；本节不表示已公开上线。
+
 ## 🎯 当前能力
 
 | 能力 | Resume V2 状态 | 说明 |

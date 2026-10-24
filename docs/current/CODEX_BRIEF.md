@@ -1,8 +1,16 @@
 # Codex Brief：HappyFreeTime 当前事实索引
 
-_最后核对：2026-10-23。本文是低成本接手地图，不替代代码、测试或完整架构说明。开始工作前仍应检查 Git 状态。_
+_最后核对：2026-10-24。本文是低成本接手地图，不替代代码、测试或完整架构说明。开始工作前仍应检查 Git 状态。_
 
 ## 版本边界
+
+- 2026-10-24 示例与下一步交互：同一公网分支将案例弹窗替换为侧栏固定三条多轮示例，分别覆盖补充人数/预算后重新规划与正式选择、单站替换、预算冲突与恢复。示例从临时 API/SQLite 重新录制，直接保留每轮 AgentResponse，复用现有聊天/详情，不写入访客数据库；仅可用初始需求新建草稿，刷新保留示例、清除个人体验。当前有效方案回复下增加核验/预算快捷入口，正式选择后按实际角色提供换站草稿，不自动提交、不展示下单。前端 105 项、后端定向 18 项、真实 API 浏览器 5 项通过（1 项桌面专属跳过），构建通过。服务器尚需更新镜像，README 全面产品化及真实 Key 联调仍待后续。见 `docs/status/public_demo_conversations_20261024.md`。
+
+- 2026-10-24 展示修正：用户腾讯云已构建并启动 `1531293`，主会话经 SSH 隧道检查桌面规划、详情/证据、正式选择和单站替换；不是公网 HTTPS 或真实 Key 验收。`da88120` 让天气与可用性概览直接标明模拟/回放/来源；“换个类似的”改为符合现有无类别约束合同的“换一个地点”。DemoCatalog 暂停召回两条原始分类存疑记录（天福茗茶、北京明城墙遗址公园），保留原始快照与 Demo World 文件，当前 Demo 候选最多 198 条。详见 `docs/status/public_demo_polish_20261024.md`。
+
+- 2026-10-23 部署补充：同一公网基础分支增加 `compose.yaml`、`compose.https.yaml`、`deploy/` 和 [单机部署指南](deployment.md)。web=Nginx+React，api=单 worker FastAPI，固定独立数据卷；默认仅监听服务器 loopback、无部署者 LLM Key、模拟站点 Provider。前后端共享 release 标识，提供 HTTP/SSE 冒烟及可选停机快照。部署定向测试与公网隔离合计 18 项通过；当前电脑无 Docker，镜像构建、Nginx 容器运行和腾讯云/HTTPS 尚未实测。见 `docs/status/public_demo_deployment_20261023.md`。
+
+- 2026-10-23：PR #24 已合并，`main@ba0f7fb` 包含 S-UI2 与出发地 O1/O2。新的 `codex/public-demo-foundation` 从该 main 建立，新增显式公网模式：页面级临时 capability、访客模型内存配置（仅 DeepSeek 官方 `deepseek-flash`）、期限清理、单进程资源预算及只读录制案例。本分支不代表已完成腾讯云上线或真实 Key 联调。能力、启动开关和边界见 `docs/current/public_demo.md`，验收记录见 `docs/status/public_demo_foundation_20261023.md`。
 
 - 2026-10-21 当前事实：S-UI1 已经由 PR #23 合并到 `main@7a67e22`；下文 S-UI1 开发分支条目保留为对应阶段快照。新的第一批 UI 精修从该 main 建立 `codex/s-ui2-planning-polish`，状态与剩余清单见 `docs/status/s_ui2_planning_polish_20261021.md`，尚未推送/合并。
 - 本批展示变化：本次条件与需求重点移到候选卡片之前常显，结构化条件与需求理解分组展示，需求标签去重；全局风险保持可见。卡片标题两行，修正窄列指标断字，时间轴文字提升至可读层级；每站时间、地点内容与较大图片收于同卡，地点类别/费用/标签用小卡片呈现，详情与营业/替换提示为暖金色；替换入口移至卡片底部并标为“替换此站”。换站草稿按说明在上、快捷操作在下排列，避免窄列挤压。开发诊断改为仅 `VITE_SHOW_DEVELOPER_DETAILS=true` 时显示，公开核验与过程入口保留。单站替换差异用简洁站点数和分列指标呈现，不逐条列出锁定站点。不改变选择/版本/API 合同。
@@ -58,6 +66,7 @@ User message
 | 最终校验与事实 | `app/services/plan_verifier.py`、`app/providers/` |
 | 持久化 | `app/persistence/database.py`、`app/persistence/models.py`、`app/persistence/repositories.py` |
 | HTTP 与前端 | `app/api/application.py`、`app/api/planning_context.py`、`frontend/src/App.tsx`、`frontend/src/PlanningContextBar.tsx` |
+| 公网体验边界 | `app/api/public_demo.py`、`frontend/src/demoRuntime.ts`、`frontend/src/DemoSettings.tsx`、`frontend/src/DemoShowcases.tsx`；`data/demo_showcases/v1.json` |
 | 前端外壳与视觉 | `frontend/src/SessionNavigation.tsx`、`frontend/src/ConversationHeading.tsx`、`frontend/src/tokens.css`、`frontend/src/shell.css`；保留功能样式在 `styles.css` |
 | Trace | `app/domain/run_trace.py`、`frontend/src/runProgress.ts` |
 | 评测 | `evals/run_resume_release_eval.py`、`evals/run_s_rx_multiturn.py`、`evals/run_retrieval_eval.py` |

@@ -50,6 +50,21 @@ class SessionRepository:
     def __init__(self, session_factory: sessionmaker) -> None:
         self._session_factory = session_factory
 
+    def guest_user_ids(self) -> list[str]:
+        with self._session_factory() as database:
+            return list(database.scalars(select(UserRecord.id).where(UserRecord.id.startswith("guest-"))))
+
+    def session_ids_for_user(self, user_id: str) -> list[str]:
+        with self._session_factory() as database:
+            return list(database.scalars(select(SessionRecord.id).where(SessionRecord.user_id == user_id)))
+
+    def delete_empty_guest(self, user_id: str):
+        if not user_id.startswith("guest-"):
+            raise ValueError("only temporary guest identities may be collected")
+        with self._session_factory.begin() as database:
+            if database.scalar(select(SessionRecord.id).where(SessionRecord.user_id == user_id)) is None:
+                database.execute(delete(UserRecord).where(UserRecord.id == user_id))
+
     def create_session(self, *, user_id: str, identity_type: str) -> SessionRecord:
         with self._session_factory.begin() as database:
             user = database.get(UserRecord, user_id)

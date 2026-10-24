@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import tempfile
+import os
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -10,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 import uvicorn
 from app.api.application import create_app
+from app.api.public_demo import PublicDemo
 from app.domain.constraints import GeoLocation
 from app.domain.providers import ProviderMode
 from app.providers.availability import DemoAvailabilityProvider
@@ -35,6 +37,7 @@ def main():
             latitude=39.9219, longitude=116.4436,
         ))
         app = create_app(
+            public_demo=PublicDemo() if os.getenv("HFT_E2E_PUBLIC_DEMO") == "true" else None,
             database_path=Path(directory) / "browser.db",
             router=DemoRouter(),
             environment_provider=lambda _: environment,
@@ -54,7 +57,7 @@ def main():
             recommendation_advisor=RuleBasedRecommendationAdvisor(),
             poi_presentation_provider=catalog.presentation_provider,
         )
-        uvicorn.run(app, host="127.0.0.1", port=8007, log_level="warning")
+        uvicorn.run(app, host="127.0.0.1", port=int(os.getenv("HFT_E2E_API_PORT", "8007")), log_level="warning")
 
 
 if __name__ == "__main__":

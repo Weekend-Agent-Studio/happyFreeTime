@@ -4,7 +4,7 @@ from datetime import date as DateValue, datetime
 from math import isfinite
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, SecretStr, field_validator, model_validator
 
 from app.domain.constraints import (
     ClarificationReply,
@@ -18,6 +18,20 @@ from app.domain.recovery import RecoveryActionResponse, RecoveryChoiceInteractio
 
 
 T = TypeVar("T")
+
+
+class PublicModelConfiguration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    api_key: SecretStr | None = None
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_key(cls, value):
+        if value is not None:
+            key = value.get_secret_value()
+            if not 10 <= len(key) <= 256 or not key.isascii() or any(c.isspace() for c in key):
+                raise ValueError("invalid credential format")
+        return value
 
 
 class FieldEdit(BaseModel, Generic[T]):

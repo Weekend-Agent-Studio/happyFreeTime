@@ -1,5 +1,7 @@
 # Resume V2 当前架构
 
+Current 补充（2026-10-23，`codex/public-demo-foundation`，尚未上线）：HTTP 外围新增可选 PublicDemo gate，签发页面级能力凭证，确定服务端 guest 身份并覆盖客户端身份头。执行 turn 时通过线程上下文选择该访客的 Router/PlanningIntent/Advisor，复用原 Graph 与确定性主链；模型客户端不进入 Graph State、RunnableConfig 或持久化。无 Key 使用规则基线。访客和 Key 在单进程内管理，有期限清理业务记录及 checkpoint；因此该模式只能单 worker/单实例运行。默认本地模式与 Frozen 指标不变。入口与边界见 [公网 Demo](public_demo.md)。
+
 _Resume V2 当前实现快照；核对日期：2026-10-19。`origin/main@49ae2b0` 已包含 S-RX4；本文同时描述待合并的 `codex/s-hitl6-reliability@b541c13` 类型化恢复候选实现，冻结发布指标仍以对应 tag 和报告为准。_
 
 ---

@@ -36,3 +36,9 @@ artifacts/evals/
 # docs/status, docs/interview, docs/learning, docs/canonical and docs/adr.
 /docs/local/
 /.tmp/
+
+# Deployment-local runtime settings, certificates and private maintenance backups.
+/deploy/compose.env
+/deploy/runtime.env
+/deploy/certs/
+/deploy/backups/
