@@ -20,6 +20,23 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 
 公网体验基础（当前开发分支，已私有试运行，尚未公开上线）：无需登录的临时访客隔离、左侧栏 DeepSeek 临时配置、无 Key 的规则规划，以及固定在侧栏的三条多轮示例。示例由真实离线链路录制，展示补充条件、单站替换和无方案恢复，复用正常方案卡片与核验详情；可以用示例需求新建个人体验。规划回复提供按状态显示的核验、预算和换站入口。刷新不恢复个人历史或模型配置，预置示例保留；Key 不写入数据库或浏览器持久存储。公网模式需显式启用、HTTPS 和单 worker；详见[公网 Demo 边界与启动说明](docs/current/public_demo.md)。这不是对实时商户数据或真实 DeepSeek 联调通过的声明。
 
+## 本地一条命令启动（Windows）
+
+在已安装 Python 虚拟环境和前端依赖的仓库根目录运行：
+
+```powershell
+# 本地预览公网 Demo：前后端一起启动，打开 http://127.0.0.1:5174
+.\scripts\start_local.ps1
+
+# 普通开发模式：打开 http://127.0.0.1:5173，默认离线规则
+.\scripts\start_local.ps1 -Mode Development
+
+# 普通开发模式使用 .env 中的模型配置，显式启用 LLM（会产生 API 费用）
+.\scripts\start_local.ps1 -Mode Development -FullLlm
+```
+
+不需要手动切换环境变量或安装本地 Docker。默认公网 Demo 使用模拟站点服务，可在页面临时配置自己的 DeepSeek Key；与普通开发模式使用不同数据库和端口。两个模式可在不同终端同时运行。前端修改自动更新，后端修改需重启；按 Ctrl+C 停止本次启动的两个服务。端口占用时会报错，不接管已有进程；可通过 `-ApiPort`、`-FrontendPort` 指定其他端口。日志保存在被忽略的 `.tmp/local-run/`。此方式验证产品行为，Nginx、镜像和 HTTPS 仍需部署环境验证。
+
 ## Docker 单机部署（待服务器验证）
 
 仓库提供前后端 Dockerfile、Compose、Nginx 反向代理和 HTTPS 配置模板。Nginx 随 web 容器运行，无需在宿主机重复安装；api 不映射公网端口，SQLite 使用独立数据卷。默认只在服务器本机监听，不配置部署者共享模型 Key，使用离线模拟 Provider。

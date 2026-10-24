@@ -43,6 +43,8 @@ Current，2026-10-24，`codex/public-demo-foundation` 分支实现；用户腾�
 
 ## 如何与服务器环境衔接
 
+Windows 本地预览无需先部署服务器：运行 `.\scripts\start_local.ps1`，自动启动公网 Demo 后端与前端，访问 `http://127.0.0.1:5174`。使用 `-Mode Development` 启动普通开发模式（默认离线，端口 5173），真实开发模型需显式加 `-FullLlm`。两种预设自动对齐前后端开关及代理，分别使用 `data/local_public_demo.db` 与 `data/happy_free_time_v2.db`，不改写父终端或 .env；同时运行时端口互不冲突。Ctrl+C 停止本次两个服务，`-Check` 可做启动后自动退出的检查。该工具不加入生产镜像，不是前台模式切换接口。
+
 仓库现在提供 Docker/Compose、Nginx 和 HTTPS 模板，逐步操作见[单机部署指南](deployment.md)。默认仅服务器本机访问，待镜像构建与容器验证；不能将文件存在等同于已上线。
 
 后端运行时：`HFT_PUBLIC_DEMO=true`。前端构建时：`VITE_PUBLIC_DEMO=true`。两者是不同开关；前端配置不一致会在启动时停下，不能静默退到共享 demo-user。
