@@ -805,9 +805,33 @@ describe("planning workspace", () => {
     expect(within(constraints).getByText("同行人")).toBeInTheDocument();
     expect(within(constraints).getByText("人均 120 元")).toBeInTheDocument();
     expect(within(constraints).getByText("距离")).toBeInTheDocument();
-    expect(constraints.querySelector(".planning-constraint-tag.weather")).toHaveTextContent("天气 阴转小雨 · 19°C · 需留意");
+    expect(constraints.querySelector(".planning-constraint-tag.weather")).toHaveTextContent("天气 模拟数据 · 非实时 · 阴转小雨 · 19°C · 需留意");
     expect(planningReply).not.toHaveTextContent("下午两点半准时出发");
     expect(planningReply?.querySelector(".plan-grid")).toBeInTheDocument();
+  });
+
+  it.each([
+    { mode: "mock" as const, source: "cache" as const, verified: true, expected: "模拟数据 · 非实时" },
+    { mode: "replay" as const, source: "replay" as const, verified: true, expected: "固定回放" },
+    { mode: "live" as const, source: "amap_live" as const, verified: false, expected: "高德实时 · 待确认" },
+  ])("shows $mode availability provenance before evidence is expanded", async ({ mode, source, verified, expected }) => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      provider_facts: [{
+        kind: "availability", source, mode, verified, stale: false, status: "available", reason: null,
+        resource_id: "plan-one-activity", observed_at: "2026-10-24T10:00:00Z", verified_at: "2026-10-24T10:00:00Z",
+        degraded: false, degraded_reason: null,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("tab", { name: "核验与来源" }));
+    const overview = screen.getByRole("region", { name: "核验概览" });
+    expect(within(overview).getByText(expected)).toBeVisible();
+    expect(overview).not.toHaveTextContent("已提供动态事实");
   });
 
   it("confirms a saved stale context with a dismissible toast", async () => {

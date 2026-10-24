@@ -1,10 +1,11 @@
 # 公网 Demo：体验边界与部署接入
 
-Current，2026-10-23，`codex/public-demo-foundation` 分支实现；尚未完成腾讯云部署或真实 DeepSeek 联调。本文不替代 HTTPS、反向代理、云防火墙等部署配置。
+Current，2026-10-24，`codex/public-demo-foundation` 分支实现；用户腾讯云已运行 `1531293` 并通过 SSH 隧道完成部分界面体验，尚未完成公网 HTTPS 或真实 DeepSeek 联调。本文不替代 HTTPS、反向代理、云防火墙等部署配置。
 
 ## 体验模式
 
 - 未配置 Key：现有 DemoRouter、规则 PlanningIntent/Advisor 运行真实确定性规划链；理解范围有限，推荐先从预置需求开始。不是完整自然语言能力的等价替代。
+- 展示天气及可用性时直接标明模拟、回放或实际来源，不将模拟缓存显示为实时事实；“换一个地点”只承诺按当前行程角色替换，不承诺同一地点类别。DemoCatalog 暂停召回原始分类存疑的天福茗茶与北京明城墙遗址公园；原始 OSM 快照不据名称擅自改写，核实前不参与新方案。
 - 自配 DeepSeek：左侧栏“模型配置”，移动端从历史侧栏进入。固定官方 HTTPS endpoint 和 `deepseek-flash`，不支持任意 base URL 或模型。仅增强 Router、PlanningIntent、Advisor，不改变硬约束校验、数据真实性或地图模式。
 - 配置成功只代表服务端接受并建立客户端，`validated=false`；没有为了“验证 Key”额外发送付费请求。无效 Key、额度不足、网络错误沿用现有有界错误分类与规则回退，不伪装为模型成功。
 - “展示案例”读取 `data/demo_showcases/v1.json`，与访客数据库隔离；四个会话由真实离线 HTTP/SQLite 链录制，覆盖正式选择、出发地 stale/replan、单站替换与预算恢复。不是实时生成或实时商户事实。“从这个需求开始体验”只向新会话输入框填入需求，发送前零规划写请求。

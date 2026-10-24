@@ -58,6 +58,18 @@ class FixedRouteProvider:
 
 
 class DemoWorldTest(unittest.TestCase):
+    def test_category_conflicts_are_quarantined_without_rewriting_raw_anchors(self) -> None:
+        candidates = DemoCatalog().recall(PlanRequest()).candidates
+        ids = {candidate.resource_id for candidate in candidates}
+        anchors = json.loads(ANCHORS.read_text(encoding="utf-8"))["records"]
+        quarantined = {"osm-node-4284096489", "osm-node-5963885701"}
+        self.assertTrue(ids)
+        self.assertTrue(ids.isdisjoint(quarantined))
+        self.assertEqual(len(ids), len(anchors) - len(quarantined))
+        for anchor in anchors:
+            if anchor["resource_id"] in quarantined:
+                self.assertEqual(anchor["category_tags"], ["博物馆"])
+
     def test_generated_world_is_deterministic_complete_and_keeps_anchor_identity(self) -> None:
         self.assertEqual(build(), build())
         anchors = json.loads(ANCHORS.read_text(encoding="utf-8"))["records"]

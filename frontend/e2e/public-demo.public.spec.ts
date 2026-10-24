@@ -1,6 +1,29 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
 
+test("desktop demo labels simulated evidence and submits an honestly named replacement", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop-public", "Desktop workspace acceptance");
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".plan-card").first()).toBeVisible();
+  await expect(page.locator(".planning-constraint-tag.weather").first()).toContainText("模拟数据 · 非实时");
+  await page.getByRole("tab", { name: "核验与来源" }).click();
+  const overview = page.getByRole("region", { name: "核验概览" });
+  await expect(overview).toContainText("模拟数据 · 非实时");
+  await expect(overview).not.toContainText("已提供动态事实");
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-polish-evidence-desktop.png") });
+  await page.getByRole("tab", { name: "行程", exact: true }).click();
+  await page.getByRole("button", { name: "选择此方案", exact: true }).click();
+  await expect(page.getByRole("button", { name: "已选择此方案", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "替换此站", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "换个类似的", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "换一个地点", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "替换结果", exact: true })).toBeVisible();
+  await expect(page.locator(".plan-diff-replacements").first()).toBeVisible();
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-polish-replacement-desktop.png") });
+});
+
 test("public model settings are page-only and showcase playback never writes a session", async ({ page }, info) => {
   const mobile = info.project.name.startsWith("mobile");
   const openNav = async () => { if (mobile) await page.getByRole("button", { name: "打开历史会话" }).click(); };

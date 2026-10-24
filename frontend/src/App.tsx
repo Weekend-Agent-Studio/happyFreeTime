@@ -194,7 +194,7 @@ const REPLACEMENT_PRESET_CRITERIA: Record<ReplacementPreset, ReplacementCriterio
 };
 
 const REPLACEMENT_PRESET_LABELS: Record<ReplacementPreset, string> = {
-  similar: "换个类似的",
+  similar: "换一个地点",
   shorter: "全程更近",
   quiet: "更安静",
   chatty: "更适合聊天",
@@ -487,6 +487,7 @@ function planningWeatherTag(facts: ProviderFact[]): PlanningConstraintTag | null
   const weather = facts.find((fact) => fact.kind === "weather");
   if (!weather || weather.kind !== "weather") return null;
   const value = [
+    providerSourceLabel(weather),
     weather.condition,
     weather.temperature_c === null ? null : `${weather.temperature_c}°C`,
     weather.degraded ? "待确认" : weather.is_adverse || weather.precipitation_mm > 0 ? "需留意" : null,
@@ -523,11 +524,13 @@ function strategyLabel(strategy: string): string {
 }
 
 function providerSourceLabel(fact: ProviderFact): string {
+  if (fact.mode === "mock") return "模拟数据 · 非实时";
+  if (fact.mode === "replay") return "固定回放";
   const labels: Record<ProviderFact["source"], string> = {
     amap_live: "高德实时",
     cache: "缓存",
     replay: "固定回放",
-    mock: "可信模拟",
+    mock: "模拟数据 · 非实时",
     local_estimate: "本地估算",
   };
   return labels[fact.source];
@@ -2164,7 +2167,7 @@ function App() {
                 <p className="replacement-draft-guide"><Info size={13} aria-hidden="true" />快捷条件会立即提交；也可以在下方输入自定义偏好后点击发送</p>
               </div>
               <div className="replacement-presets">
-                <button type="button" className={replacementDraft.criteria.length === 0 ? "active" : ""} onClick={() => chooseReplacementMode("similar")} disabled={loading || restoring}>换个类似的</button>
+                <button type="button" className={replacementDraft.criteria.length === 0 ? "active" : ""} onClick={() => chooseReplacementMode("similar")} disabled={loading || restoring}>换一个地点</button>
                 <button type="button" className={replacementDraft.criteria.some((item) => item.kind === "route_objective") ? "active" : ""} onClick={() => chooseReplacementMode("shorter")} disabled={loading || restoring}>全程更近</button>
                 <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "安静") ? "active" : ""} onClick={() => chooseReplacementMode("quiet")} disabled={loading || restoring}>更安静</button>
                 <button type="button" className={replacementDraft.criteria.some((item) => isSemanticCriterion(item) && item.text === "轻松聊天") ? "active" : ""} onClick={() => chooseReplacementMode("chatty")} disabled={loading || restoring}>更适合聊天</button>
@@ -3170,7 +3173,9 @@ function warningTitle(warning: PlanWarning): string {
 
 function VerificationOverview({ response, plan, selectedFacts }: { response: AgentResponse; plan?: Plan; selectedFacts: ProviderFact[] }) {
   const budget = response.constraint_summary.find((item) => item.field === "budget_per_person");
-  const hasAvailability = selectedFacts.some((fact) => fact.kind === "availability");
+  const availability = selectedFacts.filter((fact) => fact.kind === "availability");
+  const availabilitySources = [...new Set(availability.map(providerSourceLabel))];
+  const availabilityUnconfirmed = availability.some((fact) => fact.kind === "availability" && (!fact.verified || fact.stale || fact.degraded || fact.status === "unknown"));
   const routeSources = plan ? [...new Set(plan.route_legs.map((leg) => routeSourceLabel(leg.source)))] : [];
   const routeDegraded = Boolean(plan?.route_legs.some((leg) => leg.degraded));
   return (
@@ -3180,7 +3185,7 @@ function VerificationOverview({ response, plan, selectedFacts }: { response: Age
         <div><strong>时间线</strong><span>{plan?.stops.length ? "已生成时间安排" : "未提供"}</span></div>
         <div><strong>路线</strong><span>{routeSources.length ? `${routeSources.join(" / ")}${routeDegraded ? " · 含降级" : ""}` : "未提供"}</span></div>
         <div><strong>预算约束</strong><span>{budget ? `${displayConstraint(budget)} · 已记录` : "未提供"}</span></div>
-        <div><strong>营业与可用性</strong><span>{hasAvailability ? "已提供动态事实" : "未提供"}</span></div>
+        <div><strong>营业与可用性</strong><span>{availabilitySources.length ? `${availabilitySources.join(" / ")}${availabilityUnconfirmed ? " · 待确认" : ""}` : "未提供"}</span></div>
       </div>
     </section>
   );

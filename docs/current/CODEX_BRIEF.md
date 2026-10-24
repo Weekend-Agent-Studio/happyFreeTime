@@ -1,8 +1,10 @@
 # Codex Brief：HappyFreeTime 当前事实索引
 
-_最后核对：2026-10-23。本文是低成本接手地图，不替代代码、测试或完整架构说明。开始工作前仍应检查 Git 状态。_
+_最后核对：2026-10-24。本文是低成本接手地图，不替代代码、测试或完整架构说明。开始工作前仍应检查 Git 状态。_
 
 ## 版本边界
+
+- 2026-10-24：用户腾讯云已构建并启动 `1531293`，主会话经 SSH 隧道检查桌面规划、详情/证据、正式选择和单站替换；不是公网 HTTPS 或真实 Key 验收。本轮展示修正让天气与可用性概览直接标明模拟/回放/来源；“换个类似的”改为符合现有无类别约束合同的“换一个地点”。DemoCatalog 暂停召回两条原始分类存疑记录（天福茗茶、北京明城墙遗址公园），保留原始快照与 Demo World 文件，当前 Demo 候选最多 198 条。固定多轮案例入侧栏、下一步按钮与 README 产品包装仍待后续实施。详见 `docs/status/public_demo_polish_20261024.md`。
 
 - 2026-10-23 部署补充：同一公网基础分支增加 `compose.yaml`、`compose.https.yaml`、`deploy/` 和 [单机部署指南](deployment.md)。web=Nginx+React，api=单 worker FastAPI，固定独立数据卷；默认仅监听服务器 loopback、无部署者 LLM Key、模拟站点 Provider。前后端共享 release 标识，提供 HTTP/SSE 冒烟及可选停机快照。部署定向测试与公网隔离合计 18 项通过；当前电脑无 Docker，镜像构建、Nginx 容器运行和腾讯云/HTTPS 尚未实测。见 `docs/status/public_demo_deployment_20261023.md`。
 
