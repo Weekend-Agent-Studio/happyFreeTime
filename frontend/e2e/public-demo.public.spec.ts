@@ -1,6 +1,33 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
 
+for (const entry of ["typed", "suggestion"]) {
+  test(`public HTTP planning via ${entry} keeps Key disabled`, async ({ page }, info) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.goto("http://hft-http.test:4176/");
+    expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
+    expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe("undefined");
+    const mobile = info.project.name.startsWith("mobile");
+    if (mobile) await page.getByRole("button", { name: "打开历史会话" }).click();
+    await page.getByRole("button", { name: "模型配置", exact: true }).filter({ visible: true }).click();
+    await expect(page.getByLabel("DeepSeek API Key")).toBeDisabled();
+    await expect(page.getByRole("alert")).toContainText("尚未使用 HTTPS");
+    await page.getByRole("button", { name: "关闭模型配置" }).click();
+    if (mobile) await page.keyboard.press("Escape");
+    if (entry === "typed") {
+      await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+      await page.getByRole("button", { name: "发送需求" }).click();
+    } else {
+      await page.getByRole("button", { name: /今天下午出去玩，别太远/ }).click();
+    }
+    await expect(page.locator(".rich-planning-reply")).toHaveCount(1);
+    await expect(page.getByLabel("描述你的空闲时间和偏好")).toBeEnabled();
+    expect(pageErrors).toEqual([]);
+    await page.screenshot({ path: path.resolve(`../.impeccable/review/http-planning-${info.project.name}-${entry}.png`) });
+  });
+}
+
 test("offline follow-up keeps two people separate from 150 yuan", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop-public", "Desktop regression for the reported utterance");
   await page.goto("/");

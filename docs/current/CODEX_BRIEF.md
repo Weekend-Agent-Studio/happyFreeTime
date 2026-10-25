@@ -4,6 +4,8 @@ _最后核对：2026-10-25。本文是低成本接手地图，不替代代码、
 
 ## 版本边界
 
+- 2026-10-26 公网 HTTP 规划修复：PR #25 已合并到 main@b430599，用户服务器 5b94e86d 正式镜像严格冒烟及隧道桌面验收通过。IP HTTP 测试发现 App 直接调用仅安全上下文可用的 crypto.randomUUID，导致发送和首页快捷规划在发请求前抛错。现统一使用 createClientId：可用时沿用 randomUUID，否则用 getRandomValues 生成 UUID v4；覆盖消息、请求、条件保存与重新规划。Key 仍禁止在公网 HTTP 输入。浏览器验收新增映射到本机的非安全测试域名，不把 localhost 当作 HTTP 兼容性证据；服务器尚未部署此修正。
+
 - 2026-10-26 镜像下载修正：服务器正式镜像构建因 files.pythonhosted.org ReadTimeout 失败，旧容器继续运行；拆分 apt/CPU torch/RAG 安装层，普通依赖增加可配置 HFT_PIP_INDEX_URL（默认 PyPI），CPU torch 保持官方 CPU 源，pip 下载超时 120 秒。未改业务或依赖版本范围，本机无 Docker，仍需服务器构建并验收。见 `docs/current/deployment_retrieval.md`。
 
 - 2026-10-25 正式镜像准备：用户确认路线限速补丁启用后的服务器严格冒烟通过，仍是临时只读覆盖，非正式新镜像或公网 HTTPS 验收。后端 Dockerfile 将基础依赖、CPU BGE 依赖与业务代码/版本元数据分离，避免源码或 release 变化触发大依赖重装；首次切换缓存结构仍可能重装。本机无 Docker，实际镜像构建及移除覆盖后的复验待服务器执行。见 `docs/status/release_image_cache_20261025.md`。

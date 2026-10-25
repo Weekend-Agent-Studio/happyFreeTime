@@ -167,6 +167,26 @@ describe("planning workspace", () => {
     api.selectPlan.mockResolvedValue({ active_plan_version_id: "v1", selected_plan_id: "plan-one" });
   });
 
+  it.each(["typed", "suggestion"])("submits %s planning without crypto.randomUUID", async (entry) => {
+    const getRandomValues = crypto.getRandomValues.bind(crypto);
+    vi.stubGlobal("crypto", { getRandomValues });
+    try {
+      const user = userEvent.setup();
+      render(<App />);
+      if (entry === "typed") {
+        await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+        await user.click(screen.getByRole("button", { name: "发送需求" }));
+      } else {
+        await user.click(screen.getByRole("button", { name: /今天下午出去玩，别太远/ }));
+      }
+      await screen.findAllByText("方案一");
+      expect(api.sendMessageStream).toHaveBeenCalledTimes(1);
+      expect(api.sendMessageStream.mock.calls[0][2]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("switches plans and keeps timeline, map rows, and RouteLeg indices aligned", async () => {
     const user = userEvent.setup();
     render(<App />);
