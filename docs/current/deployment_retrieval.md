@@ -28,6 +28,8 @@ tar -xzf /opt/happyfreetime-retrieval.tar.gz -C deploy
 
 ## Docker 与严格就绪检查
 
+后端基础依赖和 CPU BGE 依赖分别在独立阶段安装，业务代码、release 标签及模型资产均在依赖安装之后进入最终镜像。以后仅改源码或 HFT_RELEASE 时可复用依赖层；首次切换到该构建结构仍可能重新安装，不能保证命中旧结构缓存。构建失败时不要替换旧容器，也不要使用 `--no-cache` 或先清理旧镜像。
+
 默认 `HFT_API_TARGET=rag` 使用 CPU-only PyTorch，并将模型、索引及 data/retrieval/v1 语义 Profile 装入镜像；非 root、只读根文件系统和访客隔离保持不变。索引按真实演示目录生成，而不是原始 OSM 的另一套属性。
 
 已有服务器不要覆盖私有配置；同步核对：
