@@ -834,6 +834,15 @@ describe("planning workspace", () => {
     expect(overview).not.toHaveTextContent("已提供动态事实");
   });
 
+  it("explains an empty condition-save reply instead of showing an empty assistant turn", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, status: "context_saved", reply: "", plans: [], planning_context: planningContext({ plan_stale: true }) });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "保存新条件");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    expect(await screen.findByText("条件已保存，现有方案需要重新核验；确认重新规划后才会更新行程。")).toBeVisible();
+  });
+
   it("confirms a saved stale context with a dismissible toast", async () => {
     const user = userEvent.setup();
     const initialContext = planningContext();

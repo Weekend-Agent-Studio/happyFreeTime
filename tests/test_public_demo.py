@@ -20,6 +20,18 @@ def make_app(path, demo):
                       catalog=catalog, poi_presentation_provider=catalog.presentation_provider, public_demo=demo)
 
 
+def test_follow_up_party_count_does_not_become_the_budget(tmp_path):
+    with TestClient(make_app(tmp_path / "followup.db", PublicDemo())) as client:
+        headers = visitor(client)
+        session = client.post("/api/sessions", headers=headers).json()["data"]["session_id"]
+        for request_id, content in [("initial-turn", "今天下午出去玩"), ("update-turn", "改成两个人，人均150元，严格控制预算")]:
+            response = client.post(f"/api/sessions/{session}/messages", headers=headers, json={"request_id": request_id, "content": content})
+            assert response.status_code == 200, response.text
+        fields = {item["field"]: item for item in response.json()["data"]["constraint_summary"]}
+        assert fields["party"]["value"]["adults"] == 2
+        assert fields["budget_per_person"]["value"] == 150
+
+
 def visitor(client):
     response = client.post("/api/demo/visitors")
     assert response.status_code == 201

@@ -84,6 +84,17 @@ def _parse_finite_chinese_number(value: str) -> int | None:
     return total + section + number
 
 
+def _explicit_adults(text: str) -> tuple[int | None, str | None]:
+    number = r"(?P<count>\d{1,3}|[一二两三四五六七八九十百]+)"
+    match = re.search(number + r"\s*(?:个|位|名)?\s*(?:成年人|成人|大人)", text)
+    if not match and not re.search(r"儿童|孩子|小孩|宝宝", text):
+        match = re.search(number + r"\s*(?:个|位|名)?\s*人(?!均)", text)
+    if not match:
+        return None, None
+    count = _parse_finite_chinese_number(match.group("count"))
+    return (count, match.group(0)) if count else (None, None)
+
+
 class DemoRouter:
     """用小型规则集实现与真实 Router 相同的 ``interpret`` 接口。
 
@@ -398,8 +409,9 @@ class DemoRouter:
             (None, None, None),
         )
         single_stop_role, single_stop_match, single_stop_group = single_stop_match
-        party_evidence = "约会" if "约会" in text else None
-        party_size = 2 if party_evidence else None
+        party_size, party_evidence = _explicit_adults(text)
+        if party_size is None and "约会" in text:
+            party_size, party_evidence = 2, "约会"
         preferences = [
             label
             for keyword, label in (
@@ -677,6 +689,7 @@ class DemoRouter:
             time_text = None
         return_by = value if re.search(r"回家|到家|回来", value) else None
         strict_budget: bool | None = None
+        adults, _ = _explicit_adults(value)
         budget = None
         if "预算不限" in value or "不设预算" in value:
             strict_budget = False
@@ -764,7 +777,7 @@ class DemoRouter:
         )
         if not (
             has_patch_marker or date_text or departure or departure_period or return_by
-            or budget or strict_budget is not None or origin or preferences or diet_tags
+            or budget or strict_budget is not None or adults is not None or origin or preferences or diet_tags
             or avoid or max_distance or planning_area
             or scope is not None or explicit_window is not None
             or exact_stop_count is not None or replace_roles or append_roles or clear_structure
@@ -805,6 +818,7 @@ class DemoRouter:
             origin_text=origin,
             planning_area_text=planning_area,
             budget_text=budget,
+            adults=adults,
             max_distance_text=max_distance,
             preferences=preferences,
             diet_tags=diet_tags,

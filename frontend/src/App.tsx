@@ -807,6 +807,16 @@ function recoveryLifecycleFromResponse(response: AgentResponse): Pick<RecoveryLi
   return { status: "finished", summary: "恢复操作已处理。" };
 }
 
+function recoveryHistory(responses: AgentResponse[]): Record<string, RecoveryLifecycle> {
+  return Object.fromEntries(responses
+    .filter((item) => item.recovery_outcome?.interaction_id)
+    .map((item) => [item.recovery_outcome!.interaction_id!, {
+      actionId: item.recovery_outcome!.action_id,
+      label: item.recovery_outcome!.label,
+      ...recoveryLifecycleFromResponse(item),
+    }]));
+}
+
 function isCurrentRecoveryAction(
   response: AgentResponse | null,
   interaction: RecoveryChoice,
@@ -1307,19 +1317,7 @@ function App() {
       activePlanSnapshotRef.current = restoredActiveResponse;
       setSessionId(view.session_id);
       setMessages(attachResponsesToMessages(view.messages, restoredResponses));
-      const restoredLifecycle = Object.fromEntries(
-        restoredResponses
-          .filter((item) => item.recovery_outcome?.interaction_id)
-          .map((item) => [
-            item.recovery_outcome!.interaction_id!,
-            {
-              actionId: item.recovery_outcome!.action_id,
-              label: item.recovery_outcome!.label,
-              ...recoveryLifecycleFromResponse(item),
-            },
-          ]),
-      );
-      setRecoveryLifecycle(restoredLifecycle);
+      setRecoveryLifecycle(recoveryHistory(restoredResponses));
       setProgressEvents([]);
       setResponse(restoredResponse);
       setPlanningContext(view.planning_context ?? restoredResponse?.planning_context ?? null);
@@ -1587,7 +1585,7 @@ function App() {
         setInspectedResponse((current) => current?.plans.length ? current : nextResponse);
       }
       const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
-      if (assistantText || nextResponse.plans.length || nextResponse.conflict) {
+      if (assistantText || nextResponse.plans.length || nextResponse.conflict || nextResponse.status === "context_saved") {
         setMessages((current) => [...current, {
           id: crypto.randomUUID(), role: "assistant", content: assistantText ?? "", response: nextResponse,
         }]);
@@ -2125,6 +2123,7 @@ function App() {
         recordedMessages.push({ id: `${example.id}-${index}-assistant`, role: "assistant", content: step.response?.reply ?? step.reply ?? step.label, response: step.response });
       }
       const recordedResponses = example.steps.flatMap((step) => step.response ? [step.response] : []);
+      setRecoveryLifecycle(recoveryHistory(recordedResponses));
       const latest = recordedResponses.at(-1) ?? null;
       const preview = [...recordedResponses].reverse().find((item) => item.plans.length) ?? latest;
       setMessages(recordedMessages);
@@ -2465,6 +2464,10 @@ function recoveryFieldLabel(field: string): string {
 }
 
 function recoveryDisplayValue(field: string, value: unknown): string {
+  if (field === "strict_budget" && typeof value === "string") {
+    if (value.toLowerCase() === "true") return "严格上限";
+    if (value.toLowerCase() === "false") return "参考条件";
+  }
   if (isRecord(value)) {
     if (Object.prototype.hasOwnProperty.call(value, "value")) return recoveryDisplayValue(field, value.value);
     if (["planning_area", "location"].includes(field) && typeof value.address === "string") return value.address;
@@ -2702,11 +2705,16 @@ function ChatBubble({ message, loading, currentPlanningContext, activeClarificat
     && activeRecoveryInteractionId === message.response.recovery.interaction_id
     && message.response.status === "needs_recovery",
   );
+  const plainReply = message.content || (message.response?.status === "context_saved"
+    ? message.response.planning_context?.plan_stale
+      ? "条件已保存，现有方案需要重新核验；确认重新规划后才会更新行程。"
+      : "条件已保存。"
+    : "");
   return (
     <article className={`message ${message.role} ${message.response?.plans.length ? "rich-turn" : ""} ${usesStructuredResponse ? "structured-turn" : ""}`}>
       <div className="message-content">
         <span className={message.role === "assistant" ? "assistant-speaker" : "user-speaker"}>{message.role === "assistant" ? "管家" : "你"}</span>
-        {message.content && !usesStructuredResponse ? <p>{message.content}</p> : null}
+        {plainReply && !usesStructuredResponse ? <p>{plainReply}</p> : null}
         {message.response?.question ? (
           <section
             className={`clarification-card ${activeClarification ? "" : "clarification-card-readonly"}`}

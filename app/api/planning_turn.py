@@ -1012,21 +1012,8 @@ def _recovery_outcome(
     field_changes = tuple(
         state_values.get("recovery_field_changes") or ()
     )
-    if field_changes:
-        rendered_changes = []
-        for change in field_changes:
-            item = (
-                change.model_dump(mode="json")
-                if hasattr(change, "model_dump")
-                else change
-            )
-            if isinstance(item, dict):
-                rendered_changes.append(
-                    f"{item.get('field')}: {item.get('before') or '未设置'} → "
-                    f"{item.get('after') or '已清除'}"
-                )
-        if rendered_changes:
-            summary = f"{'；'.join(rendered_changes)}。{summary}"
+    # Structured changes remain available for UI formatting and audit. Keep the
+    # public status sentence free of internal field names and Python booleans.
     return RecoveryOutcome(
         interaction_id=state_values.get("recovery_interaction_id"),
         action_id=str(payload.get("action_id", "recovery-action")),

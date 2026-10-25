@@ -237,6 +237,7 @@ class ConstraintPatch(BaseModel):
         ),
     )
     budget_text: str | None = None
+    adults: int | None = Field(default=None, ge=1, description="用户明确给出的成人数；无儿童表述的明确总人数可作为成人数。")
     max_distance_text: str | None = Field(
         default=None,
         description=(

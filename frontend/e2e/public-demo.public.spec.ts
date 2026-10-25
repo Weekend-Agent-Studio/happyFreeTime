@@ -1,6 +1,21 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
 
+test("offline follow-up keeps two people separate from 150 yuan", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop-public", "Desktop regression for the reported utterance");
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".rich-planning-reply")).toHaveCount(1);
+  await page.getByLabel("描述你的空闲时间和偏好").fill("改成两个人，人均150元，严格控制预算");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".rich-planning-reply")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: /^修改同行人数/ })).toHaveAccessibleName(/2 位成人/);
+  await expect(page.getByRole("button", { name: /^修改人均预算/ })).toHaveAccessibleName(/150/);
+  await expect(page.getByRole("group", { name: "规划恢复选项" })).toHaveCount(0);
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-fixed-followup-desktop.png") });
+});
+
 test("desktop demo labels simulated evidence and submits an honestly named replacement", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop-public", "Desktop workspace acceptance");
   await page.goto("/");
@@ -66,6 +81,17 @@ test("public model settings are page-only and showcase playback never writes a s
     await expect(page.getByRole("region", { name: "预置示例说明" })).toContainText(title);
     await expect(page.getByRole("button", { name: /^修改人均预算/ })).toBeDisabled();
     await expect(page.locator(".message.user")).not.toHaveCount(1);
+    if (title === "补充条件，再选方案") {
+      await expect(page.getByText("条件已保存，现有方案需要重新核验；确认重新规划后才会更新行程。")).toBeVisible();
+    } else {
+      const recoveryCard = page.getByRole("group", { name: "规划恢复选项" });
+      await expect(recoveryCard).toContainText("严格上限 → 参考条件");
+      await expect(recoveryCard).not.toContainText(/strict_budget|True|False/);
+      if (!mobile) {
+        await recoveryCard.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-recovery-copy-desktop.png") });
+      }
+    }
     expect(sessionWrites).toBe(0);
   }
   if (mobile) await openNav();

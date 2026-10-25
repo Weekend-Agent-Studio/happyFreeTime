@@ -13,6 +13,7 @@ from app.domain.constraints import (
     ConstraintValue,
     GeoLocation,
     PlanRequest,
+    PartyProfile,
     RequestPatch,
     TimeScope,
     TimeWindow,
@@ -46,6 +47,12 @@ class RequestPatchUpdateCompiler:
         issues: list[ClarificationIssue] = []
         evidence_map = evidence_map or {}
         patch_evidence = evidence_map.get("patch")
+
+        if proposal.adults is not None:
+            party = base.party.value if base.party else PartyProfile()
+            updates["party"] = self._value(
+                party.model_copy(update={"adults": proposal.adults}), patch_evidence, "party.adults.patch.v1"
+            )
 
         if proposal.clear_structure:
             clear_fields.extend(("exact_stop_count", "required_stop_roles"))
@@ -417,10 +424,20 @@ class RequestPatchUpdateCompiler:
 
     @staticmethod
     def _parse_amount(value: str) -> int | None:
-        match = re.search(r"\d{1,5}|[零〇一二两三四五六七八九十百千万]+", value)
+        number = r"\d{1,5}|[零〇一二两三四五六七八九十百千万]+"
+        gap = r"[^\d零〇一二两三四五六七八九十百千万，,；;。\r\n]{0,12}"
+        # Prefer the number attached to the budget, never an earlier party size,
+        # date, time or route distance in the same user utterance.
+        match = re.search(rf"(?:人均|每人){gap}(?P<amount>{number})", value)
+        if not match:
+            match = re.search(rf"预算{gap}(?P<amount>{number})", value)
+        if not match:
+            match = re.search(rf"(?P<amount>{number})\s*(?:元|块)", value)
+        if not match:
+            match = re.fullmatch(rf"\s*(?:(?:最多|不超过|不超|至多|约|大约|改为|改成|控制在|严格控制在)\s*)?(?P<amount>{number})\s*(?:左右|以内|以下)?\s*", value)
         if not match:
             return None
-        token = match.group(0)
+        token = match.group("amount")
         if token.isdigit():
             return int(token)
         digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
