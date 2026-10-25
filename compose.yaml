@@ -12,6 +12,7 @@ services:
     build:
       context: .
       dockerfile: deploy/backend.Dockerfile
+      target: ${HFT_API_TARGET:-rag}
       args:
         HFT_REVISION: ${HFT_RELEASE}
     env_file: deploy/runtime.env
@@ -62,7 +63,7 @@ services:
       interval: 20s
       timeout: 5s
       retries: 3
-      start_period: 45s
+      start_period: 180s
 
   web:
     image: happyfreetime-web:${HFT_RELEASE:?Set HFT_RELEASE in deploy/compose.env}

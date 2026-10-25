@@ -1,6 +1,6 @@
 # 单机公网 Demo 部署
 
-_Current：2026-10-23。部署文件已提供；本机未安装 Docker，镜像构建、腾讯云容器运行、证书与公网访问尚待服务器验证。不是已上线报告。_
+_Current：2026-10-25。服务器已运行旧版 1531293；本轮新增 BGE 打包与预热、高德组合配置。本机真实 BGE/API 验证通过，新镜像、4GB 资源表现、真实高德与 HTTPS 仍待服务器验证。不是新版本已上线报告。_
 
 ## 先理解这条链路
 
@@ -15,7 +15,9 @@ api 容器 → 独立 SQLite 数据卷 happyfreetime-data
 
 GitHub Release 是基于 Git tag 的版本说明和附件页面，适合标记一次可回退版本；它不是镜像仓库，也不等于部署。本仓库当前没有自动部署流水线。建议先完成服务器冒烟，再创建首个 Demo 预发布版本。
 
-当前配置面向单机、单实例、单 worker。4 核 / 4GB / 40GB 可作为首次试运行环境，不加载 BGE 或本地 LLM；并非压测容量承诺。初次下载依赖和构建比日常运行更耗时、耗磁盘。
+当前配置面向单机、单实例、单 worker。默认 `rag` 镜像包含 CPU BGE 与离线索引，不运行本地聊天 LLM。4 核 / 4GB / 40GB 的内存与连续请求表现需要服务器实测；并非压测容量承诺。初次下载依赖和构建更耗时、耗磁盘。
+
+**构建前先完成 [BGE 资产与高德配置](deployment_retrieval.md)。** 模型大文件不随 Git/bundle 传输；必须单独上传资产。旧服务器配置需同步设置 Hybrid 与预热开关。本轮仍不直接更新服务器。
 
 ## 1. 服务器获取代码
 
@@ -36,7 +38,7 @@ sed -i "s/^HFT_RELEASE=.*/HFT_RELEASE=$(git rev-parse --short HEAD)/" deploy/com
 
 两份配置用途不同：`compose.env` 设置镜像版本、端口和 Docker 网络；`runtime.env` 设置后端行为。它们、证书、维护快照均被 Git 和镜像构建上下文排除。不要把 Key 写进 Dockerfile 或 `VITE_*`。
 
-首次保留示例默认值：只监听服务器 `127.0.0.1:8080`；模型为规则降级，天气、路线与地点为模拟数据，没有部署者共享 LLM Key。访客后续可经 HTTPS 临时配置自己的 DeepSeek Key。真实 POI 商业数据和线上地图效果没有因为部署而自动补齐。
+首次保留示例默认值：只监听服务器 `127.0.0.1:8080`，BGE Hybrid 召回并要求启动预热；未提供访客 Key 时，需求理解与解释使用规则。天气、路线与地点搜索默认模拟，没有部署者共享 LLM Key。通过 compose.amap.yaml 可显式启用高德实时模式；POI 商业属性仍为模拟，不因地图上线而变成实时库存。
 
 可选高德地图（与访客 DeepSeek 配置独立）：在服务器私有 `deploy/runtime.env` 中填写 `AMAP_JS_API_KEY` 与 `AMAP_JS_SECURITY_CODE`，即可启用已有地图 SDK/后端代理。若还需要真实出发地搜索，填写 `AMAP_WEB_SERVICE_KEY`，并设 `HFT_GEOCODING_PROVIDER_MODE=live`。保留 `HFT_ROUTE_PROVIDER_MODE=mock` 和 `HFT_PROVIDER_MODE=mock` 时，路线和天气仍为模拟，地图显示不等于真实路线规划。应用已有地图代理与地点搜索总限流，仍需独立核对服务商额度；不要把 Key 放入前端构建变量或 Git。配置修改后用本节 Compose 参数重新 `up -d`，无需因此重新构建镜像。
 

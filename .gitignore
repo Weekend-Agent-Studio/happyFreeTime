@@ -40,5 +40,8 @@ artifacts/evals/
 # Deployment-local runtime settings, certificates and private maintenance backups.
 /deploy/compose.env
 /deploy/runtime.env
+/deploy/amap.env
 /deploy/certs/
 /deploy/backups/
+/deploy/retrieval/
+/deploy/retrieval.tar.gz

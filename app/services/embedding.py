@@ -162,6 +162,8 @@ class LocalBgeEmbeddingProvider:
                     model = SentenceTransformer(
                         str(self._model_path),
                         device=self._device,
+                        local_files_only=True,
+                        trust_remote_code=False,
                     )
                 actual_dimension = int(model.get_sentence_embedding_dimension())
             except ImportError as exc:

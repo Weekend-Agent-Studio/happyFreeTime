@@ -21,13 +21,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.catalog import StopCandidate
 from app.domain.constraints import StopRole
-from app.domain.semantics import EvidenceRef, SemanticRequest, SoftObjectiveKind
+from app.domain.semantics import EvidenceRef, SemanticQuery, SemanticRequest, SoftObjectiveKind
 from app.services.embedding import (
     EmbeddingProvider,
     EmbeddingProviderError,
     LocalBgeEmbeddingProvider,
 )
-from app.services.poi_semantic_profiles import PoiSemanticProfileAssembler
+from app.services.poi_semantic_profiles import PoiSemanticProfileAssembler, semantic_profile_source_hash
 from app.services.retrieval_index import (
     RetrievalIndexError,
     RetrievalIndexManifest,
@@ -287,6 +287,22 @@ class HybridRagCandidateRetriever(RuleBasedCandidateRetriever):
     @property
     def model_id(self) -> str:
         return self._embedding_provider.model_id
+
+    def warmup(self, candidates: Sequence[StopCandidate]) -> dict:
+        """Fail startup on unusable assets; warm the same instance used by turns."""
+        started = perf_counter()
+        manifest, _ = self._load_dense_index()
+        profiles = self._profile_assembler.assemble_many(candidates)
+        if manifest.assembled_profile_hash != semantic_profile_source_hash(profiles):
+            raise RetrievalIndexError("deployment index does not match the active catalog")
+        result = self.retrieve(candidates, semantic_request=SemanticRequest(queries=(
+            SemanticQuery(query_id="startup-warmup", text="安静的室内展馆，适合慢慢参观"),
+        )))
+        if result.actual_adapter != self.adapter_name or result.fallback_reason or result.query_count != 1:
+            raise RetrievalIndexError("BGE startup query failed; refusing silent rule fallback")
+        return {"prewarmed": True, "mode": self.mode, "model_id": self.model_id,
+                "dimension": manifest.dimension, "candidate_count": manifest.candidate_count,
+                "elapsed_ms": _elapsed_ms(started)}
 
     def retrieve(
         self,

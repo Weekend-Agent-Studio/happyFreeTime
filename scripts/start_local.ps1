@@ -15,6 +15,8 @@ param(
     [int]$FrontendPort = 0,
     [switch]$FullLlm,
     [switch]$WithAmap,
+    [switch]$LiveAmap,
+    [switch]$HybridRetrieval,
     [switch]$Check
 )
 
@@ -25,6 +27,8 @@ if (-not (Test-Path -LiteralPath $Python)) { throw "Missing .venv Python. Instal
 $LaunchArgs = @((Join-Path $PSScriptRoot "start_local.py"), "--mode", $Mode, "--api-port", $ApiPort, "--frontend-port", $FrontendPort)
 if ($FullLlm) { $LaunchArgs += "--full-llm" }
 if ($WithAmap) { $LaunchArgs += "--with-amap" }
+if ($LiveAmap) { $LaunchArgs += "--live-amap" }
+if ($HybridRetrieval) { $LaunchArgs += "--hybrid-retrieval" }
 if ($Check) { $LaunchArgs += "--check" }
 & $Python @LaunchArgs
 exit $LASTEXITCODE

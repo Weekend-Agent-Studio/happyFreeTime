@@ -30,6 +30,35 @@ def test_amap_map_only_and_incomplete_configuration(monkeypatch):
         environments("PublicDemo", 8001, with_amap=True)
 
 
+def test_live_amap_requires_explicit_opt_in_and_all_keys(monkeypatch):
+    keys = {"AMAP_JS_API_KEY": "fixture-js", "AMAP_JS_SECURITY_CODE": "fixture-security", "AMAP_WEB_SERVICE_KEY": "fixture-web"}
+    for name in keys:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("scripts.start_local.dotenv_values", lambda path: keys)
+    backend, _ = environments("PublicDemo", 8001, live_amap=True)
+    assert backend["LLM_API"] == ""
+    assert backend["HFT_PROVIDER_MODE"] == backend["HFT_ROUTE_PROVIDER_MODE"] == backend["HFT_GEOCODING_PROVIDER_MODE"] == "live"
+    keys["AMAP_WEB_SERVICE_KEY"] = ""
+    with pytest.raises(ValueError, match="also requires"):
+        environments("PublicDemo", 8001, live_amap=True)
+
+
+def test_hybrid_launcher_points_to_prepared_assets_and_does_not_change_parent(monkeypatch, tmp_path):
+    monkeypatch.setattr("scripts.start_local.ROOT", tmp_path)
+    with pytest.raises(ValueError, match="prepare_retrieval"):
+        environments("PublicDemo", 8001, hybrid_retrieval=True)
+    assets = tmp_path / "deploy/retrieval"
+    assets.mkdir(parents=True)
+    (assets / "asset_manifest.json").write_text("{}")
+    monkeypatch.setenv("HFT_RETRIEVAL_PREWARM", "false")
+    backend, _ = environments("PublicDemo", 8001, hybrid_retrieval=True)
+    assert backend["HFT_CANDIDATE_RETRIEVER_MODE"] == "hybrid"
+    assert backend["HFT_RETRIEVAL_PREWARM"] == "true"
+    assert backend["HFT_EMBEDDING_MODEL_PATH"] == str(assets / "model")
+    assert backend["HF_HUB_OFFLINE"] == "1"
+    assert os.environ["HFT_RETRIEVAL_PREWARM"] == "false"
+
+
 def test_public_preset_overrides_paid_site_settings_without_mutating_parent(monkeypatch):
     monkeypatch.setenv("LLM_API", "owner-fixture")
     monkeypatch.setenv("HFT_PROVIDER_MODE", "live")

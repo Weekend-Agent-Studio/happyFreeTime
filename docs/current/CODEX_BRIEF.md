@@ -4,6 +4,8 @@ _最后核对：2026-10-25。本文是低成本接手地图，不替代代码、
 
 ## 版本边界
 
+- 2026-10-25 BGE/高德部署补齐：默认 Compose `rag` 镜像包含 CPU BGE、语义 Profile 和独立准备的 DemoCatalog 索引；`deploy/prepare_retrieval.py` 离线生成资产，模型不进 Git，资产包需单独上传。lifespan 在正式共用检索器上校验 Catalog/索引并实际编码，启用预热时失败拒绝就绪；runtime 返回预热状态。`-HybridRetrieval` 使用同一本机资产，`-LiveAmap` 显式启用已有地图/搜索/路线/天气；生产通过 compose.amap.yaml 与私有 amap.env 启用。评分未变；新镜像、4GB 容量、真实高德/HTTPS 仍待服务器验证。见 `docs/current/deployment_retrieval.md` 与 `docs/status/public_demo_bge_deployment_20261025.md`。
+
 - 2026-10-25 模型记录层级修正：复用此前 RuntimeCallSummary 图标/阶段卡片，普通用户可展开查看调用状态、阶段总耗时和尝试次数；token 与原始回退诊断仍限开发者。核验顺序为需要确认→核验概览→默认折叠模型调用→证据，不再保留第二套简版列表。本地启动新增 `-WithAmap`，只显式读取三项高德凭证，启用地图和可选出发地搜索，不继承站主 LLM、不自动开启真实路线/天气。Docker 仍默认规则召回，BGE 依赖/模型/索引及预热未纳入镜像。详见 `docs/status/public_demo_runtime_map_20261025.md`。
 
 - 2026-10-25 配置与核验展示：普通“核验与来源”新增按本轮 runtime_decisions 展示的模型使用摘要，调用、回退和无记录分开，逐阶段诊断仍由开发者开关控制。Key 配置状态不推断真实模型调用；弹窗保留后端转发、临时使用与费用提示，完整说明折叠，已配置以图标/文字/颜色标示。四类偏好有各自简短说明及输入示例；出发地直接显示响应实际名称/地址，默认固定坐标与非实时定位说明在编辑页展示；未设置日期框取消额外最小宽度。本轮仅前端，不改变模型、偏好匹配、地点坐标或保留策略。

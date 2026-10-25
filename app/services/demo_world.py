@@ -108,6 +108,7 @@ class DemoCatalog:
             if candidate.resource_id not in _CATEGORY_REVIEW_PENDING
         ]
         self._delegate = InMemoryCatalog(enriched)
+        self._candidates = enriched
 
     @property
     def presentation_provider(self) -> DemoWorld:
@@ -115,6 +116,10 @@ class DemoCatalog:
 
     def recall(self, constraints: PlanRequest) -> CatalogResult:
         return self._delegate.recall(constraints)
+
+    def load_candidates(self) -> list[StopCandidate]:
+        """Export the active demo universe for an offline retrieval index."""
+        return [candidate.model_copy(deep=True) for candidate in self._candidates]
 
     @staticmethod
     def _merge(anchor: StopCandidate, record: dict) -> StopCandidate:

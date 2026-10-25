@@ -19,6 +19,7 @@ from app.services.router_extractor import build_default_turn_interpreter
 from app.services.catalog import SnapshotCatalog
 from app.services.planning_intent import build_default_planning_intent_provider
 from app.services.demo_world import DemoCatalog
+from app.services.candidate_retriever import build_default_candidate_retriever
 
 
 load_dotenv()
@@ -138,4 +139,6 @@ app = create_app(
     planning_intent_provider=planning_intent_provider,
     poi_presentation_provider=poi_presentation_provider,
     web_map_provider=web_map_provider,
+    candidate_retriever=build_default_candidate_retriever(),
+    prewarm_retrieval=os.getenv("HFT_RETRIEVAL_PREWARM", "false").lower() == "true",
 )

@@ -39,7 +39,7 @@ from app.providers.geocoding import GeocodingProvider
 from app.providers.availability import AvailabilityProvider
 from app.providers.web_map import DisabledWebMapProvider, WebMapProvider
 from app.services.catalog import Catalog
-from app.services.candidate_retriever import CandidateRetriever
+from app.services.candidate_retriever import CandidateRetriever, HybridRagCandidateRetriever
 from app.api.planning_context import (
     DepartureLocationSearchUnavailable,
     PlanningContextApplication,
@@ -120,12 +120,16 @@ def create_app(
     poi_presentation_provider: PoiPresentationProvider | None = None,
     web_map_provider: WebMapProvider | None = None,
     public_demo: PublicDemo | None = None,
+    prewarm_retrieval: bool = False,
 ) -> FastAPI:
     """创建可注入依赖的应用实例。
 
     测试传入临时数据库、规则 Router 和固定环境；生产传入文件数据库、真实或
     Demo Router 和系统环境。这样 API 行为可以端到端测试而不访问外部模型。
     """
+    if prewarm_retrieval and (not isinstance(candidate_retriever, HybridRagCandidateRetriever) or catalog is None):
+        raise ValueError("retrieval prewarm requires an explicit Hybrid retriever and catalog")
+    retrieval_startup = {"mode": getattr(candidate_retriever, "mode", "rule"), "prewarmed": False}
     database = Database(database_path)
     database.create_schema()
     repository = SessionRepository(database.session_factory)
@@ -190,13 +194,15 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         cleaner = None
-        if public_demo:
-            checkpointer.setup()
-            # Capabilities are process-local; old guest data cannot be resumed after restart.
-            for user_id in repository.guest_user_ids():
-                purge_guest(user_id)
-            cleaner = asyncio.create_task(sweep_guests())
         try:
+            if prewarm_retrieval:
+                retrieval_startup.update(await asyncio.to_thread(candidate_retriever.warmup, catalog.load_candidates()))
+            if public_demo:
+                checkpointer.setup()
+                # Capabilities are process-local; old guest data cannot be resumed after restart.
+                for user_id in repository.guest_user_ids():
+                    purge_guest(user_id)
+                cleaner = asyncio.create_task(sweep_guests())
             yield
         finally:
             if cleaner:
@@ -226,7 +232,7 @@ def create_app(
 
     @app.get("/api/config/runtime")
     def runtime_config():
-        return {"data": {"public_demo": public_demo is not None, "provider": "deepseek", "model": "deepseek-flash", "release": os.getenv("HFT_RELEASE", "development")}}
+        return {"data": {"public_demo": public_demo is not None, "provider": "deepseek", "model": "deepseek-flash", "release": os.getenv("HFT_RELEASE", "development"), "retrieval": retrieval_startup}}
 
     @app.get("/api/demo/showcases")
     def demo_showcases():

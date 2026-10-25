@@ -49,7 +49,7 @@ Windows 本地预览无需先部署服务器：运行 `.\scripts\start_local.ps1
 
 本地公网模式可显式运行 `.\scripts\start_local.ps1 -WithAmap`。仅从环境或本机 `.env` 读取 `AMAP_JS_API_KEY`、`AMAP_JS_SECURITY_CODE`、`AMAP_WEB_SERVICE_KEY`；前两项必需，第三项存在时启用真实出发地搜索，否则仅地图。仍屏蔽站主 LLM，路线和天气维持模拟。地图不要求访客提供 DeepSeek Key；JS Key 属于浏览器公开配置，安全码留在后端代理。首次真实联网效果尚需使用自己的有效配置联调。
 
-当前 Docker 使用 `HFT_CANDIDATE_RETRIEVER_MODE=rule`，没有打包可选 BGE 依赖、权重和索引。自配 DeepSeek 不会改变此开关。Hybrid 使用本地 BGE 编码，并非向 DeepSeek 发召回请求；启用前需独立准备依赖/模型/索引及资源验证。BGE 首个有效向量请求才惰性加载，进程存活期间复用；新会话不重载，重启后需重新加载，预热尚未自动实现。
+当前 Compose 默认选择 `rag` 镜像，使用单独准备的模型/索引，包含可选 CPU BGE 依赖及语义 Profile。自配 DeepSeek 不改变召回模式。Hybrid 使用本地 BGE 编码；`HFT_RETRIEVAL_PREWARM=true` 时，在服务就绪前验证并预热正式共用实例，不把缺模型/失效索引静默当成成功。新会话复用，重启重新预热。本地用 `-HybridRetrieval` 显式启用，默认轻量本地预览仍为 rule。`-LiveAmap` 读取三项本机凭证，启用地图、出发地搜索、天气与路线；生产使用 compose.amap.yaml 和私有 deploy/amap.env。资源、容器与在线服务验收见 [BGE/高德部署补充](deployment_retrieval.md)。
 
 仓库现在提供 Docker/Compose、Nginx 和 HTTPS 模板，逐步操作见[单机部署指南](deployment.md)。默认仅服务器本机访问，待镜像构建与容器验证；不能将文件存在等同于已上线。
 

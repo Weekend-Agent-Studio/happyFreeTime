@@ -31,6 +31,7 @@ def test_compose_keeps_public_boundary_private_backend_and_data_separate():
     assert api["command"][api["command"].index("--workers") + 1] == "1"
     assert api["command"][api["command"].index("--forwarded-allow-ips") + 1] != "*"
     assert api["read_only"] and web["read_only"]
+    assert api["build"]["target"] == "${HFT_API_TARGET:-rag}"
     assert web["depends_on"]["api"]["condition"] == "service_healthy"
     tls = yaml.safe_load((ROOT / "compose.https.yaml").read_text(encoding="utf-8"))
     assert all(mount["read_only"] and not mount["bind"]["create_host_path"] for mount in tls["services"]["web"]["volumes"])
@@ -60,6 +61,13 @@ def test_image_context_excludes_private_files_and_images_do_not_copy_the_reposit
     assert "VITE_PUBLIC_DEMO=true" in web and "pnpm install --frozen-lockfile" in web
     assert "!frontend/pnpm-workspace.yaml" in patterns
     assert "COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./" in web
+    backend = (ROOT / "deploy/backend.Dockerfile").read_text()
+    assert "https://download.pytorch.org/whl/cpu" in backend
+    assert "COPY data/retrieval/v1/" in backend
+    assert "COPY deploy/retrieval/model/" in backend and "COPY deploy/retrieval/index/" in backend
+    assert "HF_HUB_OFFLINE=1" in backend and "HFT_RETRIEVAL_PREWARM=true" in backend
+    amap = yaml.safe_load((ROOT / "compose.amap.yaml").read_text())
+    assert amap["services"]["api"]["env_file"] == ["deploy/runtime.env", "deploy/amap.env"]
     policy = yaml.safe_load((ROOT / "frontend/pnpm-workspace.yaml").read_text())
     assert policy["allowBuilds"] == {"esbuild": True}
 
@@ -105,6 +113,8 @@ def test_deployment_smoke_exercises_real_public_http_and_sse(tmp_path, monkeypat
         assert "SSE planning passed" in capsys.readouterr().out
         with pytest.raises(SmokeFailure, match="requested release"):
             run("http://127.0.0.1:8080", expected_release="wrong-release", opener=opener)
+        with pytest.raises(SmokeFailure, match="prewarm"):
+            run("http://127.0.0.1:8080", require_hybrid=True, opener=opener)
 
 
 def test_smoke_rejects_path_based_origins_before_any_request():

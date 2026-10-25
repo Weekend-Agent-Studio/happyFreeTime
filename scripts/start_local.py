@@ -17,7 +17,7 @@ from dotenv import dotenv_values
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def environments(mode: str, api_port: int, full_llm: bool = False, with_amap: bool = False):
+def environments(mode: str, api_port: int, full_llm: bool = False, with_amap: bool = False, live_amap: bool = False, hybrid_retrieval: bool = False):
     if full_llm and mode != "Development":
         raise ValueError("-FullLlm is for Development; PublicDemo accepts a Key in the page.")
     backend, frontend = os.environ.copy(), os.environ.copy()
@@ -29,6 +29,7 @@ def environments(mode: str, api_port: int, full_llm: bool = False, with_amap: bo
         "HFT_PLANNING_INTENT_MODE": "llm" if full_llm else "rule",
         "HFT_RECOMMENDATION_ADVISOR_MODE": "llm" if full_llm else "rule",
         "HFT_CANDIDATE_RETRIEVER_MODE": "hybrid" if full_llm else "rule",
+        "HFT_RETRIEVAL_PREWARM": "false",
     })
     if public:
         frontend["VITE_SHOW_DEVELOPER_DETAILS"] = "false"
@@ -38,7 +39,7 @@ def environments(mode: str, api_port: int, full_llm: bool = False, with_amap: bo
             "AMAP_WEB_SERVICE_KEY": "", "AMAP_JS_API_KEY": "", "AMAP_JS_SECURITY_CODE": "",
             "LANGCHAIN_TRACING_V2": "false", "LANGSMITH_TRACING": "false",
         })
-    if with_amap:
+    if with_amap or live_amap:
         # Read only these explicitly opted-in site credentials. Never inherit
         # the owner's LLM Key or silently enable paid route/weather providers.
         local = dotenv_values(ROOT / ".env")
@@ -47,6 +48,17 @@ def environments(mode: str, api_port: int, full_llm: bool = False, with_amap: bo
         if not backend["AMAP_JS_API_KEY"] or not backend["AMAP_JS_SECURITY_CODE"]:
             raise ValueError("-WithAmap requires AMAP_JS_API_KEY and AMAP_JS_SECURITY_CODE in .env or the environment.")
         backend["HFT_GEOCODING_PROVIDER_MODE"] = "live" if backend["AMAP_WEB_SERVICE_KEY"] else "mock"
+        if live_amap:
+            if not backend["AMAP_WEB_SERVICE_KEY"]:
+                raise ValueError("-LiveAmap also requires AMAP_WEB_SERVICE_KEY for search, routes and weather.")
+            backend.update({"HFT_GEOCODING_PROVIDER_MODE": "live", "HFT_ROUTE_PROVIDER_MODE": "live", "HFT_PROVIDER_MODE": "live"})
+    if hybrid_retrieval:
+        assets = ROOT / "deploy/retrieval"
+        if not (assets / "asset_manifest.json").is_file():
+            raise ValueError("Run .venv/Scripts/python.exe deploy/prepare_retrieval.py before -HybridRetrieval.")
+        backend.update({"HFT_CANDIDATE_RETRIEVER_MODE": "hybrid", "HFT_RETRIEVAL_PREWARM": "true",
+                        "HFT_EMBEDDING_MODEL_PATH": str(assets / "model"), "HFT_RETRIEVAL_CACHE_DIR": str(assets / "index"),
+                        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2"})
     frontend.update({"VITE_PUBLIC_DEMO": str(public).lower(), "HFT_API_PROXY_TARGET": f"http://127.0.0.1:{api_port}"})
     return backend, frontend
 
@@ -66,7 +78,7 @@ def ensure_free_ports(ports):
                 raise ValueError(f"Port {port} is occupied or reserved; stop its service or choose another port.") from None
 
 
-def wait_ready(children, api_port, frontend_port, public, timeout=60):
+def wait_ready(children, api_port, frontend_port, public, timeout=180):
     opener = build_opener(ProxyHandler({}))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -84,7 +96,7 @@ def wait_ready(children, api_port, frontend_port, public, timeout=60):
             return
         except (OSError, ValueError, KeyError):
             time.sleep(.2)
-    raise RuntimeError("Local services did not become ready within 60 seconds. Check the log files.")
+    raise RuntimeError(f"Local services did not become ready within {timeout} seconds. Check the log files.")
 
 
 def stop(children):
@@ -110,6 +122,8 @@ def main():
     parser.add_argument("--frontend-port", type=int, default=0)
     parser.add_argument("--full-llm", action="store_true")
     parser.add_argument("--with-amap", action="store_true", help="Enable the configured browser map and optional departure search; not route/weather.")
+    parser.add_argument("--live-amap", action="store_true", help="Enable configured map, departure search, live routes and weather.")
+    parser.add_argument("--hybrid-retrieval", action="store_true", help="Use prepared BGE assets and require successful startup prewarm.")
     parser.add_argument("--check", action="store_true", help="Start, verify and stop both services; no browser or LLM calls.")
     args = parser.parse_args()
     public = args.mode == "PublicDemo"
@@ -118,7 +132,7 @@ def main():
     children = []
     log_files = []
     try:
-        backend_env, frontend_env = environments(args.mode, api_port, args.full_llm, args.with_amap)
+        backend_env, frontend_env = environments(args.mode, api_port, args.full_llm, args.with_amap, args.live_amap, args.hybrid_retrieval)
         node = shutil.which("node")
         vite = ROOT / "frontend/node_modules/vite/bin/vite.js"
         if not node or not vite.is_file():
@@ -127,6 +141,8 @@ def main():
         creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         log_dir = ROOT / ".tmp" / "local-run" / f"{args.mode}-{uuid.uuid4().hex[:8]}"
         log_dir.mkdir(parents=True, exist_ok=False)
+        if args.check:
+            backend_env["HFT_DATABASE_PATH"] = str(log_dir / "check.db")
         print(f"HappyFreeTime | {args.mode}\nDatabase: {backend_env['HFT_DATABASE_PATH']}\nLogs: {log_dir}", flush=True)
         if args.full_llm:
             print("Real LLM preset enabled; uses .env credentials. Site provider settings are unchanged.", flush=True)

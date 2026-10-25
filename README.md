@@ -31,6 +31,10 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 # 可选：读取本机 .env 中的高德地图凭证；有服务 Key 时也启用出发地搜索
 .\scripts\start_local.ps1 -WithAmap
 
+# BGE 完整预览：先准备离线资产；后续直接运行第二条即可
+.\.venv\Scripts\python.exe deploy/prepare_retrieval.py
+.\scripts\start_local.ps1 -HybridRetrieval -LiveAmap
+
 # 普通开发模式：打开 http://127.0.0.1:5173，默认离线规则
 .\scripts\start_local.ps1 -Mode Development
 
@@ -41,6 +45,8 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 不需要手动切换环境变量或安装本地 Docker。默认公网 Demo 使用模拟站点服务，可在页面临时配置自己的 DeepSeek Key；与普通开发模式使用不同数据库和端口。两个模式可在不同终端同时运行。前端修改自动更新，后端修改需重启；按 Ctrl+C 停止本次启动的两个服务。端口占用时会报错，不接管已有进程；可通过 `-ApiPort`、`-FrontendPort` 指定其他端口。日志保存在被忽略的 `.tmp/local-run/`。此方式验证产品行为，Nginx、镜像和 HTTPS 仍需部署环境验证。
 
 ## Docker 单机部署（待服务器验证）
+
+本版默认 `rag` 后端镜像包含 CPU BGE、索引与语义 Profile，服务就绪前严格预热正式共用实例。模型大文件不进 Git，需在本机准备并单独上传。高德地图/搜索/路线/天气通过私有配置与 `compose.amap.yaml` 显式启用；未配置访客 DeepSeek Key 也可使用。资产准备、轻量回退与严格冒烟命令见 [BGE 与高德部署补充](docs/current/deployment_retrieval.md)。本机验证通过不等于服务器资源、容器或线上高德已验收。
 
 仓库提供前后端 Dockerfile、Compose、Nginx 反向代理和 HTTPS 配置模板。Nginx 随 web 容器运行，无需在宿主机重复安装；api 不映射公网端口，SQLite 使用独立数据卷。默认只在服务器本机监听，不配置部署者共享模型 Key，使用离线模拟 Provider。
 

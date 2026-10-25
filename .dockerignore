@@ -2,6 +2,7 @@
 # never part of either image's build context.
 **
 !requirements.txt
+!requirements-rag.txt
 !app/
 !app/**
 !data/
@@ -13,6 +14,9 @@
 !data/demo_showcases/**
 !data/fixtures/
 !data/fixtures/**
+!data/retrieval/
+!data/retrieval/v1/
+!data/retrieval/v1/**
 !frontend/
 !frontend/package.json
 !frontend/pnpm-lock.yaml
@@ -29,6 +33,13 @@
 !deploy/web.Dockerfile
 !deploy/backup_volume.py
 !deploy/smoke.py
+!deploy/retrieval/
+!deploy/retrieval/model/
+!deploy/retrieval/model/**
+!deploy/retrieval/index/
+!deploy/retrieval/index/manifest.json
+!deploy/retrieval/index/poi_embeddings.npz
+!deploy/retrieval/asset_manifest.json
 !deploy/nginx/
 !deploy/nginx/**
 
