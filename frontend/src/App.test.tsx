@@ -299,22 +299,24 @@ describe("planning workspace", () => {
     const publicModelUsage = screen.getByRole("region", { name: "本轮模型使用" });
     expect(publicModelUsage).toHaveTextContent("已调用模型");
     expect(publicModelUsage).toHaveTextContent("test-model");
-    expect(publicModelUsage).not.toHaveTextContent("tokens");
-    if (!enabled) {
-      expect(screen.queryByText("模型调用")).not.toBeInTheDocument();
-      expect(screen.queryByText("开发者详情")).not.toBeInTheDocument();
-      return;
-    }
+    if (!enabled) expect(publicModelUsage).not.toHaveTextContent("tokens");
     expect(screen.getByText("模型调用")).toBeInTheDocument();
     const runtimeGroup = evidencePanel.querySelector(".runtime-call-group") as HTMLDetailsElement;
     expect(riskGroup!.compareDocumentPosition(runtimeGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(riskGroup!.compareDocumentPosition(evidencePanel.querySelector(".verification-overview")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(runtimeGroup.open).toBe(false);
     expect(screen.getByText("未调用模型 · 规则基线")).not.toBeVisible();
     await user.click(within(runtimeGroup).getByText("模型调用"));
     expect(runtimeGroup.open).toBe(true);
     expect(screen.getByText("未调用模型 · 规则基线")).toBeInTheDocument();
     expect(screen.getByText("调用模型 · test-model")).toBeInTheDocument();
-    expect(screen.getByText(/20 ms · 尝试 1 次 · tokens 12\/7/)).toBeInTheDocument();
+    expect(within(runtimeGroup).getByText(/20 ms · 尝试 1 次/)).toBeVisible();
+    expect(within(runtimeGroup).getAllByRole("article")[0].querySelector("svg")).toBeInTheDocument();
+    if (!enabled) {
+      expect(screen.queryByText("开发者详情")).not.toBeInTheDocument();
+      return;
+    }
+    expect(within(runtimeGroup).getByText(/tokens 12\/7/)).toBeVisible();
     expect([...document.querySelectorAll("details > summary")].every((summary) => summary.querySelector(".disclosure-chevron"))).toBe(true);
     await user.click(screen.getByText("开发者详情"));
     expect(screen.getByText("检索和搜索诊断")).toBeInTheDocument();

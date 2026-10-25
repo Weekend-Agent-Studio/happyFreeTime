@@ -14,6 +14,7 @@ param(
     [int]$ApiPort = 0,
     [int]$FrontendPort = 0,
     [switch]$FullLlm,
+    [switch]$WithAmap,
     [switch]$Check
 )
 
@@ -23,6 +24,7 @@ $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $Python)) { throw "Missing .venv Python. Install backend dependencies first." }
 $LaunchArgs = @((Join-Path $PSScriptRoot "start_local.py"), "--mode", $Mode, "--api-port", $ApiPort, "--frontend-port", $FrontendPort)
 if ($FullLlm) { $LaunchArgs += "--full-llm" }
+if ($WithAmap) { $LaunchArgs += "--with-amap" }
 if ($Check) { $LaunchArgs += "--check" }
 & $Python @LaunchArgs
 exit $LASTEXITCODE

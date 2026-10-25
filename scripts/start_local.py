@@ -12,11 +12,12 @@ import sys
 import time
 import uuid
 from urllib.request import ProxyHandler, build_opener
+from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def environments(mode: str, api_port: int, full_llm: bool = False):
+def environments(mode: str, api_port: int, full_llm: bool = False, with_amap: bool = False):
     if full_llm and mode != "Development":
         raise ValueError("-FullLlm is for Development; PublicDemo accepts a Key in the page.")
     backend, frontend = os.environ.copy(), os.environ.copy()
@@ -37,6 +38,15 @@ def environments(mode: str, api_port: int, full_llm: bool = False):
             "AMAP_WEB_SERVICE_KEY": "", "AMAP_JS_API_KEY": "", "AMAP_JS_SECURITY_CODE": "",
             "LANGCHAIN_TRACING_V2": "false", "LANGSMITH_TRACING": "false",
         })
+    if with_amap:
+        # Read only these explicitly opted-in site credentials. Never inherit
+        # the owner's LLM Key or silently enable paid route/weather providers.
+        local = dotenv_values(ROOT / ".env")
+        for name in ("AMAP_WEB_SERVICE_KEY", "AMAP_JS_API_KEY", "AMAP_JS_SECURITY_CODE"):
+            backend[name] = os.environ.get(name, local.get(name) or "").strip()
+        if not backend["AMAP_JS_API_KEY"] or not backend["AMAP_JS_SECURITY_CODE"]:
+            raise ValueError("-WithAmap requires AMAP_JS_API_KEY and AMAP_JS_SECURITY_CODE in .env or the environment.")
+        backend["HFT_GEOCODING_PROVIDER_MODE"] = "live" if backend["AMAP_WEB_SERVICE_KEY"] else "mock"
     frontend.update({"VITE_PUBLIC_DEMO": str(public).lower(), "HFT_API_PROXY_TARGET": f"http://127.0.0.1:{api_port}"})
     return backend, frontend
 
@@ -99,6 +109,7 @@ def main():
     parser.add_argument("--api-port", type=int, default=0)
     parser.add_argument("--frontend-port", type=int, default=0)
     parser.add_argument("--full-llm", action="store_true")
+    parser.add_argument("--with-amap", action="store_true", help="Enable the configured browser map and optional departure search; not route/weather.")
     parser.add_argument("--check", action="store_true", help="Start, verify and stop both services; no browser or LLM calls.")
     args = parser.parse_args()
     public = args.mode == "PublicDemo"
@@ -107,7 +118,7 @@ def main():
     children = []
     log_files = []
     try:
-        backend_env, frontend_env = environments(args.mode, api_port, args.full_llm)
+        backend_env, frontend_env = environments(args.mode, api_port, args.full_llm, args.with_amap)
         node = shutil.which("node")
         vite = ROOT / "frontend/node_modules/vite/bin/vite.js"
         if not node or not vite.is_file():

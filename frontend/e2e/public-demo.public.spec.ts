@@ -24,6 +24,13 @@ test("offline follow-up keeps two people separate from 150 yuan", async ({ page 
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("tab", { name: "核验与来源" }).click();
   await expect(page.getByRole("region", { name: "本轮模型使用" })).toContainText("未调用模型");
+  const modelRecords = page.locator(".runtime-call-group");
+  await expect(modelRecords).not.toHaveAttribute("open");
+  await modelRecords.getByText("模型调用", { exact: true }).click();
+  await expect(modelRecords.locator(".runtime-call-row").first()).toBeVisible();
+  await expect(modelRecords).toContainText(/ms/);
+  await modelRecords.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-runtime-expanded-desktop.png") });
   await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-fixed-followup-desktop.png") });
 });
 

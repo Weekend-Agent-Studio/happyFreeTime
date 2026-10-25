@@ -6,6 +6,30 @@ import pytest
 from scripts.start_local import ensure_free_ports, environments
 
 
+def test_public_amap_opt_in_keeps_owner_llm_and_route_weather_disabled(monkeypatch):
+    keys = {"AMAP_JS_API_KEY": "fixture-js", "AMAP_JS_SECURITY_CODE": "fixture-security", "AMAP_WEB_SERVICE_KEY": "fixture-web", "LLM_API": "owner-fixture"}
+    monkeypatch.setattr("scripts.start_local.dotenv_values", lambda path: keys)
+    for name in keys:
+        monkeypatch.delenv(name, raising=False)
+    backend, _ = environments("PublicDemo", 8001, with_amap=True)
+    assert all(backend[name] == keys[name] for name in keys if name.startswith("AMAP_"))
+    assert backend["LLM_API"] == ""
+    assert backend["HFT_GEOCODING_PROVIDER_MODE"] == "live"
+    assert backend["HFT_ROUTE_PROVIDER_MODE"] == backend["HFT_PROVIDER_MODE"] == "mock"
+    assert "AMAP_JS_API_KEY" not in os.environ
+
+
+def test_amap_map_only_and_incomplete_configuration(monkeypatch):
+    for name in ("AMAP_JS_API_KEY", "AMAP_JS_SECURITY_CODE", "AMAP_WEB_SERVICE_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("scripts.start_local.dotenv_values", lambda path: {"AMAP_JS_API_KEY": "fixture-js", "AMAP_JS_SECURITY_CODE": "fixture-security"})
+    backend, _ = environments("PublicDemo", 8001, with_amap=True)
+    assert backend["HFT_GEOCODING_PROVIDER_MODE"] == "mock"
+    monkeypatch.setattr("scripts.start_local.dotenv_values", lambda path: {})
+    with pytest.raises(ValueError, match="requires AMAP_JS_API_KEY"):
+        environments("PublicDemo", 8001, with_amap=True)
+
+
 def test_public_preset_overrides_paid_site_settings_without_mutating_parent(monkeypatch):
     monkeypatch.setenv("LLM_API", "owner-fixture")
     monkeypatch.setenv("HFT_PROVIDER_MODE", "live")

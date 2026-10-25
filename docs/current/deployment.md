@@ -38,6 +38,8 @@ sed -i "s/^HFT_RELEASE=.*/HFT_RELEASE=$(git rev-parse --short HEAD)/" deploy/com
 
 首次保留示例默认值：只监听服务器 `127.0.0.1:8080`；模型为规则降级，天气、路线与地点为模拟数据，没有部署者共享 LLM Key。访客后续可经 HTTPS 临时配置自己的 DeepSeek Key。真实 POI 商业数据和线上地图效果没有因为部署而自动补齐。
 
+可选高德地图（与访客 DeepSeek 配置独立）：在服务器私有 `deploy/runtime.env` 中填写 `AMAP_JS_API_KEY` 与 `AMAP_JS_SECURITY_CODE`，即可启用已有地图 SDK/后端代理。若还需要真实出发地搜索，填写 `AMAP_WEB_SERVICE_KEY`，并设 `HFT_GEOCODING_PROVIDER_MODE=live`。保留 `HFT_ROUTE_PROVIDER_MODE=mock` 和 `HFT_PROVIDER_MODE=mock` 时，路线和天气仍为模拟，地图显示不等于真实路线规划。应用已有地图代理与地点搜索总限流，仍需独立核对服务商额度；不要把 Key 放入前端构建变量或 Git。配置修改后用本节 Compose 参数重新 `up -d`，无需因此重新构建镜像。
+
 ## 2. 构建并启动，先不开放公网
 
 ```bash

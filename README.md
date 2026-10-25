@@ -28,6 +28,9 @@ HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可
 # 本地预览公网 Demo：前后端一起启动，打开 http://127.0.0.1:5174
 .\scripts\start_local.ps1
 
+# 可选：读取本机 .env 中的高德地图凭证；有服务 Key 时也启用出发地搜索
+.\scripts\start_local.ps1 -WithAmap
+
 # 普通开发模式：打开 http://127.0.0.1:5173，默认离线规则
 .\scripts\start_local.ps1 -Mode Development
 

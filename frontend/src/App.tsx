@@ -599,15 +599,15 @@ function RunProgressDisclosure({ trace }: { trace?: PlanningRunTrace | null }) {
   );
 }
 
-function RuntimeCallSummary({ decision }: { decision: RuntimeDecision }) {
+function RuntimeCallSummary({ decision, developerDetails }: { decision: RuntimeDecision; developerDetails: boolean }) {
   const status = decision.model_invoked
     ? `调用模型${decision.model_name ? ` · ${decision.model_name}` : ""}`
     : `未调用模型 · ${runtimeAdapterLabel(decision)}`;
   const details = [
-    decision.fallback_reason,
+    decision.fallback_reason ? developerDetails ? decision.fallback_reason : "本阶段使用了回退结果" : null,
     decision.latency_ms !== null ? `${decision.latency_ms} ms` : null,
     `尝试 ${decision.attempts} 次`,
-    decision.input_tokens !== null || decision.output_tokens !== null ? `tokens ${decision.input_tokens ?? "?"}/${decision.output_tokens ?? "?"}` : null,
+    developerDetails && (decision.input_tokens !== null || decision.output_tokens !== null) ? `tokens ${decision.input_tokens ?? "?"}/${decision.output_tokens ?? "?"}` : null,
   ].filter(Boolean).join(" · ");
   return <article className={`evidence-row runtime-call-row ${decision.fallback_reason ? "warning" : ""}`}>
     <span className="evidence-icon"><Sparkles size={17} aria-hidden="true" /></span>
@@ -3323,16 +3323,7 @@ function EvidencePanel({ response, plan }: { response: AgentResponse | null; pla
   const modelFallback = runtimeDecisions.some((item) => item.fallback_reason);
   return (
     <div className="evidence-panel">
-      <div className="detail-title"><span>可信状态</span><h2>核验</h2><p>先看当前方案的核验概览，再查看待确认风险和事实依据。</p></div>
-      <VerificationOverview response={response} plan={plan} selectedFacts={selectedFacts} />
-      <section className="evidence-group" aria-label="本轮模型使用">
-        <div className="evidence-group-heading"><h3>本轮模型使用</h3><span>{!runtimeDecisions.length ? "记录未提供" : modelUsed ? modelFallback ? "已调用 · 含回退" : "已调用模型" : "未调用模型"}</span></div>
-        {runtimeDecisions.length ? <ul className="model-usage-stages">{runtimeDecisions.map((item, index) => <li key={`${item.stage}-${index}`}>
-          <strong>{runtimeStageLabel(item.stage)}</strong><span>{item.model_invoked ? `已调用${item.model_name ? ` ${item.model_name}` : "模型"}${item.fallback_reason ? " · 已回退" : ""}` : item.fallback_reason ? "使用规则回退" : "未调用模型"}</span>
-        </li>)}</ul> : <p className="evidence-empty">本轮没有模型调用记录，无法判断是否使用模型。</p>}
-        <p className="evidence-empty">模型参与理解与建议；时间、预算和地点条件仍由程序核验。此处按本轮记录展示，与当前 Key 配置无关。</p>
-      </section>
-
+      <div className="detail-title"><span>可信状态</span><h2>核验</h2><p>先确认风险，再查看方案核验、模型调用与事实依据。</p></div>
       {hasRisks ? (
         <section className="evidence-group risk-group" aria-label="需要确认">
           <div className="evidence-group-heading"><h3>需要确认</h3><span>只显示当前方案相关风险</span></div>
@@ -3344,13 +3335,15 @@ function EvidencePanel({ response, plan }: { response: AgentResponse | null; pla
         </section>
       ) : null}
 
-      {import.meta.env.VITE_SHOW_DEVELOPER_DETAILS === "true" ? <details className="evidence-group runtime-call-group">
-        <summary className="evidence-group-heading"><h3>模型调用</h3><span>开发者 · 逐阶段后端记录</span><ChevronDown size={16} className="disclosure-chevron" aria-hidden="true" /></summary>
+      <VerificationOverview response={response} plan={plan} selectedFacts={selectedFacts} />
+      <section aria-label="本轮模型使用"><details className="evidence-group runtime-call-group">
+        <summary className="evidence-group-heading"><h3>模型调用</h3><span>{!runtimeDecisions.length ? "记录未提供" : modelUsed ? modelFallback ? "已调用 · 含回退" : "已调用模型" : "未调用模型"}</span><ChevronDown size={16} className="disclosure-chevron" aria-hidden="true" /></summary>
         <div className="evidence-list">
-          {runtimeDecisions.map((decision, index) => <RuntimeCallSummary key={`runtime-call-${decision.stage}-${index}`} decision={decision} />)}
-          {!runtimeDecisions.length ? <p className="evidence-empty">本轮未提供逐阶段模型调用记录。</p> : null}
+          {runtimeDecisions.map((decision, index) => <RuntimeCallSummary key={`runtime-call-${decision.stage}-${index}`} decision={decision} developerDetails={import.meta.env.VITE_SHOW_DEVELOPER_DETAILS === "true"} />)}
+          {!runtimeDecisions.length ? <p className="evidence-empty">本轮没有模型调用记录，无法判断是否使用模型。</p> : null}
+          <p className="evidence-empty">按本轮后端记录展示；耗时为该阶段总耗时，不等同于模型推理耗时。地点与路线的数据来源独立。</p>
         </div>
-      </details> : null}
+      </details></section>
 
       <details className="evidence-group evidence-data-disclosure">
         <summary className="evidence-group-heading"><h3>数据与证据</h3><span>默认折叠 · 当前方案相关</span><ChevronDown size={16} className="disclosure-chevron" aria-hidden="true" /></summary>
