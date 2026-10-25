@@ -64,6 +64,8 @@ docker compose --env-file deploy/compose.env -f compose.yaml -f compose.amap.yam
 
 后续更新保持同一组 `-f`。增加 HTTPS 时追加 `-f compose.https.yaml`，其余证书操作沿用主部署指南。若只需要地图/地点搜索，仍可只配置 runtime.env 中的对应凭证和 geocoding 模式，不必使用完整 amap 组合。
 
+路线真实 HTTP 调用默认按 `HFT_AMAP_ROUTE_QPS=1` 节流：同一共享 Provider 跨两个并发规划共用预算，前一次 HTTP 完成后再留一个间隔，不积累突发额度；成功缓存和失败缓存命中不再出站，也不等待。设置值必须为有限正数，应依据控制台驾车路线 2.0 的账号 QPS 配额，不能按月调用总量推算。该限制仅约束当前单 worker 的规划出站请求，不协调同账号的其他应用。首次核验会增加等待，后续缓存仍可复用；不增加自动重试、不放宽严格数据检查。
+
 ## 验收实际生效，不能只看开关
 
 ```bash
@@ -86,6 +88,8 @@ docker compose --env-file deploy/compose.env -f compose.yaml -f compose.amap.yam
 若摘要只有通用降级原因，可使用 `deploy/route-diagnostics.compose.yaml` 临时只读覆盖两个 Provider 源文件，采集实际失败处的 `amap_route_failure` 日志。先把本机 app/providers/route.py、amap.py 与该 overlay 上传至服务器 `/opt/happyfreetime-route-diagnostics/`，并确保源文件可读；在原 Compose 组合后追加该目录中的 overlay，执行 `up -d --no-build --wait api`。镜像、模型及凭证无需重建，但 API 会重启并重新预热，页面需刷新获得新临时身份。
 
 复现一次后仅取 `logs --since 5m api` 中含 `amap_route_failure` 的行：输出固定错误类别、数字码与耗时，不应含 URL、Key、位置或原始上游内容。没有这组证据前不调整限流、超时或解析逻辑。诊断完成后，移除 overlay、用原文件组合再次 `up -d --no-build api` 恢复原镜像代码；正式修复仍需正常发布版本。
+
+本次日志已确认 10021。若正在使用诊断挂载，上传更新的 route.py 后，必须 `up -d --no-build --force-recreate --wait api`，文件内容变化不会自动触发 Compose 重建容器。此时补丁通过覆盖文件生效，原业务镜像版本没有改变；之后需把补丁纳入正式镜像，再移除临时覆盖。耗时日志包含本地节流等待，不能把 elapsed_ms 全部当作上游网络时间。
 
 记录 api 内存/CPU、重启次数、预热耗时及连续两轮规划。当前内存上限由 HFT_API_MEMORY_LIMIT 控制；本机成功不证明 4GB 服务器容量足够，OOM/超时不能算通过。保留旧镜像，不使用 down -v 删除数据。
 

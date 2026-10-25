@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import math
 import logging
+import os
 import ssl
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Callable, Protocol
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -227,12 +229,37 @@ class AmapRouteProvider:
         api_key: str,
         fetch_json: Callable[[str], dict] | None = None,
         clock: Callable[[], datetime] | None = None,
+        max_qps: float | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("Amap route provider requires a backend API key")
+        try:
+            qps = float(max_qps if max_qps is not None else os.getenv("HFT_AMAP_ROUTE_QPS", "1"))
+        except (TypeError, ValueError):
+            raise ValueError("HFT_AMAP_ROUTE_QPS must be a finite positive number") from None
+        if not math.isfinite(qps) or qps <= 0 or not math.isfinite(1.0 / qps):
+            raise ValueError("HFT_AMAP_ROUTE_QPS must be a finite positive number")
         self._api_key = api_key
         self._fetch_json = fetch_json or self._default_fetch_json
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._request_interval = 1.0 / qps
+        self._request_lock = Lock()
+        self._next_request_at: float | None = None
+
+    def _fetch_paced_json(self, url: str) -> dict:
+        # This provider is shared by all turns in the single-worker server.
+        # Hold the lock through HTTP completion, then leave a full interval.
+        # There is no burst allowance, no per-visitor reset, and no retry.
+        with self._request_lock:
+            if self._next_request_at is not None:
+                delay = self._next_request_at - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+            try:
+                return self._fetch_json(url)
+            finally:
+                # Failed calls also consume an outbound request slot.
+                self._next_request_at = time.monotonic() + self._request_interval
 
     def route(self, request: RouteRequest) -> RouteFact:
         if request.mode.value != "taxi":
@@ -248,7 +275,7 @@ class AmapRouteProvider:
             }
         )
         try:
-            payload = self._fetch_json(
+            payload = self._fetch_paced_json(
                 f"https://restapi.amap.com/v5/direction/driving?{query}"
             )
             require_amap_success(payload, operation="route")
