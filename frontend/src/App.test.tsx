@@ -221,6 +221,24 @@ describe("planning workspace", () => {
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it.each(["missing", "rule", "fallback"] as const)("shows honest public model usage for %s records", async (kind) => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, runtime_decisions: kind === "missing" ? [] : [{
+      stage: "turn_interpreter", adapter: kind === "rule" ? "demo_rule" : "fallback",
+      model_invoked: kind === "fallback", model_name: null, attempts: kind === "fallback" ? 1 : 0,
+      fallback_reason: kind === "fallback" ? "private-diagnostic-code" : null,
+      latency_ms: null, input_tokens: null, output_tokens: null,
+    }] });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("tab", { name: "核验与来源" }));
+    const usage = screen.getByRole("region", { name: "本轮模型使用" });
+    expect(usage).toHaveTextContent(kind === "missing" ? "无法判断是否使用模型" : kind === "fallback" ? "已调用 · 含回退" : "未调用模型");
+    expect(usage).not.toHaveTextContent("private-diagnostic-code");
+  });
+
   it.each([false, true])("gates developer traces while keeping public evidence available enabled=%s", async (enabled) => {
     if (enabled) vi.stubEnv("VITE_SHOW_DEVELOPER_DETAILS", "true");
     const user = userEvent.setup();
@@ -278,6 +296,10 @@ describe("planning workspace", () => {
     expect(riskGroup).toBeInTheDocument();
     expect(screen.getByText("已完成需求理解")).toBeInTheDocument();
     expect(screen.getByText("路线和硬约束核对完成")).toBeInTheDocument();
+    const publicModelUsage = screen.getByRole("region", { name: "本轮模型使用" });
+    expect(publicModelUsage).toHaveTextContent("已调用模型");
+    expect(publicModelUsage).toHaveTextContent("test-model");
+    expect(publicModelUsage).not.toHaveTextContent("tokens");
     if (!enabled) {
       expect(screen.queryByText("模型调用")).not.toBeInTheDocument();
       expect(screen.queryByText("开发者详情")).not.toBeInTheDocument();

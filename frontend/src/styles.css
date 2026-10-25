@@ -718,9 +718,23 @@ details[open] > summary .disclosure-chevron { transform: rotate(180deg); }
 .demo-settings-dialog input { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid var(--color-line-strong); border-radius: 8px; padding: 10px 12px; color: var(--color-text); background: var(--color-surface); }
 .demo-settings-dialog .demo-privacy { margin: 0; color: var(--color-muted); }
 .demo-settings-dialog .demo-settings-error { margin: 0; color: var(--color-danger); }
-.demo-mode-state { margin: 0; }
+.demo-mode-state { display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--color-surface-muted); border-radius: var(--radius-sm); }
+.demo-mode-state > svg { flex: 0 0 auto; }
+.demo-mode-state > div { display: grid; gap: 4px; }
+.demo-mode-state strong { font-size: var(--text-body); }
+.demo-mode-state small { font-size: var(--text-xs); color: var(--color-muted); line-height: 1.6; }
+.demo-mode-state.is-configured { background: #eef5ef; color: var(--color-success); }
+.demo-mode-state.is-configured small { color: var(--color-success); }
+.demo-settings-trigger.is-configured > svg, .demo-settings-trigger.is-configured small { color: var(--color-success); }
+.demo-settings-dialog .demo-key-essential { color: var(--color-text); }
+.demo-privacy-details summary { cursor: pointer; padding-block: 8px; font-size: var(--text-sm); color: var(--color-muted); }
+.demo-privacy-details p { color: var(--color-muted); margin: 8px 0; }
+.context-preference-editor .preference-category-help { margin: -4px 0 0; font-size: var(--text-xs); color: var(--color-muted); }
 .demo-settings-dialog footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
 .demo-settings-dialog footer button { min-height: 44px; }
+.model-usage-stages { display: grid; gap: 8px; list-style: none; padding: 0; margin: 12px 0; font-size: var(--text-sm); }
+.model-usage-stages li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
+.model-usage-stages li > span { color: var(--color-muted); overflow-wrap: anywhere; }
 .demo-connect { min-height: 100dvh; display: grid; align-content: center; justify-items: center; gap: 16px; padding: 24px; text-align: center; background: var(--color-canvas); }
 @media (max-width: 540px) { .demo-settings-dialog { padding: 20px; } .demo-settings-dialog footer { flex-direction: column-reverse; } }
 

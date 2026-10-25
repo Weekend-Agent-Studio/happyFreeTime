@@ -112,7 +112,6 @@ button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visibl
 .planning-context-more-indicator { width: 6px; height: 6px; background: var(--color-action); border-radius: 50%; }
 .planning-context-more:disabled { opacity: .6; }
 .planning-context-trigger { flex: 0 1 auto; display: flex; align-items: center; justify-content: flex-start; gap: 7px; min-width: 100px; min-height: 36px; max-width: 280px; padding: 6px 11px; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 18px; text-align: left; }
-.planning-context-trigger:first-child { min-width: 180px; }
 .planning-context-trigger small { min-width: 0; overflow: hidden; color: inherit; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .planning-context-trigger svg { flex: 0 0 auto; color: var(--color-muted); }
 .planning-context-trigger .context-edit-icon, .planning-context-more .context-edit-icon { margin-left: auto; color: var(--color-quiet); opacity: .8; }

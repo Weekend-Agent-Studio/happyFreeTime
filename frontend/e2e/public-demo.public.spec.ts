@@ -4,6 +4,9 @@ import path from "node:path";
 test("offline follow-up keeps two people separate from 150 yuan", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop-public", "Desktop regression for the reported utterance");
   await page.goto("/");
+  const emptyDate = page.getByRole("button", { name: /^修改日期时间/ });
+  expect((await emptyDate.boundingBox())!.width).toBeLessThan(155);
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-empty-header-desktop.png") });
   await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
   await page.getByRole("button", { name: "发送需求" }).click();
   await expect(page.locator(".rich-planning-reply")).toHaveCount(1);
@@ -13,6 +16,14 @@ test("offline follow-up keeps two people separate from 150 yuan", async ({ page 
   await expect(page.getByRole("button", { name: /^修改同行人数/ })).toHaveAccessibleName(/2 位成人/);
   await expect(page.getByRole("button", { name: /^修改人均预算/ })).toHaveAccessibleName(/150/);
   await expect(page.getByRole("group", { name: "规划恢复选项" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^修改出发地/ })).toHaveText(/北京市朝阳区/);
+  await page.getByRole("button", { name: /^修改出行偏好/ }).click();
+  await page.getByLabel("偏好类别").selectOption("diet_tags");
+  await expect(page.getByLabel("添加偏好")).toHaveAttribute("placeholder", "例如：清淡、素食");
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-preferences-desktop.png") });
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("tab", { name: "核验与来源" }).click();
+  await expect(page.getByRole("region", { name: "本轮模型使用" })).toContainText("未调用模型");
   await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-fixed-followup-desktop.png") });
 });
 
@@ -61,7 +72,11 @@ test("public model settings are page-only and showcase playback never writes a s
   await openNav();
   await page.getByRole("button", { name: "模型配置", exact: true }).filter({ visible: true }).click();
   const settings = page.getByRole("dialog", { name: "模型配置", exact: true });
+  await expect(settings.getByText(/Key 经本站后端调用/)).toBeVisible();
+  await expect(settings.getByText(/不写入数据库/)).not.toBeVisible();
+  await settings.getByText("隐私与使用说明", { exact: true }).click();
   await expect(settings.getByText(/不写入数据库/)).toBeVisible();
+  await settings.getByText("隐私与使用说明", { exact: true }).click();
   await expect(settings.getByRole("button", { name: "仅本次使用" })).toBeInViewport();
   await page.screenshot({ path: path.resolve(`../.impeccable/review/public-demo-settings-${mobile ? "mobile" : "desktop"}.png`) });
   await settings.getByLabel("DeepSeek API Key").fill("sk-offline-browser-fixture-123456");
@@ -70,6 +85,9 @@ test("public model settings are page-only and showcase playback never writes a s
   expect((await configured).status()).toBe(200);
   await expect(settings.getByRole("status")).toContainText("有效性将在实际调用时确认");
   await expect(settings.getByLabel("DeepSeek API Key")).toHaveValue("");
+  await expect(settings.locator(".demo-mode-state")).toHaveClass(/is-configured/);
+  await expect(settings.locator(".demo-mode-state")).toContainText("DeepSeek 已配置");
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/public-demo-settings-configured-${mobile ? "mobile" : "desktop"}.png`) });
   await settings.getByRole("button", { name: "移除 Key，使用演示模式" }).click();
   await expect(settings.getByRole("status")).toContainText("已移除");
   await settings.getByRole("button", { name: "关闭模型配置" }).click();

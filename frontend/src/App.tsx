@@ -3319,10 +3319,19 @@ function EvidencePanel({ response, plan }: { response: AgentResponse | null; pla
   const degradedLegs = plan?.route_legs.filter((leg) => leg.degraded) ?? [];
   const hasRisks = degradedFacts.length || degradedLegs.length || warnings.length;
   const runtimeDecisions = response.runtime_decisions ?? [];
+  const modelUsed = runtimeDecisions.some((item) => item.model_invoked);
+  const modelFallback = runtimeDecisions.some((item) => item.fallback_reason);
   return (
     <div className="evidence-panel">
       <div className="detail-title"><span>可信状态</span><h2>核验</h2><p>先看当前方案的核验概览，再查看待确认风险和事实依据。</p></div>
       <VerificationOverview response={response} plan={plan} selectedFacts={selectedFacts} />
+      <section className="evidence-group" aria-label="本轮模型使用">
+        <div className="evidence-group-heading"><h3>本轮模型使用</h3><span>{!runtimeDecisions.length ? "记录未提供" : modelUsed ? modelFallback ? "已调用 · 含回退" : "已调用模型" : "未调用模型"}</span></div>
+        {runtimeDecisions.length ? <ul className="model-usage-stages">{runtimeDecisions.map((item, index) => <li key={`${item.stage}-${index}`}>
+          <strong>{runtimeStageLabel(item.stage)}</strong><span>{item.model_invoked ? `已调用${item.model_name ? ` ${item.model_name}` : "模型"}${item.fallback_reason ? " · 已回退" : ""}` : item.fallback_reason ? "使用规则回退" : "未调用模型"}</span>
+        </li>)}</ul> : <p className="evidence-empty">本轮没有模型调用记录，无法判断是否使用模型。</p>}
+        <p className="evidence-empty">模型参与理解与建议；时间、预算和地点条件仍由程序核验。此处按本轮记录展示，与当前 Key 配置无关。</p>
+      </section>
 
       {hasRisks ? (
         <section className="evidence-group risk-group" aria-label="需要确认">
