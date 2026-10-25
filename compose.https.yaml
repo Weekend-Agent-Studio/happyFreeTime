@@ -1,0 +1,21 @@
+# Combine with compose.yaml after installing a real domain certificate.
+services:
+  web:
+    ports:
+      - ${HFT_BIND_ADDRESS:-127.0.0.1}:${HFT_HTTP_PORT:-8080}:8080
+      - ${HFT_BIND_ADDRESS:-127.0.0.1}:${HFT_HTTPS_PORT:-443}:8443
+    volumes:
+      - type: bind
+        source: ./deploy/nginx/site.https.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./deploy/certs
+        target: /etc/nginx/certs
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]

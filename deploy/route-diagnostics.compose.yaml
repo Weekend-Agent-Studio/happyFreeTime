@@ -1,0 +1,19 @@
+# Temporary diagnostics for an existing image: no dependency/model reinstall.
+# Upload route.py + amap.py to this private directory before enabling.
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ${HFT_ROUTE_DIAGNOSTICS_DIR:-/opt/happyfreetime-route-diagnostics}/route.py
+        target: /app/app/providers/route.py
+        read_only: true
+        bind:
+          create_host_path: false
+          selinux: Z
+      - type: bind
+        source: ${HFT_ROUTE_DIAGNOSTICS_DIR:-/opt/happyfreetime-route-diagnostics}/amap.py
+        target: /app/app/providers/amap.py
+        read_only: true
+        bind:
+          create_host_path: false
+          selinux: Z

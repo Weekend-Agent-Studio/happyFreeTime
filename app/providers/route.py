@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 import math
+import logging
+import os
+import ssl
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Callable, Protocol
 from urllib.parse import urlencode
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
 
 from app.providers.amap import AmapResponseError, require_amap_success
 from app.domain.providers import (
@@ -27,6 +33,35 @@ _SPEED_KMH = {
     "taxi": 25.0,
     "transit": 18.0,
 }
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _log_route_failure(error: Exception, *, started: float) -> None:
+    """Record only fixed categories/codes; never stringify transport errors."""
+    category, code = "unexpected_error", "unknown"
+    if isinstance(error, AmapResponseError):
+        category, code = "api_rejected", error.code or "unknown"
+    elif isinstance(error, HTTPError):
+        category = "http_error"
+        if isinstance(error.code, int) and 100 <= error.code <= 599:
+            code = str(error.code)
+    else:
+        cause = error.reason if isinstance(error, URLError) else error
+        if isinstance(cause, TimeoutError):
+            category = "timeout"
+        elif isinstance(cause, ssl.SSLError):
+            category = "tls_error"
+        elif isinstance(cause, ConnectionError):
+            category = "network_error"
+        elif isinstance(error, URLError):
+            category = "network_error"
+        elif isinstance(error, json.JSONDecodeError):
+            category = "invalid_json"
+        elif isinstance(error, (KeyError, IndexError, ValueError, TypeError)):
+            category = "invalid_response"
+    _LOGGER.warning("amap_route_failure category=%s code=%s elapsed_ms=%d",
+                    category, code, max(0, int((time.perf_counter() - started) * 1000)))
 
 
 def _estimate_local_route(
@@ -194,16 +229,42 @@ class AmapRouteProvider:
         api_key: str,
         fetch_json: Callable[[str], dict] | None = None,
         clock: Callable[[], datetime] | None = None,
+        max_qps: float | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("Amap route provider requires a backend API key")
+        try:
+            qps = float(max_qps if max_qps is not None else os.getenv("HFT_AMAP_ROUTE_QPS", "1"))
+        except (TypeError, ValueError):
+            raise ValueError("HFT_AMAP_ROUTE_QPS must be a finite positive number") from None
+        if not math.isfinite(qps) or qps <= 0 or not math.isfinite(1.0 / qps):
+            raise ValueError("HFT_AMAP_ROUTE_QPS must be a finite positive number")
         self._api_key = api_key
         self._fetch_json = fetch_json or self._default_fetch_json
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._request_interval = 1.0 / qps
+        self._request_lock = Lock()
+        self._next_request_at: float | None = None
+
+    def _fetch_paced_json(self, url: str) -> dict:
+        # This provider is shared by all turns in the single-worker server.
+        # Hold the lock through HTTP completion, then leave a full interval.
+        # There is no burst allowance, no per-visitor reset, and no retry.
+        with self._request_lock:
+            if self._next_request_at is not None:
+                delay = self._next_request_at - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+            try:
+                return self._fetch_json(url)
+            finally:
+                # Failed calls also consume an outbound request slot.
+                self._next_request_at = time.monotonic() + self._request_interval
 
     def route(self, request: RouteRequest) -> RouteFact:
         if request.mode.value != "taxi":
             raise RuntimeError("amap route mode is not supported")
+        started = time.perf_counter()
         query = urlencode(
             {
                 "key": self._api_key,
@@ -214,7 +275,7 @@ class AmapRouteProvider:
             }
         )
         try:
-            payload = self._fetch_json(
+            payload = self._fetch_paced_json(
                 f"https://restapi.amap.com/v5/direction/driving?{query}"
             )
             require_amap_success(payload, operation="route")
@@ -225,21 +286,22 @@ class AmapRouteProvider:
                 math.ceil(float(path["cost"]["duration"]) / 60),
             )
             geometry = _parse_geometry(path.get("steps", []))
-        except AmapResponseError:
-            raise
+            return RouteFact(
+                origin=request.origin,
+                destination=request.destination,
+                mode=request.mode,
+                distance_km=distance_km,
+                duration_minutes=duration_minutes,
+                geometry=geometry or [request.origin, request.destination],
+                source=ProviderSource.AMAP_LIVE,
+                provider_mode=ProviderMode.LIVE,
+                verified_at=self._clock(),
+            )
         except Exception as error:
+            _log_route_failure(error, started=started)
+            if isinstance(error, AmapResponseError):
+                raise
             raise RuntimeError("amap route request failed") from error
-        return RouteFact(
-            origin=request.origin,
-            destination=request.destination,
-            mode=request.mode,
-            distance_km=distance_km,
-            duration_minutes=duration_minutes,
-            geometry=geometry or [request.origin, request.destination],
-            source=ProviderSource.AMAP_LIVE,
-            provider_mode=ProviderMode.LIVE,
-            verified_at=self._clock(),
-        )
 
     @staticmethod
     def _default_fetch_json(url: str) -> dict:

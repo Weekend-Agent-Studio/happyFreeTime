@@ -810,15 +810,21 @@ def _repair_hint(diagnostic: StructuredOutputDiagnostic) -> str:
     return "；".join(parts)
 
 
-def build_default_turn_interpreter() -> TurnInterpreter:
-    """根据环境变量创建 OpenAI 兼容的生产 TurnInterpreter。"""
-    model_name = os.getenv("MODEL_NAME", "deepseek-v4-flash")
+def build_default_turn_interpreter(
+    *,
+    api_key: str | None = None,
+    model_name: str | None = None,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
+) -> TurnInterpreter:
+    """通过显式配置或本地环境变量创建 OpenAI 兼容的 TurnInterpreter。"""
+    model_name = model_name or os.getenv("MODEL_NAME", "deepseek-v4-flash")
     llm = ChatOpenAI(
         model=model_name,
-        api_key=os.getenv("LLM_API"),
-        base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
+        api_key=api_key or os.getenv("LLM_API"),
+        base_url=base_url or os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
-        timeout=_model_timeout_seconds(),
+        timeout=timeout_seconds if timeout_seconds is not None else _model_timeout_seconds(),
         max_retries=0,
         # Function Calling 会把 Pydantic Schema 作为工具参数契约传给
         # OpenAI-compatible provider；本地 Pydantic 仍然是最终校验入口。

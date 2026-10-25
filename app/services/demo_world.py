@@ -20,6 +20,14 @@ from app.services.catalog import CatalogDataError, InMemoryCatalog, SnapshotCata
 _ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_WORLD = _ROOT / "data" / "demo_world" / "v1" / "enrichment.json"
 
+# The raw snapshot classifies both as museums, while their names/presentation
+# suggest different experiences. Do not guess corrected facts from names or let
+# these unresolved records steer the public demonstration's recommendations.
+_CATEGORY_REVIEW_PENDING = {
+    "osm-node-4284096489": "天福茗茶：目录博物馆分类与茶馆参考图冲突，待核实",
+    "osm-node-5963885701": "北京明城墙遗址公园：目录博物馆分类与公园名称冲突，待核实",
+}
+
 
 class DemoWorld:
     """Loads generated enrichment; no values are generated at request time."""
@@ -94,8 +102,13 @@ class DemoCatalog:
         self._snapshot = snapshot or SnapshotCatalog()
         self._world = world or DemoWorld()
         anchors = self._snapshot.load_candidates()
-        enriched = [self._merge(candidate, self._world.record(candidate.resource_id)) for candidate in anchors]
+        enriched = [
+            self._merge(candidate, self._world.record(candidate.resource_id))
+            for candidate in anchors
+            if candidate.resource_id not in _CATEGORY_REVIEW_PENDING
+        ]
         self._delegate = InMemoryCatalog(enriched)
+        self._candidates = enriched
 
     @property
     def presentation_provider(self) -> DemoWorld:
@@ -103,6 +116,10 @@ class DemoCatalog:
 
     def recall(self, constraints: PlanRequest) -> CatalogResult:
         return self._delegate.recall(constraints)
+
+    def load_candidates(self) -> list[StopCandidate]:
+        """Export the active demo universe for an offline retrieval index."""
+        return [candidate.model_copy(deep=True) for candidate in self._candidates]
 
     @staticmethod
     def _merge(anchor: StopCandidate, record: dict) -> StopCandidate:

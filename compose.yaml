@@ -1,0 +1,112 @@
+name: happyfreetime
+
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    image: happyfreetime-api:${HFT_RELEASE:?Set HFT_RELEASE in deploy/compose.env}
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+      target: ${HFT_API_TARGET:-rag}
+      args:
+        HFT_REVISION: ${HFT_RELEASE}
+        HFT_PIP_INDEX_URL: ${HFT_PIP_INDEX_URL:-https://pypi.org/simple}
+    env_file: deploy/runtime.env
+    environment:
+      HFT_PUBLIC_DEMO: "true"
+      HFT_DATABASE_PATH: /var/lib/happyfreetime/public_demo.db
+      HFT_RELEASE: ${HFT_RELEASE}
+      # Never expose a deployer's shared LLM credential in this preset.
+      LLM_API: ""
+      LANGCHAIN_TRACING_V2: "false"
+      LANGSMITH_TRACING: "false"
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.api.server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+      - --no-access-log
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - ${HFT_PROXY_IP:-172.30.88.2}
+    volumes:
+      - data:/var/lib/happyfreetime
+    networks:
+      backend:
+        ipv4_address: ${HFT_API_IP:-172.30.88.3}
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ulimits:
+      core: {soft: 0, hard: 0}
+    mem_limit: ${HFT_API_MEMORY_LIMIT:-1536m}
+    cpus: "2.0"
+    pids_limit: 128
+    stop_grace_period: 120s
+    logging: *logs
+    healthcheck:
+      test: [CMD, python, -c, "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/config/runtime',timeout=3)); assert d['data']['public_demo'] is True"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+
+  web:
+    image: happyfreetime-web:${HFT_RELEASE:?Set HFT_RELEASE in deploy/compose.env}
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+      args:
+        HFT_REVISION: ${HFT_RELEASE}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Initial verification is deliberately private; use an SSH tunnel.
+      - ${HFT_BIND_ADDRESS:-127.0.0.1}:${HFT_HTTP_PORT:-8080}:8080
+    networks:
+      backend:
+        ipv4_address: ${HFT_PROXY_IP:-172.30.88.2}
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ulimits:
+      core: {soft: 0, hard: 0}
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 64
+    logging: *logs
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/api/health]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  data:
+    name: happyfreetime-data
+
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: ${HFT_NETWORK_SUBNET:-172.30.88.0/24}

@@ -1,0 +1,168 @@
+import { expect, test } from "@playwright/test";
+import path from "node:path";
+
+test("offline follow-up keeps two people separate from 150 yuan", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop-public", "Desktop regression for the reported utterance");
+  await page.goto("/");
+  const emptyDate = page.getByRole("button", { name: /^修改日期时间/ });
+  expect((await emptyDate.boundingBox())!.width).toBeLessThan(155);
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-empty-header-desktop.png") });
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".rich-planning-reply")).toHaveCount(1);
+  await page.getByLabel("描述你的空闲时间和偏好").fill("改成两个人，人均150元，严格控制预算");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".rich-planning-reply")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: /^修改同行人数/ })).toHaveAccessibleName(/2 位成人/);
+  await expect(page.getByRole("button", { name: /^修改人均预算/ })).toHaveAccessibleName(/150/);
+  await expect(page.getByRole("group", { name: "规划恢复选项" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^修改出发地/ })).toHaveText(/北京市朝阳区/);
+  await page.getByRole("button", { name: /^修改出行偏好/ }).click();
+  await page.getByLabel("偏好类别").selectOption("diet_tags");
+  await expect(page.getByLabel("添加偏好")).toHaveAttribute("placeholder", "例如：清淡、素食");
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-preferences-desktop.png") });
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("tab", { name: "核验与来源" }).click();
+  await expect(page.getByRole("region", { name: "本轮模型使用" })).toContainText("未调用模型");
+  const modelRecords = page.locator(".runtime-call-group");
+  await expect(modelRecords).not.toHaveAttribute("open");
+  await modelRecords.getByText("模型调用", { exact: true }).click();
+  await expect(modelRecords.locator(".runtime-call-row").first()).toBeVisible();
+  await expect(modelRecords).toContainText(/ms/);
+  await modelRecords.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-runtime-expanded-desktop.png") });
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-fixed-followup-desktop.png") });
+});
+
+test("desktop demo labels simulated evidence and submits an honestly named replacement", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop-public", "Desktop workspace acceptance");
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".plan-card").first()).toBeVisible();
+  await expect(page.locator(".planning-constraint-tag.weather").first()).toContainText("模拟数据 · 非实时");
+  const nextActions = page.getByRole("navigation", { name: "接下来可以做" });
+  await expect(nextActions.getByRole("button", { name: /换一家餐厅|更换其中一站|晚饭换安静一点/ })).toHaveCount(0);
+  await nextActions.getByRole("button", { name: "查看核验依据" }).click();
+  await expect(page.getByRole("tab", { name: "核验与来源" })).toHaveAttribute("aria-selected", "true");
+  let writes = 0;
+  page.on("request", (request) => { if (["POST", "PATCH"].includes(request.method())) writes += 1; });
+  await nextActions.getByRole("button", { name: "调整预算" }).click();
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  expect(writes).toBe(0);
+  const overview = page.getByRole("region", { name: "核验概览" });
+  await expect(overview).toContainText("模拟数据 · 非实时");
+  await expect(overview).not.toContainText("已提供动态事实");
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-polish-evidence-desktop.png") });
+  await page.getByRole("tab", { name: "行程", exact: true }).click();
+  await page.getByRole("button", { name: "选择此方案", exact: true }).click();
+  await expect(page.getByRole("button", { name: "已选择此方案", exact: true })).toBeVisible();
+  const beforeDraft = writes;
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-next-actions-desktop.png") });
+  await nextActions.getByRole("button", { name: /换一家餐厅|更换其中一站|晚饭换安静一点/ }).click();
+  expect(writes).toBe(beforeDraft);
+  await expect(page.getByRole("button", { name: "换个类似的", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "换一个地点", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "替换结果", exact: true })).toBeVisible();
+  await expect(page.locator(".plan-diff-replacements").first()).toBeVisible();
+  await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-polish-replacement-desktop.png") });
+});
+
+test("public model settings are page-only and showcase playback never writes a session", async ({ page }, info) => {
+  const mobile = info.project.name.startsWith("mobile");
+  const openNav = async () => { if (mobile) await page.getByRole("button", { name: "打开历史会话" }).click(); };
+  let sessionWrites = 0;
+  page.on("request", (request) => { if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method()) && /\/api\/sessions(?:\/|$)/.test(new URL(request.url()).pathname)) sessionWrites += 1; });
+  await page.goto("/?session=old-page-session");
+  await expect(page.getByLabel("描述你的空闲时间和偏好")).toBeVisible();
+  expect(new URL(page.url()).searchParams.has("session")).toBe(false);
+  await openNav();
+  await page.getByRole("button", { name: "模型配置", exact: true }).filter({ visible: true }).click();
+  const settings = page.getByRole("dialog", { name: "模型配置", exact: true });
+  await expect(settings.getByText(/Key 经本站后端调用/)).toBeVisible();
+  await expect(settings.getByText(/不写入数据库/)).not.toBeVisible();
+  await settings.getByText("隐私与使用说明", { exact: true }).click();
+  await expect(settings.getByText(/不写入数据库/)).toBeVisible();
+  await settings.getByText("隐私与使用说明", { exact: true }).click();
+  await expect(settings.getByRole("button", { name: "仅本次使用" })).toBeInViewport();
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/public-demo-settings-${mobile ? "mobile" : "desktop"}.png`) });
+  await settings.getByLabel("DeepSeek API Key").fill("sk-offline-browser-fixture-123456");
+  const configured = page.waitForResponse((response) => response.url().endsWith("/api/demo/model") && response.request().method() === "PUT");
+  await settings.getByRole("button", { name: "仅本次使用" }).click();
+  expect((await configured).status()).toBe(200);
+  await expect(settings.getByRole("status")).toContainText("有效性将在实际调用时确认");
+  await expect(settings.getByLabel("DeepSeek API Key")).toHaveValue("");
+  await expect(settings.locator(".demo-mode-state")).toHaveClass(/is-configured/);
+  await expect(settings.locator(".demo-mode-state")).toContainText("DeepSeek 已配置");
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/public-demo-settings-configured-${mobile ? "mobile" : "desktop"}.png`) });
+  await settings.getByRole("button", { name: "移除 Key，使用演示模式" }).click();
+  await expect(settings.getByRole("status")).toContainText("已移除");
+  await settings.getByRole("button", { name: "关闭模型配置" }).click();
+  const examples = page.getByRole("region", { name: "示例会话", exact: true }).filter({ visible: true });
+  await expect(examples.getByRole("button", { name: /^查看示例：/ })).toHaveCount(3);
+  for (const [index, title] of ["补充条件，再选方案", "预算冲突与恢复"].entries()) {
+    if (mobile && index > 0) await openNav();
+    await examples.getByRole("button", { name: `查看示例：${title}`, exact: true }).click();
+    await expect(page.getByRole("region", { name: "预置示例说明" })).toContainText(title);
+    await expect(page.getByRole("button", { name: /^修改人均预算/ })).toBeDisabled();
+    await expect(page.locator(".message.user")).not.toHaveCount(1);
+    if (title === "补充条件，再选方案") {
+      await expect(page.getByText("条件已保存，现有方案需要重新核验；确认重新规划后才会更新行程。")).toBeVisible();
+    } else {
+      const recoveryCard = page.getByRole("group", { name: "规划恢复选项" });
+      await expect(recoveryCard).toContainText("严格上限 → 参考条件");
+      await expect(recoveryCard).not.toContainText(/strict_budget|True|False/);
+      if (!mobile) {
+        await recoveryCard.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.resolve("../.impeccable/review/public-demo-recovery-copy-desktop.png") });
+      }
+    }
+    expect(sessionWrites).toBe(0);
+  }
+  if (mobile) await openNav();
+  await examples.getByRole("button", { name: "查看示例：只替换其中一站", exact: true }).click();
+  await expect(page.getByRole("region", { name: "预置示例说明" })).toContainText("仅供回看");
+  await expect(page.locator(".message.user")).toHaveCount(3);
+  await expect(page.locator(".plan-diff-evidence").first()).toBeAttached();
+  await expect(page.getByLabel("描述你的空闲时间和偏好")).toHaveCount(0);
+  if (mobile) await page.getByRole("button", { name: /打开.*详情/ }).filter({ visible: true }).first().click();
+  await expect(page.getByRole("button", { name: "选择此方案", exact: true }).filter({ visible: true })).toBeDisabled();
+  if (mobile) await page.getByRole("button", { name: "关闭", exact: true }).click();
+  expect(new URL(page.url()).searchParams.has("session")).toBe(false);
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/public-demo-conversations-${mobile ? "mobile" : "desktop"}.png`) });
+  expect(sessionWrites).toBe(0);
+  await page.getByRole("button", { name: "用此需求新建体验", exact: true }).click();
+  await expect(page.getByLabel("描述你的空闲时间和偏好")).toHaveValue("今天下午出去玩");
+  expect(sessionWrites).toBe(0);
+  expect(await page.evaluate(() => Object.keys(localStorage).some((key) => /token|api.?key|model/i.test(key)))).toBe(false);
+});
+
+test("public visitors cannot read each other's history and refresh creates a fresh experience", async ({ page, context }, info) => {
+  const firstBootstrap = page.waitForResponse((response) => response.url().endsWith("/api/demo/visitors") && response.status() === 201);
+  await page.goto("/");
+  const firstToken = (await (await firstBootstrap).json()).data.token;
+  await page.getByLabel("描述你的空闲时间和偏好").fill("今天下午出去玩");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  await expect(page.locator(".plan-card").first()).toBeVisible();
+  const session = new URL(page.url()).searchParams.get("session");
+  expect(session).toBeTruthy();
+  const other = await context.newPage();
+  const otherBootstrap = other.waitForResponse((response) => response.url().endsWith("/api/demo/visitors") && response.status() === 201);
+  await other.goto("/");
+  const otherToken = (await (await otherBootstrap).json()).data.token;
+  expect(otherToken).not.toBe(firstToken);
+  const forbidden = await context.request.get(`/api/sessions/${session}`, { headers: { "X-Demo-Token": otherToken, "X-User-Id": "demo-user" } });
+  expect(forbidden.status()).toBe(404);
+  await other.close();
+  const freshBootstrap = page.waitForResponse((response) => response.url().endsWith("/api/demo/visitors") && response.status() === 201);
+  await page.reload();
+  const freshToken = (await (await freshBootstrap).json()).data.token;
+  expect(freshToken).not.toBe(firstToken);
+  await expect(page.getByRole("heading", { name: "给周末一点好心情" })).toBeVisible();
+  expect(new URL(page.url()).searchParams.has("session")).toBe(false);
+  await expect(page.locator(".plan-card")).toHaveCount(0);
+  if (info.project.name.startsWith("mobile")) await page.getByRole("button", { name: "打开历史会话" }).click();
+  await expect(page.getByRole("region", { name: "示例会话", exact: true }).filter({ visible: true }).getByRole("button", { name: /^查看示例：/ })).toHaveCount(3);
+  if (info.project.name.startsWith("mobile")) await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/public-demo-fresh-${info.project.name}.png`) });
+});

@@ -221,6 +221,29 @@ describe("planning workspace", () => {
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it.each(["missing", "rule", "fallback", "bypassed"] as const)("shows honest public model usage for %s records", async (kind) => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, runtime_decisions: kind === "missing" ? [] : [{
+      stage: "turn_interpreter", adapter: kind === "bypassed" ? "bypassed" : kind === "rule" ? "demo_rule" : "fallback",
+      model_invoked: kind === "fallback", model_name: null, attempts: kind === "fallback" ? 1 : 0,
+      fallback_reason: kind === "bypassed" ? "structured_command" : kind === "fallback" ? "private-diagnostic-code" : null,
+      latency_ms: null, input_tokens: null, output_tokens: null,
+    }] });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("tab", { name: "核验与来源" }));
+    const usage = screen.getByRole("region", { name: "本轮模型使用" });
+    expect(usage).toHaveTextContent(kind === "missing" ? "无法判断是否使用模型" : kind === "fallback" ? "已调用 · 含回退" : "未调用模型");
+    expect(usage).not.toHaveTextContent("private-diagnostic-code");
+    if (kind === "bypassed") {
+      expect(usage).not.toHaveTextContent("含回退");
+      expect(usage).not.toHaveTextContent("本阶段使用了回退结果");
+      expect(usage.querySelector(".runtime-call-row")).not.toHaveClass("warning");
+    }
+  });
+
   it.each([false, true])("gates developer traces while keeping public evidence available enabled=%s", async (enabled) => {
     if (enabled) vi.stubEnv("VITE_SHOW_DEVELOPER_DETAILS", "true");
     const user = userEvent.setup();
@@ -278,21 +301,27 @@ describe("planning workspace", () => {
     expect(riskGroup).toBeInTheDocument();
     expect(screen.getByText("已完成需求理解")).toBeInTheDocument();
     expect(screen.getByText("路线和硬约束核对完成")).toBeInTheDocument();
-    if (!enabled) {
-      expect(screen.queryByText("模型调用")).not.toBeInTheDocument();
-      expect(screen.queryByText("开发者详情")).not.toBeInTheDocument();
-      return;
-    }
+    const publicModelUsage = screen.getByRole("region", { name: "本轮模型使用" });
+    expect(publicModelUsage).toHaveTextContent("已调用模型");
+    expect(publicModelUsage).toHaveTextContent("test-model");
+    if (!enabled) expect(publicModelUsage).not.toHaveTextContent("tokens");
     expect(screen.getByText("模型调用")).toBeInTheDocument();
     const runtimeGroup = evidencePanel.querySelector(".runtime-call-group") as HTMLDetailsElement;
     expect(riskGroup!.compareDocumentPosition(runtimeGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(riskGroup!.compareDocumentPosition(evidencePanel.querySelector(".verification-overview")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(runtimeGroup.open).toBe(false);
     expect(screen.getByText("未调用模型 · 规则基线")).not.toBeVisible();
     await user.click(within(runtimeGroup).getByText("模型调用"));
     expect(runtimeGroup.open).toBe(true);
     expect(screen.getByText("未调用模型 · 规则基线")).toBeInTheDocument();
     expect(screen.getByText("调用模型 · test-model")).toBeInTheDocument();
-    expect(screen.getByText(/20 ms · 尝试 1 次 · tokens 12\/7/)).toBeInTheDocument();
+    expect(within(runtimeGroup).getByText(/20 ms · 尝试 1 次/)).toBeVisible();
+    expect(within(runtimeGroup).getAllByRole("article")[0].querySelector("svg")).toBeInTheDocument();
+    if (!enabled) {
+      expect(screen.queryByText("开发者详情")).not.toBeInTheDocument();
+      return;
+    }
+    expect(within(runtimeGroup).getByText(/tokens 12\/7/)).toBeVisible();
     expect([...document.querySelectorAll("details > summary")].every((summary) => summary.querySelector(".disclosure-chevron"))).toBe(true);
     await user.click(screen.getByText("开发者详情"));
     expect(screen.getByText("检索和搜索诊断")).toBeInTheDocument();
@@ -805,9 +834,42 @@ describe("planning workspace", () => {
     expect(within(constraints).getByText("同行人")).toBeInTheDocument();
     expect(within(constraints).getByText("人均 120 元")).toBeInTheDocument();
     expect(within(constraints).getByText("距离")).toBeInTheDocument();
-    expect(constraints.querySelector(".planning-constraint-tag.weather")).toHaveTextContent("天气 阴转小雨 · 19°C · 需留意");
+    expect(constraints.querySelector(".planning-constraint-tag.weather")).toHaveTextContent("天气 模拟数据 · 非实时 · 阴转小雨 · 19°C · 需留意");
     expect(planningReply).not.toHaveTextContent("下午两点半准时出发");
     expect(planningReply?.querySelector(".plan-grid")).toBeInTheDocument();
+  });
+
+  it.each([
+    { mode: "mock" as const, source: "cache" as const, verified: true, expected: "模拟数据 · 非实时" },
+    { mode: "replay" as const, source: "replay" as const, verified: true, expected: "固定回放" },
+    { mode: "live" as const, source: "amap_live" as const, verified: false, expected: "高德实时 · 待确认" },
+  ])("shows $mode availability provenance before evidence is expanded", async ({ mode, source, verified, expected }) => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({
+      ...response,
+      provider_facts: [{
+        kind: "availability", source, mode, verified, stale: false, status: "available", reason: null,
+        resource_id: "plan-one-activity", observed_at: "2026-10-24T10:00:00Z", verified_at: "2026-10-24T10:00:00Z",
+        degraded: false, degraded_reason: null,
+      }],
+    });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "今天下午出去玩");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    await screen.findAllByText("方案一");
+    await user.click(screen.getByRole("tab", { name: "核验与来源" }));
+    const overview = screen.getByRole("region", { name: "核验概览" });
+    expect(within(overview).getByText(expected)).toBeVisible();
+    expect(overview).not.toHaveTextContent("已提供动态事实");
+  });
+
+  it("explains an empty condition-save reply instead of showing an empty assistant turn", async () => {
+    const user = userEvent.setup();
+    api.sendMessage.mockResolvedValueOnce({ ...response, status: "context_saved", reply: "", plans: [], planning_context: planningContext({ plan_stale: true }) });
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "保存新条件");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    expect(await screen.findByText("条件已保存，现有方案需要重新核验；确认重新规划后才会更新行程。")).toBeVisible();
   });
 
   it("confirms a saved stale context with a dismissible toast", async () => {

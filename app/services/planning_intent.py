@@ -280,6 +280,11 @@ def _build_time_coverage_objective(
 
 def build_default_planning_intent_provider(
     mode: str | None = None,
+    *,
+    api_key: str | None = None,
+    model_name: str | None = None,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> PlanningIntentProvider:
     """Build the configured provider without changing the default rule baseline."""
     selected_mode = (mode or os.getenv("HFT_PLANNING_INTENT_MODE", "rule")).lower()
@@ -287,16 +292,16 @@ def build_default_planning_intent_provider(
         return RuleBasedPlanningIntentProvider()
     if selected_mode != "llm":
         raise RuntimeError("HFT_PLANNING_INTENT_MODE must be one of: rule, llm")
-    api_key = os.getenv("LLM_API")
+    api_key = api_key or os.getenv("LLM_API")
     if not api_key:
         raise RuntimeError("HFT_PLANNING_INTENT_MODE=llm requires LLM_API")
-    model_name = os.getenv("MODEL_NAME", "deepseek-v4-flash")
+    model_name = model_name or os.getenv("MODEL_NAME", "deepseek-v4-flash")
     llm = ChatOpenAI(
         model=model_name,
         api_key=api_key,
-        base_url=os.getenv("BASE_URL", "https://api.deepseek.com"),
+        base_url=base_url or os.getenv("BASE_URL", "https://api.deepseek.com"),
         temperature=0.0,
-        timeout=_model_timeout_seconds(),
+        timeout=timeout_seconds if timeout_seconds is not None else _model_timeout_seconds(),
         max_retries=0,
         # Function Calling 把提议 Schema 传给兼容 OpenAI 的 provider；本地
         # Pydantic 继续负责严格校验。

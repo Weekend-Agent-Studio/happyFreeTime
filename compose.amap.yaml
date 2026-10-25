@@ -1,0 +1,6 @@
+# Opt in only after creating the private deploy/amap.env with valid credentials.
+services:
+  api:
+    env_file:
+      - deploy/runtime.env
+      - deploy/amap.env

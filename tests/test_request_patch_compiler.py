@@ -39,6 +39,32 @@ from app.api.planning_turn import _dump_constraint_summary
 
 
 class RequestPatchCompilerTest(unittest.TestCase):
+    def test_follow_up_numbers_keep_budget_and_party_separate(self) -> None:
+        _, _, initial = self._compile("今天下午出去玩")
+        for text, amount in [
+            ("改成两个人，人均150元，严格控制预算", 150),
+            ("改成2个人，人均150元，严格控制预算", 150),
+            ("改成两个人，人均一百五十元", 150),
+            ("下午3点，两个人，每人200元", 200),
+        ]:
+            with self.subTest(text=text):
+                proposal = self.router.patch_proposal_from_text(text, has_plans=True)
+                compiled = RequestPatchUpdateCompiler().compile_update_proposal(
+                    base=initial.request, proposal=proposal, actor=self.actor, environment=self.environment,
+                )
+                updated = self.engine.apply(initial.request, compiled.patch, issues=compiled.issues)
+                self.assertIsInstance(updated, ResolvedRequest)
+                self.assertEqual(updated.request.party.value.adults, 2)
+                self.assertEqual(updated.request.budget_per_person.value, amount)
+
+    def test_money_parser_does_not_take_a_number_from_unrelated_fields(self) -> None:
+        parser = RequestPatchUpdateCompiler._parse_amount
+        for value in ("两个人，严格控制预算", "3点出发，预算待定", "全程5公里，别超预算"):
+            with self.subTest(value=value):
+                self.assertIsNone(parser(value))
+        self.assertEqual(parser("最多150"), 150)
+        self.assertEqual(parser("150"), 150)
+
     def setUp(self) -> None:
         self.actor = ActorContext(
             user_id="test-user",

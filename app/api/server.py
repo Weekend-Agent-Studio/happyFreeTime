@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from app.api.application import create_app
+from app.api.public_demo import PublicDemo
 from app.domain.providers import ProviderMode
 from app.orchestration.entry_graph import default_environment_provider
 from app.providers.weather import build_weather_provider
@@ -18,6 +19,7 @@ from app.services.router_extractor import build_default_turn_interpreter
 from app.services.catalog import SnapshotCatalog
 from app.services.planning_intent import build_default_planning_intent_provider
 from app.services.demo_world import DemoCatalog
+from app.services.candidate_retriever import build_default_candidate_retriever
 
 
 load_dotenv()
@@ -41,7 +43,8 @@ def build_router():
     return build_default_turn_interpreter()
 
 
-router = build_router()
+public_demo_enabled = os.getenv("HFT_PUBLIC_DEMO", "false").lower() == "true"
+router = DemoRouter() if public_demo_enabled else build_router()
 
 
 def build_default_weather_provider():
@@ -121,10 +124,11 @@ def build_default_catalog():
 
 
 catalog, poi_presentation_provider = build_default_catalog()
-planning_intent_provider = build_default_planning_intent_provider()
+planning_intent_provider = build_default_planning_intent_provider("rule" if public_demo_enabled else None)
 
 app = create_app(
-    database_path=Path("data/happy_free_time_v2.db"),
+    database_path=Path(os.getenv("HFT_DATABASE_PATH", "data/happy_free_time_v2.db")),
+    public_demo=PublicDemo() if public_demo_enabled else None,
     router=router,
     environment_provider=default_environment_provider,
     weather_provider=weather_provider,
@@ -135,4 +139,6 @@ app = create_app(
     planning_intent_provider=planning_intent_provider,
     poi_presentation_provider=poi_presentation_provider,
     web_map_provider=web_map_provider,
+    candidate_retriever=build_default_candidate_retriever(),
+    prewarm_retrieval=os.getenv("HFT_RETRIEVAL_PREWARM", "false").lower() == "true",
 )

@@ -63,13 +63,12 @@ describe("PlanningContextBar typed patches", () => {
     const user = userEvent.setup();
     render(<PlanningContextBar context={context} sessionId="session-1" busy={false} externalOpen={null} onExternalOpenHandled={() => undefined} onSave={vi.fn().mockResolvedValue(undefined)} />);
 
-    const trigger = screen.getByRole("button", { name: "修改出发地，当前演示默认出发点" });
+    const trigger = screen.getByRole("button", { name: "修改出发地，当前北京市朝阳区" });
     expect(trigger).toBeInTheDocument();
     await user.click(trigger);
 
     expect(screen.getByRole("heading", { name: "从哪出发" })).toBeInTheDocument();
     const summary = screen.getByLabelText("当前出发地");
-    expect(summary).toHaveTextContent("演示默认出发点");
     expect(summary).toHaveTextContent("北京市朝阳区");
     expect(summary).toHaveTextContent("固定位置，并非你的实时位置");
     expect(screen.getByText("仅支持北京市。出发地用于计算前往首站的交通；未指定其他活动范围时，也会影响附近候选。出发地搜索与规划 POI 候选目录相互独立。")).toBeInTheDocument();
@@ -308,7 +307,13 @@ describe("PlanningContextBar typed patches", () => {
     await user.click(screen.getByRole("button", { name: "保存条件" }));
 
     await user.click(screen.getByRole("button", { name: /修改出行偏好/ }));
+    expect(screen.getByLabelText("添加偏好")).toHaveAttribute("placeholder", "例如：安静、适合聊天");
+    await user.selectOptions(screen.getByLabelText("偏好类别"), "scene_tags");
+    expect(screen.getByLabelText("添加偏好")).toHaveAccessibleDescription("这次为谁、为什么出门，帮助匹配场景。");
+    await user.selectOptions(screen.getByLabelText("偏好类别"), "avoid");
+    expect(screen.getByLabelText("添加偏好")).toHaveAccessibleDescription("不想遇到什么，降低相关地点的优先级。");
     await user.selectOptions(screen.getByLabelText("偏好类别"), "diet_tags");
+    expect(screen.getByLabelText("添加偏好")).toHaveAccessibleDescription("想怎样吃，用于匹配餐饮地点的饮食标签。");
     await user.type(screen.getByLabelText("添加偏好"), "清淡");
     await user.click(screen.getByRole("button", { name: "添加" }));
     await user.click(screen.getByRole("button", { name: "保存条件" }));

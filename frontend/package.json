@@ -9,6 +9,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:integration": "playwright test --config playwright.integration.config.ts",
+    "test:public-demo": "playwright test --config playwright.public-demo.config.ts",
     "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview --host 127.0.0.1"
   },

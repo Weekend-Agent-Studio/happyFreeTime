@@ -1,8 +1,38 @@
 # Codex Brief：HappyFreeTime 当前事实索引
 
-_最后核对：2026-10-23。本文是低成本接手地图，不替代代码、测试或完整架构说明。开始工作前仍应检查 Git 状态。_
+_最后核对：2026-10-25。本文是低成本接手地图，不替代代码、测试或完整架构说明。开始工作前仍应检查 Git 状态。_
 
 ## 版本边界
+
+- 2026-10-26 镜像下载修正：服务器正式镜像构建因 files.pythonhosted.org ReadTimeout 失败，旧容器继续运行；拆分 apt/CPU torch/RAG 安装层，普通依赖增加可配置 HFT_PIP_INDEX_URL（默认 PyPI），CPU torch 保持官方 CPU 源，pip 下载超时 120 秒。未改业务或依赖版本范围，本机无 Docker，仍需服务器构建并验收。见 `docs/current/deployment_retrieval.md`。
+
+- 2026-10-25 正式镜像准备：用户确认路线限速补丁启用后的服务器严格冒烟通过，仍是临时只读覆盖，非正式新镜像或公网 HTTPS 验收。后端 Dockerfile 将基础依赖、CPU BGE 依赖与业务代码/版本元数据分离，避免源码或 release 变化触发大依赖重装；首次切换缓存结构仍可能重装。本机无 Docker，实际镜像构建及移除覆盖后的复验待服务器执行。见 `docs/status/release_image_cache_20261025.md`。
+
+- 2026-10-25 高德路线 QPS 修正：服务器失败日志确认 API 拒绝码 10021（账号服务接口 QPS 超限），不是月额度或超时；本机确定性限速上游复现同样的降级。AmapRouteProvider 增加共享出站节奏，默认 HFT_AMAP_ROUTE_QPS=1，实际 HTTP 完成后保留整段间隔，跨并发规划共用；缓存命中不等待，不自动重试，失败仍占请求位。52 项定向回归通过，实际服务器需更新只读覆盖文件并重启后复验。见 `docs/status/amap_route_qps_20261025.md`。
+
+- 2026-10-25 路线失败边界诊断：AmapResponseError 保留仅数字的安全错误码；路线 Adapter 在实际失败处记录固定类别、码和耗时，禁止记录 URL/Key/坐标/上游正文。不改超时、重试、缓存或降级语义。可通过只读诊断挂载给现有镜像临时采集，无需重装 BGE；实际服务器根因仍待这组日志，不能假定限流。见 `docs/status/amap_route_failure_capture_20261025.md`。
+
+- 2026-10-25 高德冒烟诊断：`--require-amap` 仍要求本轮所有返回方案的天气/路线都真实且未降级；失败现在区分天气/路线成功数及失败的方案/路段，不再只有笼统提示。检查脚本可单独上传、经 stdin 在现有容器运行，无需为诊断重建镜像。当前间歇路线降级尚未归因，不以单次成功或坐标对照成功宣称修复。见 `docs/status/amap_smoke_diagnostics_20261025.md`。
+
+- 2026-10-25 多轮调用记录修正：API 在每次新的 Graph 调用及 interrupt resume 时清空前轮 runtime_decisions，保留本次请求内真实的重复执行；不按阶段名去重、不倒写既有个人历史。固定三条示例已离线重录。前端不再把 bypassed/not_run 当成失败回退，保留内部原因供开发者检查；复用结构与无需向量检索有独立说明。用户服务器已运行 fa40639，完整 BGE/高德冒烟最终通过，地图/出发地/主流程反馈基本正常；此前两段路线间歇降级根因仍未确定，不能记为已修复。此多轮记录修正尚需更新服务器。见 `docs/status/runtime_turn_scope_20261025.md`。
+
+- 2026-10-25 BGE/高德部署补齐：默认 Compose `rag` 镜像包含 CPU BGE、语义 Profile 和独立准备的 DemoCatalog 索引；`deploy/prepare_retrieval.py` 离线生成资产，模型不进 Git，资产包需单独上传。lifespan 在正式共用检索器上校验 Catalog/索引并实际编码，启用预热时失败拒绝就绪；runtime 返回预热状态。`-HybridRetrieval` 使用同一本机资产，`-LiveAmap` 显式启用已有地图/搜索/路线/天气；生产通过 compose.amap.yaml 与私有 amap.env 启用。评分未变；新镜像、4GB 容量、真实高德/HTTPS 仍待服务器验证。见 `docs/current/deployment_retrieval.md` 与 `docs/status/public_demo_bge_deployment_20261025.md`。
+
+- 2026-10-25 模型记录层级修正：复用此前 RuntimeCallSummary 图标/阶段卡片，普通用户可展开查看调用状态、阶段总耗时和尝试次数；token 与原始回退诊断仍限开发者。核验顺序为需要确认→核验概览→默认折叠模型调用→证据，不再保留第二套简版列表。本地启动新增 `-WithAmap`，只显式读取三项高德凭证，启用地图和可选出发地搜索，不继承站主 LLM、不自动开启真实路线/天气。Docker 仍默认规则召回，BGE 依赖/模型/索引及预热未纳入镜像。详见 `docs/status/public_demo_runtime_map_20261025.md`。
+
+- 2026-10-25 配置与核验展示：普通“核验与来源”新增按本轮 runtime_decisions 展示的模型使用摘要，调用、回退和无记录分开，逐阶段诊断仍由开发者开关控制。Key 配置状态不推断真实模型调用；弹窗保留后端转发、临时使用与费用提示，完整说明折叠，已配置以图标/文字/颜色标示。四类偏好有各自简短说明及输入示例；出发地直接显示响应实际名称/地址，默认固定坐标与非实时定位说明在编辑页展示；未设置日期框取消额外最小宽度。本轮仅前端，不改变模型、偏好匹配、地点坐标或保留策略。
+
+- 2026-10-25 Demo 小修：离线补充条件将明确成人数编入现有类型化 ConstraintPatch，预算解析优先绑定“人均/每人/预算/元”，不再取整句话的首个数字；无儿童表述的明确人数按成人处理，未扩展为任意家庭结构理解。空 `context_saved` 回复显示保存与重规划提示。恢复结果摘要去掉内部字段，结构化变化仍保留；预算布尔值显示“严格上限/参考条件”，示例回放恢复已完成的动作状态，并重新录制案例。详见 `docs/status/public_demo_followup_fixes_20261025.md`。仍需更新云端镜像，未完成真实 Key 或公网 HTTPS 验收。
+
+- 2026-10-24 本地启动入口：`.\scripts\start_local.ps1` 默认一次启动本地公网 Demo（后端 8001、前端 5174）；`-Mode Development` 使用开发模式（8000/5173，默认离线），真实模型需显式 `-FullLlm`。自动设置子进程开关/代理和隔离数据库，不改父环境、不加前台身份切换；支持自定义端口、`-Check`、日志与退出清理。它只替代本地手动启动，不替代 Docker/Nginx/HTTPS 验收。
+
+- 2026-10-24 示例与下一步交互：同一公网分支将案例弹窗替换为侧栏固定三条多轮示例，分别覆盖补充人数/预算后重新规划与正式选择、单站替换、预算冲突与恢复。示例从临时 API/SQLite 重新录制，直接保留每轮 AgentResponse，复用现有聊天/详情，不写入访客数据库；仅可用初始需求新建草稿，刷新保留示例、清除个人体验。当前有效方案回复下增加核验/预算快捷入口，正式选择后按实际角色提供换站草稿，不自动提交、不展示下单。前端 105 项、后端定向 18 项、真实 API 浏览器 5 项通过（1 项桌面专属跳过），构建通过。服务器尚需更新镜像，README 全面产品化及真实 Key 联调仍待后续。见 `docs/status/public_demo_conversations_20261024.md`。
+
+- 2026-10-24 展示修正：用户腾讯云已构建并启动 `1531293`，主会话经 SSH 隧道检查桌面规划、详情/证据、正式选择和单站替换；不是公网 HTTPS 或真实 Key 验收。`da88120` 让天气与可用性概览直接标明模拟/回放/来源；“换个类似的”改为符合现有无类别约束合同的“换一个地点”。DemoCatalog 暂停召回两条原始分类存疑记录（天福茗茶、北京明城墙遗址公园），保留原始快照与 Demo World 文件，当前 Demo 候选最多 198 条。详见 `docs/status/public_demo_polish_20261024.md`。
+
+- 2026-10-23 部署补充：同一公网基础分支增加 `compose.yaml`、`compose.https.yaml`、`deploy/` 和 [单机部署指南](deployment.md)。web=Nginx+React，api=单 worker FastAPI，固定独立数据卷；默认仅监听服务器 loopback、无部署者 LLM Key、模拟站点 Provider。前后端共享 release 标识，提供 HTTP/SSE 冒烟及可选停机快照。部署定向测试与公网隔离合计 18 项通过；当前电脑无 Docker，镜像构建、Nginx 容器运行和腾讯云/HTTPS 尚未实测。见 `docs/status/public_demo_deployment_20261023.md`。
+
+- 2026-10-23：PR #24 已合并，`main@ba0f7fb` 包含 S-UI2 与出发地 O1/O2。新的 `codex/public-demo-foundation` 从该 main 建立，新增显式公网模式：页面级临时 capability、访客模型内存配置（仅 DeepSeek 官方 `deepseek-flash`）、期限清理、单进程资源预算及只读录制案例。本分支不代表已完成腾讯云上线或真实 Key 联调。能力、启动开关和边界见 `docs/current/public_demo.md`，验收记录见 `docs/status/public_demo_foundation_20261023.md`。
 
 - 2026-10-21 当前事实：S-UI1 已经由 PR #23 合并到 `main@7a67e22`；下文 S-UI1 开发分支条目保留为对应阶段快照。新的第一批 UI 精修从该 main 建立 `codex/s-ui2-planning-polish`，状态与剩余清单见 `docs/status/s_ui2_planning_polish_20261021.md`，尚未推送/合并。
 - 本批展示变化：本次条件与需求重点移到候选卡片之前常显，结构化条件与需求理解分组展示，需求标签去重；全局风险保持可见。卡片标题两行，修正窄列指标断字，时间轴文字提升至可读层级；每站时间、地点内容与较大图片收于同卡，地点类别/费用/标签用小卡片呈现，详情与营业/替换提示为暖金色；替换入口移至卡片底部并标为“替换此站”。换站草稿按说明在上、快捷操作在下排列，避免窄列挤压。开发诊断改为仅 `VITE_SHOW_DEVELOPER_DETAILS=true` 时显示，公开核验与过程入口保留。单站替换差异用简洁站点数和分列指标呈现，不逐条列出锁定站点。不改变选择/版本/API 合同。
@@ -58,6 +88,7 @@ User message
 | 最终校验与事实 | `app/services/plan_verifier.py`、`app/providers/` |
 | 持久化 | `app/persistence/database.py`、`app/persistence/models.py`、`app/persistence/repositories.py` |
 | HTTP 与前端 | `app/api/application.py`、`app/api/planning_context.py`、`frontend/src/App.tsx`、`frontend/src/PlanningContextBar.tsx` |
+| 公网体验边界 | `app/api/public_demo.py`、`frontend/src/demoRuntime.ts`、`frontend/src/DemoSettings.tsx`、`frontend/src/DemoShowcases.tsx`；`data/demo_showcases/v1.json` |
 | 前端外壳与视觉 | `frontend/src/SessionNavigation.tsx`、`frontend/src/ConversationHeading.tsx`、`frontend/src/tokens.css`、`frontend/src/shell.css`；保留功能样式在 `styles.css` |
 | Trace | `app/domain/run_trace.py`、`frontend/src/runProgress.ts` |
 | 评测 | `evals/run_resume_release_eval.py`、`evals/run_s_rx_multiturn.py`、`evals/run_retrieval_eval.py` |

@@ -49,6 +49,10 @@ components:
 
 # Design System: HappyFreeTime S-UI1B
 
+## Public demo additions (2026-10-23)
+
+Operate surface, preserving the current V4 warm-white/charcoal system. The sidebar adds “展示案例” and “模型配置” utility entries; collapsed navigation retains named icon buttons, and mobile exposes the same entries inside the history sheet. Model settings use the established Base UI dialog and form controls, a password field, explicit temporary-retention copy and confirmed configuration state. The read-only example viewer presents four real recorded flows and prepares a new draft only after an explicit action. Neither surface changes planning/selection semantics or claims live facts. Public history is labeled “本次体验” and explains refresh behavior.
+
 ## Overview
 
 **Current implementation，2026-10-19，`codex/s-ui1-product-frontend` 的 B 切片。**

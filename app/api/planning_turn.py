@@ -442,7 +442,10 @@ class PlanningTurnApplication:
                         "value": request.content,
                         "request_revision": pending_interrupt["request_revision"],
                     }
-                result = self._graph.invoke(Command(resume=resume_value), config=invoke_config)
+                # Calls before the interrupt belong to the previous HTTP turn.
+                # Keep all actual calls within this resumed turn, including any
+                # automatic recovery, without carrying historical diagnostics.
+                result = self._graph.invoke(Command(resume=resume_value, update={"runtime_decisions": ()}), config=invoke_config)
             elif compiled_context_patch is not None:
                 session_snapshot = self._repository.get_session_snapshot(user_id, session_id)
                 active_plan_payloads = self._repository.list_plans(user_id, session_id)
@@ -468,6 +471,7 @@ class PlanningTurnApplication:
                         ),
                         "selected_plan": selected_plan,
                         "request_patch_override": compiled_context_patch,
+                        "runtime_decisions": (),
                         "request_patch_issues": context_patch_issues,
                         "defer_planning": request.defer_planning,
                         "replan_current_request": False,
@@ -535,6 +539,7 @@ class PlanningTurnApplication:
                     {
                         "user_input": request.content,
                         "actor": actor,
+                        "runtime_decisions": (),
                         "has_plans": bool(active_plan_payloads),
                         "active_plan_version_id": (
                             session_snapshot.active_plan_version_id
@@ -1012,21 +1017,8 @@ def _recovery_outcome(
     field_changes = tuple(
         state_values.get("recovery_field_changes") or ()
     )
-    if field_changes:
-        rendered_changes = []
-        for change in field_changes:
-            item = (
-                change.model_dump(mode="json")
-                if hasattr(change, "model_dump")
-                else change
-            )
-            if isinstance(item, dict):
-                rendered_changes.append(
-                    f"{item.get('field')}: {item.get('before') or '未设置'} → "
-                    f"{item.get('after') or '已清除'}"
-                )
-        if rendered_changes:
-            summary = f"{'；'.join(rendered_changes)}。{summary}"
+    # Structured changes remain available for UI formatting and audit. Keep the
+    # public status sentence free of internal field names and Python booleans.
     return RecoveryOutcome(
         interaction_id=state_values.get("recovery_interaction_id"),
         action_id=str(payload.get("action_id", "recovery-action")),

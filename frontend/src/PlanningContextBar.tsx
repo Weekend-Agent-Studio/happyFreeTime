@@ -44,6 +44,13 @@ type DepartureDraft = { kind: "default" } | { kind: "provider_place"; provider_i
 
 const PET_PREFERENCE: PreferenceTag = { category: "preferences", value: "携带宠物" };
 
+const PREFERENCE_HELP: Record<PreferenceCategory, { description: string; example: string }> = {
+  preferences: { description: "想怎样玩，帮助挑选更合心意的地点。", example: "例如：安静、适合聊天" },
+  diet_tags: { description: "想怎样吃，用于匹配餐饮地点的饮食标签。", example: "例如：清淡、素食" },
+  scene_tags: { description: "这次为谁、为什么出门，帮助匹配场景。", example: "例如：约会、亲子" },
+  avoid: { description: "不想遇到什么，降低相关地点的优先级。", example: "例如：拥挤、嘈杂" },
+};
+
 function currentValue(field: PlanningContextSummary["where"] | undefined): unknown {
   return field?.value;
 }
@@ -54,7 +61,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function departureDisplayValue(field: PlanningContextSummary["where"] | undefined): string {
   if (!field) return "未设置";
-  if (field.source === "default") return "演示默认出发点";
   const value = asRecord(field.value);
   return String(value.name ?? value.address ?? field.display_value ?? "未设置");
 }
@@ -555,6 +561,7 @@ export function PlanningContextBar({
     || context?.total_distance_km.value != null
   );
 
+  const departurePoint = asRecord(context?.where.value);
   return (
     <div className="planning-context-wrap">
       <nav className="planning-context-bar" aria-label="规划条件">
@@ -576,6 +583,7 @@ export function PlanningContextBar({
             key={id}
             className={`planning-context-trigger ${pending ? "pending" : ""} ${assumed ? "assumed" : ""}`}
             aria-label={`修改${label}，当前${displayValue}`}
+            title={displayValue}
             aria-haspopup="dialog"
             onClick={() => open(id)}
             disabled={busy}
@@ -645,7 +653,8 @@ export function PlanningContextBar({
                   <section className="departure-current-summary" aria-label="当前出发地">
                     <span className="departure-current-label">当前出发地</span>
                     <strong>{departureDisplayValue(context?.where)}</strong>
-                    <span className="departure-current-address">{departureAddress(context?.where)}</span>
+                    {departureAddress(context?.where) !== departureDisplayValue(context?.where) ? <span className="departure-current-address">{departureAddress(context?.where)}</span> : null}
+                    {context?.where.source === "default" && typeof departurePoint.latitude === "number" && typeof departurePoint.longitude === "number" ? <small>固定坐标：{departurePoint.latitude}, {departurePoint.longitude}（GCJ-02）</small> : null}
                     <small className={saveError ? "departure-current-status failed" : "departure-current-status"}>
                       {saveError
                         ? "修改失败 · 当前出发地未变"
@@ -838,7 +847,7 @@ export function PlanningContextBar({
                   </div> : null}
                 </div> : null}
                 {section === "preferences" ? <div className="context-preference-editor">
-                  <p>体验作为偏好表达；饮食要求与希望避免的内容会保留各自类别。标签不代表地点事实已经核实。</p>
+                  <p>按类别添加，帮助匹配与排序；不代表地点条件已核实。</p>
                   <div className="context-preference-chips">{preferences.map((item) => <button type="button" key={`${item.category}:${item.value}`} aria-label={`移除${preferenceCategoryLabel(item.category)}偏好 ${item.value}`} onClick={() => setPreferences((current) => current.filter((value) => !samePreference(value, item)))}><small>{preferenceCategoryLabel(item.category)}</small>{item.value}<X size={13} /></button>)}</div>
                   <label>偏好类别<select aria-label="偏好类别" value={preferenceCategory} onChange={(event) => setPreferenceCategory(event.target.value as PreferenceCategory)}>
                     <option value="preferences">想要的体验</option>
@@ -846,7 +855,8 @@ export function PlanningContextBar({
                     <option value="scene_tags">场景类型</option>
                     <option value="avoid">希望避免</option>
                   </select></label>
-                  <label>添加偏好<input value={preferenceInput} onChange={(event) => setPreferenceInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addPreference(); } }} placeholder="例如：清淡、适合聊天" /></label>
+                  <p className="preference-category-help" id="preference-category-help">{PREFERENCE_HELP[preferenceCategory].description}</p>
+                  <label>添加偏好<input aria-describedby="preference-category-help" value={preferenceInput} onChange={(event) => setPreferenceInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addPreference(); } }} placeholder={PREFERENCE_HELP[preferenceCategory].example} /></label>
                   <button type="button" className="context-secondary" onClick={addPreference}>添加</button>
                 </div> : null}
                 {section === "advanced" ? <div className="context-advanced-editor">

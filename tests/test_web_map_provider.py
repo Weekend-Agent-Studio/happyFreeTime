@@ -6,12 +6,29 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 
 from app.api.application import create_app
+from app.api.public_demo import PublicDemo
 from app.orchestration.entry_graph import default_environment_provider
 from app.providers.web_map import AmapWebMapProvider, build_web_map_provider
 from app.services.demo_router import DemoRouter
 
 
 class WebMapProviderContractTest(unittest.TestCase):
+    def test_public_map_works_without_model_key_and_cookie_cannot_authorize_sessions(self) -> None:
+        provider = AmapWebMapProvider(js_api_key="fixture-js", security_code="fixture-security", fetch=lambda url: (200, "application/json", b'{"status":"1"}'))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = create_app(database_path=Path(temp_dir) / "public-map.db", router=DemoRouter(), environment_provider=default_environment_provider, web_map_provider=provider, public_demo=PublicDemo())
+            with TestClient(app, base_url="https://testserver") as client:
+                self.assertEqual(client.get("/_AMapService/v3/test").status_code, 401)
+                visitor = client.post("/api/demo/visitors")
+                self.assertEqual(visitor.status_code, 201)
+                headers = {"X-Demo-Token": visitor.json()["data"]["token"]}
+                config = client.get("/api/config/map", headers=headers)
+                self.assertEqual(config.status_code, 200)
+                self.assertTrue(config.json()["data"]["enabled"])
+                self.assertNotIn("fixture-security", config.text)
+                self.assertEqual(client.get("/_AMapService/v3/test").status_code, 200)
+                self.assertEqual(client.get("/api/sessions").status_code, 401)
+
     def test_browser_credentials_must_be_configured_as_a_pair(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "AMAP_JS_SECURITY_CODE"):
             build_web_map_provider(
