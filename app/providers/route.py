@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import math
+import logging
+import ssl
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlencode
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
 
 from app.providers.amap import AmapResponseError, require_amap_success
 from app.domain.providers import (
@@ -27,6 +31,35 @@ _SPEED_KMH = {
     "taxi": 25.0,
     "transit": 18.0,
 }
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _log_route_failure(error: Exception, *, started: float) -> None:
+    """Record only fixed categories/codes; never stringify transport errors."""
+    category, code = "unexpected_error", "unknown"
+    if isinstance(error, AmapResponseError):
+        category, code = "api_rejected", error.code or "unknown"
+    elif isinstance(error, HTTPError):
+        category = "http_error"
+        if isinstance(error.code, int) and 100 <= error.code <= 599:
+            code = str(error.code)
+    else:
+        cause = error.reason if isinstance(error, URLError) else error
+        if isinstance(cause, TimeoutError):
+            category = "timeout"
+        elif isinstance(cause, ssl.SSLError):
+            category = "tls_error"
+        elif isinstance(cause, ConnectionError):
+            category = "network_error"
+        elif isinstance(error, URLError):
+            category = "network_error"
+        elif isinstance(error, json.JSONDecodeError):
+            category = "invalid_json"
+        elif isinstance(error, (KeyError, IndexError, ValueError, TypeError)):
+            category = "invalid_response"
+    _LOGGER.warning("amap_route_failure category=%s code=%s elapsed_ms=%d",
+                    category, code, max(0, int((time.perf_counter() - started) * 1000)))
 
 
 def _estimate_local_route(
@@ -204,6 +237,7 @@ class AmapRouteProvider:
     def route(self, request: RouteRequest) -> RouteFact:
         if request.mode.value != "taxi":
             raise RuntimeError("amap route mode is not supported")
+        started = time.perf_counter()
         query = urlencode(
             {
                 "key": self._api_key,
@@ -225,21 +259,22 @@ class AmapRouteProvider:
                 math.ceil(float(path["cost"]["duration"]) / 60),
             )
             geometry = _parse_geometry(path.get("steps", []))
-        except AmapResponseError:
-            raise
+            return RouteFact(
+                origin=request.origin,
+                destination=request.destination,
+                mode=request.mode,
+                distance_km=distance_km,
+                duration_minutes=duration_minutes,
+                geometry=geometry or [request.origin, request.destination],
+                source=ProviderSource.AMAP_LIVE,
+                provider_mode=ProviderMode.LIVE,
+                verified_at=self._clock(),
+            )
         except Exception as error:
+            _log_route_failure(error, started=started)
+            if isinstance(error, AmapResponseError):
+                raise
             raise RuntimeError("amap route request failed") from error
-        return RouteFact(
-            origin=request.origin,
-            destination=request.destination,
-            mode=request.mode,
-            distance_km=distance_km,
-            duration_minutes=duration_minutes,
-            geometry=geometry or [request.origin, request.destination],
-            source=ProviderSource.AMAP_LIVE,
-            provider_mode=ProviderMode.LIVE,
-            verified_at=self._clock(),
-        )
 
     @staticmethod
     def _default_fetch_json(url: str) -> dict:

@@ -83,6 +83,10 @@ docker compose --env-file deploy/compose.env -f compose.yaml -f compose.amap.yam
 
 这次检查仍会实际规划、消耗服务额度，不能反复运行直到偶然通过就宣布间歇问题已修复。
 
+若摘要只有通用降级原因，可使用 `deploy/route-diagnostics.compose.yaml` 临时只读覆盖两个 Provider 源文件，采集实际失败处的 `amap_route_failure` 日志。先把本机 app/providers/route.py、amap.py 与该 overlay 上传至服务器 `/opt/happyfreetime-route-diagnostics/`，并确保源文件可读；在原 Compose 组合后追加该目录中的 overlay，执行 `up -d --no-build --wait api`。镜像、模型及凭证无需重建，但 API 会重启并重新预热，页面需刷新获得新临时身份。
+
+复现一次后仅取 `logs --since 5m api` 中含 `amap_route_failure` 的行：输出固定错误类别、数字码与耗时，不应含 URL、Key、位置或原始上游内容。没有这组证据前不调整限流、超时或解析逻辑。诊断完成后，移除 overlay、用原文件组合再次 `up -d --no-build api` 恢复原镜像代码；正式修复仍需正常发布版本。
+
 记录 api 内存/CPU、重启次数、预热耗时及连续两轮规划。当前内存上限由 HFT_API_MEMORY_LIMIT 控制；本机成功不证明 4GB 服务器容量足够，OOM/超时不能算通过。保留旧镜像，不使用 down -v 删除数据。
 
 ## 本地预览
