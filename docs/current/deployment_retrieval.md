@@ -30,6 +30,8 @@ tar -xzf /opt/happyfreetime-retrieval.tar.gz -C deploy
 
 后端基础依赖和 CPU BGE 依赖分别在独立阶段安装，业务代码、release 标签及模型资产均在依赖安装之后进入最终镜像。以后仅改源码或 HFT_RELEASE 时可复用依赖层；首次切换到该构建结构仍可能重新安装，不能保证命中旧结构缓存。构建失败时不要替换旧容器，也不要使用 `--no-cache` 或先清理旧镜像。
 
+2026-10-26 下载超时补充：apt、CPU PyTorch 和其余 RAG 依赖拆成独立 RUN；后续步骤失败可保留已完成层。`deploy/compose.env` 可设 `HFT_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` 供普通 Python 依赖使用，默认仍为 PyPI；CPU torch 仍仅用官方 CPU 索引。此参数是公开软件源地址，不可填含凭证的 URL，不进入应用运行环境。pip 下载超时为 120 秒、连接重试 5 次，不保证中断的大文件可续传，也不保证镜像源速度；未改变依赖版本范围。更换源后需重新构建，不是直接重启容器。
+
 默认 `HFT_API_TARGET=rag` 使用 CPU-only PyTorch，并将模型、索引及 data/retrieval/v1 语义 Profile 装入镜像；非 root、只读根文件系统和访客隔离保持不变。索引按真实演示目录生成，而不是原始 OSM 的另一套属性。
 
 已有服务器不要覆盖私有配置；同步核对：

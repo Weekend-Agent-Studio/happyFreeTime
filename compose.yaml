@@ -15,6 +15,7 @@ services:
       target: ${HFT_API_TARGET:-rag}
       args:
         HFT_REVISION: ${HFT_RELEASE}
+        HFT_PIP_INDEX_URL: ${HFT_PIP_INDEX_URL:-https://pypi.org/simple}
     env_file: deploy/runtime.env
     environment:
       HFT_PUBLIC_DEMO: "true"

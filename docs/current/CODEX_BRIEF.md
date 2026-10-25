@@ -4,6 +4,8 @@ _最后核对：2026-10-25。本文是低成本接手地图，不替代代码、
 
 ## 版本边界
 
+- 2026-10-26 镜像下载修正：服务器正式镜像构建因 files.pythonhosted.org ReadTimeout 失败，旧容器继续运行；拆分 apt/CPU torch/RAG 安装层，普通依赖增加可配置 HFT_PIP_INDEX_URL（默认 PyPI），CPU torch 保持官方 CPU 源，pip 下载超时 120 秒。未改业务或依赖版本范围，本机无 Docker，仍需服务器构建并验收。见 `docs/current/deployment_retrieval.md`。
+
 - 2026-10-25 正式镜像准备：用户确认路线限速补丁启用后的服务器严格冒烟通过，仍是临时只读覆盖，非正式新镜像或公网 HTTPS 验收。后端 Dockerfile 将基础依赖、CPU BGE 依赖与业务代码/版本元数据分离，避免源码或 release 变化触发大依赖重装；首次切换缓存结构仍可能重装。本机无 Docker，实际镜像构建及移除覆盖后的复验待服务器执行。见 `docs/status/release_image_cache_20261025.md`。
 
 - 2026-10-25 高德路线 QPS 修正：服务器失败日志确认 API 拒绝码 10021（账号服务接口 QPS 超限），不是月额度或超时；本机确定性限速上游复现同样的降级。AmapRouteProvider 增加共享出站节奏，默认 HFT_AMAP_ROUTE_QPS=1，实际 HTTP 完成后保留整段间隔，跨并发规划共用；缓存命中不等待，不自动重试，失败仍占请求位。52 项定向回归通过，实际服务器需更新只读覆盖文件并重启后复验。见 `docs/status/amap_route_qps_20261025.md`。

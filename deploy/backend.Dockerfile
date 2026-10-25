@@ -8,7 +8,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt && pip check \
+ARG HFT_PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir --index-url "${HFT_PIP_INDEX_URL}" --timeout 120 --retries 5 -r requirements.txt && pip check \
     && groupadd --gid 10001 hft \
     && useradd --uid 10001 --gid 10001 --no-create-home hft \
     && mkdir -p /var/lib/happyfreetime \
@@ -36,11 +37,11 @@ LABEL org.opencontainers.image.source="https://github.com/Weekend-Agent-Studio/h
 # transferred separately from Git, and never downloaded at application startup.
 FROM dependencies AS rag_dependencies
 USER root
-COPY requirements-rag.txt ./
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.7.1 \
-    && pip install --no-cache-dir -r requirements-rag.txt && pip check
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu --timeout 120 --retries 5 torch==2.7.1
+COPY requirements-rag.txt ./
+RUN pip install --no-cache-dir --index-url "${HFT_PIP_INDEX_URL}" --timeout 120 --retries 5 -r requirements-rag.txt && pip check
 
 # Neither application code, release metadata nor model assets invalidate the
 # expensive CPU dependency stage above.
