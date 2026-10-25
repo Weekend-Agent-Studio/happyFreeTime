@@ -13,6 +13,40 @@ class SmokeFailure(RuntimeError):
     pass
 
 
+def _verify_amap_planning(result):
+    """Keep the strict gate, but report which observations failed safely."""
+    weather = [fact for fact in result.get("provider_facts", []) if fact.get("kind") == "weather"]
+    legs = [(plan_index, leg_index, leg)
+            for plan_index, candidate in enumerate(result.get("plans", []), 1)
+            for leg_index, leg in enumerate(candidate.get("route_legs", []), 1)]
+    def live_weather(fact):
+        return fact.get("source") in {"amap_live", "cache"} and fact.get("mode") in {"live", "record"} and not fact.get("degraded")
+    def live_leg(leg):
+        return leg.get("source") in {"real_provider", "cache"} and leg.get("provider_mode") in {"live", "record"} and not leg.get("degraded")
+    if weather and legs and all(map(live_weather, weather)) and all(live_leg(leg) for _, _, leg in legs):
+        return
+
+    # Never echo locations, URLs, arbitrary upstream messages, or raw payloads.
+    sources = {"amap_live", "real_provider", "cache", "replay", "mock", "local_estimate"}
+    modes = {"live", "record", "replay", "mock"}
+    reasons = {"upstream_failed_using_local_estimate", "upstream_failed_using_fallback",
+               "upstream_failed_using_stale_cache", "upstream_failed_using_replay",
+               "failure_cache_active", "configured_local_estimate"}
+    def observation(fact, mode_field):
+        return {"source": fact.get("source") if fact.get("source") in sources else "unknown",
+                "mode": fact.get(mode_field) if fact.get(mode_field) in modes else "unknown",
+                "degraded": bool(fact.get("degraded")),
+                "reason": fact.get("degraded_reason") if fact.get("degraded_reason") in reasons else "unspecified"}
+    summary = {
+        "weather_total": len(weather), "weather_live": sum(map(live_weather, weather)),
+        "weather_failed": [observation(fact, "mode") for fact in weather if not live_weather(fact)][:4],
+        "route_total": len(legs), "route_live": sum(live_leg(leg) for _, _, leg in legs),
+        "route_failed": [{"plan": plan_index, "leg": leg_index, **observation(leg, "provider_mode")}
+                         for plan_index, leg_index, leg in legs if not live_leg(leg)][:20],
+    }
+    raise SmokeFailure("Amap planning observations failed strict verification: " + json.dumps(summary, ensure_ascii=True))
+
+
 def run(base_url: str, *, expected_release: str | None = None, plan: bool = False, require_hybrid: bool = False, require_amap: bool = False, opener=urlopen):
     parsed = urlsplit(base_url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
@@ -100,10 +134,7 @@ def run(base_url: str, *, expected_release: str | None = None, plan: bool = Fals
                 if require_hybrid and not any(item.get("stage") == "candidate_retrieval" and item.get("adapter") in {"bge_hybrid", "mixed"} and item.get("model_invoked") and (item.get("query_count") or 0) > 0 and item.get("fallback_reason") in {None, "no_dense_query"} for item in result.get("runtime_decisions", [])):
                     raise SmokeFailure("Planning did not demonstrate an actual BGE retrieval call.")
                 if require_amap:
-                    weather = [fact for fact in result.get("provider_facts", []) if fact.get("kind") == "weather"]
-                    legs = [leg for candidate in result["plans"] for leg in candidate.get("route_legs", [])]
-                    if not weather or any(fact.get("source") not in {"amap_live", "cache"} or fact.get("mode") not in {"live", "record"} or fact.get("degraded") for fact in weather) or not legs or any(leg.get("provider_mode") not in {"live", "record"} or leg.get("degraded") for leg in legs):
-                        raise SmokeFailure("Planning did not demonstrate live Amap weather and routes without fallback.")
+                    _verify_amap_planning(result)
     finally:
         for session, token in created:
             with fetch(f"/api/sessions/{session}", method="DELETE", token=token):

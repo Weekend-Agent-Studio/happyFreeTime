@@ -10,12 +10,37 @@ from starlette.responses import HTMLResponse, JSONResponse
 from fastapi.testclient import TestClient
 
 from deploy.backup_volume import archive_volume
-from deploy.smoke import SmokeFailure, run
+from deploy.smoke import SmokeFailure, run, _verify_amap_planning
 from app.api.public_demo import PublicDemo
 from tests.test_public_demo import make_app
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_amap_smoke_reports_partial_route_failure_without_relaxing_gate():
+    weather = {"kind": "weather", "source": "cache", "mode": "live", "degraded": False}
+    live = {"source": "real_provider", "provider_mode": "live", "degraded": False}
+    failed = {"source": "local_estimate", "provider_mode": "mock", "degraded": True,
+              "degraded_reason": "upstream_failed_using_local_estimate", "origin_name": "private-location"}
+    result = {"provider_facts": [weather], "plans": [{"route_legs": [failed, failed]}, {"route_legs": [live, live]}, {"route_legs": [live, live]}]}
+    with pytest.raises(SmokeFailure) as error:
+        _verify_amap_planning(result)
+    assert '"weather_live": 1' in str(error.value)
+    assert '"route_total": 6' in str(error.value)
+    assert '"route_live": 4' in str(error.value)
+    assert '"plan": 1, "leg": 2' in str(error.value)
+    assert "private-location" not in str(error.value)
+    result["plans"][0]["route_legs"] = [live, live]
+    _verify_amap_planning(result)
+
+
+def test_amap_smoke_rejects_missing_or_mock_facts_and_hides_arbitrary_details():
+    for result in ({}, {"provider_facts": [{"kind": "weather", "source": "mock", "mode": "mock", "degraded_reason": "private-token"}],
+                       "plans": [{"route_legs": [{"source": "private-token", "provider_mode": "private-token", "degraded_reason": "private-token"}]}]}):
+        with pytest.raises(SmokeFailure) as error:
+            _verify_amap_planning(result)
+        assert "private-token" not in str(error.value)
 
 
 def test_compose_keeps_public_boundary_private_backend_and_data_separate():

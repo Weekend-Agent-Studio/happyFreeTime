@@ -4,6 +4,8 @@ _最后核对：2026-10-25。本文是低成本接手地图，不替代代码、
 
 ## 版本边界
 
+- 2026-10-25 高德冒烟诊断：`--require-amap` 仍要求本轮所有返回方案的天气/路线都真实且未降级；失败现在区分天气/路线成功数及失败的方案/路段，不再只有笼统提示。检查脚本可单独上传、经 stdin 在现有容器运行，无需为诊断重建镜像。当前间歇路线降级尚未归因，不以单次成功或坐标对照成功宣称修复。见 `docs/status/amap_smoke_diagnostics_20261025.md`。
+
 - 2026-10-25 多轮调用记录修正：API 在每次新的 Graph 调用及 interrupt resume 时清空前轮 runtime_decisions，保留本次请求内真实的重复执行；不按阶段名去重、不倒写既有个人历史。固定三条示例已离线重录。前端不再把 bypassed/not_run 当成失败回退，保留内部原因供开发者检查；复用结构与无需向量检索有独立说明。用户服务器已运行 fa40639，完整 BGE/高德冒烟最终通过，地图/出发地/主流程反馈基本正常；此前两段路线间歇降级根因仍未确定，不能记为已修复。此多轮记录修正尚需更新服务器。见 `docs/status/runtime_turn_scope_20261025.md`。
 
 - 2026-10-25 BGE/高德部署补齐：默认 Compose `rag` 镜像包含 CPU BGE、语义 Profile 和独立准备的 DemoCatalog 索引；`deploy/prepare_retrieval.py` 离线生成资产，模型不进 Git，资产包需单独上传。lifespan 在正式共用检索器上校验 Catalog/索引并实际编码，启用预热时失败拒绝就绪；runtime 返回预热状态。`-HybridRetrieval` 使用同一本机资产，`-LiveAmap` 显式启用已有地图/搜索/路线/天气；生产通过 compose.amap.yaml 与私有 amap.env 启用。评分未变；新镜像、4GB 容量、真实高德/HTTPS 仍待服务器验证。见 `docs/current/deployment_retrieval.md` 与 `docs/status/public_demo_bge_deployment_20261025.md`。

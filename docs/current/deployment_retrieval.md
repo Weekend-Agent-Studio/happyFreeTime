@@ -73,6 +73,16 @@ docker stats --no-stream
 
 `--require-hybrid` 不仅看预热标志，还要求一次 SSE 规划具有 BGE 模型调用及 query_count。`--require-amap` 检查地图配置、实际地点搜索、天气与路线来源，不把模拟或降级当成成功；会消耗部署方高德额度。SDK 在线绘制、标记与路线几何仍需浏览器验收。未配置高德时去掉 amap 文件组合和 `--require-amap`，仍可验证 BGE。
 
+此高德门槛检查本轮所有返回方案的天气/路线观测，不是只请求一条路线确认连通性。即使三条方案正常生成，只要某一路段降级，也会严格失败。失败摘要给出天气与路线成功数、失败的方案/路段序号及既有原因码；不输出位置、请求 URL、Key 或原始上游响应。`upstream_failed_using_local_estimate` 只能说明发生回退，不能进一步证明是限流、超时或解析错误。
+
+仅更新检查脚本时，无需重建或修改运行中容器。将新 deploy/smoke.py 单独上传到服务器 `/opt/happyfreetime-smoke-diagnostic.py`，可通过标准输入运行：
+
+```bash
+docker compose --env-file deploy/compose.env -f compose.yaml -f compose.amap.yaml exec -T api python - --base-url http://web:8080 --require-hybrid --require-amap < /opt/happyfreetime-smoke-diagnostic.py
+```
+
+这次检查仍会实际规划、消耗服务额度，不能反复运行直到偶然通过就宣布间歇问题已修复。
+
 记录 api 内存/CPU、重启次数、预热耗时及连续两轮规划。当前内存上限由 HFT_API_MEMORY_LIMIT 控制；本机成功不证明 4GB 服务器容量足够，OOM/超时不能算通过。保留旧镜像，不使用 down -v 删除数据。
 
 ## 本地预览
