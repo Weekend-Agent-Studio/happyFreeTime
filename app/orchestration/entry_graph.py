@@ -642,6 +642,21 @@ def build_entry_graph(
                 else "方案修改处理完成"
             ),
         )
+        candidate_set = result.updates.get("candidate_set")
+        if (
+            result.route == WorkflowRoute.END
+            and isinstance(candidate_set, CandidateSet)
+            and candidate_set.plans
+            and candidate_set.recovery_reason is None
+            and _recovery_stage_is_open(run_observer_from_config(config))
+        ):
+            _trace(
+                config,
+                stage=RunStage.RECOVERY,
+                status=RunEventStatus.COMPLETED,
+                message_key="recovery.modification_completed",
+                public_message="恢复后的方案修改已完成",
+            )
         return result.as_state()
 
     def compile_patch_node(state: EntryState, config: RunnableConfig) -> dict[str, object]:

@@ -187,6 +187,31 @@ describe("planning workspace", () => {
     }
   });
 
+  it("shows the active modification child instead of its outer wrapper", async () => {
+    let publish!: (event: PlanningRunEvent) => void;
+    let finish!: (value: AgentResponse) => void;
+    api.sendMessageStream.mockImplementationOnce((_sessionId, _content, _requestId, onProgress) => new Promise((resolve) => {
+      publish = onProgress as (event: PlanningRunEvent) => void;
+      finish = resolve;
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("描述你的空闲时间和偏好"), "修改活动");
+    await user.click(screen.getByRole("button", { name: "发送需求" }));
+    const stages = [["modify", "started", "正在处理方案修改"], ["retrieve", "started", "正在检索候选"],
+      ["retrieve", "fallback", "已改用规则检索"], ["verify", "started", "正在核对替换后的整套路线"]] as const;
+    act(() => stages.forEach(([stage, status, public_message], index) => publish({
+      schema_version: "planning-run-event.v1", run_id: "active-modify", sequence: index + 1,
+      stage, status, public_message, message_key: `${stage}.${status}`, occurred_at: "2026-10-26T10:00:00Z", duration_ms: null, public_details: {},
+    })));
+    const thinking = document.querySelector(".thinking-progress")!;
+    expect(thinking.querySelector(":scope > strong")).toHaveTextContent("正在核对替换后的整套路线");
+    expect(thinking.querySelectorAll(".run-progress-spinner")).toHaveLength(1);
+    expect(thinking.querySelectorAll(".run-progress-child")).toHaveLength(2);
+    await act(async () => finish(response));
+    await screen.findAllByText("方案一");
+  });
+
   it("switches plans and keeps timeline, map rows, and RouteLeg indices aligned", async () => {
     const user = userEvent.setup();
     render(<App />);

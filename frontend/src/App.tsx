@@ -47,7 +47,7 @@ import { createClientId } from "./clientId";
 import { ConversationHeading } from "./ConversationHeading";
 import { AmapPlanMap } from "./AmapPlanMap";
 import { clarificationSection, PlanningContextBar, PlanningContextNotice, type ContextOpenTarget } from "./PlanningContextBar";
-import { projectRunProgress, type RunStageViewModel } from "./runProgress";
+import { currentRunStage, formatRunDuration, projectRunProgress, type RunStageViewModel } from "./runProgress";
 import type {
   AgentResponse,
   Assumption,
@@ -578,12 +578,13 @@ function RunProgressRows({ stages }: { stages: RunStageViewModel[] }) {
   return (
     <ol className="run-progress-list">
       {stages.map((stage) => (
-        <li className={`run-progress-item ${stage.status}`} key={stage.stage}>
-          <span className="run-progress-marker"><ProgressMarker status={stage.status} /></span>
+        <li className={`run-progress-item ${stage.status}${stage.depth ? " run-progress-child" : ""}`} style={{ marginLeft: stage.depth * 20 }} key={stage.id}>
+          <span className="run-progress-marker">{stage.status === "active" && stages.some((child) => child.parentId === stage.id) ? <ChevronDown size={14} aria-hidden="true" /> : <ProgressMarker status={stage.status} />}</span>
           <div>
             <strong>{stage.label}</strong>
             {stage.message ? <p>{stage.message}</p> : null}
-            {stage.durationMs !== undefined ? <small>{stage.durationMs} ms</small> : null}
+            {stage.status === "fallback" ? <small>已使用回退结果</small> : null}
+            {stage.durationMs !== undefined ? <small>{formatRunDuration(stage.durationMs)}</small> : null}
           </div>
         </li>
       ))}
@@ -598,7 +599,7 @@ function RunProgressDisclosure({ trace }: { trace?: PlanningRunTrace | null }) {
     <details className="run-progress-disclosure">
       <summary>
         <span><CheckCircle2 size={16} />规划完成 · 查看本轮处理过程</span>
-        <small>{stages.length} 个阶段</small>
+        <small>{stages.length} 个步骤</small>
         <ChevronDown size={16} className="disclosure-chevron" aria-hidden="true" />
       </summary>
       <RunProgressRows stages={stages} />
@@ -2808,7 +2809,7 @@ function ClarificationDatePicker({ disabled, onSubmit }: { disabled: boolean; on
 
 function ThinkingRow({ events }: { events: PlanningRunEvent[] }) {
   const stages = projectRunProgress(events);
-  const active = stages.find((stage) => stage.status === "active") ?? stages[stages.length - 1];
+  const active = currentRunStage(stages);
   return (
     <div className="thinking-row" role="status" aria-live="polite">
       <span className="assistant-speaker">管家</span>
