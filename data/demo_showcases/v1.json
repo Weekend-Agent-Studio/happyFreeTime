@@ -130,7 +130,7 @@
             ],
             "plans": [
               {
-                "plan_id": "plan-561416a2aca24100902d4bf5a3f4bb11",
+                "plan_id": "plan-59fa34ab65ff4477b1c6b4fb156751e1",
                 "composition_fingerprint": "composition-848bab36007f",
                 "skeleton_id": "activity-meal-v1",
                 "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
@@ -207,7 +207,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.427306Z",
+                    "verified_at": "2026-10-25T10:13:54.106449Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -232,7 +232,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.428313Z",
+                    "verified_at": "2026-10-25T10:13:54.107449Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -319,7 +319,7 @@
                 "tradeoffs": []
               },
               {
-                "plan_id": "plan-9f4ea119544d4a1ea2b42ddf5902610b",
+                "plan_id": "plan-b85f8abd1f7541078b8186147c70f697",
                 "composition_fingerprint": "composition-96e31546d36b",
                 "skeleton_id": "activity-meal-v1",
                 "title": "中国海关博物馆 + 德克士",
@@ -397,7 +397,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.432371Z",
+                    "verified_at": "2026-10-25T10:13:54.111451Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -422,7 +422,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.432371Z",
+                    "verified_at": "2026-10-25T10:13:54.111451Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -511,7 +511,7 @@
                 ]
               },
               {
-                "plan_id": "plan-6b873aa0e32547bbbfef400fbe72b50d",
+                "plan_id": "plan-553f2396bb194b8fac9832211acd2ac4",
                 "composition_fingerprint": "composition-e8008f6de104",
                 "skeleton_id": "activity-meal-v1",
                 "title": "保利艺术博物馆 + 大董烤鸭店",
@@ -581,7 +581,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.433398Z",
+                    "verified_at": "2026-10-25T10:13:54.111451Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -606,7 +606,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.433398Z",
+                    "verified_at": "2026-10-25T10:13:54.111451Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -708,8 +708,8 @@
                 "is_adverse": false,
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:41.991387Z",
-                "verified_at": "2026-10-24T15:14:41.991387Z",
+                "observed_at": "2026-10-25T10:13:53.676019Z",
+                "verified_at": "2026-10-25T10:13:53.676019Z",
                 "degraded": false,
                 "degraded_reason": null,
                 "cache_age_seconds": null
@@ -720,8 +720,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.428313Z",
-                "verified_at": "2026-10-24T15:14:42.428313Z",
+                "observed_at": "2026-10-25T10:13:54.107449Z",
+                "verified_at": "2026-10-25T10:13:54.107449Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -735,8 +735,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.428313Z",
-                "verified_at": "2026-10-24T15:14:42.428313Z",
+                "observed_at": "2026-10-25T10:13:54.107449Z",
+                "verified_at": "2026-10-25T10:13:54.107449Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -1520,7 +1520,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-561416a2aca24100902d4bf5a3f4bb11",
+                "plan_id": "plan-59fa34ab65ff4477b1c6b4fb156751e1",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -1530,7 +1530,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-561416a2aca24100902d4bf5a3f4bb11",
+                "plan_id": "plan-59fa34ab65ff4477b1c6b4fb156751e1",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -1540,7 +1540,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "中国海关博物馆 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-9f4ea119544d4a1ea2b42ddf5902610b",
+                "plan_id": "plan-b85f8abd1f7541078b8186147c70f697",
                 "resource_id": "osm-way-637237606",
                 "route_leg_index": null,
                 "source": null,
@@ -1550,7 +1550,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "德克士 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-9f4ea119544d4a1ea2b42ddf5902610b",
+                "plan_id": "plan-b85f8abd1f7541078b8186147c70f697",
                 "resource_id": "osm-node-11273547270",
                 "route_leg_index": null,
                 "source": null,
@@ -1560,7 +1560,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-9f4ea119544d4a1ea2b42ddf5902610b",
+                "plan_id": "plan-b85f8abd1f7541078b8186147c70f697",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -1570,7 +1570,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-9f4ea119544d4a1ea2b42ddf5902610b",
+                "plan_id": "plan-b85f8abd1f7541078b8186147c70f697",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -1580,7 +1580,7 @@
               {
                 "code": "availability_budget_exhausted",
                 "message": "已达到动态可用性复核预算，该方案未获得本轮库存确认。",
-                "plan_id": "plan-9f4ea119544d4a1ea2b42ddf5902610b",
+                "plan_id": "plan-b85f8abd1f7541078b8186147c70f697",
                 "resource_id": null,
                 "route_leg_index": null,
                 "source": null,
@@ -1590,7 +1590,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "保利艺术博物馆 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-6b873aa0e32547bbbfef400fbe72b50d",
+                "plan_id": "plan-553f2396bb194b8fac9832211acd2ac4",
                 "resource_id": "osm-node-5821294053",
                 "route_leg_index": null,
                 "source": null,
@@ -1600,7 +1600,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "大董烤鸭店 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-6b873aa0e32547bbbfef400fbe72b50d",
+                "plan_id": "plan-553f2396bb194b8fac9832211acd2ac4",
                 "resource_id": "osm-node-4460013789",
                 "route_leg_index": null,
                 "source": null,
@@ -1610,7 +1610,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-6b873aa0e32547bbbfef400fbe72b50d",
+                "plan_id": "plan-553f2396bb194b8fac9832211acd2ac4",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -1620,7 +1620,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-6b873aa0e32547bbbfef400fbe72b50d",
+                "plan_id": "plan-553f2396bb194b8fac9832211acd2ac4",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -1630,7 +1630,7 @@
               {
                 "code": "availability_budget_exhausted",
                 "message": "已达到动态可用性复核预算，该方案未获得本轮库存确认。",
-                "plan_id": "plan-6b873aa0e32547bbbfef400fbe72b50d",
+                "plan_id": "plan-553f2396bb194b8fac9832211acd2ac4",
                 "resource_id": null,
                 "route_leg_index": null,
                 "source": null,
@@ -1916,7 +1916,7 @@
                 "data_notice": "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。"
               }
             ],
-            "plan_version_id": "84615ee7b2924d30804e622bc12741da",
+            "plan_version_id": "d556dfa14d204cd69c11c6e9d90524c3",
             "planning_intent_decision": {
               "intent": {
                 "pace": "balanced",
@@ -1954,7 +1954,7 @@
                 "diagnostic_error_types": [],
                 "wire_schema_version": null,
                 "prompt_version": null,
-                "latency_ms": 28,
+                "latency_ms": 29,
                 "input_tokens": null,
                 "output_tokens": null,
                 "requested_mode": null,
@@ -2025,104 +2025,104 @@
             ],
             "run_trace": {
               "schema_version": "planning-run-trace.v1",
-              "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+              "run_id": "a608651f710c496180be71ba23b33259",
               "events": [
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 1,
                   "stage": "understand",
                   "status": "started",
                   "message_key": "understand.started",
                   "public_message": "正在理解你的规划需求",
-                  "occurred_at": "2026-10-24T23:14:42.316480+08:00",
+                  "occurred_at": "2026-10-25T18:13:53.999176+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 2,
                   "stage": "understand",
                   "status": "completed",
                   "message_key": "understand.completed",
                   "public_message": "已完成需求理解",
-                  "occurred_at": "2026-10-24T23:14:42.345781+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.027693+08:00",
                   "duration_ms": 29,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 3,
                   "stage": "compile_request",
                   "status": "started",
                   "message_key": "compile_request.started",
                   "public_message": "正在整理规划条件",
-                  "occurred_at": "2026-10-24T23:14:42.347795+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.030917+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 4,
                   "stage": "compile_request",
                   "status": "completed",
                   "message_key": "compile_request.completed",
                   "public_message": "规划条件整理完成",
-                  "occurred_at": "2026-10-24T23:14:42.354862+08:00",
-                  "duration_ms": 7,
+                  "occurred_at": "2026-10-25T18:13:54.035620+08:00",
+                  "duration_ms": 5,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 5,
                   "stage": "structure",
                   "status": "started",
                   "message_key": "structure.started",
                   "public_message": "正在组织候选行程结构",
-                  "occurred_at": "2026-10-24T23:14:42.362014+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.041008+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 6,
                   "stage": "structure",
                   "status": "completed",
                   "message_key": "structure.completed",
                   "public_message": "行程结构已确定",
-                  "occurred_at": "2026-10-24T23:14:42.389770+08:00",
-                  "duration_ms": 28,
+                  "occurred_at": "2026-10-25T18:13:54.071529+08:00",
+                  "duration_ms": 31,
                   "public_details": {
                     "count": 1
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 7,
                   "stage": "retrieve",
                   "status": "started",
                   "message_key": "retrieve.started",
                   "public_message": "正在检索符合条件的地点",
-                  "occurred_at": "2026-10-24T23:14:42.389770+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.071529+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 8,
                   "stage": "retrieve",
                   "status": "completed",
                   "message_key": "retrieve.completed",
                   "public_message": "候选地点检索完成",
-                  "occurred_at": "2026-10-24T23:14:42.402678+08:00",
-                  "duration_ms": 13,
+                  "occurred_at": "2026-10-25T18:13:54.083146+08:00",
+                  "duration_ms": 12,
                   "public_details": {
                     "mode": "rule",
                     "candidate_count": 102
@@ -2130,25 +2130,25 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 9,
                   "stage": "construct",
                   "status": "started",
                   "message_key": "construct.search_started",
                   "public_message": "正在组合候选行程",
-                  "occurred_at": "2026-10-24T23:14:42.402678+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.083146+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 10,
                   "stage": "construct",
                   "status": "completed",
                   "message_key": "construct.completed",
                   "public_message": "候选行程组合完成",
-                  "occurred_at": "2026-10-24T23:14:42.425982+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.106449+08:00",
                   "duration_ms": 23,
                   "public_details": {
                     "count": 12
@@ -2156,52 +2156,52 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 11,
                   "stage": "verify",
                   "status": "started",
                   "message_key": "verify.started",
                   "public_message": "正在核对路线、时间和可用性",
-                  "occurred_at": "2026-10-24T23:14:42.427306+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.106449+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 12,
                   "stage": "verify",
                   "status": "completed",
                   "message_key": "verify.completed",
                   "public_message": "路线和硬约束核对完成",
-                  "occurred_at": "2026-10-24T23:14:42.434401+08:00",
-                  "duration_ms": 7,
+                  "occurred_at": "2026-10-25T18:13:54.112628+08:00",
+                  "duration_ms": 6,
                   "public_details": {
                     "plan_count": 12
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 13,
                   "stage": "advise",
                   "status": "started",
                   "message_key": "advise.started",
                   "public_message": "正在整理推荐说明",
-                  "occurred_at": "2026-10-24T23:14:42.470041+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.143406+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "69f7400fa47b4230a657d5bd0fcccc10",
+                  "run_id": "a608651f710c496180be71ba23b33259",
                   "sequence": 14,
                   "stage": "advise",
                   "status": "completed",
                   "message_key": "advise.completed",
                   "public_message": "推荐说明生成完成",
-                  "occurred_at": "2026-10-24T23:14:42.470041+08:00",
-                  "duration_ms": 0,
+                  "occurred_at": "2026-10-25T18:13:54.144406+08:00",
+                  "duration_ms": 1,
                   "public_details": {}
                 }
               ]
@@ -2267,7 +2267,7 @@
             "plan_diff": null,
             "plan_diffs": [],
             "recommendation_advice": {
-              "recommended_plan_id": "plan-561416a2aca24100902d4bf5a3f4bb11",
+              "recommended_plan_id": "plan-59fa34ab65ff4477b1c6b4fb156751e1",
               "understood_needs": [
                 {
                   "need_id": "constraint.planning_window",
@@ -2288,7 +2288,7 @@
               "overall_reason": "优先推荐“日坛公园 + 崖 Under Clouds 云南餐厅”：它在已验证候选中综合评分最高，并满足当前时间、路线和可行性要求。",
               "plans": [
                 {
-                  "plan_id": "plan-561416a2aca24100902d4bf5a3f4bb11",
+                  "plan_id": "plan-59fa34ab65ff4477b1c6b4fb156751e1",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -2299,7 +2299,7 @@
                   "tradeoffs": []
                 },
                 {
-                  "plan_id": "plan-9f4ea119544d4a1ea2b42ddf5902610b",
+                  "plan_id": "plan-b85f8abd1f7541078b8186147c70f697",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -2312,7 +2312,7 @@
                   ]
                 },
                 {
-                  "plan_id": "plan-6b873aa0e32547bbbfef400fbe72b50d",
+                  "plan_id": "plan-553f2396bb194b8fac9832211acd2ac4",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -2574,93 +2574,32 @@
             "plan_version_id": null,
             "planning_intent_decision": null,
             "retrieval_evidence": [],
-            "runtime_decisions": [
-              {
-                "stage": "turn_interpreter",
-                "adapter": "demo_rule",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": null,
-                "latency_ms": 28,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": null,
-                "index_version": null,
-                "query_count": null,
-                "candidate_count": null
-              },
-              {
-                "stage": "planning_intent",
-                "adapter": "rule_based",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": "rule-based.v1",
-                "latency_ms": 0,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": null,
-                "index_version": null,
-                "query_count": null,
-                "candidate_count": null
-              },
-              {
-                "stage": "candidate_retrieval",
-                "adapter": "rule_based",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": null,
-                "latency_ms": 11,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": "rule",
-                "index_version": "rule-alias.v2",
-                "query_count": 0,
-                "candidate_count": 102
-              }
-            ],
+            "runtime_decisions": [],
             "run_trace": {
               "schema_version": "planning-run-trace.v1",
-              "run_id": "df6e57436c044d029164c9cf32b507bc",
+              "run_id": "b7d4a67d2d7c4459a9c1a8a511bfe3d0",
               "events": [
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "df6e57436c044d029164c9cf32b507bc",
+                  "run_id": "b7d4a67d2d7c4459a9c1a8a511bfe3d0",
                   "sequence": 1,
                   "stage": "compile_request",
                   "status": "started",
                   "message_key": "compile_request.started",
                   "public_message": "正在应用规划条件更新",
-                  "occurred_at": "2026-10-24T23:14:42.544817+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.211510+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "df6e57436c044d029164c9cf32b507bc",
+                  "run_id": "b7d4a67d2d7c4459a9c1a8a511bfe3d0",
                   "sequence": 2,
                   "stage": "compile_request",
                   "status": "completed",
                   "message_key": "compile_request.completed",
                   "public_message": "规划条件更新完成",
-                  "occurred_at": "2026-10-24T23:14:42.545398+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.212510+08:00",
                   "duration_ms": 1,
                   "public_details": {}
                 }
@@ -2931,7 +2870,7 @@
             ],
             "plans": [
               {
-                "plan_id": "plan-3c7825a3743c4158a76b3cc06b4e8e96",
+                "plan_id": "plan-bbd078cd765f435aac8791deafcf6b26",
                 "composition_fingerprint": "composition-848bab36007f",
                 "skeleton_id": "activity-meal-v1",
                 "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
@@ -3008,7 +2947,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.659810Z",
+                    "verified_at": "2026-10-25T10:13:54.330637Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -3033,7 +2972,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.659810Z",
+                    "verified_at": "2026-10-25T10:13:54.330637Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -3120,7 +3059,7 @@
                 "tradeoffs": []
               },
               {
-                "plan_id": "plan-22afb72beb10475d99d725c1733393d8",
+                "plan_id": "plan-fd3d2726dcfc495098a20973a487d214",
                 "composition_fingerprint": "composition-5dc37eec61c5",
                 "skeleton_id": "activity-meal-v1",
                 "title": "工人体育馆 + 土耳其妈妈",
@@ -3197,7 +3136,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.664347Z",
+                    "verified_at": "2026-10-25T10:13:54.334639Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -3222,7 +3161,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.664347Z",
+                    "verified_at": "2026-10-25T10:13:54.335784Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -3309,7 +3248,7 @@
                 "tradeoffs": []
               },
               {
-                "plan_id": "plan-11fb408a174e4ed4b196739f90edd62a",
+                "plan_id": "plan-a88bdade23dc4e13a6a981294f4f4d83",
                 "composition_fingerprint": "composition-e8008f6de104",
                 "skeleton_id": "activity-meal-v1",
                 "title": "保利艺术博物馆 + 大董烤鸭店",
@@ -3379,7 +3318,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.665348Z",
+                    "verified_at": "2026-10-25T10:13:54.335784Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -3404,7 +3343,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.665348Z",
+                    "verified_at": "2026-10-25T10:13:54.335784Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -3504,8 +3443,8 @@
                 "is_adverse": false,
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:41.991387Z",
-                "verified_at": "2026-10-24T15:14:41.991387Z",
+                "observed_at": "2026-10-25T10:13:53.676019Z",
+                "verified_at": "2026-10-25T10:13:53.676019Z",
                 "degraded": false,
                 "degraded_reason": null,
                 "cache_age_seconds": null
@@ -3516,8 +3455,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.659810Z",
-                "verified_at": "2026-10-24T15:14:42.659810Z",
+                "observed_at": "2026-10-25T10:13:54.330637Z",
+                "verified_at": "2026-10-25T10:13:54.330637Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -3531,8 +3470,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.659810Z",
-                "verified_at": "2026-10-24T15:14:42.659810Z",
+                "observed_at": "2026-10-25T10:13:54.330637Z",
+                "verified_at": "2026-10-25T10:13:54.330637Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -4412,7 +4351,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-3c7825a3743c4158a76b3cc06b4e8e96",
+                "plan_id": "plan-bbd078cd765f435aac8791deafcf6b26",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -4422,7 +4361,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-3c7825a3743c4158a76b3cc06b4e8e96",
+                "plan_id": "plan-bbd078cd765f435aac8791deafcf6b26",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -4432,7 +4371,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "工人体育馆 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-22afb72beb10475d99d725c1733393d8",
+                "plan_id": "plan-fd3d2726dcfc495098a20973a487d214",
                 "resource_id": "osm-way-191693427",
                 "route_leg_index": null,
                 "source": null,
@@ -4442,7 +4381,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "土耳其妈妈 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-22afb72beb10475d99d725c1733393d8",
+                "plan_id": "plan-fd3d2726dcfc495098a20973a487d214",
                 "resource_id": "osm-way-1197829025",
                 "route_leg_index": null,
                 "source": null,
@@ -4452,7 +4391,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-22afb72beb10475d99d725c1733393d8",
+                "plan_id": "plan-fd3d2726dcfc495098a20973a487d214",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -4462,7 +4401,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-22afb72beb10475d99d725c1733393d8",
+                "plan_id": "plan-fd3d2726dcfc495098a20973a487d214",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -4472,7 +4411,7 @@
               {
                 "code": "availability_budget_exhausted",
                 "message": "已达到动态可用性复核预算，该方案未获得本轮库存确认。",
-                "plan_id": "plan-22afb72beb10475d99d725c1733393d8",
+                "plan_id": "plan-fd3d2726dcfc495098a20973a487d214",
                 "resource_id": null,
                 "route_leg_index": null,
                 "source": null,
@@ -4482,7 +4421,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "保利艺术博物馆 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-11fb408a174e4ed4b196739f90edd62a",
+                "plan_id": "plan-a88bdade23dc4e13a6a981294f4f4d83",
                 "resource_id": "osm-node-5821294053",
                 "route_leg_index": null,
                 "source": null,
@@ -4492,7 +4431,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "大董烤鸭店 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-11fb408a174e4ed4b196739f90edd62a",
+                "plan_id": "plan-a88bdade23dc4e13a6a981294f4f4d83",
                 "resource_id": "osm-node-4460013789",
                 "route_leg_index": null,
                 "source": null,
@@ -4502,7 +4441,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-11fb408a174e4ed4b196739f90edd62a",
+                "plan_id": "plan-a88bdade23dc4e13a6a981294f4f4d83",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -4512,7 +4451,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-11fb408a174e4ed4b196739f90edd62a",
+                "plan_id": "plan-a88bdade23dc4e13a6a981294f4f4d83",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -4522,7 +4461,7 @@
               {
                 "code": "availability_budget_exhausted",
                 "message": "已达到动态可用性复核预算，该方案未获得本轮库存确认。",
-                "plan_id": "plan-11fb408a174e4ed4b196739f90edd62a",
+                "plan_id": "plan-a88bdade23dc4e13a6a981294f4f4d83",
                 "resource_id": null,
                 "route_leg_index": null,
                 "source": null,
@@ -4808,7 +4747,7 @@
                 "data_notice": "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。"
               }
             ],
-            "plan_version_id": "a602712023f143149a46d7de89b259cd",
+            "plan_version_id": "32959e89db8b4e2faa44e569250171a2",
             "planning_intent_decision": {
               "intent": {
                 "pace": "balanced",
@@ -4835,26 +4774,6 @@
             "retrieval_evidence": [],
             "runtime_decisions": [
               {
-                "stage": "turn_interpreter",
-                "adapter": "demo_rule",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": null,
-                "latency_ms": 28,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": null,
-                "index_version": null,
-                "query_count": null,
-                "candidate_count": null
-              },
-              {
                 "stage": "planning_intent",
                 "adapter": "rule_based",
                 "model_invoked": false,
@@ -4886,47 +4805,7 @@
                 "diagnostic_error_types": [],
                 "wire_schema_version": null,
                 "prompt_version": null,
-                "latency_ms": 11,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": "rule",
-                "index_version": "rule-alias.v2",
-                "query_count": 0,
-                "candidate_count": 102
-              },
-              {
-                "stage": "planning_intent",
-                "adapter": "rule_based",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": "rule-based.v1",
-                "latency_ms": 0,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": null,
-                "index_version": null,
-                "query_count": null,
-                "candidate_count": null
-              },
-              {
-                "stage": "candidate_retrieval",
-                "adapter": "rule_based",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": null,
-                "latency_ms": 9,
+                "latency_ms": 10,
                 "input_tokens": null,
                 "output_tokens": null,
                 "requested_mode": "rule",
@@ -4957,55 +4836,55 @@
             ],
             "run_trace": {
               "schema_version": "planning-run-trace.v1",
-              "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+              "run_id": "ba1fa7faa963485680c268b13de0939b",
               "events": [
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 1,
                   "stage": "structure",
                   "status": "started",
                   "message_key": "structure.started",
                   "public_message": "正在组织候选行程结构",
-                  "occurred_at": "2026-10-24T23:14:42.601086+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.265295+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 2,
                   "stage": "structure",
                   "status": "completed",
                   "message_key": "structure.completed",
                   "public_message": "行程结构已确定",
-                  "occurred_at": "2026-10-24T23:14:42.629330+08:00",
-                  "duration_ms": 28,
+                  "occurred_at": "2026-10-25T18:13:54.299093+08:00",
+                  "duration_ms": 34,
                   "public_details": {
                     "count": 1
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 3,
                   "stage": "retrieve",
                   "status": "started",
                   "message_key": "retrieve.started",
                   "public_message": "正在检索符合条件的地点",
-                  "occurred_at": "2026-10-24T23:14:42.629330+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.299093+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 4,
                   "stage": "retrieve",
                   "status": "completed",
                   "message_key": "retrieve.completed",
                   "public_message": "候选地点检索完成",
-                  "occurred_at": "2026-10-24T23:14:42.639153+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.309194+08:00",
                   "duration_ms": 10,
                   "public_details": {
                     "mode": "rule",
@@ -5014,77 +4893,77 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 5,
                   "stage": "construct",
                   "status": "started",
                   "message_key": "construct.search_started",
                   "public_message": "正在组合候选行程",
-                  "occurred_at": "2026-10-24T23:14:42.639153+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.310194+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 6,
                   "stage": "construct",
                   "status": "completed",
                   "message_key": "construct.completed",
                   "public_message": "候选行程组合完成",
-                  "occurred_at": "2026-10-24T23:14:42.658775+08:00",
-                  "duration_ms": 20,
+                  "occurred_at": "2026-10-25T18:13:54.329637+08:00",
+                  "duration_ms": 19,
                   "public_details": {
                     "count": 12
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 7,
                   "stage": "verify",
                   "status": "started",
                   "message_key": "verify.started",
                   "public_message": "正在核对路线、时间和可用性",
-                  "occurred_at": "2026-10-24T23:14:42.659810+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.329637+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 8,
                   "stage": "verify",
                   "status": "completed",
                   "message_key": "verify.completed",
                   "public_message": "路线和硬约束核对完成",
-                  "occurred_at": "2026-10-24T23:14:42.667348+08:00",
-                  "duration_ms": 8,
+                  "occurred_at": "2026-10-25T18:13:54.336800+08:00",
+                  "duration_ms": 7,
                   "public_details": {
                     "plan_count": 12
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 9,
                   "stage": "advise",
                   "status": "started",
                   "message_key": "advise.started",
                   "public_message": "正在整理推荐说明",
-                  "occurred_at": "2026-10-24T23:14:42.693519+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.364786+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "65fd4828d8354f7fa633757ed5cf091a",
+                  "run_id": "ba1fa7faa963485680c268b13de0939b",
                   "sequence": 10,
                   "stage": "advise",
                   "status": "completed",
                   "message_key": "advise.completed",
                   "public_message": "推荐说明生成完成",
-                  "occurred_at": "2026-10-24T23:14:42.694524+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.365787+08:00",
                   "duration_ms": 1,
                   "public_details": {}
                 }
@@ -5154,7 +5033,7 @@
             "plan_diff": null,
             "plan_diffs": [],
             "recommendation_advice": {
-              "recommended_plan_id": "plan-3c7825a3743c4158a76b3cc06b4e8e96",
+              "recommended_plan_id": "plan-bbd078cd765f435aac8791deafcf6b26",
               "understood_needs": [
                 {
                   "need_id": "constraint.planning_window",
@@ -5175,7 +5054,7 @@
               "overall_reason": "优先推荐“日坛公园 + 崖 Under Clouds 云南餐厅”：它在已验证候选中综合评分最高，并满足当前时间、路线和可行性要求。",
               "plans": [
                 {
-                  "plan_id": "plan-3c7825a3743c4158a76b3cc06b4e8e96",
+                  "plan_id": "plan-bbd078cd765f435aac8791deafcf6b26",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -5186,7 +5065,7 @@
                   "tradeoffs": []
                 },
                 {
-                  "plan_id": "plan-22afb72beb10475d99d725c1733393d8",
+                  "plan_id": "plan-fd3d2726dcfc495098a20973a487d214",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -5197,7 +5076,7 @@
                   "tradeoffs": []
                 },
                 {
-                  "plan_id": "plan-11fb408a174e4ed4b196739f90edd62a",
+                  "plan_id": "plan-a88bdade23dc4e13a6a981294f4f4d83",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -5331,7 +5210,7 @@
           "label": "正式选择",
           "user": "就选第一条方案",
           "reply": "服务端已保存正式选择。",
-          "selected_plan_id": "plan-3c7825a3743c4158a76b3cc06b4e8e96"
+          "selected_plan_id": "plan-bbd078cd765f435aac8791deafcf6b26"
         }
       ]
     },
@@ -5463,7 +5342,7 @@
             ],
             "plans": [
               {
-                "plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+                "plan_id": "plan-9c386c59f357479f949d65db833207f5",
                 "composition_fingerprint": "composition-848bab36007f",
                 "skeleton_id": "activity-meal-v1",
                 "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
@@ -5540,7 +5419,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.829455Z",
+                    "verified_at": "2026-10-25T10:13:54.484585Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -5565,7 +5444,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.829455Z",
+                    "verified_at": "2026-10-25T10:13:54.484585Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -5652,7 +5531,7 @@
                 "tradeoffs": []
               },
               {
-                "plan_id": "plan-36d4037011284ecdad1d79e154b2a4bc",
+                "plan_id": "plan-b49fa119d60c491c926463f8be9e5422",
                 "composition_fingerprint": "composition-96e31546d36b",
                 "skeleton_id": "activity-meal-v1",
                 "title": "中国海关博物馆 + 德克士",
@@ -5730,7 +5609,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.833345Z",
+                    "verified_at": "2026-10-25T10:13:54.487627Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -5755,7 +5634,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.833345Z",
+                    "verified_at": "2026-10-25T10:13:54.487627Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -5844,7 +5723,7 @@
                 ]
               },
               {
-                "plan_id": "plan-bbd8c20421f145ceb6ff6a1b18e0ed05",
+                "plan_id": "plan-e766e0403f044010b764dc969cd646f7",
                 "composition_fingerprint": "composition-e8008f6de104",
                 "skeleton_id": "activity-meal-v1",
                 "title": "保利艺术博物馆 + 大董烤鸭店",
@@ -5914,7 +5793,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.835359Z",
+                    "verified_at": "2026-10-25T10:13:54.488636Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -5939,7 +5818,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.835359Z",
+                    "verified_at": "2026-10-25T10:13:54.489646Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -6041,8 +5920,8 @@
                 "is_adverse": false,
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:41.991387Z",
-                "verified_at": "2026-10-24T15:14:41.991387Z",
+                "observed_at": "2026-10-25T10:13:53.676019Z",
+                "verified_at": "2026-10-25T10:13:53.676019Z",
                 "degraded": false,
                 "degraded_reason": null,
                 "cache_age_seconds": null
@@ -6053,8 +5932,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.829455Z",
-                "verified_at": "2026-10-24T15:14:42.829455Z",
+                "observed_at": "2026-10-25T10:13:54.485596Z",
+                "verified_at": "2026-10-25T10:13:54.485596Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -6068,8 +5947,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.829455Z",
-                "verified_at": "2026-10-24T15:14:42.829455Z",
+                "observed_at": "2026-10-25T10:13:54.485596Z",
+                "verified_at": "2026-10-25T10:13:54.485596Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -6853,7 +6732,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+                "plan_id": "plan-9c386c59f357479f949d65db833207f5",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -6863,7 +6742,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+                "plan_id": "plan-9c386c59f357479f949d65db833207f5",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -6873,7 +6752,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "中国海关博物馆 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-36d4037011284ecdad1d79e154b2a4bc",
+                "plan_id": "plan-b49fa119d60c491c926463f8be9e5422",
                 "resource_id": "osm-way-637237606",
                 "route_leg_index": null,
                 "source": null,
@@ -6883,7 +6762,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "德克士 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-36d4037011284ecdad1d79e154b2a4bc",
+                "plan_id": "plan-b49fa119d60c491c926463f8be9e5422",
                 "resource_id": "osm-node-11273547270",
                 "route_leg_index": null,
                 "source": null,
@@ -6893,7 +6772,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-36d4037011284ecdad1d79e154b2a4bc",
+                "plan_id": "plan-b49fa119d60c491c926463f8be9e5422",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -6903,7 +6782,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-36d4037011284ecdad1d79e154b2a4bc",
+                "plan_id": "plan-b49fa119d60c491c926463f8be9e5422",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -6913,7 +6792,7 @@
               {
                 "code": "availability_budget_exhausted",
                 "message": "已达到动态可用性复核预算，该方案未获得本轮库存确认。",
-                "plan_id": "plan-36d4037011284ecdad1d79e154b2a4bc",
+                "plan_id": "plan-b49fa119d60c491c926463f8be9e5422",
                 "resource_id": null,
                 "route_leg_index": null,
                 "source": null,
@@ -6923,7 +6802,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "保利艺术博物馆 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-bbd8c20421f145ceb6ff6a1b18e0ed05",
+                "plan_id": "plan-e766e0403f044010b764dc969cd646f7",
                 "resource_id": "osm-node-5821294053",
                 "route_leg_index": null,
                 "source": null,
@@ -6933,7 +6812,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "大董烤鸭店 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-bbd8c20421f145ceb6ff6a1b18e0ed05",
+                "plan_id": "plan-e766e0403f044010b764dc969cd646f7",
                 "resource_id": "osm-node-4460013789",
                 "route_leg_index": null,
                 "source": null,
@@ -6943,7 +6822,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-bbd8c20421f145ceb6ff6a1b18e0ed05",
+                "plan_id": "plan-e766e0403f044010b764dc969cd646f7",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -6953,7 +6832,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-bbd8c20421f145ceb6ff6a1b18e0ed05",
+                "plan_id": "plan-e766e0403f044010b764dc969cd646f7",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -6963,7 +6842,7 @@
               {
                 "code": "availability_budget_exhausted",
                 "message": "已达到动态可用性复核预算，该方案未获得本轮库存确认。",
-                "plan_id": "plan-bbd8c20421f145ceb6ff6a1b18e0ed05",
+                "plan_id": "plan-e766e0403f044010b764dc969cd646f7",
                 "resource_id": null,
                 "route_leg_index": null,
                 "source": null,
@@ -7249,7 +7128,7 @@
                 "data_notice": "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。"
               }
             ],
-            "plan_version_id": "d7959d6b0a5c4464bb6da4d11330a872",
+            "plan_version_id": "65a0a2c7c1674dedbf3018dd58facdf5",
             "planning_intent_decision": {
               "intent": {
                 "pace": "balanced",
@@ -7327,7 +7206,7 @@
                 "diagnostic_error_types": [],
                 "wire_schema_version": null,
                 "prompt_version": null,
-                "latency_ms": 8,
+                "latency_ms": 6,
                 "input_tokens": null,
                 "output_tokens": null,
                 "requested_mode": "rule",
@@ -7358,104 +7237,104 @@
             ],
             "run_trace": {
               "schema_version": "planning-run-trace.v1",
-              "run_id": "3587192012eb4cec9f293c87b5258aaf",
+              "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
               "events": [
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 1,
                   "stage": "understand",
                   "status": "started",
                   "message_key": "understand.started",
                   "public_message": "正在理解你的规划需求",
-                  "occurred_at": "2026-10-24T23:14:42.756175+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.424551+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 2,
                   "stage": "understand",
                   "status": "completed",
                   "message_key": "understand.completed",
                   "public_message": "已完成需求理解",
-                  "occurred_at": "2026-10-24T23:14:42.757480+08:00",
-                  "duration_ms": 1,
+                  "occurred_at": "2026-10-25T18:13:54.426559+08:00",
+                  "duration_ms": 2,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 3,
                   "stage": "compile_request",
                   "status": "started",
                   "message_key": "compile_request.started",
                   "public_message": "正在整理规划条件",
-                  "occurred_at": "2026-10-24T23:14:42.761094+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.428831+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 4,
                   "stage": "compile_request",
                   "status": "completed",
                   "message_key": "compile_request.completed",
                   "public_message": "规划条件整理完成",
-                  "occurred_at": "2026-10-24T23:14:42.764923+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.432832+08:00",
                   "duration_ms": 4,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 5,
                   "stage": "structure",
                   "status": "started",
                   "message_key": "structure.started",
                   "public_message": "正在组织候选行程结构",
-                  "occurred_at": "2026-10-24T23:14:42.769579+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.436834+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 6,
                   "stage": "structure",
                   "status": "completed",
                   "message_key": "structure.completed",
                   "public_message": "行程结构已确定",
-                  "occurred_at": "2026-10-24T23:14:42.799092+08:00",
-                  "duration_ms": 30,
+                  "occurred_at": "2026-10-25T18:13:54.462760+08:00",
+                  "duration_ms": 26,
                   "public_details": {
                     "count": 1
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 7,
                   "stage": "retrieve",
                   "status": "started",
                   "message_key": "retrieve.started",
                   "public_message": "正在检索符合条件的地点",
-                  "occurred_at": "2026-10-24T23:14:42.799092+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.462760+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 8,
                   "stage": "retrieve",
                   "status": "completed",
                   "message_key": "retrieve.completed",
                   "public_message": "候选地点检索完成",
-                  "occurred_at": "2026-10-24T23:14:42.807523+08:00",
-                  "duration_ms": 8,
+                  "occurred_at": "2026-10-25T18:13:54.468605+08:00",
+                  "duration_ms": 6,
                   "public_details": {
                     "mode": "rule",
                     "candidate_count": 102
@@ -7463,78 +7342,78 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 9,
                   "stage": "construct",
                   "status": "started",
                   "message_key": "construct.search_started",
                   "public_message": "正在组合候选行程",
-                  "occurred_at": "2026-10-24T23:14:42.807523+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.468605+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 10,
                   "stage": "construct",
                   "status": "completed",
                   "message_key": "construct.completed",
                   "public_message": "候选行程组合完成",
-                  "occurred_at": "2026-10-24T23:14:42.829455+08:00",
-                  "duration_ms": 22,
+                  "occurred_at": "2026-10-25T18:13:54.484585+08:00",
+                  "duration_ms": 16,
                   "public_details": {
                     "count": 12
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 11,
                   "stage": "verify",
                   "status": "started",
                   "message_key": "verify.started",
                   "public_message": "正在核对路线、时间和可用性",
-                  "occurred_at": "2026-10-24T23:14:42.829455+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.484585+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 12,
                   "stage": "verify",
                   "status": "completed",
                   "message_key": "verify.completed",
                   "public_message": "路线和硬约束核对完成",
-                  "occurred_at": "2026-10-24T23:14:42.836365+08:00",
-                  "duration_ms": 7,
+                  "occurred_at": "2026-10-25T18:13:54.489646+08:00",
+                  "duration_ms": 5,
                   "public_details": {
                     "plan_count": 12
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 13,
                   "stage": "advise",
                   "status": "started",
                   "message_key": "advise.started",
                   "public_message": "正在整理推荐说明",
-                  "occurred_at": "2026-10-24T23:14:42.872699+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.518173+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "3587192012eb4cec9f293c87b5258aaf",
+                  "run_id": "ce7af2f72a094d1eacc4fb577085dca0",
                   "sequence": 14,
                   "stage": "advise",
                   "status": "completed",
                   "message_key": "advise.completed",
                   "public_message": "推荐说明生成完成",
-                  "occurred_at": "2026-10-24T23:14:42.873702+08:00",
-                  "duration_ms": 1,
+                  "occurred_at": "2026-10-25T18:13:54.518173+08:00",
+                  "duration_ms": 0,
                   "public_details": {}
                 }
               ]
@@ -7600,7 +7479,7 @@
             "plan_diff": null,
             "plan_diffs": [],
             "recommendation_advice": {
-              "recommended_plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+              "recommended_plan_id": "plan-9c386c59f357479f949d65db833207f5",
               "understood_needs": [
                 {
                   "need_id": "constraint.planning_window",
@@ -7621,7 +7500,7 @@
               "overall_reason": "优先推荐“日坛公园 + 崖 Under Clouds 云南餐厅”：它在已验证候选中综合评分最高，并满足当前时间、路线和可行性要求。",
               "plans": [
                 {
-                  "plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+                  "plan_id": "plan-9c386c59f357479f949d65db833207f5",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -7632,7 +7511,7 @@
                   "tradeoffs": []
                 },
                 {
-                  "plan_id": "plan-36d4037011284ecdad1d79e154b2a4bc",
+                  "plan_id": "plan-b49fa119d60c491c926463f8be9e5422",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -7645,7 +7524,7 @@
                   ]
                 },
                 {
-                  "plan_id": "plan-bbd8c20421f145ceb6ff6a1b18e0ed05",
+                  "plan_id": "plan-e766e0403f044010b764dc969cd646f7",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -7781,7 +7660,7 @@
           "label": "正式选择",
           "user": "选择第一个方案",
           "reply": "服务端已保存正式选择。",
-          "selected_plan_id": "plan-8822d38acc484898bbcf824f4a5255ee"
+          "selected_plan_id": "plan-9c386c59f357479f949d65db833207f5"
         },
         {
           "label": "提交单站替换",
@@ -7878,7 +7757,7 @@
             ],
             "plans": [
               {
-                "plan_id": "plan-0ceeeed4277540669247be15b4157803",
+                "plan_id": "plan-4401226267194112861abc3d18d02fe8",
                 "composition_fingerprint": "composition-cc029f01958d",
                 "skeleton_id": "activity-meal-v1",
                 "title": "英杰硬石博物馆 + 崖 Under Clouds 云南餐厅",
@@ -7948,7 +7827,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.995601Z",
+                    "verified_at": "2026-10-25T10:13:54.630407Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -7973,7 +7852,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.995601Z",
+                    "verified_at": "2026-10-25T10:13:54.630407Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -8052,7 +7931,7 @@
                 "tradeoffs": []
               },
               {
-                "plan_id": "plan-d7f186e73b5b48c29d20d96251a0164e",
+                "plan_id": "plan-9248914cf6d54d8799ccbdda3b216cce",
                 "composition_fingerprint": "composition-445227d7b1f7",
                 "skeleton_id": "activity-meal-v1",
                 "title": "史家胡同博物馆 + 崖 Under Clouds 云南餐厅",
@@ -8122,7 +8001,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.992052Z",
+                    "verified_at": "2026-10-25T10:13:54.626113Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -8147,7 +8026,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:42.992052Z",
+                    "verified_at": "2026-10-25T10:13:54.626113Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -8241,8 +8120,8 @@
                 "is_adverse": false,
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:41.991387Z",
-                "verified_at": "2026-10-24T15:14:41.991387Z",
+                "observed_at": "2026-10-25T10:13:53.676019Z",
+                "verified_at": "2026-10-25T10:13:53.676019Z",
                 "degraded": false,
                 "degraded_reason": null,
                 "cache_age_seconds": null
@@ -8253,8 +8132,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.996773Z",
-                "verified_at": "2026-10-24T15:14:42.996773Z",
+                "observed_at": "2026-10-25T10:13:54.630407Z",
+                "verified_at": "2026-10-25T10:13:54.630407Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -8268,8 +8147,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.996773Z",
-                "verified_at": "2026-10-24T15:14:42.996773Z",
+                "observed_at": "2026-10-25T10:13:54.630407Z",
+                "verified_at": "2026-10-25T10:13:54.630407Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -8283,8 +8162,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.993057Z",
-                "verified_at": "2026-10-24T15:14:42.993057Z",
+                "observed_at": "2026-10-25T10:13:54.627113Z",
+                "verified_at": "2026-10-25T10:13:54.627113Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -8298,8 +8177,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:42.993057Z",
-                "verified_at": "2026-10-24T15:14:42.993057Z",
+                "observed_at": "2026-10-25T10:13:54.627113Z",
+                "verified_at": "2026-10-25T10:13:54.627113Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -9083,7 +8962,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-0ceeeed4277540669247be15b4157803",
+                "plan_id": "plan-4401226267194112861abc3d18d02fe8",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -9093,7 +8972,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-0ceeeed4277540669247be15b4157803",
+                "plan_id": "plan-4401226267194112861abc3d18d02fe8",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -9103,7 +8982,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-d7f186e73b5b48c29d20d96251a0164e",
+                "plan_id": "plan-9248914cf6d54d8799ccbdda3b216cce",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -9113,7 +8992,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-d7f186e73b5b48c29d20d96251a0164e",
+                "plan_id": "plan-9248914cf6d54d8799ccbdda3b216cce",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -9261,7 +9140,7 @@
                 "data_notice": "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。"
               }
             ],
-            "plan_version_id": "f6af671accee4594a3ad9dd4699ef719",
+            "plan_version_id": "14dd2a6a74c8411f81601b8b59575e4c",
             "planning_intent_decision": null,
             "retrieval_evidence": [],
             "runtime_decisions": [
@@ -9317,7 +9196,7 @@
                 "diagnostic_error_types": [],
                 "wire_schema_version": null,
                 "prompt_version": null,
-                "latency_ms": 4,
+                "latency_ms": 6,
                 "input_tokens": null,
                 "output_tokens": null,
                 "requested_mode": "rule",
@@ -9348,66 +9227,66 @@
             ],
             "run_trace": {
               "schema_version": "planning-run-trace.v1",
-              "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+              "run_id": "cf3fcac8342042c7999e05fabb3804b3",
               "events": [
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 1,
                   "stage": "understand",
                   "status": "started",
                   "message_key": "understand.started",
                   "public_message": "正在理解你的规划需求",
-                  "occurred_at": "2026-10-24T23:14:42.948275+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.576467+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 2,
                   "stage": "understand",
                   "status": "completed",
                   "message_key": "understand.completed",
                   "public_message": "已完成需求理解",
-                  "occurred_at": "2026-10-24T23:14:42.948275+08:00",
-                  "duration_ms": 0,
+                  "occurred_at": "2026-10-25T18:13:54.577467+08:00",
+                  "duration_ms": 1,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 3,
                   "stage": "modify",
                   "status": "started",
                   "message_key": "modify.started",
                   "public_message": "正在处理方案修改",
-                  "occurred_at": "2026-10-24T23:14:42.953214+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.583975+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 4,
                   "stage": "retrieve",
                   "status": "started",
                   "message_key": "retrieve.replacement_started",
                   "public_message": "正在检索替换候选",
-                  "occurred_at": "2026-10-24T23:14:42.954498+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.584298+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 5,
                   "stage": "retrieve",
                   "status": "completed",
                   "message_key": "retrieve.replacement_completed",
                   "public_message": "替换候选检索完成",
-                  "occurred_at": "2026-10-24T23:14:42.991029+08:00",
-                  "duration_ms": 37,
+                  "occurred_at": "2026-10-25T18:13:54.624109+08:00",
+                  "duration_ms": 40,
                   "public_details": {
                     "mode": "rule",
                     "candidate_count": 50
@@ -9415,25 +9294,25 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 6,
                   "stage": "verify",
                   "status": "started",
                   "message_key": "verify.replacement_started",
                   "public_message": "正在核对替换后的整套路线",
-                  "occurred_at": "2026-10-24T23:14:42.991029+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.625113+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 7,
                   "stage": "verify",
                   "status": "completed",
                   "message_key": "verify.replacement_completed",
                   "public_message": "替换后的整套路线核验完成",
-                  "occurred_at": "2026-10-24T23:14:42.997777+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.631809+08:00",
                   "duration_ms": 7,
                   "public_details": {
                     "plan_count": 5
@@ -9441,37 +9320,37 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 8,
                   "stage": "modify",
                   "status": "completed",
                   "message_key": "modify.completed",
                   "public_message": "方案修改处理完成",
-                  "occurred_at": "2026-10-24T23:14:42.998781+08:00",
-                  "duration_ms": 46,
+                  "occurred_at": "2026-10-25T18:13:54.632937+08:00",
+                  "duration_ms": 49,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 9,
                   "stage": "advise",
                   "status": "started",
                   "message_key": "advise.started",
                   "public_message": "正在整理推荐说明",
-                  "occurred_at": "2026-10-24T23:14:43.025662+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.656970+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "2ff06abd1e3c424f8f3892af126c5730",
+                  "run_id": "cf3fcac8342042c7999e05fabb3804b3",
                   "sequence": 10,
                   "stage": "advise",
                   "status": "completed",
                   "message_key": "advise.completed",
                   "public_message": "推荐说明生成完成",
-                  "occurred_at": "2026-10-24T23:14:43.025662+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.656970+08:00",
                   "duration_ms": 0,
                   "public_details": {}
                 }
@@ -9528,8 +9407,8 @@
             "planning_intent_fallback_failure_fields": [],
             "conversation_command": {
               "operation": "replace",
-              "base_plan_version_id": "d7959d6b0a5c4464bb6da4d11330a872",
-              "base_plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+              "base_plan_version_id": "65a0a2c7c1674dedbf3018dd58facdf5",
+              "base_plan_id": "plan-9c386c59f357479f949d65db833207f5",
               "target": {
                 "role": "activity",
                 "resource_type": null,
@@ -9571,13 +9450,13 @@
             "plan_diff": null,
             "plan_diffs": [
               {
-                "from_plan_version_id": "d7959d6b0a5c4464bb6da4d11330a872",
-                "to_plan_version_id": "f6af671accee4594a3ad9dd4699ef719",
-                "base_plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
-                "new_plan_id": "plan-0ceeeed4277540669247be15b4157803",
+                "from_plan_version_id": "65a0a2c7c1674dedbf3018dd58facdf5",
+                "to_plan_version_id": "14dd2a6a74c8411f81601b8b59575e4c",
+                "base_plan_id": "plan-9c386c59f357479f949d65db833207f5",
+                "new_plan_id": "plan-4401226267194112861abc3d18d02fe8",
                 "locked_stops": [
                   {
-                    "source_plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+                    "source_plan_id": "plan-9c386c59f357479f949d65db833207f5",
                     "stop_index": 1,
                     "resource_id": "osm-node-4269440793",
                     "role": "meal"
@@ -9598,13 +9477,13 @@
                 "price_delta": 30
               },
               {
-                "from_plan_version_id": "d7959d6b0a5c4464bb6da4d11330a872",
-                "to_plan_version_id": "f6af671accee4594a3ad9dd4699ef719",
-                "base_plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
-                "new_plan_id": "plan-d7f186e73b5b48c29d20d96251a0164e",
+                "from_plan_version_id": "65a0a2c7c1674dedbf3018dd58facdf5",
+                "to_plan_version_id": "14dd2a6a74c8411f81601b8b59575e4c",
+                "base_plan_id": "plan-9c386c59f357479f949d65db833207f5",
+                "new_plan_id": "plan-9248914cf6d54d8799ccbdda3b216cce",
                 "locked_stops": [
                   {
-                    "source_plan_id": "plan-8822d38acc484898bbcf824f4a5255ee",
+                    "source_plan_id": "plan-9c386c59f357479f949d65db833207f5",
                     "stop_index": 1,
                     "resource_id": "osm-node-4269440793",
                     "role": "meal"
@@ -9626,7 +9505,7 @@
               }
             ],
             "recommendation_advice": {
-              "recommended_plan_id": "plan-0ceeeed4277540669247be15b4157803",
+              "recommended_plan_id": "plan-4401226267194112861abc3d18d02fe8",
               "understood_needs": [
                 {
                   "need_id": "constraint.planning_window",
@@ -9647,7 +9526,7 @@
               "overall_reason": "优先推荐“英杰硬石博物馆 + 崖 Under Clouds 云南餐厅”：它在已验证候选中综合评分最高，并满足当前时间、路线和可行性要求。 修改结果：本候选将“日坛公园”替换为“英杰硬石博物馆”；其他 1 站保持不变；全程增加 3.1 km；节省 58 分钟；地点费用增加 ¥30。",
               "plans": [
                 {
-                  "plan_id": "plan-0ceeeed4277540669247be15b4157803",
+                  "plan_id": "plan-4401226267194112861abc3d18d02fe8",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。 修改结果：本候选将“日坛公园”替换为“英杰硬石博物馆”；其他 1 站保持不变；全程增加 3.1 km；节省 58 分钟；地点费用增加 ¥30。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -9658,7 +9537,7 @@
                   "tradeoffs": []
                 },
                 {
-                  "plan_id": "plan-d7f186e73b5b48c29d20d96251a0164e",
+                  "plan_id": "plan-9248914cf6d54d8799ccbdda3b216cce",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。 修改结果：本候选将“日坛公园”替换为“史家胡同博物馆”；其他 1 站保持不变；全程增加 0.9 km；节省 60 分钟；地点费用增加 ¥80。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -9807,7 +9686,7 @@
             "question": null,
             "recovery": {
               "kind": "recovery_choice",
-              "interaction_id": "231c066cc1d34a0ab22beef282d9fade",
+              "interaction_id": "3197031650a346a4a5619c0e5610da75",
               "request_revision": 1,
               "plan_version_id": null,
               "reason": {
@@ -10054,8 +9933,8 @@
                 "is_adverse": false,
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:41.991387Z",
-                "verified_at": "2026-10-24T15:14:41.991387Z",
+                "observed_at": "2026-10-25T10:13:53.676019Z",
+                "verified_at": "2026-10-25T10:13:53.676019Z",
                 "degraded": false,
                 "degraded_reason": null,
                 "cache_age_seconds": null
@@ -12104,7 +11983,7 @@
                 "diagnostic_error_types": [],
                 "wire_schema_version": null,
                 "prompt_version": null,
-                "latency_ms": 3,
+                "latency_ms": 1,
                 "input_tokens": null,
                 "output_tokens": null,
                 "requested_mode": "rule",
@@ -12115,77 +11994,77 @@
             ],
             "run_trace": {
               "schema_version": "planning-run-trace.v1",
-              "run_id": "5c8766bb212049e087e53030f9588288",
+              "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
               "events": [
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 1,
                   "stage": "understand",
                   "status": "started",
                   "message_key": "understand.started",
                   "public_message": "正在理解你的规划需求",
-                  "occurred_at": "2026-10-24T23:14:43.076900+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.706989+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 2,
                   "stage": "understand",
                   "status": "completed",
                   "message_key": "understand.completed",
                   "public_message": "已完成需求理解",
-                  "occurred_at": "2026-10-24T23:14:43.077900+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.708144+08:00",
                   "duration_ms": 1,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 3,
                   "stage": "compile_request",
                   "status": "started",
                   "message_key": "compile_request.started",
                   "public_message": "正在整理规划条件",
-                  "occurred_at": "2026-10-24T23:14:43.081133+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.711144+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 4,
                   "stage": "compile_request",
                   "status": "completed",
                   "message_key": "compile_request.completed",
                   "public_message": "规划条件整理完成",
-                  "occurred_at": "2026-10-24T23:14:43.084403+08:00",
-                  "duration_ms": 3,
+                  "occurred_at": "2026-10-25T18:13:54.715290+08:00",
+                  "duration_ms": 4,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 5,
                   "stage": "structure",
                   "status": "started",
                   "message_key": "structure.started",
                   "public_message": "正在组织候选行程结构",
-                  "occurred_at": "2026-10-24T23:14:43.089514+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.719719+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 6,
                   "stage": "structure",
                   "status": "completed",
                   "message_key": "structure.completed",
                   "public_message": "行程结构已确定",
-                  "occurred_at": "2026-10-24T23:14:43.106702+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.736239+08:00",
                   "duration_ms": 17,
                   "public_details": {
                     "count": 1
@@ -12193,26 +12072,26 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 7,
                   "stage": "retrieve",
                   "status": "started",
                   "message_key": "retrieve.started",
                   "public_message": "正在检索符合条件的地点",
-                  "occurred_at": "2026-10-24T23:14:43.106702+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.736239+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 8,
                   "stage": "retrieve",
                   "status": "completed",
                   "message_key": "retrieve.completed",
                   "public_message": "候选地点检索完成",
-                  "occurred_at": "2026-10-24T23:14:43.109703+08:00",
-                  "duration_ms": 3,
+                  "occurred_at": "2026-10-25T18:13:54.737286+08:00",
+                  "duration_ms": 1,
                   "public_details": {
                     "mode": "rule",
                     "candidate_count": 25
@@ -12220,78 +12099,78 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 9,
                   "stage": "construct",
                   "status": "started",
                   "message_key": "construct.search_started",
                   "public_message": "正在组合候选行程",
-                  "occurred_at": "2026-10-24T23:14:43.109703+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.737286+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 10,
                   "stage": "construct",
                   "status": "completed",
                   "message_key": "construct.completed",
                   "public_message": "候选行程组合完成",
-                  "occurred_at": "2026-10-24T23:14:43.109703+08:00",
-                  "duration_ms": 0,
+                  "occurred_at": "2026-10-25T18:13:54.738409+08:00",
+                  "duration_ms": 1,
                   "public_details": {
                     "count": 0
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 11,
                   "stage": "verify",
                   "status": "started",
                   "message_key": "verify.started",
                   "public_message": "正在核对路线、时间和可用性",
-                  "occurred_at": "2026-10-24T23:14:43.109703+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.738409+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 12,
                   "stage": "verify",
                   "status": "fallback",
                   "message_key": "verify.fallback",
                   "public_message": "候选方案未通过完整核验，已返回安全结果",
-                  "occurred_at": "2026-10-24T23:14:43.111211+08:00",
-                  "duration_ms": 2,
+                  "occurred_at": "2026-10-25T18:13:54.738409+08:00",
+                  "duration_ms": 0,
                   "public_details": {
                     "reason_code": "no_verified_plan"
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 13,
                   "stage": "recovery",
                   "status": "started",
                   "message_key": "recovery.decision",
                   "public_message": "正在判断可安全采取的恢复方式",
-                  "occurred_at": "2026-10-24T23:14:43.114259+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.741545+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "5c8766bb212049e087e53030f9588288",
+                  "run_id": "2271661a62c4454ab9b4ddc1c1178e85",
                   "sequence": 14,
                   "stage": "recovery",
                   "status": "waiting_input",
                   "message_key": "recovery.waiting_for_recovery_choice",
                   "public_message": "需要你选择如何调整规划条件",
-                  "occurred_at": "2026-10-24T23:14:43.119710+08:00",
-                  "duration_ms": 5,
+                  "occurred_at": "2026-10-25T18:13:54.744885+08:00",
+                  "duration_ms": 3,
                   "public_details": {
                     "reason_code": "NO_PLAN_WITHIN_STRICT_BUDGET"
                   }
@@ -12474,7 +12353,7 @@
             "recovery": null,
             "recovery_resolution": null,
             "recovery_outcome": {
-              "interaction_id": "231c066cc1d34a0ab22beef282d9fade",
+              "interaction_id": "3197031650a346a4a5619c0e5610da75",
               "action_id": "use-budget-as-preference-r1",
               "action_fingerprint": "apply_request_patch:strict_budget:strict_budget=False",
               "strategy_fingerprint": "adjust:budget",
@@ -12600,7 +12479,7 @@
             ],
             "plans": [
               {
-                "plan_id": "plan-afede1230641480da6ad8039252a38cc",
+                "plan_id": "plan-db92790ff17a4b648f266c3e82dfebe2",
                 "composition_fingerprint": "composition-848bab36007f",
                 "skeleton_id": "activity-meal-v1",
                 "title": "日坛公园 + 崖 Under Clouds 云南餐厅",
@@ -12677,7 +12556,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:43.302037Z",
+                    "verified_at": "2026-10-25T10:13:54.944254Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -12702,7 +12581,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:43.303542Z",
+                    "verified_at": "2026-10-25T10:13:54.944254Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -12791,7 +12670,7 @@
                 ]
               },
               {
-                "plan_id": "plan-7158cb99f99641669252848c36dd843b",
+                "plan_id": "plan-8530767d9f484578a30ec40e04a63ee3",
                 "composition_fingerprint": "composition-96e31546d36b",
                 "skeleton_id": "activity-meal-v1",
                 "title": "中国海关博物馆 + 德克士",
@@ -12869,7 +12748,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:43.306651Z",
+                    "verified_at": "2026-10-25T10:13:54.947254Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -12894,7 +12773,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:43.306651Z",
+                    "verified_at": "2026-10-25T10:13:54.947254Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -12983,7 +12862,7 @@
                 ]
               },
               {
-                "plan_id": "plan-d02aab63563f452cb014a2915fc9ccbf",
+                "plan_id": "plan-4a46857782de43d096a5acc05495f5c0",
                 "composition_fingerprint": "composition-e8008f6de104",
                 "skeleton_id": "activity-meal-v1",
                 "title": "保利艺术博物馆 + 大董烤鸭店",
@@ -13053,7 +12932,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:43.308667Z",
+                    "verified_at": "2026-10-25T10:13:54.950767Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -13078,7 +12957,7 @@
                     "provider_mode": "mock",
                     "degraded": true,
                     "degraded_reason": "configured_local_estimate",
-                    "verified_at": "2026-10-24T15:14:43.308667Z",
+                    "verified_at": "2026-10-25T10:13:54.950767Z",
                     "cache_age_seconds": null,
                     "geometry": [
                       {
@@ -13180,8 +13059,8 @@
                 "is_adverse": false,
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:41.991387Z",
-                "verified_at": "2026-10-24T15:14:41.991387Z",
+                "observed_at": "2026-10-25T10:13:53.676019Z",
+                "verified_at": "2026-10-25T10:13:53.676019Z",
                 "degraded": false,
                 "degraded_reason": null,
                 "cache_age_seconds": null
@@ -13192,8 +13071,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:43.303542Z",
-                "verified_at": "2026-10-24T15:14:43.303542Z",
+                "observed_at": "2026-10-25T10:13:54.945254Z",
+                "verified_at": "2026-10-25T10:13:54.945254Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -13207,8 +13086,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:43.303542Z",
-                "verified_at": "2026-10-24T15:14:43.303542Z",
+                "observed_at": "2026-10-25T10:13:54.945254Z",
+                "verified_at": "2026-10-25T10:13:54.945254Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -13222,8 +13101,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:43.306651Z",
-                "verified_at": "2026-10-24T15:14:43.306651Z",
+                "observed_at": "2026-10-25T10:13:54.947254Z",
+                "verified_at": "2026-10-25T10:13:54.947254Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -13237,8 +13116,8 @@
                 "status": "available",
                 "source": "mock",
                 "mode": "mock",
-                "observed_at": "2026-10-24T15:14:43.306651Z",
-                "verified_at": "2026-10-24T15:14:43.306651Z",
+                "observed_at": "2026-10-25T10:13:54.947254Z",
+                "verified_at": "2026-10-25T10:13:54.947254Z",
                 "verified": true,
                 "expires_at": null,
                 "stale": false,
@@ -14022,7 +13901,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-afede1230641480da6ad8039252a38cc",
+                "plan_id": "plan-db92790ff17a4b648f266c3e82dfebe2",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -14032,7 +13911,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-afede1230641480da6ad8039252a38cc",
+                "plan_id": "plan-db92790ff17a4b648f266c3e82dfebe2",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -14042,7 +13921,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-7158cb99f99641669252848c36dd843b",
+                "plan_id": "plan-8530767d9f484578a30ec40e04a63ee3",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -14052,7 +13931,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-7158cb99f99641669252848c36dd843b",
+                "plan_id": "plan-8530767d9f484578a30ec40e04a63ee3",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -14062,7 +13941,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "保利艺术博物馆 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-d02aab63563f452cb014a2915fc9ccbf",
+                "plan_id": "plan-4a46857782de43d096a5acc05495f5c0",
                 "resource_id": "osm-node-5821294053",
                 "route_leg_index": null,
                 "source": null,
@@ -14072,7 +13951,7 @@
               {
                 "code": "availability_unconfirmed",
                 "message": "大董烤鸭店 的动态可用性本轮未返回事实，建议出发前再次确认。",
-                "plan_id": "plan-d02aab63563f452cb014a2915fc9ccbf",
+                "plan_id": "plan-4a46857782de43d096a5acc05495f5c0",
                 "resource_id": "osm-node-4460013789",
                 "route_leg_index": null,
                 "source": null,
@@ -14082,7 +13961,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-d02aab63563f452cb014a2915fc9ccbf",
+                "plan_id": "plan-4a46857782de43d096a5acc05495f5c0",
                 "resource_id": null,
                 "route_leg_index": 0,
                 "source": null,
@@ -14092,7 +13971,7 @@
               {
                 "code": "route_fact_degraded",
                 "message": "该路线段使用了降级或本地估算事实。",
-                "plan_id": "plan-d02aab63563f452cb014a2915fc9ccbf",
+                "plan_id": "plan-4a46857782de43d096a5acc05495f5c0",
                 "resource_id": null,
                 "route_leg_index": 1,
                 "source": null,
@@ -14102,7 +13981,7 @@
               {
                 "code": "availability_budget_exhausted",
                 "message": "已达到动态可用性复核预算，该方案未获得本轮库存确认。",
-                "plan_id": "plan-d02aab63563f452cb014a2915fc9ccbf",
+                "plan_id": "plan-4a46857782de43d096a5acc05495f5c0",
                 "resource_id": null,
                 "route_leg_index": null,
                 "source": null,
@@ -14388,7 +14267,7 @@
                 "data_notice": "演示环境：POI 商业信息为模拟数据；路线来源和降级状态见各路线段。"
               }
             ],
-            "plan_version_id": "aa0422160c974c79b7e0418c86537fd5",
+            "plan_version_id": "43176012e4e74104b2273d2e1dc6d2fb",
             "planning_intent_decision": {
               "intent": {
                 "pace": "balanced",
@@ -14415,26 +14294,6 @@
             "retrieval_evidence": [],
             "runtime_decisions": [
               {
-                "stage": "turn_interpreter",
-                "adapter": "demo_rule",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": null,
-                "latency_ms": 1,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": null,
-                "index_version": null,
-                "query_count": null,
-                "candidate_count": null
-              },
-              {
                 "stage": "planning_intent",
                 "adapter": "rule_based",
                 "model_invoked": false,
@@ -14466,47 +14325,7 @@
                 "diagnostic_error_types": [],
                 "wire_schema_version": null,
                 "prompt_version": null,
-                "latency_ms": 3,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": "rule",
-                "index_version": "rule-alias.v2",
-                "query_count": 0,
-                "candidate_count": 25
-              },
-              {
-                "stage": "planning_intent",
-                "adapter": "rule_based",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": "rule-based.v1",
-                "latency_ms": 0,
-                "input_tokens": null,
-                "output_tokens": null,
-                "requested_mode": null,
-                "index_version": null,
-                "query_count": null,
-                "candidate_count": null
-              },
-              {
-                "stage": "candidate_retrieval",
-                "adapter": "rule_based",
-                "model_invoked": false,
-                "model_name": null,
-                "attempts": 0,
-                "fallback_reason": null,
-                "diagnostic_code": null,
-                "diagnostic_paths": [],
-                "diagnostic_error_types": [],
-                "wire_schema_version": null,
-                "prompt_version": null,
-                "latency_ms": 8,
+                "latency_ms": 9,
                 "input_tokens": null,
                 "output_tokens": null,
                 "requested_mode": "rule",
@@ -14537,29 +14356,29 @@
             ],
             "run_trace": {
               "schema_version": "planning-run-trace.v1",
-              "run_id": "7ce44656d4404a9dada99f222536c5e7",
+              "run_id": "d38e96d343f14faabd0b01324c5903c0",
               "events": [
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 1,
                   "stage": "recovery",
                   "status": "started",
                   "message_key": "recovery.decision",
                   "public_message": "正在判断可安全采取的恢复方式",
-                  "occurred_at": "2026-10-24T23:14:43.230310+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.857605+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 2,
                   "stage": "recovery_action",
                   "status": "started",
                   "message_key": "recovery.action_started",
                   "public_message": "正在应用你选择的恢复操作",
-                  "occurred_at": "2026-10-24T23:14:43.230310+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.857605+08:00",
                   "duration_ms": null,
                   "public_details": {
                     "reason_code": "NO_PLAN_WITHIN_STRICT_BUDGET"
@@ -14567,13 +14386,13 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 3,
                   "stage": "recovery_action",
                   "status": "completed",
                   "message_key": "recovery.action_applied",
                   "public_message": "恢复操作已应用",
-                  "occurred_at": "2026-10-24T23:14:43.231311+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.858617+08:00",
                   "duration_ms": 1,
                   "public_details": {
                     "reason_code": "NO_PLAN_WITHIN_STRICT_BUDGET"
@@ -14581,51 +14400,51 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 4,
                   "stage": "structure",
                   "status": "started",
                   "message_key": "structure.started",
                   "public_message": "正在组织候选行程结构",
-                  "occurred_at": "2026-10-24T23:14:43.233835+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.861135+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 5,
                   "stage": "structure",
                   "status": "completed",
                   "message_key": "structure.completed",
                   "public_message": "行程结构已确定",
-                  "occurred_at": "2026-10-24T23:14:43.269322+08:00",
-                  "duration_ms": 35,
+                  "occurred_at": "2026-10-25T18:13:54.908417+08:00",
+                  "duration_ms": 47,
                   "public_details": {
                     "count": 1
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 6,
                   "stage": "retrieve",
                   "status": "started",
                   "message_key": "retrieve.started",
                   "public_message": "正在检索符合条件的地点",
-                  "occurred_at": "2026-10-24T23:14:43.270329+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.908417+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 7,
                   "stage": "retrieve",
                   "status": "completed",
                   "message_key": "retrieve.completed",
                   "public_message": "候选地点检索完成",
-                  "occurred_at": "2026-10-24T23:14:43.279780+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.917601+08:00",
                   "duration_ms": 9,
                   "public_details": {
                     "mode": "rule",
@@ -14634,89 +14453,89 @@
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 8,
                   "stage": "construct",
                   "status": "started",
                   "message_key": "construct.search_started",
                   "public_message": "正在组合候选行程",
-                  "occurred_at": "2026-10-24T23:14:43.279780+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.917601+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 9,
                   "stage": "construct",
                   "status": "completed",
                   "message_key": "construct.completed",
                   "public_message": "候选行程组合完成",
-                  "occurred_at": "2026-10-24T23:14:43.302037+08:00",
-                  "duration_ms": 22,
+                  "occurred_at": "2026-10-25T18:13:54.943254+08:00",
+                  "duration_ms": 26,
                   "public_details": {
                     "count": 12
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 10,
                   "stage": "verify",
                   "status": "started",
                   "message_key": "verify.started",
                   "public_message": "正在核对路线、时间和可用性",
-                  "occurred_at": "2026-10-24T23:14:43.302037+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.943254+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 11,
                   "stage": "verify",
                   "status": "completed",
                   "message_key": "verify.completed",
                   "public_message": "路线和硬约束核对完成",
-                  "occurred_at": "2026-10-24T23:14:43.309691+08:00",
-                  "duration_ms": 8,
+                  "occurred_at": "2026-10-25T18:13:54.952766+08:00",
+                  "duration_ms": 10,
                   "public_details": {
                     "plan_count": 12
                   }
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 12,
                   "stage": "recovery",
                   "status": "completed",
                   "message_key": "recovery.auto_recovery_completed",
                   "public_message": "恢复后规划完成",
-                  "occurred_at": "2026-10-24T23:14:43.311956+08:00",
-                  "duration_ms": 82,
+                  "occurred_at": "2026-10-25T18:13:54.956248+08:00",
+                  "duration_ms": 99,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 13,
                   "stage": "advise",
                   "status": "started",
                   "message_key": "advise.started",
                   "public_message": "正在整理推荐说明",
-                  "occurred_at": "2026-10-24T23:14:43.338726+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.984514+08:00",
                   "duration_ms": null,
                   "public_details": {}
                 },
                 {
                   "schema_version": "planning-run-event.v1",
-                  "run_id": "7ce44656d4404a9dada99f222536c5e7",
+                  "run_id": "d38e96d343f14faabd0b01324c5903c0",
                   "sequence": 14,
                   "stage": "advise",
                   "status": "completed",
                   "message_key": "advise.completed",
                   "public_message": "推荐说明生成完成",
-                  "occurred_at": "2026-10-24T23:14:43.339739+08:00",
+                  "occurred_at": "2026-10-25T18:13:54.985514+08:00",
                   "duration_ms": 1,
                   "public_details": {}
                 }
@@ -14783,7 +14602,7 @@
             "plan_diff": null,
             "plan_diffs": [],
             "recommendation_advice": {
-              "recommended_plan_id": "plan-afede1230641480da6ad8039252a38cc",
+              "recommended_plan_id": "plan-db92790ff17a4b648f266c3e82dfebe2",
               "understood_needs": [
                 {
                   "need_id": "constraint.planning_window",
@@ -14804,7 +14623,7 @@
               "overall_reason": "优先推荐“日坛公园 + 崖 Under Clouds 云南餐厅”：它在已验证候选中综合评分最高，并满足当前时间、路线和可行性要求。",
               "plans": [
                 {
-                  "plan_id": "plan-afede1230641480da6ad8039252a38cc",
+                  "plan_id": "plan-db92790ff17a4b648f266c3e82dfebe2",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -14817,7 +14636,7 @@
                   ]
                 },
                 {
-                  "plan_id": "plan-7158cb99f99641669252848c36dd843b",
+                  "plan_id": "plan-8530767d9f484578a30ec40e04a63ee3",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",
@@ -14830,7 +14649,7 @@
                   ]
                 },
                 {
-                  "plan_id": "plan-d02aab63563f452cb014a2915fc9ccbf",
+                  "plan_id": "plan-4a46857782de43d096a5acc05495f5c0",
                   "reason": "没有找到直接的偏好标签证据；同时通过了当前时间、路线、预算和可行性校验。",
                   "matched_need_ids": [
                     "constraint.planning_window",

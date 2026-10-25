@@ -221,12 +221,12 @@ describe("planning workspace", () => {
     expect(screen.getByRole("button", { name: /查看下一程：2km/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it.each(["missing", "rule", "fallback"] as const)("shows honest public model usage for %s records", async (kind) => {
+  it.each(["missing", "rule", "fallback", "bypassed"] as const)("shows honest public model usage for %s records", async (kind) => {
     const user = userEvent.setup();
     api.sendMessage.mockResolvedValueOnce({ ...response, runtime_decisions: kind === "missing" ? [] : [{
-      stage: "turn_interpreter", adapter: kind === "rule" ? "demo_rule" : "fallback",
+      stage: "turn_interpreter", adapter: kind === "bypassed" ? "bypassed" : kind === "rule" ? "demo_rule" : "fallback",
       model_invoked: kind === "fallback", model_name: null, attempts: kind === "fallback" ? 1 : 0,
-      fallback_reason: kind === "fallback" ? "private-diagnostic-code" : null,
+      fallback_reason: kind === "bypassed" ? "structured_command" : kind === "fallback" ? "private-diagnostic-code" : null,
       latency_ms: null, input_tokens: null, output_tokens: null,
     }] });
     render(<App />);
@@ -237,6 +237,11 @@ describe("planning workspace", () => {
     const usage = screen.getByRole("region", { name: "本轮模型使用" });
     expect(usage).toHaveTextContent(kind === "missing" ? "无法判断是否使用模型" : kind === "fallback" ? "已调用 · 含回退" : "未调用模型");
     expect(usage).not.toHaveTextContent("private-diagnostic-code");
+    if (kind === "bypassed") {
+      expect(usage).not.toHaveTextContent("含回退");
+      expect(usage).not.toHaveTextContent("本阶段使用了回退结果");
+      expect(usage.querySelector(".runtime-call-row")).not.toHaveClass("warning");
+    }
   });
 
   it.each([false, true])("gates developer traces while keeping public evidence available enabled=%s", async (enabled) => {

@@ -546,6 +546,8 @@ function runtimeStageLabel(stage: RuntimeDecision["stage"]): string {
 }
 
 function runtimeAdapterLabel(decision: RuntimeDecision): string {
+  if (decision.adapter === "bypassed" && decision.stage === "planning_intent") return "复用已有规划结构";
+  if (decision.adapter === "bypassed" && decision.stage === "candidate_retrieval") return "本阶段无需向量检索";
   const adapterLabels: Record<string, string> = {
     demo_rule: "离线规则 Demo",
     rule_based: "规则基线",
@@ -557,6 +559,10 @@ function runtimeAdapterLabel(decision: RuntimeDecision): string {
     custom: "自定义适配器",
   };
   return adapterLabels[decision.adapter] ?? decision.adapter;
+}
+
+function runtimeIsFallback(decision: RuntimeDecision): boolean {
+  return Boolean(decision.fallback_reason) && !["bypassed", "not_run"].includes(decision.adapter);
 }
 
 function ProgressMarker({ status }: { status: RunStageViewModel["status"] }) {
@@ -600,16 +606,17 @@ function RunProgressDisclosure({ trace }: { trace?: PlanningRunTrace | null }) {
 }
 
 function RuntimeCallSummary({ decision, developerDetails }: { decision: RuntimeDecision; developerDetails: boolean }) {
+  const fallback = runtimeIsFallback(decision);
   const status = decision.model_invoked
     ? `调用模型${decision.model_name ? ` · ${decision.model_name}` : ""}`
     : `未调用模型 · ${runtimeAdapterLabel(decision)}`;
   const details = [
-    decision.fallback_reason ? developerDetails ? decision.fallback_reason : "本阶段使用了回退结果" : null,
+    developerDetails && decision.fallback_reason ? decision.fallback_reason : fallback ? "本阶段使用了回退结果" : null,
     decision.latency_ms !== null ? `${decision.latency_ms} ms` : null,
     `尝试 ${decision.attempts} 次`,
     developerDetails && (decision.input_tokens !== null || decision.output_tokens !== null) ? `tokens ${decision.input_tokens ?? "?"}/${decision.output_tokens ?? "?"}` : null,
   ].filter(Boolean).join(" · ");
-  return <article className={`evidence-row runtime-call-row ${decision.fallback_reason ? "warning" : ""}`}>
+  return <article className={`evidence-row runtime-call-row ${fallback ? "warning" : ""}`}>
     <span className="evidence-icon"><Sparkles size={17} aria-hidden="true" /></span>
     <div>
       <strong>{runtimeStageLabel(decision.stage)}</strong>
@@ -3320,7 +3327,7 @@ function EvidencePanel({ response, plan }: { response: AgentResponse | null; pla
   const hasRisks = degradedFacts.length || degradedLegs.length || warnings.length;
   const runtimeDecisions = response.runtime_decisions ?? [];
   const modelUsed = runtimeDecisions.some((item) => item.model_invoked);
-  const modelFallback = runtimeDecisions.some((item) => item.fallback_reason);
+  const modelFallback = runtimeDecisions.some(runtimeIsFallback);
   return (
     <div className="evidence-panel">
       <div className="detail-title"><span>可信状态</span><h2>核验</h2><p>先确认风险，再查看方案核验、模型调用与事实依据。</p></div>
