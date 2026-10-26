@@ -44,6 +44,8 @@ _当前实现、发布证据、学习记录、面试材料、未来路线图和�
 
 ### Current implementation
 
+- [主链学习导读与原 README 架构图](learning/planning_flow_guide.md)：保留详细图，按自然语言、顶部编辑、字段反问和单站修改对照代码学习；属于 Learning，不替代 Current 架构。
+
 - [Codex Brief](current/CODEX_BRIEF.md)：低成本接手地图，区分 main、当前候选分支、冻结基线与已知问题
 - [Resume V2 当前架构](current/resume_v2_architecture.md)：当前 Graph、DecisionContext、Wire Proposal、TurnCompiler、Enrichment、ConstraintEngine、PlanSpecCompiler、Beam、Provider、Verifier、持久化和降级边界
 - [Resume V2 发布评测](releases/resume_v2_release_report.md)：36 条 reviewed Fixture、C0–C4、B0/B3、Retrieval、Advisor、Beam 和发布限制

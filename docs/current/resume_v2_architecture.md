@@ -1,5 +1,7 @@
 # Resume V2 当前架构
 
+Current 补充（2026-10-26）：PR #25/#26 已合入 main@2016f4c。用户已完成腾讯云镜像构建、BGE/高德阶段冒烟和后续 IP HTTP 桌面体验；当前仍是临时 HTTP 入口，HTTPS/公开容量待验证。此前下述“待合并/待服务器验证”描述保留对应阶段时间，本补充更新其状态。根 README 已转为产品入口；原首页详细图与三种请求入口的学习路径保留在[主链学习导读](../learning/planning_flow_guide.md)。本轮文档整理没有改变系统架构。
+
 Current 补充（2026-10-25，同一公网分支）：默认 rag 镜像将 CPU BGE、离线索引及语义 Profile 一起打包；启动预热对正式共享检索器实际查询，校验当前 DemoCatalog 与资产一致性，失败不发布就绪。API runtime 报告预热状态，新会话复用同一模型，不产生第二套检索或 Planner。高德地图/搜索/路线/天气经显式 compose.amap.yaml 进入已有 Provider 链，不使用访客模型 Key。新镜像/4GB 资源与在线高德仍待服务器验证，详见 [部署补充](deployment_retrieval.md)。
 
 Current 补充（2026-10-23，`codex/public-demo-foundation`，尚未上线）：HTTP 外围新增可选 PublicDemo gate，签发页面级能力凭证，确定服务端 guest 身份并覆盖客户端身份头。执行 turn 时通过线程上下文选择该访客的 Router/PlanningIntent/Advisor，复用原 Graph 与确定性主链；模型客户端不进入 Graph State、RunnableConfig 或持久化。无 Key 使用规则基线。访客和 Key 在单进程内管理，有期限清理业务记录及 checkpoint；因此该模式只能单 worker/单实例运行。默认本地模式与 Frozen 指标不变。入口与边界见 [公网 Demo](public_demo.md)。

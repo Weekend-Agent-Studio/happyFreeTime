@@ -1,6 +1,6 @@
 # 单机公网 Demo 部署
 
-_Current：2026-10-25。服务器已运行旧版 1531293；本轮新增 BGE 打包与预热、高德组合配置。本机真实 BGE/API 验证通过，新镜像、4GB 资源表现、真实高德与 HTTPS 仍待服务器验证。不是新版本已上线报告。_
+_Current：2026-10-26。用户已完成腾讯云正式镜像构建、BGE/高德严格冒烟及后续桌面/IP HTTP 体验。当前仅临时 HTTP 测试入口，公网 HTTP 禁止输入 Key；域名与 HTTPS、公开容量测试尚未完成。本文是操作指南，不是生产可用性或吞吐承诺。_
 
 ## 先理解这条链路
 
@@ -21,12 +21,12 @@ GitHub Release 是基于 Git tag 的版本说明和附件页面，适合标记�
 
 ## 1. 服务器获取代码
 
-以下命令在 Linux 服务器运行。若没有 Git，先通过系统包管理器安装（OpenCloudOS 可用 `dnf install -y git`）。目前部署文件位于开发分支，PR 合并后改为使用 main 或经过验证的 tag。
+以下命令在 Linux 服务器运行。若没有 Git，先通过系统包管理器安装（OpenCloudOS 可用 `dnf install -y git`）。部署文件已进入 main；正式发布也可固定到经过验证的 tag。
 
 ```bash
 mkdir -p /opt
 cd /opt
-git clone --branch codex/public-demo-foundation https://github.com/Weekend-Agent-Studio/happyFreeTime.git happyfreetime
+git clone --branch main https://github.com/Weekend-Agent-Studio/happyFreeTime.git happyfreetime
 cd /opt/happyfreetime
 cp deploy/compose.env.example deploy/compose.env
 cp deploy/runtime.env.example deploy/runtime.env
