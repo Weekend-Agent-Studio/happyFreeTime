@@ -1,259 +1,177 @@
-# HappyFreeTime
+# HappyFreeTime · 周末小管家
 
-_一个面向北京周末出行的受约束本地生活规划 Agent。_
+**把周末想法，变成可比较、可修改、有核验依据的行程。**
 
----
+面向北京周末出行的规划 Agent。从一句需求出发，比较候选方案、查看行程与风险，补充条件后重新规划，或只替换其中一站。
 
-## 📋 项目简介
+[在线体验](http://118.25.83.167:8080/) · [本地运行](#本地运行) · [Docker 部署](docs/current/deployment.md) · [架构与学习导读](docs/learning/planning_flow_guide.md) · [评测报告](docs/status/s_rx4_release_20261015.md)
 
-HappyFreeTime 把一句自然语言周末需求，转换为一组可解释、可验证、可修改的本地生活方案。
+> **当前演示：临时 HTTP 测试入口，无需登录或 API Key。** 可浏览示例和体验规则规划；公网 HTTP 禁止填写 Key。增强语义体验请在本地或 HTTPS 环境使用自己的 DeepSeek Key。域名与 HTTPS 尚未配置，测试服务可能维护或限流。
 
-它采用“**LLM 有界语义决策 + 确定性 Harness**”的混合架构：模型负责理解开放表达、提出软目标和有限结构建议；代码负责会话状态、外部事实、候选搜索、时间排程、路线与营业复核、硬约束、版本和失败终止。
+![HappyFreeTime 桌面工作台：左侧示例与会话，中间比较候选，右侧查看逐站行程](docs/assets/readme/workspace.png)
 
-项目重点不是让模型自由编写一段看似合理的行程，而是证明：模型可以参与规划，同时不能绕过事实和安全边界。
+*以下截图来自本地运行的离线 API/SQLite 链路及已有多轮录制示例。商户属性、天气与路线使用演示或估算数据，不是实时商户事实；公网已接入高德的部分会按实际来源另行标记。*
 
-冻结发布基线：`planner-v2-eval-baseline`。评测使用 36 条人工复核 Fixture、DeepSeek Flash、BGE 本地向量模型和可复现 Demo World；它是可回放的工程评测版本，不是实时商户数据或生产成功率承诺。主线已完成 S-RX4；当前 `codex/s-hitl6-reliability` 候选分支继续收口类型化 HITL 恢复，合并状态、代码入口和已知问题见 [Codex Brief](docs/current/CODEX_BRIEF.md)。
+## 先用三个场景认识它
 
-- 在线体验：待补充
-- 演示视频：待补充
-- 产品定位与数据真实性原则：见 [PRODUCT.md](PRODUCT.md)
+### 补充条件，再选方案
 
-公网体验基础（当前开发分支，已私有试运行，尚未公开上线）：无需登录的临时访客隔离、左侧栏 DeepSeek 临时配置、无 Key 的规则规划，以及固定在侧栏的三条多轮示例。示例由真实离线链路录制，展示补充条件、单站替换和无方案恢复，复用正常方案卡片与核验详情；可以用示例需求新建个人体验。规划回复提供按状态显示的核验、预算和换站入口。刷新不恢复个人历史或模型配置，预置示例保留；Key 不写入数据库或浏览器持久存储。公网模式需显式启用、HTTPS 和单 worker；详见[公网 Demo 边界与启动说明](docs/current/public_demo.md)。这不是对实时商户数据或真实 DeepSeek 联调通过的声明。
+“今天下午出去玩” → “改成两个人，人均 150 元，严格控制预算”。
 
-## 本地一条命令启动（Windows）
+先比较方案的站点、时间、路程与费用，再正式选择。修改条件会让旧方案过期，用户明确重新规划后才更新候选；点击预览不会悄悄替你选定。
 
-在已安装 Python 虚拟环境和前端依赖的仓库根目录运行：
+### 只换其中一站
 
-```powershell
-# 本地预览公网 Demo：前后端一起启动，打开 http://127.0.0.1:5174
-.\scripts\start_local.ps1
+正式选择后，替换活动或餐厅，保留其他站点。系统会重新排程、核验整条路线，并展示替换前后的站点及指标变化；新候选仍需明确选择。
 
-# 可选：读取本机 .env 中的高德地图凭证；有服务 Key 时也启用出发地搜索
-.\scripts\start_local.ps1 -WithAmap
+![单站修改的差异卡片：替换地点、全程距离、总时长和地点费用变化](docs/assets/readme/replacement.png)
 
-# BGE 完整预览：先准备离线资产；后续直接运行第二条即可
-.\.venv\Scripts\python.exe deploy/prepare_retrieval.py
-.\scripts\start_local.ps1 -HybridRetrieval -LiveAmap
+### 条件冲突时，继续推进
 
-# 普通开发模式：打开 http://127.0.0.1:5173，默认离线规则
-.\scripts\start_local.ps1 -Mode Development
+严格预算下没有方案时，先说明当前目录为什么无法满足，再提供可确认的调整方式。确认后仍经过条件校验和重新规划，失败不会覆盖原来的正式方案。
 
-# 普通开发模式使用 .env 中的模型配置，显式启用 LLM（会产生 API 费用）
-.\scripts\start_local.ps1 -Mode Development -FullLlm
-```
+![预算冲突与恢复记录：明确原因、保留当前方案，并记录用户确认后的调整结果](docs/assets/readme/recovery.png)
 
-不需要手动切换环境变量或安装本地 Docker。默认公网 Demo 使用模拟站点服务，可在页面临时配置自己的 DeepSeek Key；与普通开发模式使用不同数据库和端口。两个模式可在不同终端同时运行。前端修改自动更新，后端修改需重启；按 Ctrl+C 停止本次启动的两个服务。端口占用时会报错，不接管已有进程；可通过 `-ApiPort`、`-FrontendPort` 指定其他端口。日志保存在被忽略的 `.tmp/local-run/`。此方式验证产品行为，Nginx、镜像和 HTTPS 仍需部署环境验证。
+左侧固定的三个多轮示例可直接回看完整过程，也可以用示例需求新建自己的体验。**示例是只读回放，个人体验是实际请求**；刷新后个人历史不恢复，预置示例保留。
 
-## Docker 单机部署（待服务器验证）
+## 为什么一条行程需要核验
 
-本版默认 `rag` 后端镜像包含 CPU BGE、索引与语义 Profile，服务就绪前严格预热正式共用实例。模型大文件不进 Git，需在本机准备并单独上传。高德地图/搜索/路线/天气通过私有配置与 `compose.amap.yaml` 显式启用；未配置访客 DeepSeek Key 也可使用。资产准备、轻量回退与严格冒烟命令见 [BGE 与高德部署补充](docs/current/deployment_retrieval.md)。本机验证通过不等于服务器资源、容器或线上高德已验收。
+一个好看的地点列表，还需要回答：路上要多久？是否赶得上？预算是否满足？换掉一站后，后面还能接得上吗？
 
-仓库提供前后端 Dockerfile、Compose、Nginx 反向代理和 HTTPS 配置模板。Nginx 随 web 容器运行，无需在宿主机重复安装；api 不映射公网端口，SQLite 使用独立数据卷。默认只在服务器本机监听，不配置部署者共享模型 Key，使用离线模拟 Provider。
+HappyFreeTime 将这些问题纳入同一条规划与修改链路，并在界面上显示已知事实、估算和待确认项。
 
-```bash
-cp deploy/compose.env.example deploy/compose.env
-cp deploy/runtime.env.example deploy/runtime.env
-# 将 deploy/compose.env 中 HFT_RELEASE 改为当前 Git SHA
-docker compose --env-file deploy/compose.env config --quiet
-docker compose --env-file deploy/compose.env build
-docker compose --env-file deploy/compose.env up -d
-```
+| 你能观察到的行为 | 对应的工程机制 |
+| --- | --- |
+| 缺少关键条件时补充信息，明确冲突时给出恢复选项 | 类型化 RequestPatch、ConstraintEngine、Graph interrupt/resume |
+| 按偏好寻找地点，再组合与排程 | Catalog 硬过滤、规则/词法/BGE 混合召回、有界 Beam Search |
+| 候选方案包含时间、路段、费用和风险提示 | Route / Weather / Availability Provider 与最终 Verifier |
+| 只替换目标站点，查看变化后再正式选择 | 版本绑定、非目标站点保留、整程复核、PlanDiff |
+| 模型或外部服务失效时仍给出明确结果 | 规则解释、缓存、带来源与原因的降级或结构化失败 |
+| 查看本轮实际步骤与模型参与情况 | SSE 阶段事件、run_trace、逐阶段模型调用记录 |
 
-从私有试运行、SSH 隧道查看页面，到域名 HTTPS、冒烟检查、更新和回退，按[部署操作指南](docs/current/deployment.md)执行。镜像构建和腾讯云运行尚待验证；本节不表示已公开上线。
+“通过核验”表示通过当前已获得事实与约束的检查，**不等于商家实时营业、库存或出行可执行性的保证**。路线降级时继续展示估算和风险，不把估算写成实时结果。
 
-## 🎯 当前能力
+<details>
+<summary>查看核验与来源界面</summary>
 
-| 能力 | Resume V2 状态 | 说明 |
-| --- | --- | --- |
-| 自然语言入口 | 已实现 | 真实 LLM Router 或离线 Demo Router |
-| 反问与恢复 | 已实现 | Graph interrupt/resume、SQLite checkpoint、字段级补充，以及基于失败证据的类型化恢复动作 |
-| 受约束结构提案 | 已实现 | PlanningIntent 提出 objectives、角色顺序和语义查询；`PlanSpecCompiler` 负责合法性裁决 |
-| 方案搜索 | 已实现 | Beam 默认主路径，Legacy Search 作为显式模式和受控回退 |
-| 多站规划 | 已实现 | 支持 1–4 个停靠点、午餐/活动/休息/晚餐等受支持结构 |
-| 事实与硬约束 | 已实现 | Catalog、天气、路线、营业、Availability、预算、距离、返程和餐时锚点由 Harness 校验 |
-| Hybrid Retrieval | 已实现 | Catalog 硬过滤后融合规则、词法和 BGE 语义召回 |
-| 定向修改 | 已实现 | 选中方案、锁定非目标站点、局部替换、Plan Version 和 PlanDiff |
-| Grounded Advisor | 已实现 | 只引用已验证 Plan/Evidence/Fact，无法通过校验时回退规则解释 |
-| 持久化恢复 | 已实现 | Session、Planning Run、Plan Snapshot 和消息写入 SQLite |
-| 真实预订/叫车 | 未实现 | 当前只有执行闭环的产品占位，不产生真实副作用 |
-| 长期记忆 | 未实现 | 目标架构中有设计，Resume V2 不把它当作已交付能力 |
-| MCP 工具协议 | 未接入运行主链 | 仅保留未来 Capability Adapter 设计，不影响当前 Provider/Service 调用 |
+![核验面板优先展示待确认风险，再展示已知事实、模型调用与证据](docs/assets/readme/verification.png)
 
-## 🔗 一次请求如何运行
+</details>
 
-这张图只保留发布版主链的关键边界，便于在 GitHub 首页阅读；节点内部的 Planner、Provider 和恢复细节见[当前架构文档](docs/current/resume_v2_architecture.md)。顶部栏和反问不会再伪装成自然语言；它们直接产生 `RequestPatch`，与自然语言最终汇入同一个 `ConstraintEngine`。
+## 模型参与语义，代码掌握状态与约束
+
+LLM 用于开放表达理解、受限行程结构提案和推荐解释。类型化编译、候选检索、排程、外部事实、硬约束、版本和副作用边界由确定性代码负责。
 
 ```mermaid
-flowchart TB
-    accTitle: Resume V2 Planning Flow
-    accDescr: Natural language is compiled into a typed action, while top bar edits and clarification replies produce typed patches. All request updates converge on ConstraintEngine before deterministic planning and provider verification.
-
-    user[👤 用户] --> ui[🌐 React 工作台]
-    ui --> api[🌐 FastAPI]
-
-    subgraph control["⚙️ 语义与请求控制"]
-        api --> router[🧠 Router + DecisionContext]
-        router --> compiler[⚙️ TurnCompiler → CompiledNextAction]
-        topbar[顶部栏 typed DTO] --> patch[RequestPatch]
-        reply[字段级反问回答] --> patch
-        compiler -->|ApplyRequestPatch| patch
-        patch --> engine{🛡️ ConstraintEngine}
-        engine -->|缺字段| question[❓ QuestionPolicy + interrupt/resume]
-        question -. 用户补充 .-> reply
-        engine -->|冲突| response[📤 Response]
-        engine -->|就绪| readiness[🧭 ReadinessPolicy]
-        readiness --> request[✅ PlanRequest]
-        compiler -->|ModifySelectedPlan| modify[🔁 ModificationService]
-        compiler -->|Query / NoAction| response
-    end
-
-    request --> planner[⚙️ Planning Kernel<br/>Intent → Spec → Retrieve → Beam → Schedule → Provider → Verifier]
-    planner --> advisor[🧠 Grounded Advisor / Rule fallback]
-    advisor --> persist[💾 PlanVersion + PlanDiff + SQLite]
-    persist --> response
-    modify --> persist
-    response --> ui
+flowchart TD
+    U[自然语言需求] --> M[语义提案与动作编译]
+    E[条件编辑 / 字段回答] --> P[类型化请求与条件校验]
+    M --> P
+    P --> S[混合检索 → 候选搜索与排程]
+    S --> V[路线 / 时间 / 预算等核验]
+    V --> C[候选方案与推荐说明]
+    V --> R[结构化失败与恢复选项]
+    R -->|确认调整| P
+    C --> Q[正式选择与方案版本]
+    Q --> X[单站替换与整程复核]
+    X --> C
+    X --> R
 ```
 
-关键边界：
+推荐解释只引用已返回方案与证据；不合格的模型输出回退为规则解释。自然语言、顶部编辑和字段回答汇入同一套条件引擎，恢复也复用原来的规划器。
 
-- 模型不能创建真实 `resource_id`、路线、价格、营业或库存事实。
-- `PlanSpecCompiler` 可以拒绝或回退不可执行的结构提案；接受提案不等于方案一定可行，最终仍由 Route/Availability/Verifier 裁决。
-- 路线估算用于搜索排序，真实或回放 Provider 用于 finalist 复核；所有最终方案必须通过硬约束验证。
-- 模型超时、格式错误、越权输出、无依据解释和不可执行提案都必须进入安全回退或结构化失败。
+**技术栈：** React + TypeScript / FastAPI / LangGraph / Pydantic / SQLite / BGE / Docker Compose + Nginx。
 
-## 📊 Resume V2 评测摘要
+原 README 的详细架构图已保留在[主链学习导读](docs/learning/planning_flow_guide.md)，包含三种入口、修改和恢复的阅读路径；模块细节见 [Current 架构](docs/current/resume_v2_architecture.md)。
 
-完整口径见 [发布评测报告](docs/releases/resume_v2_release_report.md)。
+## 用评测检查机制，而不只展示顺畅案例
 
-| 实验 | 结果 | 用途 |
-| --- | ---: | --- |
-| Frozen C0 Rule + Rule | 34/36 | 规则与词法召回基线 |
-| Frozen C1 LLM Intent + Rule | 34/36 | PlanningIntent 增量 |
-| Frozen C2 Rule + Hybrid | 36/36 | Hybrid Retrieval 增量 |
-| Frozen C3 LLM + Hybrid | 36/36 | 语义理解与召回组合 |
-| Frozen C4 + Advisor | 36/36 | Grounded Advisor 安全接入 |
-| Live B0 Router + Rule | 27/36 | 真实入口稳定性诊断 |
-| Live B3 完整链路 | 30/36 | 真实 Router 端到端诊断 |
+以下摘录自 **S-RX4，2026-10-15，提交 `97474d0`** 的报告。使用固定 Demo World、36 条人工复核任务和 24 条 reviewed 多轮场景；这些是指定版本的工程证据，不是当前公网成功率或延迟承诺。
 
-所有 Frozen 变体硬约束安全率为 100%，9/9 修改链路通过；Frozen 结果不能直接表述为生产成功率。Hybrid 的 Recall@5 从 `0.240` 提升到 `0.537`，但冷启动与稳态延迟必须分开报告。Advisor 接受结果的事实、方案和证据 ID grounding 为 100%，未通过时回退规则解释。
+| 检查内容 | 该次报告结果 | 解释 |
+| --- | --- | --- |
+| 固定任务：规则结构 + 规则召回 C0 | 34/36 | 作为消融基线 |
+| 固定任务：Hybrid C2/C3/C4 | 各 36/36 | 检查召回、结构提案与解释组件的组合 |
+| Live 全链路 B3 | 36/36 | 该次真实模型运行结果，可能有波动 |
+| reviewed 多轮任务 | 22/23 完成 | 共 24 场景；1 条预期终止不计成功分母，仍有 1 条目录覆盖缺口 |
+| 修改与版本保护 | B3 修改链路 10/10；多轮失败修改版本保持 1/1 | 检查修改链路及失败时不覆盖旧版本 |
 
-### S-CORE3H4 干净提交复验
+完整变体、硬约束断言、检索 holdout、失败归因和限制见 [S-RX4 最终回归报告](docs/status/s_rx4_release_20261015.md)。更早的[冻结发布报告](docs/releases/resume_v2_release_report.md)保留自己的版本与口径，不与这里的结果合并。
 
-以下结果来自干净提交 `2e9f0f0`，用于验证架构收口，不替换上面的冻结发布基线：
+## 本地运行
 
-| 变体 | 任务完成 | 硬约束安全 | 冲突归因 | 说明 |
-| --- | ---: | ---: | ---: | --- |
-| C3 Frozen LLM Intent + Hybrid | 36/36 | 7/7 | 4/4 | PlanningIntent 无 fallback |
-| C4 Frozen + Advisor | 36/36 | 7/7 | 4/4 | Advisor 接受 22/27，拒绝时安全回退 |
-| B0 Live Router + Rule | 30/36 | 7/7 | 4/4 | P50/P95 1598/2473ms |
-| B3 Live 完整链路 | 33/36 | 7/7 | 4/4 | Advisor 接受 23/25；仅作 Live 稳定性诊断 |
+Windows 快速预览需要 **Python 3.12、Node.js 24 与 pnpm**。尚未安装 pnpm 时可运行 `npm install --global pnpm@11.25.0`，与仓库 Docker 配方保持一致。首次获取代码并安装：
 
-完整限制、失败分类和临时报告路径见 [S-CORE3H4 收口记录](docs/status/s_core3h4_closeout_20261007.md)。
+```powershell
+git clone https://github.com/Weekend-Agent-Studio/happyFreeTime.git
+cd happyFreeTime
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+pnpm --dir frontend install --frozen-lockfile
+.\scripts\start_local.ps1
+```
 
-## 🧱 项目结构
+打开 **http://127.0.0.1:5174/**。最后一条命令会同时启动前后端；默认使用规则与模拟 Provider，无需模型 Key。按 `Ctrl+C` 停止本次服务。依赖已安装时，后续只需运行启动脚本。
+
+<details>
+<summary>开发模式、BGE 与高德</summary>
+
+```powershell
+# 普通开发模式：API 8000 / 前端 5173，默认离线
+.\scripts\start_local.ps1 -Mode Development
+
+# 开发模式显式读取本机模型配置，会产生 API 费用
+.\scripts\start_local.ps1 -Mode Development -FullLlm
+
+# 已准备 BGE 资产与高德凭证后，预览完整检索和外部 Provider
+.\scripts\start_local.ps1 -HybridRetrieval -LiveAmap
+```
+
+BGE 需要额外依赖、模型和索引；高德需要 Web 服务 Key、JS Key 与安全码。先按 [BGE 与高德配置](docs/current/deployment_retrieval.md)准备；`-FullLlm` 的模式与可选依赖见 [启动脚本](scripts/start_backend_demo.ps1)。本地私有配置参考 [.env.example](.env.example)，不要提交凭证。
+
+默认本地公网 Demo 与普通开发模式使用不同端口和数据库。公网 Demo 的 Key 配置仅支持 DeepSeek 官方接口；配置成功不等于已经验证 Key 有效，实际使用情况在每轮核验面板显示。
+
+</details>
+
+## Docker 部署与更新
 
 ```text
-happyFreeTime/
-├── app/                    # Resume V2 主实现：domain、services、providers、Graph、API、persistence
-├── frontend/               # React + TypeScript 规划工作台
-├── data/                   # Catalog、Demo World、replay 和可复现输入数据
-├── evals/                  # Frozen/Live 评测、Fixture、检索与回归 Runner
-├── tests/                  # Resume V2 后端单元、集成和 Graph 测试
-├── scripts/                # 启动、数据构建、诊断和校验脚本
-├── docs/                   # 当前架构、发布报告、学习材料、面试材料和历史记录
-├── PRODUCT.md              # 产品定位、原则与数据真实性边界
-└── CONTEXT.md              # 统一领域术语和概念边界
+浏览器 → Nginx + React → FastAPI（单 worker）→ SQLite 独立数据卷
+                              ├─ 本地 CPU BGE 与索引
+                              └─ 可选高德 / 访客自带 DeepSeek Key
 ```
 
-早期 Multi-Agent V1 源码已从当前主线移除，仍可通过 `legacy-v1-original-baseline` 和 `legacy-v1-completed-baseline` 标签访问；它们不属于 Resume V2 的正式运行入口。
+仓库提供前后端 Dockerfile、Compose、Nginx SSE 转发、健康检查与 HTTPS 模板。默认仅监听服务器本机；启用公网端口、TLS 和外部 Provider 需显式配置。后端不直接映射公网端口。
 
-## 🚀 快速开始
+- [单机部署、HTTPS、更新与回退](docs/current/deployment.md)
+- [BGE 资产准备、高德凭证、软件源与冒烟验收](docs/current/deployment_retrieval.md)
+- [临时访客身份、Key 保留策略与限流边界](docs/current/public_demo.md)
 
-### 离线 Demo
+默认 `rag` 镜像需要先准备模型与索引，模型资产不随 Git 下载。腾讯云容器运行、BGE 预热与召回、高德接入及桌面主流程已完成阶段验收；当前 IP 入口仍是临时 HTTP 测试，HTTPS 和公开容量测试尚未完成。
+
+## 当前范围与下一步
+
+- **支持范围：** 北京、受支持的 1–4 站结构；公网无 Key 时自然语言理解使用有限规则。BGE 检索、高德服务与聊天模型分别配置，地图可用不代表所有地点属性已实时核实。
+- **数据边界：** POI 价格、营业与可用性仍包含 Demo World 数据；外部查询失败可能使用标明来源的估算。地点图片可能为同类参考，详见界面来源和[截图说明](docs/assets/readme/README.md)。
+- **会话边界：** 公网访客与 Key 为临时体验，刷新不恢复个人历史；这不是登录、长期记忆或多实例服务。Key 不写入应用数据库或浏览器持久存储。
+- **后续计划：** 完成域名/HTTPS；探索模拟下单闭环、更真实的地点数据及评分偏好。真实预订、支付、叫车、长期记忆和 MCP 运行接入目前均未交付。
+
+## 继续阅读与开发
+
+| 想了解什么 | 从这里开始 |
+| --- | --- |
+| 产品定位与真实性原则 | [PRODUCT.md](PRODUCT.md) |
+| 完整系统与原架构图 | [主链学习导读](docs/learning/planning_flow_guide.md)、[Current 架构](docs/current/resume_v2_architecture.md) |
+| 当前代码入口和能力边界 | [CODEX_BRIEF.md](docs/current/CODEX_BRIEF.md) |
+| 文档状态与历史证据 | [文档中心](docs/README.md) |
+| 未来设计 | [路线图](docs/canonical/v2_roadmap.md) |
+
+代码主要分布在 `frontend/`、`app/`（领域/服务/Provider/Graph/API/持久化）、`evals/` 与 `tests/`；模拟目录、回放数据和资产位于 `data/`，部署配方位于 `deploy/`。
 
 ```powershell
-Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime
-.\scripts\start_backend_demo.ps1
+.\.venv\Scripts\python.exe -m pytest tests -q
+pnpm --dir frontend test
+pnpm --dir frontend build
 ```
 
-另开终端启动前端：
-
-```powershell
-Set-Location E:\04_Develop\Projects\PycharmProjects\happyFreeTime
-.\scripts\start_frontend.ps1
-```
-
-访问 `http://127.0.0.1:5173/`，后端健康检查为 `http://127.0.0.1:8000/api/health`。
-
-离线 Demo 使用真实 Graph、Enrichment、Question Gate、Planner、Provider Adapter 和 SQLite；只有自然语言 Router 使用确定性 Demo 适配器，不需要 LLM API Key。
-
-### 实时规划过程与核验
-
-发送消息时，前端通过 `POST /api/sessions/{session_id}/messages/stream` 接收 SSE：
-
-```text
-progress → progress → … → result
-```
-
-`progress` 是用户安全的阶段事件，前端将其投影为“理解需求、整理条件、设计结构、检索地点、组合方案、核验路线、生成说明”等状态；完成后同一 `run_trace` 会随助手响应保存，刷新会话仍可查看。本项目不展示模型隐藏思维，也不会用定时器伪造尚未执行的阶段。
-
-右侧“核验”页与主对话过程分开：核验概览展示后端实际掌握的路线、时间、预算和营业事实；“需要确认”展示降级和待确认风险；“数据与证据”默认折叠并按当前方案过滤。模型、Token、检索索引和 Beam 统计属于开发者详情，可通过 `VITE_SHOW_DEVELOPER_DETAILS=false` 隐藏，不影响响应数据。
-
-流式接口与普通 `POST /messages` 复用同一规划应用服务，`request_id` 保证断线重放不会重复执行。当前不包含跨进程 SSE 重连、长期 Trace 数据仓库、逐次 Beam 事件或模型思维过程展示。
-
-### 真实 Router 与 PlanningIntent
-
-```dotenv
-HFT_DEMO_MODE=0
-MODEL_NAME=deepseek-flash
-LLM_API=your-api-key
-BASE_URL=https://api.deepseek.com
-HFT_PLANNING_INTENT_MODE=llm
-```
-
-建议先使用 `HFT_PROVIDER_MODE=mock` 或 `replay`，确认本地链路后再启用真实天气/路线 Provider。完整配置见 [.env.example](.env.example)。
-
-### 测试
-
-```powershell
-& .\.venv\Scripts\python.exe -m pytest tests -q
-& .\.venv\Scripts\python.exe -m evals.run_smoke
-Set-Location frontend
-pnpm run test
-pnpm run build
-```
-
-真实模型、BGE 和完整评测需要显式的网络、模型和数据配置；不要把本地 API Key 写入仓库。
-
-## 📚 文档与学习入口
-
-- [docs/README.md](docs/README.md)：文档状态、阅读顺序和权威层级。
-- [当前 Resume V2 架构](docs/current/resume_v2_architecture.md)：只描述 Resume V2 已实现的当前架构。
-- [Resume V2 发布评测](docs/releases/resume_v2_release_report.md)：冻结评测、数据哈希和发布边界。
-- [三阶段架构演进](docs/interview/05_三阶段架构演进_从ReAct原型到受约束规划Agent.md)：项目主叙事。
-- [语义规划与 Hybrid RAG](docs/interview/06_从关键词匹配到可验证语义规划与轻量RAG.md)：语义与检索专题。
-- [Wire Proposal 与 CommandCompiler](docs/interview/07_从万能Interpretation到受约束WireProposal与CommandCompiler.md)：结构化输出和 Harness 重构专题。
-- [V2 长期路线图](docs/canonical/v2_roadmap.md)：未来路线图，不代表当前能力。
-- [S-CORE3 架构收口故事](docs/interview/09_S-CORE3从多入口到统一动作链路.md)：从双重动作表示到统一 `CompiledNextAction` 的面试讲解。
-
-推荐学习顺序：先看 README 和发布报告，建立当前系统概念；再读当前架构文档；随后对照自然语言、顶部栏 typed Patch 与字段反问三种入口，阅读共同的 `RequestPatch → ConstraintEngine → PlanRequest` 主链，再看 `RequestReadinessPolicy / QuestionPolicy → PlanningService → Provider / Verifier → Persistence`；最后阅读面试材料和历史设计。旧文档里的 `NormalizedConstraints`、`QuestionGate` 是 S-CORE2 前的历史契约，不是当前 Planner 输入。
-
-## ⚠️ 当前边界
-
-- POI 商业属性、价格、营业和 Availability 来自可复现 Demo World，不是实时商户承诺；地图与路线可使用高德或 replay/mock，但来源会被记录。
-- 当前能力限定在北京和受支持的 1–4 站结构，不是任意城市、任意交通方式或任意自然语言任务的通用旅行规划器。
-- Live Router 仍存在澄清判定波动，因此 Live B0/B3 用于稳定性诊断；Frozen 评测用于组件消融。
-- 真实订单、预订、叫车、长期记忆和 MCP 工具接入仍属于后续扩展，不应从目标架构文档推断为已实现。
-
-## 🔭 后续扩展
-
-后续可以补充：
-
-- 在线演示地址；
-- 演示视频或 GIF；
-- 当前系统架构图和一次请求 Trace 截图；
-- 部署文档与公开 Demo 地址；
-- Temporal Semantic IR、长期记忆和执行闭环。
-
-这些内容应进入对应的 `docs/current`、`docs/releases`、`docs/status` 或 `docs/canonical` 文档，不要把未来计划直接写成当前能力。
+真实模型、完整 BGE 评测和外部 Provider 测试需要单独配置；测试结果必须保留对应提交、数据与 Frozen/Live 口径。
