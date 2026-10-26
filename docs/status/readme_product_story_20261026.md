@@ -19,3 +19,11 @@ _Current，2026-10-26。文档分支 codex/readme-product-story，基于 main@20
 - git diff --check 通过。仅文档与图片变更，未重跑应用全套测试、Frozen/Live 指标或真实模型/高德调用；未执行 Docker 重建或服务器部署。
 
 临时截图采集配置与用例已移除，不纳入交付。用户既有 README_ui.md、README_ui2.md、临时目录、部署 bundle 和视觉 patch 文件保持原样，不纳入本次提交。
+
+## 同分支追加：开源首页排版
+
+参考用户指定的[小满](https://github.com/bcefghj/xiaoman)与[饿了幺](https://github.com/nightt5879/meituan-ai-hackathon-eleyao-butler)的首页信息层级，增加居中标题/定位、Demo 与 GitHub 徽章、8 个真实技术标签、目录、稳定英文锚点、编号场景、技术职责表、仓库树和返回顶部导航。原场景、图片、架构导读与评测口径保留，不复制参考项目的功能承诺或素材。
+
+徽章使用 Shields 静态标签，不能解读为实时服务健康或 CI 通过；仓库当前没有确认的许可证，不添加许可证徽章。字体、颜色与标题布局采用 GitHub 支持的基础 HTML/Markdown，不依赖自定义样式在 GitHub 生效。
+
+追加验证：11 个唯一显式锚点、13 个页内跳转、23 个文档/图片相对链接、10 个带 alt 的徽章地址结构及 HTML/代码围栏配对检查通过；使用 MarkdownIt 生成本地排版预览，仅用于检查，不替代 GitHub 原生 Mermaid 或徽章在线可用性检查。应用未修改，无需重跑应用测试或重建容器。
