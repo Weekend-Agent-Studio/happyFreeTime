@@ -43,10 +43,11 @@ import { createSession, deleteSession, getSession, listSessions, renameSession, 
 import { SessionNavigation } from "./SessionNavigation";
 import { type DemoExample, type DemoExampleNavigation } from "./DemoShowcases";
 import { publicDemoEnabled, requestIdentity } from "./demoRuntime";
+import { createClientId } from "./clientId";
 import { ConversationHeading } from "./ConversationHeading";
 import { AmapPlanMap } from "./AmapPlanMap";
 import { clarificationSection, PlanningContextBar, PlanningContextNotice, type ContextOpenTarget } from "./PlanningContextBar";
-import { projectRunProgress, type RunStageViewModel } from "./runProgress";
+import { currentRunStage, formatRunDuration, projectRunProgress, type RunStageViewModel } from "./runProgress";
 import type {
   AgentResponse,
   Assumption,
@@ -577,12 +578,13 @@ function RunProgressRows({ stages }: { stages: RunStageViewModel[] }) {
   return (
     <ol className="run-progress-list">
       {stages.map((stage) => (
-        <li className={`run-progress-item ${stage.status}`} key={stage.stage}>
-          <span className="run-progress-marker"><ProgressMarker status={stage.status} /></span>
+        <li className={`run-progress-item ${stage.status}${stage.depth ? " run-progress-child" : ""}`} style={{ marginLeft: stage.depth * 20 }} key={stage.id}>
+          <span className="run-progress-marker">{stage.status === "active" && stages.some((child) => child.parentId === stage.id) ? <ChevronDown size={14} aria-hidden="true" /> : <ProgressMarker status={stage.status} />}</span>
           <div>
             <strong>{stage.label}</strong>
             {stage.message ? <p>{stage.message}</p> : null}
-            {stage.durationMs !== undefined ? <small>{stage.durationMs} ms</small> : null}
+            {stage.status === "fallback" ? <small>已使用回退结果</small> : null}
+            {stage.durationMs !== undefined ? <small>{formatRunDuration(stage.durationMs)}</small> : null}
           </div>
         </li>
       ))}
@@ -597,7 +599,7 @@ function RunProgressDisclosure({ trace }: { trace?: PlanningRunTrace | null }) {
     <details className="run-progress-disclosure">
       <summary>
         <span><CheckCircle2 size={16} />规划完成 · 查看本轮处理过程</span>
-        <small>{stages.length} 个阶段</small>
+        <small>{stages.length} 个步骤</small>
         <ChevronDown size={16} className="disclosure-chevron" aria-hidden="true" />
       </summary>
       <RunProgressRows stages={stages} />
@@ -1508,7 +1510,7 @@ function App() {
         },
       }));
     }
-    const submitToken = crypto.randomUUID();
+    const submitToken = createClientId();
     messageSubmitTokenRef.current = submitToken;
     shouldFollowConversationRef.current = true;
     setLoading(true);
@@ -1526,8 +1528,8 @@ function App() {
         setSessionId(activeSession);
         updateSessionUrl(activeSession);
       }
-      const requestId = isRetry && failedRequest ? failedRequest.requestId : crypto.randomUUID();
-      if (!isRetry && !recoveryAction) setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: trimmed }]);
+      const requestId = isRetry && failedRequest ? failedRequest.requestId : createClientId();
+      if (!isRetry && !recoveryAction) setMessages((current) => [...current, { id: createClientId(), role: "user", content: trimmed }]);
       setFailedRequest({ sessionId: activeSession, content: trimmed, requestId, conversationCommand, clarificationReply: effectiveClarificationReply, recoveryAction });
       const nextResponse = await sendMessageStream(
         activeSession,
@@ -1594,7 +1596,7 @@ function App() {
       const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
       if (assistantText || nextResponse.plans.length || nextResponse.conflict || nextResponse.status === "context_saved") {
         setMessages((current) => [...current, {
-          id: crypto.randomUUID(), role: "assistant", content: assistantText ?? "", response: nextResponse,
+          id: createClientId(), role: "assistant", content: assistantText ?? "", response: nextResponse,
         }]);
       }
       await refreshRecentSessions();
@@ -1642,7 +1644,7 @@ function App() {
         setSessionId(activeSession);
         updateSessionUrl(activeSession);
       }
-      const nextResponse = await updatePlanningContext(activeSession, patch, crypto.randomUUID());
+      const nextResponse = await updatePlanningContext(activeSession, patch, createClientId());
       if (!isCurrentRequest()) return;
       setFailedRequest(null);
       setNewRequestMode(false);
@@ -1672,7 +1674,7 @@ function App() {
       const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
       if (assistantText || nextResponse.plans.length || nextResponse.conflict) {
         setMessages((current) => [...current, {
-          id: crypto.randomUUID(), role: "assistant", content: assistantText ?? "", response: nextResponse,
+          id: createClientId(), role: "assistant", content: assistantText ?? "", response: nextResponse,
         }]);
       }
       await refreshRecentSessions();
@@ -1698,7 +1700,7 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      const nextResponse = await replanPlanningContext(activeSession, crypto.randomUUID());
+      const nextResponse = await replanPlanningContext(activeSession, createClientId());
       if (!isCurrentRequest()) return;
       setFailedRequest(null);
       setResponse(nextResponse);
@@ -1716,7 +1718,7 @@ function App() {
       const assistantText = nextResponse.question?.question ?? nextResponse.reply ?? nextResponse.conflict?.message;
       if (assistantText || nextResponse.plans.length || nextResponse.conflict) {
         setMessages((current) => [...current, {
-          id: crypto.randomUUID(), role: "assistant", content: assistantText ?? "", response: nextResponse,
+          id: createClientId(), role: "assistant", content: assistantText ?? "", response: nextResponse,
         }]);
       }
       await refreshRecentSessions();
@@ -2807,7 +2809,7 @@ function ClarificationDatePicker({ disabled, onSubmit }: { disabled: boolean; on
 
 function ThinkingRow({ events }: { events: PlanningRunEvent[] }) {
   const stages = projectRunProgress(events);
-  const active = stages.find((stage) => stage.status === "active") ?? stages[stages.length - 1];
+  const active = currentRunStage(stages);
   return (
     <div className="thinking-row" role="status" aria-live="polite">
       <span className="assistant-speaker">管家</span>

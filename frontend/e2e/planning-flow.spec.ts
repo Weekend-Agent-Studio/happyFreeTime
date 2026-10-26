@@ -93,6 +93,51 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/config/map", (route) => route.fulfill({ json: { data: { enabled: false, provider: "none", js_api_key: null, version: null, service_host_path: null } } }));
 });
 
+test("modification recovery progress preserves retries and nesting", async ({ page }, testInfo) => {
+  const events: Record<string, unknown>[] = [];
+  const emit = (stage: string, status: string, public_message: string, duration_ms: number | null = null) => events.push({
+    schema_version: "planning-run-event.v1", run_id: "progress-recovery", sequence: events.length + 1,
+    stage, status, message_key: `${stage}.${status}`, public_message, duration_ms,
+    occurred_at: "2026-10-26T10:00:00Z", public_details: {},
+  });
+  emit("modify", "started", "正在处理方案修改");
+  emit("retrieve", "started", "正在检索替换候选");
+  emit("retrieve", "fallback", "替换候选检索已回退到规则召回", 95);
+  emit("verify", "started", "正在核对替换后的整套路线");
+  emit("verify", "completed", "替换路线检查完成", 18123);
+  emit("modify", "completed", "本次修改检查结束", 18250);
+  emit("recovery", "started", "正在判断恢复方式");
+  emit("auto_recovery", "started", "正在调整默认条件");
+  emit("auto_recovery", "completed", "恢复操作已应用", 2);
+  emit("modify", "started", "正在按调整后的条件修改");
+  emit("retrieve", "started", "重新检索候选");
+  emit("retrieve", "completed", "重新检索完成", 12);
+  emit("verify", "started", "重新核验路线");
+  emit("verify", "completed", "重新核验完成", 3);
+  emit("modify", "completed", "方案修改处理完成", 18);
+  emit("recovery", "completed", "恢复后的方案修改已完成", 22);
+  emit("advise", "started", "正在生成推荐说明");
+  emit("advise", "completed", "推荐说明生成完成", 0);
+  await page.route("**/api/sessions/offline-session/messages/stream", (route) => route.fulfill(streamResponse({
+    ...response, run_trace: { schema_version: "planning-run-trace.v1", run_id: "progress-recovery", events },
+  })));
+  await page.goto("/");
+  await page.getByLabel("描述你的空闲时间和偏好").fill("修改活动");
+  await page.getByRole("button", { name: "发送需求" }).click();
+  const progress = page.locator(".run-progress-disclosure");
+  await progress.locator("summary").click();
+  const rows = progress.locator(".run-progress-item");
+  await expect(rows).toHaveCount(9);
+  await expect(progress.locator(".run-progress-spinner")).toHaveCount(0);
+  await expect(progress.getByText("18.1 秒", { exact: true })).toBeVisible();
+  await expect(progress.getByText("已使用回退结果", { exact: true })).toBeVisible();
+  await expect(rows.nth(1)).toHaveCSS("margin-left", "20px");
+  await expect(rows.nth(5)).toHaveCSS("margin-left", "20px");
+  await expect(rows.nth(6)).toHaveCSS("margin-left", "40px");
+  await expect(progress.getByText("恢复后的方案修改已完成", { exact: true })).toBeVisible();
+  await page.screenshot({ path: path.resolve(`../.impeccable/review/progress-recovery-${testInfo.project.name}.png`), fullPage: true });
+});
+
 test("planning polish keeps candidate and itinerary text readable across widths", async ({ page }, testInfo) => {
   const phase = process.env.HFT_UI_REVIEW_PHASE ?? "after";
   const widths = testInfo.project.name === "mobile-375" ? [390] : [1440, 1366, 1024];
